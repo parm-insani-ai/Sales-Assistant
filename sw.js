@@ -1,11 +1,14 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "sales-assistant-v1";
+const CACHE = "sales-assistant-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./css/styles.css",
   "./icons/icon.svg",
+  "./icons/apple-touch-icon.png",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
   "./js/app.js",
   "./js/router.js",
   "./js/store.js",
