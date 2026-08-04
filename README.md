@@ -16,6 +16,7 @@ A pocket assistant for car salespeople. Built as a **mobile-first Progressive We
 | **💵 Goals & Commission** | Log the front/back gross and your commission on each sale. Set monthly unit and commission goals and watch month-to-date progress on the dashboard. |
 | **📱 Message Templates** | One-tap follow-up texts and emails with the customer's name, vehicle, your name and dealership auto-filled. Opens straight in your phone's Messages/Mail app. Fully editable in Settings. |
 | **📣 Marketplace Listing Builder** | Turn any vehicle into a copy-paste-ready Facebook Marketplace listing: title, all the structured fields (year/make/model/mileage/price/condition/transmission/fuel/body), a sales-ready description, and a photo shot-list. (Facebook has no API to post automatically, so this builds it for one-tap paste.) |
+| **📄 Spreadsheet Import** | Bulk-load inventory or leads from a CSV/Excel export (e.g. **vAuto** inventory or **AutoAlert** leads — both export to Excel). Auto-matches columns, parses messy `$`/comma numbers, previews before importing, and updates existing records instead of duplicating (matched by VIN/stock for vehicles, phone/email for leads). |
 
 ## Run it
 
@@ -43,6 +44,14 @@ Now it launches full-screen like an app and works offline.
 1. Push this branch to GitHub.
 2. Repo **Settings → Pages** → Source: *Deploy from a branch* → pick this branch, folder `/ (root)`.
 3. Your app will be live at `https://<user>.github.io/<repo>/`.
+
+## Connecting to vAuto, AutoAlert, or your dealer website
+
+The app runs entirely on your device with no server, which is what keeps it free and private. Live API connections to enterprise tools like **vAuto** (Cox Automotive) and **AutoAlert** aren't possible from an on-device app: their APIs are partner-gated (they require credentials issued under a dealership-level agreement), and those credentials can't be safely stored in a browser app — that would need a hosted backend.
+
+The practical path that works today, with no credentials or backend, is the **📄 Spreadsheet Import**: export inventory from vAuto (or leads from AutoAlert) to Excel/CSV and load the file in. See **Settings → Import inventory / leads from spreadsheet**, or the **+** menu → *Import from spreadsheet*.
+
+> If your dealership *can* provide API credentials and you want real-time sync, that's a larger project (a hosted backend + per-vendor API agreements) — it's doable, just a different architecture than this on-device app.
 
 ## Your data
 

@@ -49,9 +49,10 @@ export function renderSettings(view) {
     <div class="section-title">Data & backup</div>
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Your data is stored only on this device. Export a backup regularly, or to move to a new phone.</div>
+      <button class="btn btn-ghost btn-block" data-act="csv" style="margin-bottom:10px">📄 Import inventory / leads from spreadsheet (CSV)</button>
       <div class="btn-row">
         <button class="btn btn-ghost btn-block" data-act="export">⬇️ Export backup</button>
-        <button class="btn btn-ghost btn-block" data-act="import">⬆️ Import</button>
+        <button class="btn btn-ghost btn-block" data-act="import">⬆️ Restore backup</button>
       </div>
       <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
     </div>
@@ -60,6 +61,7 @@ export function renderSettings(view) {
   view.appendChild(el);
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => (location.hash = "/"));
+  el.querySelector('[data-act="csv"]').addEventListener("click", () => (location.hash = "/import"));
 
   el.querySelector("#s-name").addEventListener("change", (e) =>
     store.updateSettings({ salesperson: e.target.value.trim() }));

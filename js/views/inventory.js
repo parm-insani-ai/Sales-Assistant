@@ -49,6 +49,13 @@ export function renderInventory(view, { param }) {
     const items = list();
     if (!items.length) {
       listEl.innerHTML = emptyState("🚗", "No vehicles", search ? "No matches." : "Tap + to add inventory.");
+      if (!search) {
+        const imp = document.createElement("button");
+        imp.className = "btn btn-primary btn-block";
+        imp.textContent = "📄 Import from spreadsheet (vAuto export, etc.)";
+        imp.addEventListener("click", () => navigate("/import"));
+        listEl.appendChild(imp);
+      }
     } else {
       items.forEach((v) => listEl.appendChild(vehicleCard(v)));
     }

@@ -1,0 +1,220 @@
+// Spreadsheet (CSV) importer for inventory and leads. Reads a vAuto / AutoAlert
+// / website / generic export, auto-maps columns, previews, then imports with
+// de-duplication. No backend or credentials needed.
+
+import * as store from "../store.js";
+import { toast, emptyState } from "../components.js";
+import { navigate } from "../router.js";
+import { parseCSV, autoMap, parseNumber, normalizeHeader } from "../csv.js";
+import { esc, num, currency } from "../utils.js";
+
+// Target field definitions per import type. `aliases` cover common export headers.
+const VEHICLE_TARGETS = [
+  { field: "year", label: "Year", aliases: ["year", "yr", "model year"], type: "number" },
+  { field: "make", label: "Make", aliases: ["make", "manufacturer"] },
+  { field: "model", label: "Model", aliases: ["model", "carline"] },
+  { field: "trim", label: "Trim", aliases: ["trim", "series", "style"] },
+  { field: "price", label: "Price", aliases: ["price", "internet price", "list price", "selling price", "retail price", "asking price", "sale price"], type: "number" },
+  { field: "mileage", label: "Mileage", aliases: ["mileage", "miles", "odometer", "odom"], type: "number" },
+  { field: "vin", label: "VIN", aliases: ["vin"] },
+  { field: "stock", label: "Stock #", aliases: ["stock", "stock number", "stock no", "stocknum", "stk"] },
+  { field: "color", label: "Color", aliases: ["color", "exterior color", "ext color", "exterior", "colour"] },
+  { field: "transmission", label: "Transmission", aliases: ["transmission", "trans"] },
+  { field: "fuelType", label: "Fuel", aliases: ["fuel", "fuel type", "engine fuel"] },
+  { field: "bodyStyle", label: "Body style", aliases: ["body", "body style", "bodystyle", "type"] },
+  { field: "condition", label: "Condition", aliases: ["condition", "new used", "type", "certified"] },
+  { field: "notes", label: "Notes", aliases: ["notes", "comments", "description", "options", "features"] },
+];
+
+const LEAD_TARGETS = [
+  { field: "name", label: "Name", aliases: ["name", "customer", "customer name", "full name", "contact"] },
+  { field: "firstName", label: "First name", aliases: ["first name", "firstname", "first"] },
+  { field: "lastName", label: "Last name", aliases: ["last name", "lastname", "last", "surname"] },
+  { field: "phone", label: "Phone", aliases: ["phone", "phone number", "mobile", "cell", "cell phone", "primary phone"] },
+  { field: "email", label: "Email", aliases: ["email", "e-mail", "email address"] },
+  { field: "vehicleInterest", label: "Vehicle of interest", aliases: ["vehicle", "vehicle of interest", "interest", "desired vehicle", "trade", "current vehicle"] },
+  { field: "source", label: "Source", aliases: ["source", "lead source", "origin"] },
+  { field: "notes", label: "Notes", aliases: ["notes", "comments", "remarks"] },
+];
+
+export function renderImport(view) {
+  const el = document.createElement("div");
+  el.innerHTML = `
+    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Home</button>
+    <div class="card">
+      <div class="strong" style="font-size:1.1rem">Import from a spreadsheet</div>
+      <p class="small muted">Export your inventory from <b>vAuto</b> (or leads from <b>AutoAlert</b>, or any list) to CSV/Excel, then load it here. In Excel or Google Sheets choose <b>File → Save As / Download → CSV</b>.</p>
+
+      <div class="field">
+        <label>What are you importing?</label>
+        <select id="imp-type">
+          <option value="vehicles">🚗 Inventory (vehicles)</option>
+          <option value="leads">👥 Leads (customers)</option>
+        </select>
+      </div>
+      <label class="btn btn-primary btn-block" for="imp-file">📄 Choose CSV file</label>
+      <input id="imp-file" type="file" accept=".csv,text/csv,text/plain" style="display:none">
+      <div class="hint">Everything stays on your device — the file isn't uploaded anywhere.</div>
+    </div>
+    <div id="imp-stage"></div>
+  `;
+  view.appendChild(el);
+
+  el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/"));
+
+  const stage = el.querySelector("#imp-stage");
+  el.querySelector("#imp-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let text;
+    try { text = await file.text(); }
+    catch { toast("Couldn't read that file", "danger"); return; }
+    const parsed = parseCSV(text);
+    if (!parsed.headers.length || !parsed.rows.length) {
+      stage.innerHTML = emptyState("📄", "No rows found", "Make sure the file is a CSV with a header row.");
+      return;
+    }
+    const type = el.querySelector("#imp-type").value;
+    showMapping(stage, type, parsed);
+  });
+}
+
+function showMapping(stage, type, parsed) {
+  const targets = type === "vehicles" ? VEHICLE_TARGETS : LEAD_TARGETS;
+  const mapping = autoMap(parsed.headers, targets);
+  const noneOpt = '<option value="">— none —</option>';
+
+  stage.innerHTML = `
+    <div class="section-title">Match your columns</div>
+    <div class="card">
+      <p class="small muted">We matched your file's columns automatically. Fix any that are wrong.</p>
+      <div class="map-rows"></div>
+    </div>
+    <div class="section-title">Preview <span class="muted small">(first 3 rows)</span></div>
+    <div class="card" id="imp-preview"></div>
+    <button class="btn btn-success btn-block" data-act="run" style="margin-top:6px">Import ${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"}</button>
+    <div class="fab-note">Rows missing required info (${type === "vehicles" ? "make & model" : "a name"}) are skipped. Existing ${type} are updated when they match.</div>
+  `;
+
+  const mapRows = stage.querySelector(".map-rows");
+  targets.forEach((t) => {
+    const row = document.createElement("div");
+    row.className = "field";
+    row.innerHTML = `
+      <label>${esc(t.label)}</label>
+      <select data-field="${t.field}">
+        ${noneOpt}
+        ${parsed.headers.map((h) => `<option value="${esc(h)}" ${mapping[t.field] === h ? "selected" : ""}>${esc(h)}</option>`).join("")}
+      </select>`;
+    mapRows.appendChild(row);
+  });
+
+  const readMapping = () => {
+    const m = {};
+    mapRows.querySelectorAll("select[data-field]").forEach((s) => { m[s.dataset.field] = s.value; });
+    return m;
+  };
+
+  const drawPreview = () => {
+    const m = readMapping();
+    const preview = stage.querySelector("#imp-preview");
+    const rows = parsed.rows.slice(0, 3).map((r) => buildRecord(type, r, m));
+    preview.innerHTML = rows.map((rec) => {
+      if (type === "vehicles") {
+        return `<div class="kv"><span class="k">${esc([rec.year, rec.make, rec.model, rec.trim].filter(Boolean).join(" ") || "—")}</span><span class="v mono">${rec.price != null ? currency(rec.price) : ""}${rec.mileage != null ? " · " + num(rec.mileage) + " mi" : ""}</span></div>`;
+      }
+      return `<div class="kv"><span class="k">${esc(rec.name || "—")}</span><span class="v small">${esc(rec.phone || rec.email || "")}</span></div>`;
+    }).join("") || `<div class="muted small">Nothing to preview.</div>`;
+  };
+  drawPreview();
+  mapRows.querySelectorAll("select").forEach((s) => s.addEventListener("change", drawPreview));
+
+  stage.querySelector('[data-act="run"]').addEventListener("click", () => {
+    const m = readMapping();
+    const result = runImport(type, parsed.rows, m);
+    toast(`Imported ${result.added} new, updated ${result.updated}${result.skipped ? `, skipped ${result.skipped}` : ""}`, "success");
+    navigate(type === "vehicles" ? "/inventory" : "/leads");
+  });
+}
+
+// Turn a raw CSV row into a typed record using the column mapping.
+function buildRecord(type, row, mapping) {
+  const val = (field) => (mapping[field] ? (row[mapping[field]] ?? "").trim() : "");
+  if (type === "vehicles") {
+    return {
+      year: parseNumber(val("year")),
+      make: val("make"),
+      model: val("model"),
+      trim: val("trim"),
+      price: parseNumber(val("price")),
+      mileage: parseNumber(val("mileage")),
+      vin: val("vin"),
+      stock: val("stock"),
+      color: val("color"),
+      transmission: val("transmission"),
+      fuelType: val("fuelType"),
+      bodyStyle: val("bodyStyle"),
+      condition: val("condition") || "Used",
+      notes: val("notes"),
+      status: "available",
+    };
+  }
+  // leads: combine first/last if a single name isn't provided.
+  let name = val("name");
+  if (!name) name = [val("firstName"), val("lastName")].filter(Boolean).join(" ");
+  return {
+    name,
+    phone: val("phone"),
+    email: val("email"),
+    vehicleInterest: val("vehicleInterest"),
+    source: val("source") || "Import",
+    notes: val("notes"),
+    stage: "new",
+  };
+}
+
+function runImport(type, rows, mapping) {
+  let added = 0, updated = 0, skipped = 0;
+
+  if (type === "vehicles") {
+    const existing = store.all("vehicles");
+    rows.forEach((row) => {
+      const rec = buildRecord("vehicles", row, mapping);
+      if (!rec.make || !rec.model) { skipped++; return; }
+      // Match on VIN, else stock number.
+      const match = existing.find((v) =>
+        (rec.vin && v.vin && normalizeHeader(v.vin) === normalizeHeader(rec.vin)) ||
+        (rec.stock && v.stock && normalizeHeader(v.stock) === normalizeHeader(rec.stock)));
+      if (match) {
+        // Only overwrite fields we actually have values for.
+        const patch = {};
+        Object.entries(rec).forEach(([k, val]) => { if (val !== "" && val != null) patch[k] = val; });
+        store.update("vehicles", match.id, patch);
+        updated++;
+      } else {
+        store.create("vehicles", rec);
+        added++;
+      }
+    });
+  } else {
+    const existing = store.all("leads");
+    rows.forEach((row) => {
+      const rec = buildRecord("leads", row, mapping);
+      if (!rec.name) { skipped++; return; }
+      const digits = (p) => String(p || "").replace(/\D/g, "");
+      const match = existing.find((l) =>
+        (rec.phone && l.phone && digits(l.phone) === digits(rec.phone)) ||
+        (rec.email && l.email && l.email.toLowerCase() === rec.email.toLowerCase()));
+      if (match) {
+        const patch = {};
+        Object.entries(rec).forEach(([k, val]) => { if (val !== "" && val != null && k !== "stage") patch[k] = val; });
+        store.update("leads", match.id, patch);
+        updated++;
+      } else {
+        store.create("leads", rec);
+        added++;
+      }
+    });
+  }
+  return { added, updated, skipped };
+}
