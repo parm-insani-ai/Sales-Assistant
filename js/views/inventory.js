@@ -3,6 +3,7 @@
 import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
+import { openMarketplaceBuilder } from "./marketplace.js";
 import { currency, num, esc } from "../utils.js";
 
 export function vehicleName(v) {
@@ -109,9 +110,17 @@ export function openVehicleForm(existing) {
         { name: "color", label: "Color", value: v.color, half: true, placeholder: "Silver" },
         { name: "stock", label: "Stock #", value: v.stock, half: true, placeholder: "T12345" },
         { name: "vin", label: "VIN", value: v.vin, placeholder: "Last 8 or full VIN" },
+        { name: "condition", label: "Condition", value: v.condition || "Used", type: "select", half: true,
+          options: ["New", "Used", "Certified"] },
+        { name: "transmission", label: "Transmission", value: v.transmission || "", type: "select", half: true,
+          options: ["", "Automatic", "Manual"] },
+        { name: "fuelType", label: "Fuel", value: v.fuelType || "", type: "select", half: true,
+          options: ["", "Gasoline", "Diesel", "Hybrid", "Electric", "Plug-in hybrid", "Flex"] },
+        { name: "bodyStyle", label: "Body style", value: v.bodyStyle || "", type: "select", half: true,
+          options: ["", "Sedan", "SUV", "Truck", "Coupe", "Hatchback", "Van/Minivan", "Convertible", "Wagon"] },
         { name: "status", label: "Status", value: v.status || "available", type: "select",
           options: [{ value: "available", label: "Available" }, { value: "hold", label: "On Hold" }, { value: "sold", label: "Sold" }] },
-        { name: "notes", label: "Notes", value: v.notes, type: "textarea", placeholder: "Options, condition, incentives…" },
+        { name: "notes", label: "Notes / selling points", value: v.notes, type: "textarea", placeholder: "Sunroof, heated seats, one owner, tow package… (used in the Marketplace listing)" },
       ],
       {
         submitLabel: isEdit ? "Save changes" : "Add vehicle",
@@ -153,8 +162,9 @@ function renderVehicleDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
-      <div class="btn-row">
-        <button class="btn btn-primary btn-block" data-act="quote">🧮 Quote a deal</button>
+      <button class="btn btn-primary btn-block" data-act="marketplace">📣 Build Facebook Marketplace listing</button>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn btn-ghost btn-block" data-act="quote">🧮 Quote a deal</button>
         <button class="btn btn-ghost btn-block" data-act="edit">✏️ Edit</button>
       </div>
       <button class="btn btn-danger btn-block" data-act="delete" style="margin-top:10px">Delete vehicle</button>
@@ -164,6 +174,7 @@ function renderVehicleDetail(view, id) {
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/inventory"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openVehicleForm(v));
+  el.querySelector('[data-act="marketplace"]').addEventListener("click", () => openMarketplaceBuilder(v));
   el.querySelector('[data-act="quote"]').addEventListener("click", () => {
     // Pre-fill the calculator with this vehicle's price.
     sessionStorage.setItem("calc-prefill", JSON.stringify({ price: v.price, label: vehicleName(v) }));

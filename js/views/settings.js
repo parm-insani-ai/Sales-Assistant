@@ -14,8 +14,9 @@ export function renderSettings(view) {
     <div class="section-title">Your info</div>
     <div class="card">
       <div class="field"><label>Your name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
-      <div class="field" style="margin-bottom:0"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
-      <div class="hint">Used to fill in {salesperson} and {dealership} in your message templates.</div>
+      <div class="field"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
+      <div class="field" style="margin-bottom:0"><label>Contact phone (for listings)</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
+      <div class="hint">Used to fill in {salesperson} / {dealership} in message templates and your contact info in Marketplace listings.</div>
     </div>
 
     <div class="section-title">Deal defaults</div>
@@ -64,6 +65,8 @@ export function renderSettings(view) {
     store.updateSettings({ salesperson: e.target.value.trim() }));
   el.querySelector("#s-dealer").addEventListener("change", (e) =>
     store.updateSettings({ dealership: e.target.value.trim() }));
+  el.querySelector("#s-phone").addEventListener("change", (e) =>
+    store.updateSettings({ contactPhone: e.target.value.trim() }));
 
   el.querySelector('[data-act="save-defaults"]').addEventListener("click", () => {
     store.updateSettings({

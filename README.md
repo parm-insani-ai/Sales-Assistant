@@ -15,6 +15,7 @@ A pocket assistant for car salespeople. Built as a **mobile-first Progressive We
 | **📅 Calendar** | Schedule appointments, test drives, deliveries and calls with a date & time. Today's appointments surface on the dashboard. Book one straight from a lead. |
 | **💵 Goals & Commission** | Log the front/back gross and your commission on each sale. Set monthly unit and commission goals and watch month-to-date progress on the dashboard. |
 | **📱 Message Templates** | One-tap follow-up texts and emails with the customer's name, vehicle, your name and dealership auto-filled. Opens straight in your phone's Messages/Mail app. Fully editable in Settings. |
+| **📣 Marketplace Listing Builder** | Turn any vehicle into a copy-paste-ready Facebook Marketplace listing: title, all the structured fields (year/make/model/mileage/price/condition/transmission/fuel/body), a sales-ready description, and a photo shot-list. (Facebook has no API to post automatically, so this builds it for one-tap paste.) |
 
 ## Run it
 
