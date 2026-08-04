@@ -1,0 +1,19 @@
+{
+  "name": "Sales Assistant",
+  "short_name": "Sales",
+  "description": "A car salesperson's pocket assistant: leads, follow-ups, deal calculator, inventory and delivery prep.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1120",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

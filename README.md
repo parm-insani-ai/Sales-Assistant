@@ -1,0 +1,77 @@
+# 🚗 Sales Assistant
+
+A pocket assistant for car salespeople. Built as a **mobile-first Progressive Web App** — no login, no server, no monthly fees. Your data lives on your phone and it works offline. Add it to your home screen and it behaves like a native app.
+
+## What it does
+
+| Area | What you get |
+| --- | --- |
+| **🏠 Dashboard** | Your day at a glance — follow-ups due today, open to-dos, deliveries in prep, and month-to-date stats. Call or text a customer in one tap. |
+| **👥 Leads** | A simple CRM. Log every up: name, phone, the vehicle they want, source, notes. Move them through stages (New → Working → Appointment → Negotiating → Sold → Delivered). Set follow-up reminders so nobody falls through the cracks. |
+| **✅ To-dos** | Quick reminders with due dates and priority. Overdue items surface on the dashboard. |
+| **🚗 Inventory** | Search your lot by year/make/model/stock #. Track price, mileage, color, VIN, and availability. Quote a deal straight from a vehicle. |
+| **🧮 Deal Calculator** | Estimate a monthly payment from sale price, down, trade allowance/payoff, fees, tax, APR and term. Shows amount financed, tax, total interest. |
+| **📦 Delivery Prep** | A checklist to get every sold car ready for handoff (detail, gas, plates, paperwork, walk-around…). Start one from a lead in one tap. Track progress to 100%. |
+
+## Run it
+
+It's plain HTML/CSS/JavaScript with **no build step**. You just need to serve the folder over HTTP (ES modules and the service worker don't run from `file://`).
+
+```bash
+# from the project folder — any static server works:
+python3 -m http.server 8000
+# then open http://localhost:8000 on your computer
+```
+
+To use it on your **phone on the same Wi-Fi**, find your computer's local IP and open `http://<that-ip>:8000`.
+
+### Put it on your phone's home screen (recommended)
+
+Deploy the folder to any static host (GitHub Pages, Netlify, Cloudflare Pages, Vercel). Then on your phone:
+
+- **iPhone (Safari):** open the site → Share → *Add to Home Screen*.
+- **Android (Chrome):** open the site → menu → *Install app* / *Add to Home Screen*.
+
+Now it launches full-screen like an app and works offline.
+
+#### Deploy to GitHub Pages (free)
+
+1. Push this branch to GitHub.
+2. Repo **Settings → Pages** → Source: *Deploy from a branch* → pick this branch, folder `/ (root)`.
+3. Your app will be live at `https://<user>.github.io/<repo>/`.
+
+## Your data
+
+- Everything is stored in your browser's `localStorage` on **this device only**. Nothing is uploaded anywhere.
+- **Back it up:** Settings (⚙️ in the + menu) → *Export backup* saves a `.json` file. *Import* restores it — great for moving to a new phone.
+- Clearing your browser data / site data will erase it, so export a backup now and then.
+
+> **Note:** Because data is per-device, it does **not** sync between your phone and computer. If you want cloud sync across devices (and a shared team view), that's a natural next step — it would need a small backend. Ask and we can add it.
+
+## Project layout
+
+```
+index.html            App shell (top bar, bottom tab nav)
+manifest.json         PWA manifest (installability)
+sw.js                 Service worker (offline caching)
+css/styles.css        All styling (dark, mobile-first)
+icons/icon.svg        App icon
+js/
+  app.js              Bootstrap, routing, quick-add menu
+  router.js           Tiny hash router
+  store.js            localStorage data store (leads, tasks, vehicles, deliveries)
+  utils.js            Formatting helpers (money, dates, phone)
+  components.js       Modal, toast, confirm, form builder
+  views/
+    dashboard.js      Home
+    leads.js          Leads CRM + detail
+    inventory.js      Vehicle inventory + detail
+    calculator.js     Deal / payment calculator
+    deliveries.js     Delivery prep checklists
+    tasks.js          To-do list
+    settings.js       Defaults, checklist template, backup
+```
+
+## Heads up on the calculator
+
+The payment math is a standard amortization estimate and assumes sales tax applies to *(price − trade allowance)*, which is the common rule but **varies by state and deal structure**. Always confirm final numbers with your F&I desk before quoting a customer a hard figure.
