@@ -1,5 +1,5 @@
 // localStorage-backed data store. All app data lives on the device.
-// Collections: leads, tasks, vehicles, deliveries. Plus settings.
+// Collections: leads, tasks, vehicles, deliveries, appointments, sales. Plus settings.
 
 import { uid } from "./utils.js";
 
@@ -19,20 +19,56 @@ const DEFAULT_DELIVERY_CHECKLIST = [
   "Introduce to service department",
 ];
 
+// Message templates. Placeholders: {name} {firstName} {vehicle} {salesperson} {dealership}
+const DEFAULT_TEMPLATES = [
+  { id: "tpl_first", name: "First contact", channel: "sms", subject: "",
+    body: "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?" },
+  { id: "tpl_appt", name: "Appointment reminder", channel: "sms", subject: "",
+    body: "Hi {firstName}, just confirming our appointment for the {vehicle}. Looking forward to seeing you! Text me if anything changes. - {salesperson}" },
+  { id: "tpl_check", name: "Still interested?", channel: "sms", subject: "",
+    body: "Hi {firstName}, {salesperson} here at {dealership}. Are you still in the market for the {vehicle}? I've got a couple of options I think you'll like." },
+  { id: "tpl_price", name: "Numbers / follow-up", channel: "sms", subject: "",
+    body: "Hi {firstName}, I ran some updated numbers on the {vehicle} and think we can make it work. Give me a call or text when you have a minute. - {salesperson}" },
+  { id: "tpl_thanks", name: "Post-sale thank you", channel: "sms", subject: "",
+    body: "Congratulations again on your {vehicle}, {firstName}! It was a pleasure working with you. If you ever need anything, I'm one text away. - {salesperson}" },
+  { id: "tpl_referral", name: "Ask for referral", channel: "sms", subject: "",
+    body: "Hi {firstName}, hope you're loving the {vehicle}! If you know anyone in the market for a vehicle, I'd be grateful for the introduction. - {salesperson}" },
+  { id: "tpl_email_intro", name: "Email intro", channel: "email", subject: "Your inquiry on the {vehicle}",
+    body: "Hi {name},\n\nThank you for reaching out about the {vehicle}. I'd love to help you find the right fit and answer any questions.\n\nWhat's the best day and time for you to stop by for a look and a test drive?\n\nBest,\n{salesperson}\n{dealership}" },
+];
+
 const DEFAULT_STATE = {
   leads: [],
   tasks: [],
   vehicles: [],
   deliveries: [],
+  appointments: [],
+  sales: [],
   settings: {
     salesperson: "",
+    dealership: "",
     taxRate: 6.5, // %
     docFee: 499,
     defaultTerm: 72,
     defaultApr: 7.9,
     deliveryChecklist: DEFAULT_DELIVERY_CHECKLIST,
+    messageTemplates: DEFAULT_TEMPLATES,
+    goalUnits: 12, // sales per month
+    goalCommission: 8000, // $ per month
   },
 };
+
+export const APPT_TYPES = [
+  { id: "appointment", label: "Appointment", icon: "🤝" },
+  { id: "testdrive", label: "Test drive", icon: "🚗" },
+  { id: "delivery", label: "Delivery", icon: "🎉" },
+  { id: "call", label: "Phone call", icon: "📞" },
+  { id: "other", label: "Other", icon: "📌" },
+];
+
+export function apptType(id) {
+  return APPT_TYPES.find((t) => t.id === id) || APPT_TYPES[0];
+}
 
 export const LEAD_STAGES = [
   { id: "new", label: "New", badge: "badge-new" },

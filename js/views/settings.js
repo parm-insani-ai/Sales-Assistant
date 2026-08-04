@@ -14,6 +14,8 @@ export function renderSettings(view) {
     <div class="section-title">Your info</div>
     <div class="card">
       <div class="field"><label>Your name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
+      <div class="field" style="margin-bottom:0"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
+      <div class="hint">Used to fill in {salesperson} and {dealership} in your message templates.</div>
     </div>
 
     <div class="section-title">Deal defaults</div>
@@ -36,6 +38,13 @@ export function renderSettings(view) {
       <button class="btn btn-ghost btn-sm btn-block" data-act="add-tmpl" style="margin-top:10px">+ Add item</button>
     </div>
 
+    <div class="section-title">Message templates</div>
+    <div class="card">
+      <div class="small muted" style="margin-bottom:10px">Quick messages for follow-ups. Use <span class="mono">{firstName}</span>, <span class="mono">{name}</span>, <span class="mono">{vehicle}</span>, <span class="mono">{salesperson}</span>, <span class="mono">{dealership}</span> — they fill in automatically per customer.</div>
+      <div class="tpl-list"></div>
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-tpl" style="margin-top:10px">+ New template</button>
+    </div>
+
     <div class="section-title">Data & backup</div>
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Your data is stored only on this device. Export a backup regularly, or to move to a new phone.</div>
@@ -53,6 +62,8 @@ export function renderSettings(view) {
 
   el.querySelector("#s-name").addEventListener("change", (e) =>
     store.updateSettings({ salesperson: e.target.value.trim() }));
+  el.querySelector("#s-dealer").addEventListener("change", (e) =>
+    store.updateSettings({ dealership: e.target.value.trim() }));
 
   el.querySelector('[data-act="save-defaults"]').addEventListener("click", () => {
     store.updateSettings({
@@ -96,6 +107,34 @@ export function renderSettings(view) {
     });
   });
 
+  // Message templates editor
+  const tplList = el.querySelector(".tpl-list");
+  function drawTpl() {
+    const list = store.getSettings().messageTemplates || [];
+    tplList.innerHTML = "";
+    if (!list.length) tplList.innerHTML = `<div class="muted small">No templates yet.</div>`;
+    list.forEach((t) => {
+      const row = document.createElement("div");
+      row.className = "check-item";
+      row.innerHTML = `
+        <label style="flex:1" class="card-tap">
+          <div class="strong">${t.channel === "email" ? "✉️" : "💬"} ${esc(t.name)}</div>
+          <div class="small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(String(t.body).replace(/\n/g, " "))}</div>
+        </label>
+        <button class="modal-close" data-del aria-label="Remove" style="font-size:1.2rem">&times;</button>`;
+      row.querySelector("label").addEventListener("click", () => openTemplateEditor(t, drawTpl));
+      row.querySelector("[data-del]").addEventListener("click", async () => {
+        if (await confirmDialog(`Delete the "${t.name}" template?`)) {
+          store.updateSettings({ messageTemplates: store.getSettings().messageTemplates.filter((x) => x.id !== t.id) });
+          drawTpl();
+        }
+      });
+      tplList.appendChild(row);
+    });
+  }
+  drawTpl();
+  el.querySelector('[data-act="add-tpl"]').addEventListener("click", () => openTemplateEditor(null, drawTpl));
+
   // Backup
   el.querySelector('[data-act="export"]').addEventListener("click", () => {
     const blob = new Blob([store.exportJSON()], { type: "application/json" });
@@ -132,5 +171,39 @@ export function renderSettings(view) {
       toast("All data reset");
       location.hash = "/";
     }
+  });
+}
+
+function openTemplateEditor(existing, onSaved) {
+  const isEdit = !!existing;
+  const t = existing || { channel: "sms" };
+  openModal(isEdit ? "Edit template" : "New template", (close) => {
+    const { element } = buildForm(
+      [
+        { name: "name", label: "Template name", value: t.name, required: true, placeholder: "First contact" },
+        { name: "channel", label: "Channel", value: t.channel || "sms", type: "select",
+          options: [{ value: "sms", label: "💬 Text message" }, { value: "email", label: "✉️ Email" }] },
+        { name: "subject", label: "Subject (email only)", value: t.subject, placeholder: "Your inquiry on the {vehicle}" },
+        { name: "body", label: "Message", value: t.body, type: "textarea", required: true,
+          hint: "Placeholders: {firstName} {name} {vehicle} {salesperson} {dealership}" },
+      ],
+      {
+        submitLabel: isEdit ? "Save template" : "Add template",
+        onSubmit: (data) => {
+          const list = (store.getSettings().messageTemplates || []).slice();
+          if (isEdit) {
+            const idx = list.findIndex((x) => x.id === existing.id);
+            if (idx >= 0) list[idx] = { ...existing, ...data };
+          } else {
+            list.push({ id: "tpl_" + Date.now().toString(36), ...data });
+          }
+          store.updateSettings({ messageTemplates: list });
+          toast("Template saved", "success");
+          close();
+          if (onSaved) onSaved();
+        },
+      }
+    );
+    return element;
   });
 }

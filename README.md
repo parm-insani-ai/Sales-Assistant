@@ -12,6 +12,9 @@ A pocket assistant for car salespeople. Built as a **mobile-first Progressive We
 | **🚗 Inventory** | Search your lot by year/make/model/stock #. Track price, mileage, color, VIN, and availability. Quote a deal straight from a vehicle. |
 | **🧮 Deal Calculator** | Estimate a monthly payment from sale price, down, trade allowance/payoff, fees, tax, APR and term. Shows amount financed, tax, total interest. |
 | **📦 Delivery Prep** | A checklist to get every sold car ready for handoff (detail, gas, plates, paperwork, walk-around…). Start one from a lead in one tap. Track progress to 100%. |
+| **📅 Calendar** | Schedule appointments, test drives, deliveries and calls with a date & time. Today's appointments surface on the dashboard. Book one straight from a lead. |
+| **💵 Goals & Commission** | Log the front/back gross and your commission on each sale. Set monthly unit and commission goals and watch month-to-date progress on the dashboard. |
+| **📱 Message Templates** | One-tap follow-up texts and emails with the customer's name, vehicle, your name and dealership auto-filled. Opens straight in your phone's Messages/Mail app. Fully editable in Settings. |
 
 ## Run it
 

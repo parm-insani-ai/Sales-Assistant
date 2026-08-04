@@ -1,10 +1,11 @@
 // Home dashboard: the day at a glance — follow-ups due, tasks, deliveries, stats.
 
 import * as store from "../store.js";
-import { stageMeta } from "../store.js";
+import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
-import { esc, relativeDay, daysFromToday, phoneDisplay, telHref, smsHref } from "../utils.js";
+import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHref } from "../utils.js";
 import { taskListEl, openTaskForm } from "./tasks.js";
+import { monthSummary } from "./goals.js";
 import { emptyState } from "../components.js";
 
 export function renderDashboard(view) {
@@ -22,12 +23,16 @@ export function renderDashboard(view) {
     .sort((a, b) => daysFromToday(a.followUp) - daysFromToday(b.followUp));
   const openTasks = tasks.filter((t) => !t.done);
   const activeDeliveries = deliveries.filter((d) => d.status !== "delivered");
-  const soldThisMonth = leads.filter((l) => {
-    if (!["sold", "delivered"].includes(l.stage)) return false;
-    const d = new Date(l.updatedAt || l.createdAt);
-    const now = new Date();
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).length;
+
+  // Today's appointments (not completed/canceled).
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todaysAppts = store.all("appointments")
+    .filter((a) => a.status === "scheduled" && String(a.when).slice(0, 10) === todayKey)
+    .sort((a, b) => String(a.when).localeCompare(String(b.when)));
+
+  // Month-to-date sales vs goal.
+  const mtd = monthSummary();
+  const soldThisMonth = mtd.units;
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -44,8 +49,12 @@ export function renderDashboard(view) {
       <div class="stat"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due</div></div>
       <div class="stat"><div class="stat-value">${activeLeads.length}</div><div class="stat-label">Active leads</div></div>
       <div class="stat"><div class="stat-value">${activeDeliveries.length}</div><div class="stat-label">Deliveries in prep</div></div>
-      <div class="stat"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month</div></div>
+      <div class="stat card-tap" data-goto="/goals"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month ›</div></div>
     </div>
+
+    ${goalCard(mtd, s)}
+
+    ${todaysAppts.length ? `<div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>📅 Today's appointments</span><a class="link small" href="#/calendar">All ›</a></div><div class="appt-list"></div>` : ""}
 
     <div class="section-title">📞 Follow up today ${dueFollowUps.length ? `(${dueFollowUps.length})` : ""}</div>
     <div class="due-list"></div>
@@ -78,6 +87,10 @@ export function renderDashboard(view) {
   el.querySelector(".tasks-slot").appendChild(taskListEl());
   el.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
 
+  // Appointments today
+  const al = el.querySelector(".appt-list");
+  if (al) todaysAppts.forEach((a) => al.appendChild(apptMini(a)));
+
   // Deliveries
   const dl = el.querySelector(".deliv-list");
   if (dl) {
@@ -85,6 +98,45 @@ export function renderDashboard(view) {
       .sort((a, b) => (a.deliveryDate || "9999").localeCompare(b.deliveryDate || "9999"))
       .forEach((d) => dl.appendChild(deliveryMini(d)));
   }
+
+  // Tappable stat cards.
+  el.querySelectorAll("[data-goto]").forEach((n) =>
+    n.addEventListener("click", () => navigate(n.dataset.goto)));
+}
+
+function goalCard(mtd, s) {
+  const unitPct = s.goalUnits > 0 ? Math.min(100, Math.round((mtd.units / s.goalUnits) * 100)) : 0;
+  const commPct = s.goalCommission > 0 ? Math.min(100, Math.round((mtd.commission / s.goalCommission) * 100)) : 0;
+  return `
+    <div class="card card-tap" data-goto="/goals" style="margin-top:12px">
+      <div class="row"><div class="strong">🎯 Monthly goal</div><div class="small muted">Details ›</div></div>
+      <div style="margin-top:10px">
+        <div class="row small"><span class="muted">Units</span><span class="mono">${mtd.units} / ${s.goalUnits || 0}</span></div>
+        <div class="progress"><span style="width:${unitPct}%"></span></div>
+      </div>
+      <div style="margin-top:10px">
+        <div class="row small"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
+        <div class="progress"><span style="width:${commPct}%;background:var(--accent)"></span></div>
+      </div>
+    </div>`;
+}
+
+function apptMini(a) {
+  const el = document.createElement("div");
+  el.className = "card card-tap";
+  const t = apptType(a.type);
+  const time = a.when ? new Date(a.when).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+  el.innerHTML = `
+    <div class="row">
+      <div class="row-main">
+        <div class="row-title">${t.icon} ${esc(a.title || t.label)}</div>
+        <div class="row-sub">${esc(a.customerName || "")}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
+      </div>
+      <div class="row-meta strong mono">${esc(time)}</div>
+    </div>
+  `;
+  el.addEventListener("click", () => navigate(`/calendar/${a.id}`));
+  return el;
 }
 
 function followUpCard(l, upcoming = false) {

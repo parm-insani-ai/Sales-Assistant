@@ -4,6 +4,9 @@ import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
+import { openTemplatePicker } from "./messages.js";
+import { openAppointmentForm } from "./calendar.js";
+import { openSaleForm } from "./goals.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
   relativeDay, daysFromToday, formatDate, todayISO,
@@ -179,10 +182,10 @@ function renderLeadDetail(view, id) {
 
       ${l.phone ? `
       <div class="btn-row" style="margin-top:14px">
-        <a class="btn btn-success btn-sm" href="${telHref(l.phone)}">📞 Call</a>
-        <a class="btn btn-primary btn-sm" href="${smsHref(l.phone)}">💬 Text</a>
-        ${l.email ? `<a class="btn btn-ghost btn-sm" href="mailto:${esc(l.email)}">✉️ Email</a>` : ""}
+        <a class="btn btn-success btn-sm" style="flex:1" href="${telHref(l.phone)}">📞 Call</a>
+        <a class="btn btn-primary btn-sm" style="flex:1" href="${smsHref(l.phone)}">💬 Text</a>
       </div>` : ""}
+      ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">📄 Use a message template</button>` : ""}
     </div>
 
     <div class="section-title">Quick stage update</div>
@@ -217,6 +220,10 @@ function renderLeadDetail(view, id) {
       </div>
       <hr class="divider" />
       <div class="btn-row">
+        <button class="btn btn-ghost btn-block" data-act="appointment">📅 Schedule</button>
+        <button class="btn btn-ghost btn-block" data-act="logsale">💵 Log sale</button>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
         <button class="btn btn-primary btn-block" data-act="edit">✏️ Edit</button>
         <button class="btn btn-success btn-block" data-act="deliver">✅ Start delivery</button>
       </div>
@@ -227,6 +234,15 @@ function renderLeadDetail(view, id) {
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/leads"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openLeadForm(l));
+
+  const tmplBtn = el.querySelector('[data-act="templates"]');
+  if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
+
+  el.querySelector('[data-act="appointment"]').addEventListener("click", () =>
+    openAppointmentForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest, type: "appointment" }));
+
+  el.querySelector('[data-act="logsale"]').addEventListener("click", () =>
+    openSaleForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest }));
 
   el.querySelectorAll("[data-stage]").forEach((b) =>
     b.addEventListener("click", () => {
