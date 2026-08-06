@@ -40,9 +40,9 @@ export function renderDashboard(view) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <div style="margin:2px 4px 16px">
-      <div class="muted small">${greeting}${esc(name)} 👋</div>
-      <div class="strong" style="font-size:1.1rem">Here's your day</div>
+    <div class="hero">
+      <div class="hero-greeting">${greeting}${esc(name)}</div>
+      <div class="hero-title">Here's your day</div>
     </div>
 
     <div class="stat-grid">
@@ -54,20 +54,20 @@ export function renderDashboard(view) {
 
     ${goalCard(mtd, s)}
 
-    ${todaysAppts.length ? `<div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>📅 Today's appointments</span><a class="link small" href="#/calendar">All ›</a></div><div class="appt-list"></div>` : ""}
+    ${todaysAppts.length ? `<div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>Today's schedule</span><a class="link small" href="#/calendar">All ›</a></div><div class="appt-list"></div>` : ""}
 
-    <div class="section-title">📞 Follow up today ${dueFollowUps.length ? `(${dueFollowUps.length})` : ""}</div>
+    <div class="section-title">Follow up today ${dueFollowUps.length ? `<span class="muted">· ${dueFollowUps.length}</span>` : ""}</div>
     <div class="due-list"></div>
 
     ${upcomingFollowUps.length ? `<div class="section-title">Coming up</div><div class="upcoming-list"></div>` : ""}
 
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>✅ To-do</span>
-      <button class="btn btn-sm btn-ghost" data-act="add-task">+ To-do</button>
+      <span>To-dos</span>
+      <button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>
     </div>
     <div class="tasks-slot"></div>
 
-    ${activeDeliveries.length ? `<div class="section-title">🚗 Deliveries in prep</div><div class="deliv-list"></div>` : ""}
+    ${activeDeliveries.length ? `<div class="section-title">Deliveries in prep</div><div class="deliv-list"></div>` : ""}
   `;
   view.appendChild(el);
 
@@ -109,7 +109,7 @@ function goalCard(mtd, s) {
   const commPct = s.goalCommission > 0 ? Math.min(100, Math.round((mtd.commission / s.goalCommission) * 100)) : 0;
   return `
     <div class="card card-tap" data-goto="/goals" style="margin-top:12px">
-      <div class="row"><div class="strong">🎯 Monthly goal</div><div class="small muted">Details ›</div></div>
+      <div class="row"><div class="strong">Monthly goal</div><div class="small muted">Details ›</div></div>
       <div style="margin-top:10px">
         <div class="row small"><span class="muted">Units</span><span class="mono">${mtd.units} / ${s.goalUnits || 0}</span></div>
         <div class="progress"><span style="width:${unitPct}%"></span></div>
