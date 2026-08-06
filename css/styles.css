@@ -655,6 +655,9 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 }
 .prospect-card .ico { vertical-align: -0.2em; }
 
+.deal-radar-card { border: 1.5px solid var(--brand); }
+.deal-radar-card .ico { color: var(--brand); vertical-align: -0.2em; }
+
 /* Greeting / hero on dashboard */
 .hero { margin: 4px 2px 18px; }
 .hero-greeting { color: var(--muted); font-size: 0.9rem; font-weight: 550; }

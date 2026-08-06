@@ -31,7 +31,7 @@ const PAGES = {
   "/calendar": { title: "Calendar", render: renderCalendar },
   "/goals": { title: "Goals & Commission", render: renderGoals },
   "/prospecting": { title: "Prospecting", render: renderProspecting },
-  "/deals": { title: "Deal Builder", render: renderDeals },
+  "/deals": { title: "Deal Radar", render: renderDeals },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
 };

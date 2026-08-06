@@ -7,6 +7,7 @@ import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHr
 import { taskListEl, openTaskForm } from "./tasks.js";
 import { monthSummary } from "./goals.js";
 import { prospectSummary } from "./prospecting.js";
+import { topOpportunities } from "./dealbuilder.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 
@@ -57,6 +58,22 @@ export function renderDashboard(view) {
         <div class="row-meta strong" style="color:var(--brand-ink);font-size:1.6rem">${ps.total || ""} ›</div>
       </div>
     </div>`; })()}
+
+    ${(() => {
+      const deals = topOpportunities(50);
+      if (!deals.length) return "";
+      const top = deals[0];
+      return `
+      <div class="card card-tap deal-radar-card" data-goto="/deals">
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">${icon("dollar")} ${deals.length} deal${deals.length === 1 ? "" : "s"} ready to pitch</div>
+            <div class="row-sub">Top: ${esc(top.lead.name)} → ${esc([top.best.vehicle.year, top.best.vehicle.make, top.best.vehicle.model].filter(Boolean).join(" "))}${top.best.delta != null && top.best.delta <= 50 ? " · same payment" : ""}</div>
+          </div>
+          <div class="row-meta strong" style="font-size:1.4rem">›</div>
+        </div>
+      </div>`;
+    })()}
 
     <div class="stat-grid">
       <div class="stat"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due</div></div>

@@ -9,7 +9,7 @@ import { openModal, toast } from "../components.js";
 import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
-import { currency, currency2, esc, smsHref } from "../utils.js";
+import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday } from "../utils.js";
 
 // Compute payment-matched deals for one customer across available inventory.
 // Returns matches sorted by closeness to their current payment.
@@ -49,6 +49,76 @@ export function bestDealForLead(lead) {
 
 export function equity(lead) {
   return (lead.currentValue || 0) - (lead.payoff || 0);
+}
+
+function yearsOwned(iso) {
+  const d = parseDate(iso);
+  if (!d) return null;
+  return (Date.now() - d.getTime()) / (365.25 * 86400000);
+}
+
+// Connect the dots: score how strong an upgrade opportunity this customer is,
+// combining payment match, equity, ownership length, lease timing and rate.
+// Returns { score (0-100), reasons[] } — the reasons are the "why" chips.
+export function scoreOpportunity(lead, best) {
+  const s = store.getSettings();
+  const reasons = [];
+  let score = 0;
+
+  const cur = lead.currentPayment;
+  if (cur != null && best) {
+    const delta = best.monthly - cur;
+    if (delta <= -20) { score += 48; reasons.push(`${currency(Math.round(-delta))}/mo less`); }
+    else if (delta <= (s.dealMatchBand || 50)) { score += 40; reasons.push("Same payment"); }
+    else if (delta <= 100) { score += 22; reasons.push(`+${currency(Math.round(delta))}/mo`); }
+    else { score += 6; }
+  } else if (best) {
+    score += 10; // can still pitch a fresh vehicle even without their payment
+  }
+
+  const eq = equity(lead);
+  if (eq >= 3000) { score += 20; reasons.push(`${currency(Math.round(eq))} equity`); }
+  else if (eq > 0) { score += 10; reasons.push("Positive equity"); }
+
+  const yrs = yearsOwned(lead.purchaseDate);
+  if (yrs != null && yrs >= 3) { score += 15; reasons.push(`Owned ${Math.floor(yrs)} yrs`); }
+  else if (yrs != null && yrs >= 2) { score += 8; }
+
+  if (lead.leaseEnd) {
+    const d = daysFromToday(lead.leaseEnd);
+    if (d != null && d >= 0 && d <= 90) { score += 26; reasons.push(`Lease ends in ${d}d`); }
+    else if (d != null && d > 90 && d <= 180) { score += 12; reasons.push("Lease ending soon"); }
+  }
+
+  if (lead.currentApr != null && lead.currentApr > (s.defaultApr || 0) + 1) {
+    score += 12; reasons.push(`Rate ${lead.currentApr}% → ~${s.defaultApr}%`);
+  }
+
+  return { score: Math.min(100, Math.round(score)), reasons: reasons.slice(0, 3) };
+}
+
+function strength(score) {
+  if (score >= 70) return { label: "Hot", badge: "badge-due" };
+  if (score >= 45) return { label: "Strong", badge: "badge-sold" };
+  return { label: "Worth a call", badge: "badge-soon" };
+}
+
+// The proactive radar: every customer with a buildable deal, scored and ranked.
+export function topOpportunities(limit = 50) {
+  const haveInv = store.all("vehicles").some((v) => (v.status || "available") === "available" && v.price != null);
+  if (!haveInv) return [];
+  const out = [];
+  store.all("leads").forEach((l) => {
+    const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
+    if (!hasData) return;
+    const best = bestDealForLead(l);
+    if (!best) return;
+    const { score, reasons } = scoreOpportunity(l, best);
+    if (score <= 0) return;
+    out.push({ lead: l, best, score, reasons });
+  });
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
 }
 
 function vehName(v) {
@@ -154,63 +224,73 @@ function dealRow(lead, m) {
   return el;
 }
 
-// ---------- /deals page: every customer you can put in a new car near their payment ----------
+// ---------- /deals page: the proactive, ranked Deal Radar ----------
 export function renderDeals(view) {
-  const s = store.getSettings();
-  const band = s.dealMatchBand || 50;
-  const leads = store.all("leads").filter((l) => l.currentPayment != null);
+  const leadsWithData = store.all("leads").some((l) => l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate);
   const haveInventory = store.all("vehicles").some((v) => (v.status || "available") === "available" && v.price != null);
-
-  const opps = leads.map((l) => ({ lead: l, best: bestDealForLead(l) }))
-    .filter((o) => o.best)
-    .map((o) => ({ ...o, delta: o.best.delta }))
-    .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
+  const opps = topOpportunities(50);
 
   const el = document.createElement("div");
   el.innerHTML = `
     <div class="hero">
-      <div class="hero-greeting">Deal Builder</div>
-      <div class="hero-title">Payment-match deals</div>
+      <div class="hero-greeting">Deal Radar</div>
+      <div class="hero-title">Deals ready to pitch</div>
     </div>
-    <div class="fab-note" style="margin:0 2px 14px;text-align:left">Customers you can move into a new vehicle for close to what they pay now — from their imported equity data.</div>
+    <div class="fab-note" style="margin:0 2px 14px;text-align:left">Your database, scanned and ranked — customers who can move into a new vehicle right now, strongest opportunity first.</div>
     <div class="deals-list"></div>
   `;
   view.appendChild(el);
-
   const list = el.querySelector(".deals-list");
-  if (!leads.length) {
-    list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("dollar", "ico-xl")}</div><div class="strong">No customer payment data yet</div><div class="small">Import an AutoAlert equity export (with current payment, payoff, value) to build payment-match deals.</div><button class="btn btn-primary btn-block" data-act="import" style="margin-top:16px">${icon("file")} Import customers</button></div>`;
+
+  if (!leadsWithData) {
+    list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("dollar", "ico-xl")}</div><div class="strong">No customer data yet</div><div class="small">Import an AutoAlert equity export (current payment, payoff, value) and the radar fills with ready-to-pitch deals.</div><button class="btn btn-primary btn-block" data-act="import" style="margin-top:16px">${icon("file")} Import customers</button></div>`;
     list.querySelector('[data-act="import"]').addEventListener("click", () => navigate("/import"));
     return;
   }
   if (!haveInventory) {
-    list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("car", "ico-xl")}</div><div class="strong">No inventory to match against</div><div class="small">Add vehicles or import your inventory, then deals appear here.</div><button class="btn btn-primary btn-block" data-act="inv" style="margin-top:16px">${icon("file")} Import inventory</button></div>`;
+    list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("car", "ico-xl")}</div><div class="strong">No inventory to match against</div><div class="small">Add vehicles or import your inventory, then the radar builds deals.</div><button class="btn btn-primary btn-block" data-act="inv" style="margin-top:16px">${icon("file")} Import inventory</button></div>`;
     list.querySelector('[data-act="inv"]').addEventListener("click", () => navigate("/import"));
     return;
   }
-
-  opps.forEach(({ lead, best, delta }) => {
-    const near = Math.abs(delta) <= band;
-    const card = document.createElement("div");
-    card.className = "card card-tap";
-    card.innerHTML = `
-      <div class="row">
-        <div class="row-main">
-          <div class="row-title">${esc(lead.name)}</div>
-          <div class="row-sub">Pays ${currency(lead.currentPayment)}/mo · ${esc(lead.vehicleInterest || "current vehicle")}</div>
-        </div>
-        <span class="badge ${near ? "badge-sold" : "badge-soon"}">${near ? "≈ same pmt" : (delta > 0 ? "+" : "") + currency(Math.round(delta)) + "/mo"}</span>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <div class="small muted">New: ${esc(vehName(best.vehicle))}</div>
-        <div class="strong mono">${currency2(best.monthly)}/mo</div>
-      </div>
-    `;
-    card.addEventListener("click", () => openDealBuilder(lead));
-    list.appendChild(card);
-  });
-
   if (!opps.length) {
-    list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">No payment matches in current inventory. Try adding more vehicles.</div>`;
+    list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">No strong matches in current inventory yet. Add more vehicles, or check back as inventory changes.</div>`;
+    return;
   }
+
+  opps.forEach((o) => list.appendChild(opportunityCard(o)));
+}
+
+function opportunityCard({ lead, best, score, reasons }) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const st = strength(score);
+  const v = best.vehicle;
+  el.innerHTML = `
+    <div class="row">
+      <div class="row-main">
+        <div class="row-title">${esc(lead.name)}</div>
+        <div class="row-sub">${lead.currentPayment != null ? "Pays " + currency(lead.currentPayment) + "/mo · " : ""}${esc(lead.vehicleInterest || "current vehicle")}</div>
+      </div>
+      <span class="badge ${st.badge}">${st.label}</span>
+    </div>
+    <div class="card" style="margin:12px 0 0;background:var(--surface-2);border:none">
+      <div class="row">
+        <div class="row-main"><div class="small muted">Put them in</div><div class="strong">${esc(vehName(v))}</div></div>
+        <div class="row-meta"><div class="strong mono" style="font-size:1.05rem">${currency2(best.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>${best.delta != null ? `<div class="small ${best.delta <= (store.getSettings().dealMatchBand || 50) ? "" : "muted"}" style="${best.delta <= (store.getSettings().dealMatchBand || 50) ? "color:var(--success);font-weight:700" : ""}">${best.delta <= 0 ? currency(Math.abs(Math.round(best.delta))) + "/mo less" : best.delta <= (store.getSettings().dealMatchBand || 50) ? "≈ same" : "+" + currency(Math.round(best.delta)) + "/mo"}</div>` : ""}</div>
+      </div>
+    </div>
+    ${reasons.length ? `<div class="btn-row" style="gap:6px;margin-top:10px">${reasons.map((r) => `<span class="badge badge-working">${esc(r)}</span>`).join("")}</div>` : ""}
+    <div class="btn-row" style="margin-top:12px">
+      ${lead.phone ? `<a class="btn btn-primary btn-sm" data-act="offer" style="flex:1" href="${smsHref(lead.phone, offerText(lead, best))}">${icon("message")} Text offer</a>
+      <a class="btn btn-success btn-sm" data-act="call" style="flex:0 0 auto" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
+      <button class="btn btn-ghost btn-sm" data-act="more" style="flex:1">${icon("dollar")} Options</button>
+    </div>
+  `;
+  const touch = () => { store.logActivity("touch"); store.update("leads", lead.id, { lastContacted: new Date().toISOString() }); };
+  const offer = el.querySelector('[data-act="offer"]');
+  if (offer) offer.addEventListener("click", touch);
+  const call = el.querySelector('[data-act="call"]');
+  if (call) call.addEventListener("click", touch);
+  el.querySelector('[data-act="more"]').addEventListener("click", () => openDealBuilder(lead));
+  return el;
 }
