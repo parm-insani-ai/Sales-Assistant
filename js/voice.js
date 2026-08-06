@@ -234,7 +234,7 @@ export function startVoiceAssistant() {
         <input id="v-text" type="text" placeholder="…or type a command" autocomplete="off" />
         <button class="btn btn-primary" type="submit">Go</button>
       </form>
-      <div class="voice-hint">Tip: tap the microphone on your keyboard to dictate.</div>
+      <div class="voice-hint">Tap the box, then the <b>microphone key</b> on your keyboard to speak — or type.</div>
       <div class="voice-examples">
         ${EXAMPLES.map((e) => `<button class="voice-eg" type="button">${e}</button>`).join("")}
       </div>
@@ -278,9 +278,17 @@ export function startVoiceAssistant() {
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
   overlay.querySelectorAll(".voice-eg").forEach((b) =>
     b.addEventListener("click", () => { textInput.value = b.textContent; run(b.textContent); }));
+  // Tapping the orb focuses the box (opens the keyboard so its dictation mic is reachable).
+  orb.addEventListener("click", () => textInput.focus());
+
+  // iOS Safari's speech recognition is unreliable and unavailable in installed
+  // (home-screen) mode, so on iOS we lead with the text box + keyboard dictation,
+  // which always works. Elsewhere we use live recognition.
+  const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   // Start speech recognition if available; otherwise fall straight to typing.
-  if (SR) {
+  if (SR && !isIOS) {
     try {
       rec = new SR();
       rec.lang = "en-US";
@@ -319,7 +327,9 @@ export function startVoiceAssistant() {
     }
   } else {
     orb.classList.remove("listening");
-    statusEl.textContent = "Type your command, or tap your keyboard's mic to dictate.";
-    setTimeout(() => textInput.focus(), 100);
+    statusEl.textContent = "Say your command";
+    // Focus synchronously (within the tap gesture) so iOS opens the keyboard,
+    // where the user can tap the dictation mic to speak.
+    textInput.focus();
   }
 }
