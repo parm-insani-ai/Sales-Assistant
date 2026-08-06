@@ -16,6 +16,7 @@ import { renderImport } from "./views/import.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { renderProspecting } from "./views/prospecting.js";
 import { openReferralCapture } from "./views/referrals.js";
+import { renderDeals } from "./views/dealbuilder.js";
 import { startVoiceAssistant } from "./voice.js";
 
 const view = document.getElementById("view");
@@ -30,6 +31,7 @@ const PAGES = {
   "/calendar": { title: "Calendar", render: renderCalendar },
   "/goals": { title: "Goals & Commission", render: renderGoals },
   "/prospecting": { title: "Prospecting", render: renderProspecting },
+  "/deals": { title: "Deal Builder", render: renderDeals },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
 };
@@ -72,12 +74,13 @@ document.getElementById("quick-add").addEventListener("click", () => {
     vehicle: { icon: "car", label: "Add vehicle", fn: () => openVehicleForm() },
     delivery: { icon: "box", label: "New delivery", fn: () => openDeliveryForm() },
     calc: { icon: "calculator", label: "Deal calculator", fn: () => navigate("/calculator") },
+    deals: { icon: "dollar", label: "Deal Builder (payment match)", fn: () => navigate("/deals") },
     dealer: { icon: "search", label: "Search O'Regan's inventory", fn: () => openDealerSearch() },
     import: { icon: "file", label: "Import from spreadsheet", fn: () => navigate("/import") },
   };
   // The most relevant action for the current tab goes first.
   const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calculator": "calc", "/calendar": "appt", "/goals": "sale" };
-  const order = ["lead", "prospect", "referral", "task", "appt", "sale", "vehicle", "delivery", "calc", "dealer", "import"];
+  const order = ["lead", "prospect", "referral", "task", "appt", "sale", "deals", "vehicle", "delivery", "calc", "dealer", "import"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
   const actions = keys.map((k) => byKey[k]);

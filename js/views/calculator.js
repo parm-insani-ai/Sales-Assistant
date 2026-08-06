@@ -40,13 +40,15 @@ function num(v) { return Number(v) || 0; }
 export function renderCalculator(view) {
   const s = store.getSettings();
 
-  // Optional prefill from an inventory vehicle.
+  // Optional prefill from an inventory vehicle or the Deal Builder.
   let prefillLabel = "";
   let prefillPrice = "";
+  let pf = null;
   try {
-    const pf = JSON.parse(sessionStorage.getItem("calc-prefill") || "null");
+    pf = JSON.parse(sessionStorage.getItem("calc-prefill") || "null");
     if (pf) { prefillPrice = pf.price ?? ""; prefillLabel = pf.label || ""; sessionStorage.removeItem("calc-prefill"); }
   } catch {}
+  const pfVal = (k, d) => (pf && pf[k] != null && pf[k] !== "" ? pf[k] : d);
 
   const el = document.createElement("div");
   el.innerHTML = `
@@ -58,15 +60,15 @@ export function renderCalculator(view) {
         <div class="field"><label>Cash down</label><input id="c-down" type="number" inputmode="decimal" placeholder="0"></div>
       </div>
       <div class="field-inline">
-        <div class="field"><label>Trade allowance</label><input id="c-trade" type="number" inputmode="decimal" placeholder="0"></div>
-        <div class="field"><label>Trade payoff</label><input id="c-payoff" type="number" inputmode="decimal" placeholder="0"></div>
+        <div class="field"><label>Trade allowance</label><input id="c-trade" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradeAllowance", ""))}"></div>
+        <div class="field"><label>Trade payoff</label><input id="c-payoff" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradePayoff", ""))}"></div>
       </div>
       <div class="field-inline">
         <div class="field"><label>Doc / fees</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
         <div class="field"><label>Tax rate %</label><input id="c-tax" type="number" inputmode="decimal" step="0.01" value="${esc(s.taxRate)}"></div>
       </div>
       <div class="field-inline">
-        <div class="field"><label>APR %</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(s.defaultApr)}"></div>
+        <div class="field"><label>APR %</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
         <div class="field"><label>Term (months)</label><input id="c-term" type="number" inputmode="numeric" value="${esc(s.defaultTerm)}"></div>
       </div>
       <div class="btn-row" style="margin-top:4px">

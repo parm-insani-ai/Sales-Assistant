@@ -37,6 +37,12 @@ const LEAD_TARGETS = [
   { field: "purchaseDate", label: "Purchase / sale date", aliases: ["purchase date", "sale date", "sold date", "delivery date", "date sold", "deal date", "contract date", "purchased", "closing date", "date of sale"] },
   { field: "leaseEnd", label: "Lease end date", aliases: ["lease end", "lease maturity", "maturity date", "lease end date", "term end", "lease expiration", "lease exp"] },
   { field: "dob", label: "Birthday", aliases: ["birthday", "birth date", "date of birth", "dob"] },
+  // Financial fields (e.g. from an AutoAlert equity export) power the Deal Builder.
+  { field: "currentPayment", label: "Current payment / mo", aliases: ["payment", "current payment", "monthly payment", "current pmt", "pmt", "monthly pmt", "current monthly payment"] },
+  { field: "payoff", label: "Loan payoff / balance", aliases: ["payoff", "payoff amount", "balance", "loan balance", "current payoff", "amount owed", "remaining balance", "buyout"] },
+  { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value"] },
+  { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity"] },
+  { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate"] },
   { field: "source", label: "Source", aliases: ["source", "lead source", "origin"] },
   { field: "notes", label: "Notes", aliases: ["notes", "comments", "remarks"] },
 ];
@@ -55,7 +61,7 @@ export function renderImport(view) {
           <option value="vehicles">Inventory (vehicles)</option>
           <option value="leads">Leads / past customers</option>
         </select>
-        <div class="hint">Importing past customers with a <b>purchase date</b> fills your equity &amp; anniversary call list. Add a <b>lease end</b> or <b>birthday</b> column and those surface too.</div>
+        <div class="hint">Importing past customers with a <b>purchase date</b> fills your equity &amp; anniversary call list. Include an <b>AutoAlert equity export</b> (current payment, payoff, value) and the <b>Deal Builder</b> can match them to a new car at their current payment.</div>
       </div>
       <label class="btn btn-primary btn-block" for="imp-file">${icon("file")} Choose CSV file</label>
       <input id="imp-file" type="file" accept=".csv,text/csv,text/plain" style="display:none">
@@ -168,6 +174,13 @@ function buildRecord(type, row, mapping) {
   let name = val("name");
   if (!name) name = [val("firstName"), val("lastName")].filter(Boolean).join(" ");
   const purchaseDate = parseDateLoose(val("purchaseDate"));
+  const currentPayment = parseNumber(val("currentPayment"));
+  const payoff = parseNumber(val("payoff"));
+  const equity = parseNumber(val("equity"));
+  let currentValue = parseNumber(val("currentValue"));
+  // If value isn't given but equity is, derive it (value = payoff + equity).
+  if (currentValue == null && equity != null && payoff != null) currentValue = payoff + equity;
+  const isCustomer = !!(purchaseDate || currentPayment != null);
   return {
     name,
     phone: val("phone"),
@@ -178,9 +191,13 @@ function buildRecord(type, row, mapping) {
     purchaseDate,
     leaseEnd: parseDateLoose(val("leaseEnd")),
     dob: parseDateLoose(val("dob")),
-    // Rows with a purchase date are past customers (feed the equity call list),
-    // not new pipeline leads.
-    stage: purchaseDate ? "delivered" : "new",
+    currentPayment,
+    payoff,
+    currentValue,
+    currentApr: parseNumber(val("currentApr")),
+    // Rows with a purchase date or current payment are existing customers (feed
+    // the equity call list + Deal Builder), not new pipeline leads.
+    stage: isCustomer ? "delivered" : "new",
   };
 }
 

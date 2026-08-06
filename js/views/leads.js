@@ -10,6 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
+import { openDealBuilder } from "./dealbuilder.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
@@ -209,6 +210,8 @@ function renderLeadDetail(view, id) {
       <div class="kv"><span class="k">Source</span><span class="v">${esc(l.source || "—")}</span></div>
       <div class="kv"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "—"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
+      ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
+      ${(l.currentValue != null || l.payoff != null) ? `<div class="kv"><span class="k">Est. equity</span><span class="v mono" style="color:${((l.currentValue||0)-(l.payoff||0))>=0?"var(--success)":"var(--danger)"}">${currency((l.currentValue||0)-(l.payoff||0))}</span></div>` : ""}
       <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
     </div>
 
@@ -217,6 +220,7 @@ function renderLeadDetail(view, id) {
     <div class="section-title">Actions</div>
     <div class="card">
       <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
+      ${(l.currentPayment != null || l.currentValue != null || l.payoff != null) ? `<button class="btn btn-success btn-block" data-act="dealbuild" style="margin-bottom:10px">${icon("dollar")} Build a payment-match deal</button>` : ""}
       <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:10px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
       <button class="btn btn-ghost btn-block" data-act="referral" style="margin-bottom:14px">${icon("users")} Ask for a referral</button>
       <div class="field">
@@ -266,6 +270,9 @@ function renderLeadDetail(view, id) {
   });
 
   el.querySelector('[data-act="referral"]').addEventListener("click", () => openReferralCapture(l.name, l.id));
+
+  const dealBtn = el.querySelector('[data-act="dealbuild"]');
+  if (dealBtn) dealBtn.addEventListener("click", () => openDealBuilder(l));
 
   el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
     openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));

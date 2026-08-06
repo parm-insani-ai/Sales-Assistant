@@ -71,6 +71,7 @@ const DEFAULT_STATE = {
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
+    dealMatchBand: 50, // $/mo within which a deal counts as a payment "match"
     // Dealer inventory websites for the one-tap search launcher. The network
     // site is pre-filtered to Used to match the "used only from other stores"
     // rule. All editable in Settings so this works for any dealer group.
