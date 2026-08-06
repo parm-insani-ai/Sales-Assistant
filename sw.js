@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "sales-assistant-v12";
+const CACHE = "sales-assistant-v13";
 const ASSETS = [
   "./",
   "./index.html",
@@ -32,6 +32,7 @@ const ASSETS = [
   "./js/views/import.js",
   "./js/views/dealer.js",
   "./js/views/prospecting.js",
+  "./js/views/referrals.js",
 ];
 
 self.addEventListener("install", (e) => {

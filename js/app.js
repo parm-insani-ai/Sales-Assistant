@@ -15,6 +15,7 @@ import { renderGoals, openSaleForm } from "./views/goals.js";
 import { renderImport } from "./views/import.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { renderProspecting } from "./views/prospecting.js";
+import { openReferralCapture } from "./views/referrals.js";
 import { startVoiceAssistant } from "./voice.js";
 
 const view = document.getElementById("view");
@@ -64,6 +65,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
   const byKey = {
     lead: { icon: "users", label: "New lead", fn: () => openLeadForm() },
     prospect: { icon: "target", label: "Prospecting call list", fn: () => navigate("/prospecting") },
+    referral: { icon: "users", label: "Add a referral", fn: () => openReferralCapture() },
     task: { icon: "check", label: "New to-do", fn: () => openTaskForm() },
     appt: { icon: "calendar", label: "New appointment", fn: () => openAppointmentForm() },
     sale: { icon: "dollar", label: "Log a sale", fn: () => openSaleForm() },
@@ -75,7 +77,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
   };
   // The most relevant action for the current tab goes first.
   const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calculator": "calc", "/calendar": "appt", "/goals": "sale" };
-  const order = ["lead", "prospect", "task", "appt", "sale", "vehicle", "delivery", "calc", "dealer", "import"];
+  const order = ["lead", "prospect", "referral", "task", "appt", "sale", "vehicle", "delivery", "calc", "dealer", "import"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
   const actions = keys.map((k) => byKey[k]);

@@ -5,6 +5,7 @@ import { openModal, buildForm, toast, confirmDialog, emptyState } from "../compo
 import { navigate } from "../router.js";
 import { esc, formatDate, relativeDay, daysFromToday } from "../utils.js";
 import { icon } from "../icons.js";
+import { openReferralCapture } from "./referrals.js";
 
 function progress(d) {
   const items = d.checklist || [];
@@ -195,6 +196,8 @@ function renderDeliveryDetail(view, id) {
     if (d.leadId) store.update("leads", d.leadId, { stage: "delivered" });
     toast("Congrats on the delivery!", "success");
     navigate("/deliveries");
+    // Delivery is the best moment to ask for referrals — prompt right away.
+    openReferralCapture(d.customerName, d.leadId);
   });
   const reopenBtn = el.querySelector('[data-act="reopen"]');
   if (reopenBtn) reopenBtn.addEventListener("click", () => {

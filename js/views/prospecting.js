@@ -16,6 +16,16 @@ import {
 
 const ACTIVE = (l) => !["delivered", "lost"].includes(l.stage);
 const daysSince = (iso) => (iso ? -daysFromToday(iso) : Infinity);
+const hoursSince = (iso) => (iso ? (Date.now() - new Date(iso).getTime()) / 3600000 : Infinity);
+const RESPOND_NOW_HRS = 48;
+
+function equityReason(dateISO) {
+  const info = anniversaryInfo(dateISO);
+  if (!info || info.years < 1) return null;
+  if (info.daysToAnn <= 14) return `${info.years}-yr anniversary ${info.daysToAnn === 0 ? "today" : "in " + info.daysToAnn + "d"}`;
+  if (info.years >= 3) return `Owned ${info.years} yrs — likely in equity`;
+  return null;
+}
 
 function anniversaryInfo(saleDate) {
   const d = parseDate(saleDate);
@@ -55,6 +65,14 @@ function buildCallList() {
     rows.push(r);
   };
 
+  // 0) Speed-to-lead — brand-new leads not yet contacted. Reach these first.
+  leads.filter((l) => ACTIVE(l) && !l.lastContacted && hoursSince(l.createdAt) <= RESPOND_NOW_HRS)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .forEach((l) => push({
+      leadId: l.id, name: l.name, phone: l.phone, vehicle: l.vehicleInterest,
+      kind: "hot", reason: "Respond now", badge: "badge-due",
+    }));
+
   // 1) Due / overdue follow-ups
   leads.filter((l) => ACTIVE(l) && l.followUp && daysFromToday(l.followUp) <= 0)
     .sort((a, b) => daysFromToday(a.followUp) - daysFromToday(b.followUp))
@@ -91,13 +109,16 @@ function buildCallList() {
     });
   });
 
-  // 5) Win-backs / equity from past sales (anniversary or 3+ years owned)
+  // 5) Win-backs / equity from imported past customers (leads with a purchase date)
+  leads.filter((l) => l.purchaseDate).forEach((l) => {
+    const reason = equityReason(l.purchaseDate);
+    if (!reason) return;
+    push({ leadId: l.id, name: l.name, phone: l.phone, vehicle: l.vehicleInterest, kind: "equity", reason, badge: "badge-sold" });
+  });
+
+  // 6) Win-backs / equity from logged sales (anniversary or 3+ years owned)
   sales.forEach((s) => {
-    const info = anniversaryInfo(s.saleDate);
-    if (!info || info.years < 1) return;
-    let reason = null;
-    if (info.daysToAnn <= 14) reason = `${info.years}-yr anniversary ${info.daysToAnn === 0 ? "today" : "in " + info.daysToAnn + "d"}`;
-    else if (info.years >= 3) reason = `Owned ${info.years} yrs — likely in equity`;
+    const reason = equityReason(s.saleDate);
     if (!reason) return;
     let name = s.customerName, phone = "", leadId = null, vehicle = s.vehicle;
     if (s.leadId) {
@@ -110,9 +131,11 @@ function buildCallList() {
   return rows;
 }
 
-// Number of prospecting opportunities right now (for the dashboard badge).
-export function prospectCount() {
-  return buildCallList().length;
+// Prospecting summary for the dashboard badge: total opportunities + how many
+// are brand-new leads that need an immediate response.
+export function prospectSummary() {
+  const rows = buildCallList();
+  return { total: rows.length, hot: rows.filter((r) => r.kind === "hot").length };
 }
 
 export function renderProspecting(view) {

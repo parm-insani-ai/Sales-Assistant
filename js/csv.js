@@ -81,6 +81,27 @@ export function autoMap(headers, targets) {
   return map;
 }
 
+// Parse a date out of a messy cell into ISO YYYY-MM-DD. Handles ISO, US
+// M/D/Y (and 2-digit years), and anything Date can parse. Returns "" if unknown.
+export function parseDateLoose(v) {
+  if (!v) return "";
+  const s = String(v).trim();
+  const pad = (n) => String(n).padStart(2, "0");
+  let m;
+  if ((m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)))
+    return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  if ((m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/))) {
+    let y = Number(m[3]);
+    if (y < 100) y += y < 50 ? 2000 : 1900;
+    return `${y}-${pad(m[1])}-${pad(m[2])}`;
+  }
+  const d = new Date(s);
+  if (!isNaN(d)) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  return "";
+}
+
 // Parse a number out of a messy cell like "$32,995.00" or "12,345 mi".
 export function parseNumber(v) {
   if (v == null) return null;

@@ -5,7 +5,7 @@
 import * as store from "../store.js";
 import { toast, emptyState } from "../components.js";
 import { navigate } from "../router.js";
-import { parseCSV, autoMap, parseNumber, normalizeHeader } from "../csv.js";
+import { parseCSV, autoMap, parseNumber, parseDateLoose, normalizeHeader } from "../csv.js";
 import { esc, num, currency } from "../utils.js";
 import { icon } from "../icons.js";
 
@@ -33,7 +33,10 @@ const LEAD_TARGETS = [
   { field: "lastName", label: "Last name", aliases: ["last name", "lastname", "last", "surname"] },
   { field: "phone", label: "Phone", aliases: ["phone", "phone number", "mobile", "cell", "cell phone", "primary phone"] },
   { field: "email", label: "Email", aliases: ["email", "e-mail", "email address"] },
-  { field: "vehicleInterest", label: "Vehicle of interest", aliases: ["vehicle", "vehicle of interest", "interest", "desired vehicle", "trade", "current vehicle"] },
+  { field: "vehicleInterest", label: "Vehicle of interest / owned", aliases: ["vehicle", "vehicle of interest", "interest", "desired vehicle", "trade", "current vehicle", "vehicle owned", "purchased vehicle", "year make model"] },
+  { field: "purchaseDate", label: "Purchase / sale date", aliases: ["purchase date", "sale date", "sold date", "delivery date", "date sold", "deal date", "contract date", "purchased", "closing date", "date of sale"] },
+  { field: "leaseEnd", label: "Lease end date", aliases: ["lease end", "lease maturity", "maturity date", "lease end date", "term end", "lease expiration", "lease exp"] },
+  { field: "dob", label: "Birthday", aliases: ["birthday", "birth date", "date of birth", "dob"] },
   { field: "source", label: "Source", aliases: ["source", "lead source", "origin"] },
   { field: "notes", label: "Notes", aliases: ["notes", "comments", "remarks"] },
 ];
@@ -50,8 +53,9 @@ export function renderImport(view) {
         <label>What are you importing?</label>
         <select id="imp-type">
           <option value="vehicles">Inventory (vehicles)</option>
-          <option value="leads">Leads (customers)</option>
+          <option value="leads">Leads / past customers</option>
         </select>
+        <div class="hint">Importing past customers with a <b>purchase date</b> fills your equity &amp; anniversary call list. Add a <b>lease end</b> or <b>birthday</b> column and those surface too.</div>
       </div>
       <label class="btn btn-primary btn-block" for="imp-file">${icon("file")} Choose CSV file</label>
       <input id="imp-file" type="file" accept=".csv,text/csv,text/plain" style="display:none">
@@ -163,6 +167,7 @@ function buildRecord(type, row, mapping) {
   // leads: combine first/last if a single name isn't provided.
   let name = val("name");
   if (!name) name = [val("firstName"), val("lastName")].filter(Boolean).join(" ");
+  const purchaseDate = parseDateLoose(val("purchaseDate"));
   return {
     name,
     phone: val("phone"),
@@ -170,7 +175,12 @@ function buildRecord(type, row, mapping) {
     vehicleInterest: val("vehicleInterest"),
     source: val("source") || "Import",
     notes: val("notes"),
-    stage: "new",
+    purchaseDate,
+    leaseEnd: parseDateLoose(val("leaseEnd")),
+    dob: parseDateLoose(val("dob")),
+    // Rows with a purchase date are past customers (feed the equity call list),
+    // not new pipeline leads.
+    stage: purchaseDate ? "delivered" : "new",
   };
 }
 

@@ -9,6 +9,7 @@ import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
+import { openReferralCapture } from "./referrals.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
@@ -216,7 +217,8 @@ function renderLeadDetail(view, id) {
     <div class="section-title">Actions</div>
     <div class="card">
       <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
-      <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:14px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
+      <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:10px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
+      <button class="btn btn-ghost btn-block" data-act="referral" style="margin-bottom:14px">${icon("users")} Ask for a referral</button>
       <div class="field">
         <label>Set / change follow-up</label>
         <input type="date" data-act="followup" value="${esc(l.followUp || "")}" />
@@ -262,6 +264,8 @@ function renderLeadDetail(view, id) {
     toast(`${n}-step follow-up plan started`, "success");
     renderRefresh(view, id);
   });
+
+  el.querySelector('[data-act="referral"]').addEventListener("click", () => openReferralCapture(l.name, l.id));
 
   el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
     openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));
