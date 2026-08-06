@@ -89,8 +89,9 @@ function openComposer(template, lead) {
     if (subjEl) subjEl.addEventListener("input", updateHref);
 
     sendEl.addEventListener("click", () => {
-      // Log the touch as a note timestamp on the lead (lightweight activity).
+      // Stamp last-contacted and count it as a prospecting touch.
       store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
+      store.logActivity("touch");
       setTimeout(close, 50);
     });
 

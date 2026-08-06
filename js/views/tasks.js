@@ -68,6 +68,11 @@ export function taskListEl({ onChange } = {}) {
       `;
       row.querySelector("input").addEventListener("change", () => {
         store.update("tasks", t.id, { done: true });
+        // A completed follow-up counts as a prospecting touch.
+        if (t.cadence) {
+          store.logActivity("touch");
+          if (t.leadId) store.update("leads", t.leadId, { lastContacted: new Date().toISOString() });
+        }
         toast("Nice — task done", "success");
         draw();
         if (onChange) onChange();

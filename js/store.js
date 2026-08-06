@@ -37,6 +37,17 @@ const DEFAULT_TEMPLATES = [
     body: "Hi {name},\n\nThank you for reaching out about the {vehicle}. I'd love to help you find the right fit and answer any questions.\n\nWhat's the best day and time for you to stop by for a look and a test drive?\n\nBest,\n{salesperson}\n{dealership}" },
 ];
 
+// A proven multi-touch follow-up cadence, applied to new leads so none go cold.
+const DEFAULT_CADENCE = [
+  { day: 0, channel: "call", label: "Intro call" },
+  { day: 0, channel: "text", label: "Intro text" },
+  { day: 2, channel: "call", label: "Follow-up call" },
+  { day: 4, channel: "text", label: "Value follow-up" },
+  { day: 7, channel: "call", label: "One-week call" },
+  { day: 14, channel: "text", label: "Two-week check-in" },
+  { day: 30, channel: "call", label: "30-day call" },
+];
+
 const DEFAULT_STATE = {
   leads: [],
   tasks: [],
@@ -44,6 +55,7 @@ const DEFAULT_STATE = {
   deliveries: [],
   appointments: [],
   sales: [],
+  activity: [],
   settings: {
     salesperson: "",
     dealership: "",
@@ -56,6 +68,9 @@ const DEFAULT_STATE = {
     messageTemplates: DEFAULT_TEMPLATES,
     goalUnits: 12, // sales per month
     goalCommission: 8000, // $ per month
+    cadence: DEFAULT_CADENCE,
+    autoCadence: true,
+    dailyTouchGoal: 20,
     // Dealer inventory websites for the one-tap search launcher. The network
     // site is pre-filtered to Used to match the "used only from other stores"
     // rule. All editable in Settings so this works for any dealer group.
@@ -176,6 +191,17 @@ export function remove(name, id) {
     return true;
   }
   return false;
+}
+
+// --- Activity tracking (prospecting touches) ---
+// A "touch" is any outreach (call/text/logged contact). Used for the daily
+// activity scoreboard.
+export function logActivity(type) {
+  return create("activity", { type });
+}
+export function activityCountToday(type) {
+  const today = new Date().toISOString().slice(0, 10);
+  return state.activity.filter((a) => (a.createdAt || "").slice(0, 10) === today && (!type || a.type === type)).length;
 }
 
 // --- Data export / import (backup) ---

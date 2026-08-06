@@ -33,6 +33,20 @@ export function renderSettings(view) {
       <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>
     </div>
 
+    <div class="section-title">Prospecting & follow-up</div>
+    <div class="card">
+      <div class="field-inline">
+        <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
+        <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end">
+          <label style="margin-bottom:8px">Auto follow-up plan</label>
+          <label class="switch"><input id="s-autocad" type="checkbox" ${s.autoCadence ? "checked" : ""}><span>Start a plan on every new lead</span></label>
+        </div>
+      </div>
+      <div class="small muted" style="margin:6px 0 8px">Your follow-up cadence — the touches auto-scheduled for each new lead:</div>
+      <div class="cad-list"></div>
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-cad" style="margin-top:10px">+ Add a touch</button>
+    </div>
+
     <div class="section-title">Delivery checklist template</div>
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Used every time you start a new delivery. Existing deliveries keep their own copy.</div>
@@ -95,6 +109,52 @@ export function renderSettings(view) {
       defaultTerm: Number(el.querySelector("#s-term").value) || 0,
     });
     toast("Defaults saved", "success");
+  });
+
+  // Prospecting settings
+  el.querySelector("#s-touchgoal").addEventListener("change", (e) =>
+    store.updateSettings({ dailyTouchGoal: Number(e.target.value) || 0 }));
+  el.querySelector("#s-autocad").addEventListener("change", (e) =>
+    store.updateSettings({ autoCadence: e.target.checked }));
+
+  // Follow-up cadence editor
+  const cadList = el.querySelector(".cad-list");
+  function drawCad() {
+    const steps = (store.getSettings().cadence || []).slice().sort((a, b) => a.day - b.day);
+    cadList.innerHTML = "";
+    steps.forEach((step, idx) => {
+      const row = document.createElement("div");
+      row.className = "check-item";
+      const verb = step.channel === "text" ? "Text" : step.channel === "email" ? "Email" : "Call";
+      row.innerHTML = `<label style="flex:1"><span class="strong">Day ${step.day}</span> · ${verb} — ${esc(step.label)}</label>
+        <button class="modal-close" data-del="${idx}" aria-label="Remove" style="font-size:1.2rem">&times;</button>`;
+      row.querySelector("[data-del]").addEventListener("click", () => {
+        const next = steps.slice();
+        next.splice(idx, 1);
+        store.updateSettings({ cadence: next });
+        drawCad();
+      });
+      cadList.appendChild(row);
+    });
+    if (!steps.length) cadList.innerHTML = `<div class="muted small">No touches — add one below.</div>`;
+  }
+  drawCad();
+  el.querySelector('[data-act="add-cad"]').addEventListener("click", () => {
+    openModal("Add a follow-up touch", (close) => {
+      const { element } = buildForm(
+        [
+          { name: "day", label: "Day (from lead creation)", value: 1, type: "number", inputmode: "numeric", half: true, required: true },
+          { name: "channel", label: "Channel", value: "call", type: "select", half: true, options: [{ value: "call", label: "Call" }, { value: "text", label: "Text" }, { value: "email", label: "Email" }] },
+          { name: "label", label: "What to do", value: "", required: true, placeholder: "Check in, share options…" },
+        ],
+        { submitLabel: "Add touch", onSubmit: (data) => {
+          const next = (store.getSettings().cadence || []).concat([{ day: Number(data.day) || 0, channel: data.channel, label: data.label }]);
+          store.updateSettings({ cadence: next });
+          close(); drawCad();
+        } }
+      );
+      return element;
+    });
   });
 
   // Checklist template editor

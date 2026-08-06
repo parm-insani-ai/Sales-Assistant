@@ -8,6 +8,7 @@ import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
+import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
@@ -137,6 +138,8 @@ export function openLeadForm(existing) {
         { name: "stage", label: "Stage", value: l.stage || "new", type: "select",
           options: LEAD_STAGES.map((s) => ({ value: s.id, label: s.label })), half: true },
         { name: "followUp", label: "Next follow-up", value: l.followUp || "", type: "date", half: true },
+        { name: "dob", label: "Birthday (optional)", value: l.dob || "", type: "date", half: true },
+        { name: "leaseEnd", label: "Lease end (optional)", value: l.leaseEnd || "", type: "date", half: true },
         { name: "notes", label: "Notes", value: l.notes, type: "textarea", placeholder: "Trade-in, budget, timeline, hot buttons…" },
       ],
       {
@@ -146,8 +149,9 @@ export function openLeadForm(existing) {
             store.update("leads", existing.id, data);
             toast("Lead updated", "success");
           } else {
-            store.create("leads", data);
-            toast("Lead added", "success");
+            const lead = store.create("leads", data);
+            const n = maybeStartCadence(lead.id);
+            toast(n ? `Lead added — ${n}-step follow-up plan started` : "Lead added", "success");
           }
           close();
           // Refresh current view.
@@ -184,8 +188,8 @@ function renderLeadDetail(view, id) {
 
       ${l.phone ? `
       <div class="btn-row" style="margin-top:14px">
-        <a class="btn btn-success btn-sm" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
-        <a class="btn btn-primary btn-sm" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>
+        <a class="btn btn-success btn-sm" data-act="call" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
+        <a class="btn btn-primary btn-sm" data-act="text" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>
       </div>` : ""}
       ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
     </div>
@@ -211,7 +215,8 @@ function renderLeadDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
-      <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:14px">${icon("search")} Find a car on O'Regan's</button>
+      <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
+      <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:14px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
       <div class="field">
         <label>Set / change follow-up</label>
         <input type="date" data-act="followup" value="${esc(l.followUp || "")}" />
@@ -240,6 +245,23 @@ function renderLeadDetail(view, id) {
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
+
+  // Log outreach as a "touch" and stamp last-contacted when calling/texting.
+  const logTouch = () => {
+    store.logActivity("touch");
+    store.update("leads", l.id, { lastContacted: new Date().toISOString() });
+  };
+  const callBtn = el.querySelector('[data-act="call"]');
+  if (callBtn) callBtn.addEventListener("click", logTouch);
+  const textBtn = el.querySelector('[data-act="text"]');
+  if (textBtn) textBtn.addEventListener("click", logTouch);
+
+  el.querySelector('[data-act="cadence"]').addEventListener("click", () => {
+    if (hasCadence(l.id)) { toast("Follow-up plan already running", ""); return; }
+    const n = startCadence(l.id);
+    toast(`${n}-step follow-up plan started`, "success");
+    renderRefresh(view, id);
+  });
 
   el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
     openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));

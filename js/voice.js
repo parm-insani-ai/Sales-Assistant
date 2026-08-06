@@ -8,6 +8,7 @@ import { navigate } from "./router.js";
 import { toast } from "./components.js";
 import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
+import { maybeStartCadence } from "./cadence.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export function voiceRecognitionSupported() { return !!SR; }
@@ -172,6 +173,7 @@ export function executeCommand(cmd) {
         name: cmd.name, vehicleInterest: cmd.vehicleInterest || "", stage: "new",
         source: "Voice", followUp: cmd.followUp || null, phone: "", email: "", notes: "",
       });
+      maybeStartCadence(lead.id);
       navigate(`/leads/${lead.id}`);
       return `Added lead ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}. Add their phone number to start texting.`;
     }

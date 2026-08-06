@@ -472,6 +472,8 @@ html, body {
 }
 .field-inline { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hint { font-size: 0.77rem; color: var(--muted); margin-top: 7px; line-height: 1.45; }
+.switch { display: flex; align-items: center; gap: 9px; font-size: 0.84rem; color: var(--text-2); font-weight: 550; cursor: pointer; }
+.switch input { width: 22px; height: 22px; flex: none; accent-color: var(--brand); }
 .hint .mono { color: var(--text-2); font-weight: 600; }
 
 /* ---------- Modal ---------- */
@@ -644,6 +646,14 @@ html, body {
 .kv-total .v { color: var(--brand); font-weight: 800; }
 .fab-note { text-align: center; color: var(--muted); font-size: 0.79rem; margin-top: 20px; line-height: 1.5; }
 a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
+
+/* Prospecting call-list card (dashboard) */
+.prospect-card {
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
+  border-color: transparent;
+  box-shadow: 0 6px 20px rgba(10, 143, 91, 0.32);
+}
+.prospect-card .ico { vertical-align: -0.2em; }
 
 /* Greeting / hero on dashboard */
 .hero { margin: 4px 2px 18px; }

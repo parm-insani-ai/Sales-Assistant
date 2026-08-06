@@ -6,6 +6,7 @@ import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHref } from "../utils.js";
 import { taskListEl, openTaskForm } from "./tasks.js";
 import { monthSummary } from "./goals.js";
+import { prospectCount } from "./prospecting.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 
@@ -45,6 +46,17 @@ export function renderDashboard(view) {
       <div class="hero-greeting">${greeting}${esc(name)}</div>
       <div class="hero-title">Here's your day</div>
     </div>
+
+    ${(() => { const pc = prospectCount(); return `
+    <div class="card card-tap prospect-card" data-goto="/prospecting">
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title" style="color:var(--brand-ink)">${icon("target")} Today's call list</div>
+          <div class="row-sub" style="color:var(--brand-ink);opacity:.85">${pc ? `${pc} ${pc === 1 ? "person" : "people"} to reach — book more appointments` : "You're all caught up on outreach"}</div>
+        </div>
+        <div class="row-meta strong" style="color:var(--brand-ink);font-size:1.6rem">${pc || ""} ›</div>
+      </div>
+    </div>`; })()}
 
     <div class="stat-grid">
       <div class="stat"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due</div></div>
