@@ -7,6 +7,7 @@ import { navigate } from "../router.js";
 import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
+import { openDealerSearch } from "./dealer.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
   relativeDay, daysFromToday, formatDate, todayISO,
@@ -209,6 +210,7 @@ function renderLeadDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
+      <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:14px">🔎 Find a car on O'Regan's</button>
       <div class="field">
         <label>Set / change follow-up</label>
         <input type="date" data-act="followup" value="${esc(l.followUp || "")}" />
@@ -237,6 +239,9 @@ function renderLeadDetail(view, id) {
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
+
+  el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
+    openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));
 
   el.querySelector('[data-act="appointment"]').addEventListener("click", () =>
     openAppointmentForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest, type: "appointment" }));

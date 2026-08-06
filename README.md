@@ -45,6 +45,15 @@ Now it launches full-screen like an app and works offline.
 2. Repo **Settings → Pages** → Source: *Deploy from a branch* → pick this branch, folder `/ (root)`.
 3. Your app will be live at `https://<user>.github.io/<repo>/`.
 
+## Finding a car on the dealer network (search launcher)
+
+From a customer's lead (or the Inventory tab), **🔎 Find a car** opens the O'Regan's inventory site pre-filtered the right way:
+
+- **My store** → all inventory (new + used)
+- **The network** → **used only** (matching the rule that only used cars can be sold from other stores in the group)
+
+A phone app can't read another site's inventory directly (cross-origin security + the sites' bot protection), so instead of scraping, this deep-links straight into the dealer's own search with the used/new filter already applied — you just narrow by make/model on the site. The site URLs and the "used only" filter are editable under **Settings → Dealer inventory sites**, so it works for any dealer group.
+
 ## Connecting to vAuto, AutoAlert, or your dealer website
 
 The app runs entirely on your device with no server, which is what keeps it free and private. Live API connections to enterprise tools like **vAuto** (Cox Automotive) and **AutoAlert** aren't possible from an on-device app: their APIs are partner-gated (they require credentials issued under a dealership-level agreement), and those credentials can't be safely stored in a browser app — that would need a hosted backend.

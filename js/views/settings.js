@@ -39,6 +39,17 @@ export function renderSettings(view) {
       <button class="btn btn-ghost btn-sm btn-block" data-act="add-tmpl" style="margin-top:10px">+ Add item</button>
     </div>
 
+    <div class="section-title">Dealer inventory sites</div>
+    <div class="card">
+      <div class="small muted" style="margin-bottom:10px">Powers the “Find a car” search launcher. The network site is opened pre-filtered to used vehicles.</div>
+      <div class="field"><label>My store — name</label><input id="d-store-name" value="${esc(s.storeSiteName || "")}" placeholder="My store"></div>
+      <div class="field"><label>My store — inventory URL</label><input id="d-store-url" type="url" value="${esc(s.storeSiteUrl || "")}" placeholder="https://…/inventory/"></div>
+      <div class="field"><label>Network — name</label><input id="d-net-name" value="${esc(s.networkSiteName || "")}" placeholder="Dealer network"></div>
+      <div class="field"><label>Network — inventory URL</label><input id="d-net-url" type="url" value="${esc(s.networkSiteUrl || "")}" placeholder="https://…/inventory/"></div>
+      <div class="field" style="margin-bottom:0"><label>Network “used only” filter</label><input id="d-net-suffix" value="${esc(s.networkUsedSuffix || "")}" placeholder="&search.vehicle-inventory-type-ids.0=2"></div>
+      <div class="hint">Advanced: the query string appended to the network URL to show only used vehicles.</div>
+    </div>
+
     <div class="section-title">Message templates</div>
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Quick messages for follow-ups. Use <span class="mono">{firstName}</span>, <span class="mono">{name}</span>, <span class="mono">{vehicle}</span>, <span class="mono">{salesperson}</span>, <span class="mono">{dealership}</span> — they fill in automatically per customer.</div>
@@ -69,6 +80,11 @@ export function renderSettings(view) {
     store.updateSettings({ dealership: e.target.value.trim() }));
   el.querySelector("#s-phone").addEventListener("change", (e) =>
     store.updateSettings({ contactPhone: e.target.value.trim() }));
+
+  const dealerBind = { "d-store-name": "storeSiteName", "d-store-url": "storeSiteUrl", "d-net-name": "networkSiteName", "d-net-url": "networkSiteUrl", "d-net-suffix": "networkUsedSuffix" };
+  Object.entries(dealerBind).forEach(([id, key]) =>
+    el.querySelector("#" + id).addEventListener("change", (e) =>
+      store.updateSettings({ [key]: e.target.value.trim() })));
 
   el.querySelector('[data-act="save-defaults"]').addEventListener("click", () => {
     store.updateSettings({

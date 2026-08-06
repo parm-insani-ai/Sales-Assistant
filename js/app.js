@@ -12,6 +12,7 @@ import { openTaskForm } from "./views/tasks.js";
 import { renderCalendar, openAppointmentForm } from "./views/calendar.js";
 import { renderGoals, openSaleForm } from "./views/goals.js";
 import { renderImport } from "./views/import.js";
+import { openDealerSearch } from "./views/dealer.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -64,11 +65,12 @@ document.getElementById("quick-add").addEventListener("click", () => {
     vehicle: { icon: "🚗", label: "Add vehicle", fn: () => openVehicleForm() },
     delivery: { icon: "📦", label: "New delivery", fn: () => openDeliveryForm() },
     calc: { icon: "🧮", label: "Deal calculator", fn: () => navigate("/calculator") },
+    dealer: { icon: "🔎", label: "Search O'Regan's inventory", fn: () => openDealerSearch() },
     import: { icon: "📄", label: "Import from spreadsheet", fn: () => navigate("/import") },
   };
   // The most relevant action for the current tab goes first.
   const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calculator": "calc", "/calendar": "appt", "/goals": "sale" };
-  const order = ["lead", "task", "appt", "sale", "vehicle", "delivery", "calc", "import"];
+  const order = ["lead", "task", "appt", "sale", "vehicle", "delivery", "calc", "dealer", "import"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
   const actions = keys.map((k) => byKey[k]);

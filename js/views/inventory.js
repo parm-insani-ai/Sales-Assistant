@@ -4,6 +4,7 @@ import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
 import { openMarketplaceBuilder } from "./marketplace.js";
+import { openDealerSearch } from "./dealer.js";
 import { currency, num, esc } from "../utils.js";
 
 export function vehicleName(v) {
@@ -37,6 +38,7 @@ export function renderInventory(view, { param }) {
       { id: "all", label: "All" },
     ];
     wrap.innerHTML = `
+      <button class="btn btn-success btn-block" data-act="dealer" style="margin-bottom:12px">🔎 Search O'Regan's network (used)</button>
       <div class="searchbar">
         <input type="search" placeholder="Search year, make, model, stock #…" value="${esc(search)}" />
       </div>
@@ -45,6 +47,7 @@ export function renderInventory(view, { param }) {
       </div>
       <div class="veh-list"></div>
     `;
+    wrap.querySelector('[data-act="dealer"]').addEventListener("click", () => openDealerSearch());
     const listEl = wrap.querySelector(".veh-list");
     const items = list();
     if (!items.length) {

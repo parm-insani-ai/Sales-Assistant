@@ -56,6 +56,14 @@ const DEFAULT_STATE = {
     messageTemplates: DEFAULT_TEMPLATES,
     goalUnits: 12, // sales per month
     goalCommission: 8000, // $ per month
+    // Dealer inventory websites for the one-tap search launcher. The network
+    // site is pre-filtered to Used to match the "used only from other stores"
+    // rule. All editable in Settings so this works for any dealer group.
+    storeSiteName: "My store",
+    storeSiteUrl: "https://www.oregansnissanhalifax.com/inventory/?do-search=1",
+    networkSiteName: "O'Regan's network",
+    networkSiteUrl: "https://www.oregans.com/inventory/?do-search=1",
+    networkUsedSuffix: "&search.vehicle-inventory-type-ids.0=2",
   },
 };
 
