@@ -14,6 +14,7 @@ import { renderCalendar, openAppointmentForm } from "./views/calendar.js";
 import { renderGoals, openSaleForm } from "./views/goals.js";
 import { renderImport } from "./views/import.js";
 import { openDealerSearch } from "./views/dealer.js";
+import { startVoiceAssistant } from "./voice.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -90,6 +91,8 @@ document.getElementById("quick-add").addEventListener("click", () => {
     return wrap;
   });
 });
+
+document.getElementById("voice-btn").addEventListener("click", startVoiceAssistant);
 
 startRouter();
 

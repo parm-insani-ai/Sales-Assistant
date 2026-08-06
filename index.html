@@ -19,7 +19,12 @@
   <div id="app">
     <header class="topbar">
       <h1 id="page-title">Dashboard</h1>
-      <button id="quick-add" class="icon-btn" aria-label="Quick add" title="Quick add">+</button>
+      <div class="topbar-actions">
+        <button id="voice-btn" class="icon-btn icon-btn-ghost" aria-label="Voice command" title="Voice command">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/></svg>
+        </button>
+        <button id="quick-add" class="icon-btn" aria-label="Quick add" title="Quick add">+</button>
+      </div>
     </header>
 
     <main id="view" class="view"></main>
