@@ -95,6 +95,22 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* Inline line icons (match the nav icon style) */
+.ico {
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.18em;
+}
+.ico-lg { width: 22px; height: 22px; stroke-width: 1.8; }
+.ico-xl { width: 46px; height: 46px; stroke-width: 1.5; }
+.section-title .ico { vertical-align: -0.16em; margin-right: 2px; }
+
 html, body {
   margin: 0;
   padding: 0;

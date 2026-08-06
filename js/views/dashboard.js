@@ -7,6 +7,7 @@ import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHr
 import { taskListEl, openTaskForm } from "./tasks.js";
 import { monthSummary } from "./goals.js";
 import { emptyState } from "../components.js";
+import { icon } from "../icons.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -74,7 +75,7 @@ export function renderDashboard(view) {
   // Due follow-ups
   const dueList = el.querySelector(".due-list");
   if (!dueFollowUps.length) {
-    dueList.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">All caught up — no follow-ups due. 🙌</div></div>`;
+    dueList.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">All caught up — no follow-ups due.</div></div>`;
   } else {
     dueFollowUps.forEach((l) => dueList.appendChild(followUpCard(l)));
   }
@@ -129,7 +130,7 @@ function apptMini(a) {
   el.innerHTML = `
     <div class="row">
       <div class="row-main">
-        <div class="row-title">${t.icon} ${esc(a.title || t.label)}</div>
+        <div class="row-title">${icon(t.icon)} ${esc(a.title || t.label)}</div>
         <div class="row-sub">${esc(a.customerName || "")}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
       </div>
       <div class="row-meta strong mono">${esc(time)}</div>
@@ -156,10 +157,10 @@ function followUpCard(l, upcoming = false) {
       </div>
     </div>
     ${l.phone ? `<div class="btn-row" style="margin-top:12px">
-      <a class="btn btn-success btn-sm" style="flex:1" href="${telHref(l.phone)}">📞 Call</a>
-      <a class="btn btn-primary btn-sm" style="flex:1" href="${smsHref(l.phone)}">💬 Text</a>
-      <button class="btn btn-ghost btn-sm" data-act="done" style="flex:1">✓ Done</button>
-    </div>` : `<div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost btn-sm btn-block" data-act="done">✓ Mark followed up</button></div>`}
+      <a class="btn btn-success btn-sm" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
+      <a class="btn btn-primary btn-sm" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>
+      <button class="btn btn-ghost btn-sm" data-act="done" style="flex:1">${icon("checkline")} Done</button>
+    </div>` : `<div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost btn-sm btn-block" data-act="done">${icon("checkline")} Mark followed up</button></div>`}
   `;
   el.querySelector("[data-open]").addEventListener("click", () => navigate(`/leads/${l.id}`));
   const doneBtn = el.querySelector('[data-act="done"]');

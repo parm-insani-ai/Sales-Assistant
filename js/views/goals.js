@@ -5,6 +5,7 @@ import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
 import { currency, esc, formatDate, todayISO } from "../utils.js";
+import { icon } from "../icons.js";
 
 function monthKey(iso) {
   return (iso || "").slice(0, 7); // YYYY-MM
@@ -37,7 +38,7 @@ function progressCard(label, value, goal, fmt) {
         <div class="mono strong">${fmt(value)} <span class="muted">/ ${fmt(goal)}</span></div>
       </div>
       <div class="progress"><span style="width:${pct}%;background:${hit ? "var(--success)" : "var(--accent)"}"></span></div>
-      <div class="small muted" style="margin-top:6px">${hit ? "🎉 Goal reached!" : `${pct}% — ${fmt(Math.max(0, goal - value))} to go`}</div>
+      <div class="small muted" style="margin-top:6px">${hit ? `<span style="color:var(--success)">${icon("check")} Goal reached!</span>` : `${pct}% — ${fmt(Math.max(0, goal - value))} to go`}</div>
     </div>`;
 }
 
@@ -72,7 +73,7 @@ export function renderGoals(view) {
 
   const listEl = el.querySelector(".sales-list");
   if (!sum.sales.length) {
-    listEl.innerHTML = emptyState("💵", "No sales logged yet", "Tap “Log sale” after you close a deal.");
+    listEl.innerHTML = emptyState("dollar", "No sales logged yet", "Tap “Log sale” after you close a deal.");
   } else {
     sum.sales
       .slice()
@@ -121,7 +122,7 @@ export function openSaleForm(existing, prefill = {}) {
         submitLabel: isEdit ? "Save" : "Log sale",
         onSubmit: (data) => {
           if (isEdit) { store.update("sales", existing.id, data); toast("Sale updated", "success"); }
-          else { store.create("sales", { ...data, leadId: sale.leadId || null }); toast("Sale logged 💵", "success"); }
+          else { store.create("sales", { ...data, leadId: sale.leadId || null }); toast("Sale logged", "success"); }
           close();
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         },

@@ -5,6 +5,7 @@ import { openModal, buildForm, toast, confirmDialog, emptyState } from "../compo
 import { navigate } from "../router.js";
 import { openMarketplaceBuilder } from "./marketplace.js";
 import { openDealerSearch } from "./dealer.js";
+import { icon } from "../icons.js";
 import { currency, num, esc } from "../utils.js";
 
 export function vehicleName(v) {
@@ -38,7 +39,7 @@ export function renderInventory(view, { param }) {
       { id: "all", label: "All" },
     ];
     wrap.innerHTML = `
-      <button class="btn btn-success btn-block" data-act="dealer" style="margin-bottom:12px">🔎 Search O'Regan's network (used)</button>
+      <button class="btn btn-success btn-block" data-act="dealer" style="margin-bottom:12px">${icon("search")} Search O'Regan's network (used)</button>
       <div class="searchbar">
         <input type="search" placeholder="Search year, make, model, stock #…" value="${esc(search)}" />
       </div>
@@ -51,11 +52,11 @@ export function renderInventory(view, { param }) {
     const listEl = wrap.querySelector(".veh-list");
     const items = list();
     if (!items.length) {
-      listEl.innerHTML = emptyState("🚗", "No vehicles", search ? "No matches." : "Tap + to add inventory.");
+      listEl.innerHTML = emptyState("car", "No vehicles", search ? "No matches." : "Tap + to add inventory.");
       if (!search) {
         const imp = document.createElement("button");
         imp.className = "btn btn-primary btn-block";
-        imp.textContent = "📄 Import from spreadsheet (vAuto export, etc.)";
+        imp.innerHTML = `${icon("file")} Import from spreadsheet (vAuto export, etc.)`;
         imp.addEventListener("click", () => navigate("/import"));
         listEl.appendChild(imp);
       }
@@ -67,7 +68,7 @@ export function renderInventory(view, { param }) {
       const el = wrap.querySelector(".veh-list");
       const items2 = list();
       el.innerHTML = "";
-      if (!items2.length) el.innerHTML = emptyState("🔎", "No matches", "");
+      if (!items2.length) el.innerHTML = emptyState("search", "No matches", "");
       else items2.forEach((v) => el.appendChild(vehicleCard(v)));
     });
     wrap.querySelectorAll("[data-filter]").forEach((b) =>
@@ -148,7 +149,7 @@ export function openVehicleForm(existing) {
 
 function renderVehicleDetail(view, id) {
   const v = store.get("vehicles", id);
-  if (!v) { view.innerHTML = emptyState("🤷", "Vehicle not found", ""); return; }
+  if (!v) { view.innerHTML = emptyState("help", "Vehicle not found", ""); return; }
 
   const el = document.createElement("div");
   el.innerHTML = `
@@ -172,10 +173,10 @@ function renderVehicleDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
-      <button class="btn btn-primary btn-block" data-act="marketplace">📣 Build Facebook Marketplace listing</button>
+      <button class="btn btn-primary btn-block" data-act="marketplace">${icon("megaphone")} Build Facebook Marketplace listing</button>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-ghost btn-block" data-act="quote">🧮 Quote a deal</button>
-        <button class="btn btn-ghost btn-block" data-act="edit">✏️ Edit</button>
+        <button class="btn btn-ghost btn-block" data-act="quote">${icon("calculator")} Quote a deal</button>
+        <button class="btn btn-ghost btn-block" data-act="edit">${icon("edit")} Edit</button>
       </div>
       <button class="btn btn-danger btn-block" data-act="delete" style="margin-top:10px">Delete vehicle</button>
     </div>

@@ -1,5 +1,7 @@
 // Shared UI primitives: modal sheet, toast, confirm, and small form helpers.
 
+import { icon } from "./icons.js";
+
 const modalRoot = () => document.getElementById("modal-root");
 const toastRoot = () => document.getElementById("toast-root");
 
@@ -186,8 +188,8 @@ export function buildForm(fields, { submitLabel = "Save", onSubmit } = {}) {
   return { element: form, getValues, form };
 }
 
-export function emptyState(icon, title, sub) {
-  return `<div class="empty"><div class="empty-icon">${icon}</div>
+export function emptyState(iconName, title, sub) {
+  return `<div class="empty"><div class="empty-icon">${icon(iconName, "ico-xl")}</div>
     <div class="strong">${escapeText(title)}</div>
     ${sub ? `<div class="small">${escapeText(sub)}</div>` : ""}</div>`;
 }

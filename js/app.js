@@ -2,6 +2,7 @@
 
 import { route, startRouter, currentBase, navigate } from "./router.js";
 import { openModal } from "./components.js";
+import { icon } from "./icons.js";
 import { renderDashboard } from "./views/dashboard.js";
 import { renderLeads, openLeadForm } from "./views/leads.js";
 import { renderInventory, openVehicleForm } from "./views/inventory.js";
@@ -58,15 +59,15 @@ Object.keys(PAGES).forEach((base) => {
 document.getElementById("quick-add").addEventListener("click", () => {
   const base = currentBase();
   const byKey = {
-    lead: { icon: "👥", label: "New lead", fn: () => openLeadForm() },
-    task: { icon: "✅", label: "New to-do", fn: () => openTaskForm() },
-    appt: { icon: "📅", label: "New appointment", fn: () => openAppointmentForm() },
-    sale: { icon: "💵", label: "Log a sale", fn: () => openSaleForm() },
-    vehicle: { icon: "🚗", label: "Add vehicle", fn: () => openVehicleForm() },
-    delivery: { icon: "📦", label: "New delivery", fn: () => openDeliveryForm() },
-    calc: { icon: "🧮", label: "Deal calculator", fn: () => navigate("/calculator") },
-    dealer: { icon: "🔎", label: "Search O'Regan's inventory", fn: () => openDealerSearch() },
-    import: { icon: "📄", label: "Import from spreadsheet", fn: () => navigate("/import") },
+    lead: { icon: "users", label: "New lead", fn: () => openLeadForm() },
+    task: { icon: "check", label: "New to-do", fn: () => openTaskForm() },
+    appt: { icon: "calendar", label: "New appointment", fn: () => openAppointmentForm() },
+    sale: { icon: "dollar", label: "Log a sale", fn: () => openSaleForm() },
+    vehicle: { icon: "car", label: "Add vehicle", fn: () => openVehicleForm() },
+    delivery: { icon: "box", label: "New delivery", fn: () => openDeliveryForm() },
+    calc: { icon: "calculator", label: "Deal calculator", fn: () => navigate("/calculator") },
+    dealer: { icon: "search", label: "Search O'Regan's inventory", fn: () => openDealerSearch() },
+    import: { icon: "file", label: "Import from spreadsheet", fn: () => navigate("/import") },
   };
   // The most relevant action for the current tab goes first.
   const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calculator": "calc", "/calendar": "appt", "/goals": "sale" };
@@ -74,16 +75,15 @@ document.getElementById("quick-add").addEventListener("click", () => {
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
   const actions = keys.map((k) => byKey[k]);
-  actions.push({ icon: "⚙️", label: "Settings", fn: () => navigate("/settings") });
+  actions.push({ icon: "settings", label: "Settings", fn: () => navigate("/settings") });
 
   openModal("Quick add", (close) => {
     const wrap = document.createElement("div");
     actions.forEach((a) => {
       const btn = document.createElement("button");
       btn.className = "btn btn-ghost btn-block";
-      btn.style.justifyContent = "flex-start";
-      btn.style.marginBottom = "10px";
-      btn.innerHTML = `<span style="font-size:1.3rem;margin-right:6px">${a.icon}</span> ${a.label}`;
+      btn.style.cssText = "justify-content:flex-start;margin-bottom:10px;gap:12px";
+      btn.innerHTML = `<span style="color:var(--brand);display:inline-flex">${icon(a.icon, "ico-lg")}</span>${a.label}`;
       btn.addEventListener("click", () => { close(); a.fn(); });
       wrap.appendChild(btn);
     });

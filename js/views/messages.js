@@ -4,6 +4,7 @@
 import * as store from "../store.js";
 import { openModal, toast } from "../components.js";
 import { esc, smsHref } from "../utils.js";
+import { icon } from "../icons.js";
 
 // Replace {placeholders} using the lead + settings.
 export function fillTemplate(text, lead) {
@@ -39,7 +40,7 @@ export function openTemplatePicker(lead) {
       btn.disabled = !canUse;
       if (!canUse) btn.style.opacity = "0.45";
       btn.innerHTML = `<div style="width:100%">
-        <div class="strong">${t.channel === "email" ? "✉️" : "💬"} ${esc(t.name)}</div>
+        <div class="strong">${icon(t.channel === "email" ? "mail" : "message")} ${esc(t.name)}</div>
         <div class="small muted" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(fillTemplate(t.body, lead).replace(/\n/g, " "))}</div>
       </div>`;
       if (canUse) btn.addEventListener("click", () => { close(); openComposer(t, lead); });
@@ -64,8 +65,8 @@ function openComposer(template, lead) {
         <textarea id="m-body" style="min-height:150px">${esc(filledBody)}</textarea>
       </div>
       <div class="btn-row">
-        <a id="m-send" class="btn btn-primary btn-block" href="#">${isEmail ? "✉️ Open in Mail" : "💬 Open in Messages"}</a>
-        <button id="m-copy" class="btn btn-ghost btn-block">📋 Copy</button>
+        <a id="m-send" class="btn btn-primary btn-block" href="#">${isEmail ? `${icon("mail")} Open in Mail` : `${icon("message")} Open in Messages`}</a>
+        <button id="m-copy" class="btn btn-ghost btn-block">${icon("file")} Copy</button>
       </div>
       <div class="hint" style="margin-top:10px">Opens your ${isEmail ? "email app" : "Messages app"} with this ready to send — you can still edit before sending.</div>
     `;

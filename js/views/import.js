@@ -7,6 +7,7 @@ import { toast, emptyState } from "../components.js";
 import { navigate } from "../router.js";
 import { parseCSV, autoMap, parseNumber, normalizeHeader } from "../csv.js";
 import { esc, num, currency } from "../utils.js";
+import { icon } from "../icons.js";
 
 // Target field definitions per import type. `aliases` cover common export headers.
 const VEHICLE_TARGETS = [
@@ -48,11 +49,11 @@ export function renderImport(view) {
       <div class="field">
         <label>What are you importing?</label>
         <select id="imp-type">
-          <option value="vehicles">🚗 Inventory (vehicles)</option>
-          <option value="leads">👥 Leads (customers)</option>
+          <option value="vehicles">Inventory (vehicles)</option>
+          <option value="leads">Leads (customers)</option>
         </select>
       </div>
-      <label class="btn btn-primary btn-block" for="imp-file">📄 Choose CSV file</label>
+      <label class="btn btn-primary btn-block" for="imp-file">${icon("file")} Choose CSV file</label>
       <input id="imp-file" type="file" accept=".csv,text/csv,text/plain" style="display:none">
       <div class="hint">Everything stays on your device — the file isn't uploaded anywhere.</div>
     </div>
@@ -71,7 +72,7 @@ export function renderImport(view) {
     catch { toast("Couldn't read that file", "danger"); return; }
     const parsed = parseCSV(text);
     if (!parsed.headers.length || !parsed.rows.length) {
-      stage.innerHTML = emptyState("📄", "No rows found", "Make sure the file is a CSV with a header row.");
+      stage.innerHTML = emptyState("file", "No rows found", "Make sure the file is a CSV with a header row.");
       return;
     }
     const type = el.querySelector("#imp-type").value;

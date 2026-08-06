@@ -4,6 +4,7 @@ import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
 import { esc, formatDate, relativeDay, daysFromToday } from "../utils.js";
+import { icon } from "../icons.js";
 
 function progress(d) {
   const items = d.checklist || [];
@@ -20,7 +21,7 @@ export function renderDeliveries(view, { param }) {
 
   const el = document.createElement("div");
   if (!deliveries.length) {
-    el.innerHTML = emptyState("✅", "No deliveries yet", "Start one from a lead, or tap + to create one.");
+    el.innerHTML = emptyState("check", "No deliveries yet", "Start one from a lead, or tap + to create one.");
     view.appendChild(el);
     return;
   }
@@ -101,7 +102,7 @@ export function openDeliveryForm(existing) {
 
 function renderDeliveryDetail(view, id) {
   const d = store.get("deliveries", id);
-  if (!d) { view.innerHTML = emptyState("🤷", "Delivery not found", ""); return; }
+  if (!d) { view.innerHTML = emptyState("help", "Delivery not found", ""); return; }
   const p = progress(d);
 
   const el = document.createElement("div");
@@ -116,7 +117,7 @@ function renderDeliveryDetail(view, id) {
         ${d.status === "delivered" ? '<span class="badge badge-delivered">Delivered</span>' : ""}
       </div>
       <div class="row" style="margin-top:6px">
-        <div class="small muted">${d.deliveryDate ? "📅 " + esc(formatDate(d.deliveryDate)) + " · " + esc(relativeDay(d.deliveryDate)) : "No date set"}</div>
+        <div class="small muted">${d.deliveryDate ? icon("calendar") + " " + esc(formatDate(d.deliveryDate)) + " · " + esc(relativeDay(d.deliveryDate)) : "No date set"}</div>
         <div class="small strong mono">${p.done}/${p.total}</div>
       </div>
       <div class="progress"><span style="width:${p.pct}%"></span></div>
@@ -132,9 +133,9 @@ function renderDeliveryDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
-      ${d.status !== "delivered" ? `<button class="btn btn-success btn-block" data-act="complete">🎉 Mark delivered</button>` : `<button class="btn btn-ghost btn-block" data-act="reopen">Reopen delivery</button>`}
+      ${d.status !== "delivered" ? `<button class="btn btn-success btn-block" data-act="complete">${icon("check")} Mark delivered</button>` : `<button class="btn btn-ghost btn-block" data-act="reopen">Reopen delivery</button>`}
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-primary btn-block" data-act="edit">✏️ Edit</button>
+        <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
         <button class="btn btn-danger btn-block" data-act="delete">Delete</button>
       </div>
     </div>
@@ -192,7 +193,7 @@ function renderDeliveryDetail(view, id) {
     if (remaining > 0 && !(await confirmDialog(`${remaining} item(s) still unchecked. Mark delivered anyway?`, { danger: false, confirmLabel: "Mark delivered" }))) return;
     store.update("deliveries", d.id, { status: "delivered" });
     if (d.leadId) store.update("leads", d.leadId, { stage: "delivered" });
-    toast("Congrats on the delivery! 🎉", "success");
+    toast("Congrats on the delivery!", "success");
     navigate("/deliveries");
   });
   const reopenBtn = el.querySelector('[data-act="reopen"]');

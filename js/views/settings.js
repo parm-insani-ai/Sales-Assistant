@@ -4,6 +4,7 @@
 import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog } from "../components.js";
 import { esc } from "../utils.js";
+import { icon } from "../icons.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -60,10 +61,10 @@ export function renderSettings(view) {
     <div class="section-title">Data & backup</div>
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Your data is stored only on this device. Export a backup regularly, or to move to a new phone.</div>
-      <button class="btn btn-ghost btn-block" data-act="csv" style="margin-bottom:10px">📄 Import inventory / leads from spreadsheet (CSV)</button>
+      <button class="btn btn-ghost btn-block" data-act="csv" style="margin-bottom:10px">${icon("file")} Import inventory / leads from spreadsheet (CSV)</button>
       <div class="btn-row">
-        <button class="btn btn-ghost btn-block" data-act="export">⬇️ Export backup</button>
-        <button class="btn btn-ghost btn-block" data-act="import">⬆️ Restore backup</button>
+        <button class="btn btn-ghost btn-block" data-act="export">${icon("download")} Export backup</button>
+        <button class="btn btn-ghost btn-block" data-act="import">${icon("upload")} Restore backup</button>
       </div>
       <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
     </div>
@@ -139,7 +140,7 @@ export function renderSettings(view) {
       row.className = "check-item";
       row.innerHTML = `
         <label style="flex:1" class="card-tap">
-          <div class="strong">${t.channel === "email" ? "✉️" : "💬"} ${esc(t.name)}</div>
+          <div class="strong">${icon(t.channel === "email" ? "mail" : "message")} ${esc(t.name)}</div>
           <div class="small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(String(t.body).replace(/\n/g, " "))}</div>
         </label>
         <button class="modal-close" data-del aria-label="Remove" style="font-size:1.2rem">&times;</button>`;
@@ -203,7 +204,7 @@ function openTemplateEditor(existing, onSaved) {
       [
         { name: "name", label: "Template name", value: t.name, required: true, placeholder: "First contact" },
         { name: "channel", label: "Channel", value: t.channel || "sms", type: "select",
-          options: [{ value: "sms", label: "💬 Text message" }, { value: "email", label: "✉️ Email" }] },
+          options: [{ value: "sms", label: "Text message" }, { value: "email", label: "Email" }] },
         { name: "subject", label: "Subject (email only)", value: t.subject, placeholder: "Your inquiry on the {vehicle}" },
         { name: "body", label: "Message", value: t.body, type: "textarea", required: true,
           hint: "Placeholders: {firstName} {name} {vehicle} {salesperson} {dealership}" },

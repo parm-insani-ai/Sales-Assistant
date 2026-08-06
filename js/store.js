@@ -68,11 +68,11 @@ const DEFAULT_STATE = {
 };
 
 export const APPT_TYPES = [
-  { id: "appointment", label: "Appointment", icon: "🤝" },
-  { id: "testdrive", label: "Test drive", icon: "🚗" },
-  { id: "delivery", label: "Delivery", icon: "🎉" },
-  { id: "call", label: "Phone call", icon: "📞" },
-  { id: "other", label: "Other", icon: "📌" },
+  { id: "appointment", label: "Appointment", icon: "users" },
+  { id: "testdrive", label: "Test drive", icon: "car" },
+  { id: "delivery", label: "Delivery", icon: "sparkles" },
+  { id: "call", label: "Phone call", icon: "phone" },
+  { id: "other", label: "Other", icon: "pin" },
 ];
 
 export function apptType(id) {

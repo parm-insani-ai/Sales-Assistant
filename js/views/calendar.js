@@ -6,6 +6,7 @@ import { APPT_TYPES, apptType } from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
 import { esc, relativeDay, daysFromToday } from "../utils.js";
+import { icon } from "../icons.js";
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -48,7 +49,7 @@ export function renderCalendar(view, { param }) {
 
   const upEl = el.querySelector(".upcoming");
   if (!upcoming.length) {
-    upEl.innerHTML = emptyState("📅", "No upcoming appointments", "Tap “New appointment” to schedule one.");
+    upEl.innerHTML = emptyState("calendar", "No upcoming appointments", "Tap “New appointment” to schedule one.");
   } else {
     renderGroups(upEl, upcoming, false);
   }
@@ -83,7 +84,7 @@ function apptCard(a) {
   el.innerHTML = `
     <div class="row">
       <div class="row-main">
-        <div class="row-title">${t.icon} ${esc(a.title || t.label)}</div>
+        <div class="row-title">${icon(t.icon)} ${esc(a.title || t.label)}</div>
         <div class="row-sub">${esc(a.customerName || "")}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
       </div>
       <div class="row-meta">
@@ -112,7 +113,7 @@ export function openAppointmentForm(existing, prefill = {}) {
     const { element } = buildForm(
       [
         { name: "type", label: "Type", value: a.type || "appointment", type: "select",
-          options: APPT_TYPES.map((t) => ({ value: t.id, label: `${t.icon} ${t.label}` })) },
+          options: APPT_TYPES.map((t) => ({ value: t.id, label: t.label })) },
         { name: "customerName", label: "Customer", value: a.customerName, required: true, placeholder: "Jane Doe" },
         { name: "when", label: "Date & time", value: a.when || defaultWhen(), type: "datetime-local", required: true },
         { name: "vehicle", label: "Vehicle", value: a.vehicle, placeholder: "2024 RAV4 XLE" },
@@ -135,7 +136,7 @@ export function openAppointmentForm(existing, prefill = {}) {
 
 function renderApptDetail(view, id) {
   const a = store.get("appointments", id);
-  if (!a) { view.innerHTML = emptyState("🤷", "Appointment not found", ""); return; }
+  if (!a) { view.innerHTML = emptyState("help", "Appointment not found", ""); return; }
   const t = apptType(a.type);
   const lead = a.leadId ? store.get("leads", a.leadId) : null;
 
@@ -143,19 +144,19 @@ function renderApptDetail(view, id) {
   el.innerHTML = `
     <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Calendar</button>
     <div class="card">
-      <div class="row-title" style="font-size:1.3rem">${t.icon} ${esc(a.title || t.label)}</div>
+      <div class="row-title" style="font-size:1.3rem">${icon(t.icon)} ${esc(a.title || t.label)}</div>
       <div class="row-sub" style="margin-top:4px">${esc(a.customerName || "")}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
       <div class="kv" style="margin-top:12px"><span class="k">When</span><span class="v">${a.when ? esc(relativeDay(dayKey(a.when))) + " at " + esc(timeLabel(a.when)) : "—"}</span></div>
       <div class="kv"><span class="k">Status</span><span class="v">${esc(a.status || "scheduled")}</span></div>
     </div>
     ${a.notes ? `<div class="section-title">Notes</div><div class="card"><div style="white-space:pre-wrap">${esc(a.notes)}</div></div>` : ""}
-    ${lead ? `<button class="btn btn-ghost btn-block" data-act="lead" style="margin-bottom:12px">👤 Open ${esc(lead.name)}'s lead</button>` : ""}
+    ${lead ? `<button class="btn btn-ghost btn-block" data-act="lead" style="margin-bottom:12px">${icon("users")} Open ${esc(lead.name)}'s lead</button>` : ""}
 
     <div class="section-title">Actions</div>
     <div class="card">
-      ${a.status !== "done" ? `<button class="btn btn-success btn-block" data-act="done">✓ Mark completed</button>` : `<button class="btn btn-ghost btn-block" data-act="reopen">Reopen</button>`}
+      ${a.status !== "done" ? `<button class="btn btn-success btn-block" data-act="done">${icon("checkline")} Mark completed</button>` : `<button class="btn btn-ghost btn-block" data-act="reopen">Reopen</button>`}
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-primary btn-block" data-act="edit">✏️ Edit</button>
+        <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
         <button class="btn btn-danger btn-block" data-act="delete">Delete</button>
       </div>
     </div>

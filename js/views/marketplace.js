@@ -6,6 +6,7 @@
 import * as store from "../store.js";
 import { openModal, toast } from "../components.js";
 import { currency, num, esc } from "../utils.js";
+import { icon } from "../icons.js";
 
 const PHOTO_SHOTLIST = [
   "Front 3/4 (driver side)",
@@ -102,11 +103,11 @@ export function openMarketplaceBuilder(v) {
       </div>
 
       <div class="btn-row">
-        <button class="btn btn-primary btn-block" data-act="copy-all">📋 Copy full listing</button>
+        <button class="btn btn-primary btn-block" data-act="copy-all">${icon("file")} Copy full listing</button>
         <button class="btn btn-ghost btn-block" data-act="copy-desc">Copy description</button>
       </div>
 
-      <div class="section-title">📸 Photo shot-list</div>
+      <div class="section-title">Photo shot-list</div>
       <div class="card" style="padding:8px 14px">
         ${PHOTO_SHOTLIST.map((p) => `<div class="kv"><span class="k">•</span><span class="v" style="font-weight:500">${esc(p)}</span></div>`).join("")}
       </div>

@@ -3,6 +3,7 @@
 import * as store from "../store.js";
 import { openModal, buildForm, toast } from "../components.js";
 import { esc, relativeDay, daysFromToday } from "../utils.js";
+import { icon } from "../icons.js";
 
 export function openTaskForm(existing, defaults = {}) {
   const isEdit = !!existing;
@@ -46,7 +47,7 @@ export function taskListEl({ onChange } = {}) {
       });
 
     if (!open.length) {
-      container.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">🎉 No open tasks. Tap + To-do to add one.</div></div>`;
+      container.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">No open tasks. Tap + Add to create one.</div></div>`;
       return;
     }
 
@@ -61,13 +62,13 @@ export function taskListEl({ onChange } = {}) {
       row.innerHTML = `
         <input type="checkbox" />
         <label>
-          ${t.priority === "high" ? "🔴 " : ""}${esc(t.title)}
-          ${t.due ? `<div class="small ${overdue ? "" : "muted"}" style="${overdue ? "color:var(--danger)" : ""}">${overdue ? "⚠️ " : soon ? "📅 " : ""}${esc(relativeDay(t.due))}</div>` : ""}
+          ${t.priority === "high" ? `<span style="color:var(--danger)">${icon("alert")}</span> ` : ""}${esc(t.title)}
+          ${t.due ? `<div class="small ${overdue ? "" : "muted"}" style="${overdue ? "color:var(--danger)" : ""}">${overdue ? icon("alert") + " " : soon ? icon("clock") + " " : ""}${esc(relativeDay(t.due))}</div>` : ""}
         </label>
       `;
       row.querySelector("input").addEventListener("change", () => {
         store.update("tasks", t.id, { done: true });
-        toast("Nice — task done ✅", "success");
+        toast("Nice — task done", "success");
         draw();
         if (onChange) onChange();
       });

@@ -8,6 +8,7 @@ import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
+import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
   relativeDay, daysFromToday, formatDate, todayISO,
@@ -57,7 +58,7 @@ export function renderLeads(view, { param }) {
 
     const listEl = wrap.querySelector(".lead-list");
     if (!list.length) {
-      listEl.innerHTML = emptyState("👥", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
+      listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
     } else {
       list.forEach((l) => listEl.appendChild(leadCard(l)));
     }
@@ -68,7 +69,7 @@ export function renderLeads(view, { param }) {
       const el = wrap.querySelector(".lead-list");
       const filtered = applyFilter();
       el.innerHTML = "";
-      if (!filtered.length) el.innerHTML = emptyState("🔎", "No matches", "");
+      if (!filtered.length) el.innerHTML = emptyState("search", "No matches", "");
       else filtered.forEach((x) => el.appendChild(leadCard(x)));
     });
 
@@ -162,7 +163,7 @@ export function openLeadForm(existing) {
 function renderLeadDetail(view, id) {
   const l = store.get("leads", id);
   if (!l) {
-    view.innerHTML = emptyState("🤷", "Lead not found", "It may have been deleted.");
+    view.innerHTML = emptyState("help", "Lead not found", "It may have been deleted.");
     return;
   }
   const st = stageMeta(l.stage);
@@ -183,10 +184,10 @@ function renderLeadDetail(view, id) {
 
       ${l.phone ? `
       <div class="btn-row" style="margin-top:14px">
-        <a class="btn btn-success btn-sm" style="flex:1" href="${telHref(l.phone)}">📞 Call</a>
-        <a class="btn btn-primary btn-sm" style="flex:1" href="${smsHref(l.phone)}">💬 Text</a>
+        <a class="btn btn-success btn-sm" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
+        <a class="btn btn-primary btn-sm" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>
       </div>` : ""}
-      ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">📄 Use a message template</button>` : ""}
+      ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
     </div>
 
     <div class="section-title">Quick stage update</div>
@@ -210,7 +211,7 @@ function renderLeadDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
-      <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:14px">🔎 Find a car on O'Regan's</button>
+      <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:14px">${icon("search")} Find a car on O'Regan's</button>
       <div class="field">
         <label>Set / change follow-up</label>
         <input type="date" data-act="followup" value="${esc(l.followUp || "")}" />
@@ -222,12 +223,12 @@ function renderLeadDetail(view, id) {
       </div>
       <hr class="divider" />
       <div class="btn-row">
-        <button class="btn btn-ghost btn-block" data-act="appointment">📅 Schedule</button>
-        <button class="btn btn-ghost btn-block" data-act="logsale">💵 Log sale</button>
+        <button class="btn btn-ghost btn-block" data-act="appointment">${icon("calendar")} Schedule</button>
+        <button class="btn btn-ghost btn-block" data-act="logsale">${icon("dollar")} Log sale</button>
       </div>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-primary btn-block" data-act="edit">✏️ Edit</button>
-        <button class="btn btn-success btn-block" data-act="deliver">✅ Start delivery</button>
+        <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
+        <button class="btn btn-success btn-block" data-act="deliver">${icon("check")} Start delivery</button>
       </div>
       <button class="btn btn-danger btn-block" data-act="delete" style="margin-top:10px">Delete lead</button>
     </div>

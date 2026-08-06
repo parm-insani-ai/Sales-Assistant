@@ -7,6 +7,7 @@
 import * as store from "../store.js";
 import { openModal } from "../components.js";
 import { esc } from "../utils.js";
+import { icon } from "../icons.js";
 
 export function storeSearchUrl() {
   const s = store.getSettings();
@@ -37,10 +38,10 @@ export function openDealerSearch(context = {}) {
       </div>` : ""}
 
       <a class="btn btn-primary btn-block" style="margin-bottom:10px" href="${esc(storeUrl)}" target="_blank" rel="noopener">
-        🏬 Search ${esc(s.storeSiteName || "my store")} — all inventory
+        ${icon("store")} Search ${esc(s.storeSiteName || "my store")} — all inventory
       </a>
       <a class="btn btn-success btn-block" href="${esc(netUrl)}" target="_blank" rel="noopener">
-        🔎 Search ${esc(s.networkSiteName || "the network")} — used only
+        ${icon("search")} Search ${esc(s.networkSiteName || "the network")} — used only
       </a>
 
       <div class="hint" style="margin-top:14px">
