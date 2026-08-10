@@ -82,7 +82,7 @@ export function renderSettings(view) {
       </div>
       <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
     </div>
-    <div class="fab-note">Entoa · data lives on your device</div>
+    <div class="fab-note">entoa · data lives on your device</div>
   `;
   view.appendChild(el);
 

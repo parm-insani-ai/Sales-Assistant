@@ -1,17 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="112" fill="#0a8f5b"/>
-  <rect width="512" height="512" rx="112" fill="url(#g)" opacity="0.18"/>
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff"/>
+      <stop stop-color="#ffffff" stop-opacity="0.16"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <!-- E monogram -->
-  <g fill="#ffffff">
-    <rect x="168" y="150" width="56" height="212" rx="12"/>
-    <rect x="168" y="150" width="184" height="54" rx="12"/>
-    <rect x="168" y="229" width="150" height="52" rx="12"/>
-    <rect x="168" y="308" width="184" height="54" rx="12"/>
-  </g>
+  <rect width="512" height="512" rx="112" fill="#0a8f5b"/>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <text x="256" y="258" text-anchor="middle" dominant-baseline="central"
+        font-family="Helvetica, Arial, sans-serif" font-weight="700"
+        font-size="400" fill="#ffffff">e</text>
 </svg>

@@ -1,7 +1,7 @@
 {
-  "name": "Entoa",
-  "short_name": "Entoa",
-  "description": "Entoa — the AI deal engine and CRM for car salespeople: leads, follow-up cadences, equity deal-matching, and a proactive deal radar.",
+  "name": "entoa",
+  "short_name": "entoa",
+  "description": "entoa — the AI deal engine and CRM for car salespeople: leads, follow-up cadences, equity deal-matching, and a proactive deal radar.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

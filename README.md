@@ -1,6 +1,6 @@
-# Entoa
+# entoa
 
-**The AI deal engine and CRM for car salespeople.** Entoa is a **mobile-first Progressive Web App** — it works offline, installs to your home screen like a native app, and (in this on-device version) keeps your data on your phone with no login or server. Turn your customer database into a proactive stream of deals ready to pitch.
+**The AI deal engine and CRM for car salespeople.** entoa is a **mobile-first Progressive Web App** — it works offline, installs to your home screen like a native app, and (in this on-device version) keeps your data on your phone with no login or server. Turn your customer database into a proactive stream of deals ready to pitch.
 
 Live at **[entoa.ai](https://entoa.ai)**.
 
