@@ -1,6 +1,8 @@
-# 🚗 Sales Assistant
+# Entoa
 
-A pocket assistant for car salespeople. Built as a **mobile-first Progressive Web App** — no login, no server, no monthly fees. Your data lives on your phone and it works offline. Add it to your home screen and it behaves like a native app.
+**The AI deal engine and CRM for car salespeople.** Entoa is a **mobile-first Progressive Web App** — it works offline, installs to your home screen like a native app, and (in this on-device version) keeps your data on your phone with no login or server. Turn your customer database into a proactive stream of deals ready to pitch.
+
+Live at **[entoa.ai](https://entoa.ai)**.
 
 ## What it does
 

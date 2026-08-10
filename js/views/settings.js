@@ -82,7 +82,7 @@ export function renderSettings(view) {
       </div>
       <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
     </div>
-    <div class="fab-note">Sales Assistant · data lives on your device</div>
+    <div class="fab-note">Entoa · data lives on your device</div>
   `;
   view.appendChild(el);
 
@@ -223,7 +223,7 @@ export function renderSettings(view) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url; a.download = `sales-assistant-backup-${stamp}.json`;
+    a.href = url; a.download = `entoa-backup-${stamp}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast("Backup downloaded", "success");
