@@ -11,39 +11,78 @@ import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
 import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday } from "../utils.js";
 
-// Compute payment-matched deals for one customer across available inventory.
-// Returns matches sorted by closeness to their current payment.
-export function dealsForLead(lead, opts = {}) {
+function num(v) { return Number(v) || 0; }
+
+// Estimate a monthly LEASE payment. Depreciation + rent (money-factor) on the
+// adjusted cap cost, with tax applied to the payment (common in CA/NS/HST).
+export function computeLease(input) {
+  const price = num(input.price);
+  const fees = num(input.fees);
+  const down = num(input.down);
+  const netTradeEquity = num(input.tradeAllowance) - num(input.tradePayoff);
+  const term = Math.max(1, Math.round(num(input.term)));
+  const residualPct = num(input.residualPct) / 100;
+  const taxRate = num(input.taxRate) / 100;
+  const mf = num(input.apr) / 2400; // APR% → money factor
+
+  const capCost = price + fees;
+  const adjCap = capCost - down - netTradeEquity;
+  const residual = price * residualPct;
+  const depreciation = (adjCap - residual) / term;
+  const rent = (adjCap + residual) * mf;
+  let base = depreciation + rent;
+  if (base < 0) base = 0;
+  const tax = base * taxRate;
+  return { monthly: base + tax, residual, term };
+}
+
+function financeBase(lead, down) {
   const s = store.getSettings();
-  const down = opts.down != null ? opts.down : 0;
-  const base = {
-    down,
+  return {
+    down: down != null ? down : 0,
     tradeAllowance: lead.currentValue || 0,
     tradePayoff: lead.payoff || 0,
     fees: s.docFee,
     taxRate: s.taxRate,
     apr: lead.currentApr || s.defaultApr,
-    term: s.defaultTerm,
   };
-  const vehicles = store.all("vehicles").filter((v) => (v.status || "available") === "available" && v.price != null);
-  const cur = lead.currentPayment || null;
-  const rows = vehicles.map((v) => {
-    const d = computeDeal({ ...base, price: v.price });
-    return {
-      vehicle: v,
-      monthly: d.monthly,
-      financed: d.amountFinanced,
-      delta: cur != null ? d.monthly - cur : null,
-    };
+}
+
+function availableVehicles() {
+  return store.all("vehicles").filter((v) => (v.status || "available") === "available" && v.price != null);
+}
+
+// Both financing and leasing options for one vehicle, honoring the method filter.
+function optionsForVehicle(lead, v, opts = {}) {
+  const s = store.getSettings();
+  const method = opts.method || s.dealMethod || "both";
+  const base = financeBase(lead, opts.down);
+  const out = [];
+  if (method !== "lease") {
+    const f = computeDeal({ ...base, term: s.defaultTerm, price: v.price });
+    out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced });
+  }
+  if (method !== "finance") {
+    const l = computeLease({ ...base, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price });
+    out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual });
+  }
+  return out;
+}
+
+// Every finance/lease option across available inventory, closest payment first.
+export function dealsForLead(lead, opts = {}) {
+  const cur = lead.currentPayment != null ? lead.currentPayment : null;
+  const rows = [];
+  availableVehicles().forEach((v) => {
+    optionsForVehicle(lead, v, opts).forEach((o) => rows.push({ ...o, delta: cur != null ? o.monthly - cur : null }));
   });
-  // Sort by closeness to current payment (or by lowest payment if unknown).
   rows.sort((a, b) => (cur != null ? Math.abs(a.delta) - Math.abs(b.delta) : a.monthly - b.monthly));
   return rows;
 }
 
-// Best single match for a customer (used by the /deals list).
-export function bestDealForLead(lead) {
-  const rows = dealsForLead(lead);
+// Best single option for a customer (used by the radar + dashboard).
+export function bestDealForLead(lead, opts = {}) {
+  const rows = dealsForLead(lead, opts);
   return rows.length ? rows[0] : null;
 }
 
@@ -103,16 +142,22 @@ function strength(score) {
   return { label: "Worth a call", badge: "badge-soon" };
 }
 
-// The proactive radar: every customer with a buildable deal, scored and ranked.
+// The proactive radar: every customer who can move into a new vehicle within the
+// current payment-tolerance band, via financing or leasing, scored and ranked.
 export function topOpportunities(limit = 50) {
-  const haveInv = store.all("vehicles").some((v) => (v.status || "available") === "available" && v.price != null);
-  if (!haveInv) return [];
+  const s = store.getSettings();
+  const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
+  const method = s.dealMethod || "both";
+  if (!availableVehicles().length) return [];
   const out = [];
   store.all("leads").forEach((l) => {
     const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
     if (!hasData) return;
-    const best = bestDealForLead(l);
+    const best = bestDealForLead(l, { method });
     if (!best) return;
+    // Only surface customers whose new payment stays within their tolerance
+    // (or whose current payment is unknown — still a fresh-vehicle pitch).
+    if (best.delta != null && best.delta > band) return;
     const { score, reasons } = scoreOpportunity(l, best);
     if (score <= 0) return;
     out.push({ lead: l, best, score, reasons });
@@ -135,7 +180,8 @@ export function offerText(lead, match) {
     ? ` right around the $${Math.round(lead.currentPayment)}/mo you're paying now`
     : "";
   const trade = lead.vehicleInterest ? ` out of your ${lead.vehicleInterest}` : "";
-  return `${intro} Good news — I can likely get you into a new ${v} for about $${pmt}/mo,${curLine}${trade ? "," + trade : ""}. Worth a quick look? What's your schedule like this week?`;
+  const how = match.method === "lease" ? " on a lease" : "";
+  return `${intro} Good news — I can likely get you into a new ${v} for about $${pmt}/mo${how},${curLine}${trade ? "," + trade : ""}. Worth a quick look? What's your schedule like this week?`;
 }
 
 // ---------- Per-customer Deal Builder sheet ----------
@@ -145,7 +191,7 @@ export function openDealBuilder(lead) {
     const s = store.getSettings();
 
     function draw(down) {
-      const rows = dealsForLead(lead, { down });
+      const rows = dealsForLead(lead, { down, method: "both" });
       const eq = equity(lead);
       const cur = lead.currentPayment;
       const top = rows.slice(0, 6);
@@ -196,7 +242,7 @@ function dealRow(lead, m) {
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(vehName(v))}</div>
-        <div class="row-sub">${v.price != null ? currency(v.price) : ""}${v.stock ? " · Stock #" + esc(v.stock) : ""}</div>
+        <div class="row-sub"><span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}" style="margin-right:6px">${m.method === "lease" ? "Lease" : "Finance"}</span>${v.price != null ? currency(v.price) : ""}${v.stock ? " · #" + esc(v.stock) : ""}</div>
       </div>
       <div class="row-meta">
         <div class="strong mono" style="font-size:1.05rem">${currency2(m.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>
@@ -227,8 +273,7 @@ function dealRow(lead, m) {
 // ---------- /deals page: the proactive, ranked Deal Radar ----------
 export function renderDeals(view) {
   const leadsWithData = store.all("leads").some((l) => l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate);
-  const haveInventory = store.all("vehicles").some((v) => (v.status || "available") === "available" && v.price != null);
-  const opps = topOpportunities(50);
+  const haveInventory = availableVehicles().length > 0;
 
   const el = document.createElement("div");
   el.innerHTML = `
@@ -236,11 +281,13 @@ export function renderDeals(view) {
       <div class="hero-greeting">Deal Radar</div>
       <div class="hero-title">Deals ready to pitch</div>
     </div>
-    <div class="fab-note" style="margin:0 2px 14px;text-align:left">Your database, scanned and ranked — customers who can move into a new vehicle right now, strongest opportunity first.</div>
+    <div class="fab-note" style="margin:0 2px 14px;text-align:left">Customers who can move into a new vehicle — financing or leasing — for close to what they pay now. Set your tolerance below.</div>
+    <div id="deals-controls"></div>
     <div class="deals-list"></div>
   `;
   view.appendChild(el);
   const list = el.querySelector(".deals-list");
+  const controls = el.querySelector("#deals-controls");
 
   if (!leadsWithData) {
     list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("dollar", "ico-xl")}</div><div class="strong">No customer data yet</div><div class="small">Import an AutoAlert equity export (current payment, payoff, value) and the radar fills with ready-to-pitch deals.</div><button class="btn btn-primary btn-block" data-act="import" style="margin-top:16px">${icon("file")} Import customers</button></div>`;
@@ -252,12 +299,43 @@ export function renderDeals(view) {
     list.querySelector('[data-act="inv"]').addEventListener("click", () => navigate("/import"));
     return;
   }
-  if (!opps.length) {
-    list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">No strong matches in current inventory yet. Add more vehicles, or check back as inventory changes.</div>`;
-    return;
-  }
 
-  opps.forEach((o) => list.appendChild(opportunityCard(o)));
+  const s = store.getSettings();
+  const methods = [["both", "Both"], ["finance", "Finance"], ["lease", "Lease"]];
+  controls.innerHTML = `
+    <div class="card">
+      <div class="seg" role="group" aria-label="Deal type">
+        ${methods.map(([m, label]) => `<button class="seg-btn ${s.dealMethod === m ? "active" : ""}" data-method="${m}">${label}</button>`).join("")}
+      </div>
+      <div style="margin-top:16px">
+        <div class="row"><label class="small strong">New payment can be up to</label><span class="small mono strong" id="band-val" style="color:var(--brand)">+${currency(s.dealMatchBand)}/mo</span></div>
+        <input id="band-slider" type="range" min="0" max="200" step="10" value="${s.dealMatchBand}" style="width:100%;margin-top:6px" />
+        <div class="row small muted"><span>Same payment</span><span>+$200/mo</span></div>
+      </div>
+    </div>`;
+
+  const redraw = () => {
+    const opps = topOpportunities(50);
+    list.innerHTML = "";
+    if (!opps.length) {
+      list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">No customers within +${currency(store.getSettings().dealMatchBand)}/mo right now. Widen the tolerance above, switch Finance/Lease, or add inventory.</div>`;
+      return;
+    }
+    opps.forEach((o) => list.appendChild(opportunityCard(o)));
+  };
+
+  controls.querySelectorAll("[data-method]").forEach((b) =>
+    b.addEventListener("click", () => {
+      store.updateSettings({ dealMethod: b.dataset.method });
+      controls.querySelectorAll("[data-method]").forEach((x) => x.classList.toggle("active", x === b));
+      redraw();
+    }));
+  const slider = controls.querySelector("#band-slider");
+  const bandVal = controls.querySelector("#band-val");
+  slider.addEventListener("input", () => { bandVal.textContent = `+${currency(Number(slider.value))}/mo`; });
+  slider.addEventListener("change", () => { store.updateSettings({ dealMatchBand: Number(slider.value) }); redraw(); });
+
+  redraw();
 }
 
 function opportunityCard({ lead, best, score, reasons }) {
@@ -275,7 +353,7 @@ function opportunityCard({ lead, best, score, reasons }) {
     </div>
     <div class="card" style="margin:12px 0 0;background:var(--surface-2);border:none">
       <div class="row">
-        <div class="row-main"><div class="small muted">Put them in</div><div class="strong">${esc(vehName(v))}</div></div>
+        <div class="row-main"><div class="small muted">Put them in · ${best.method === "lease" ? "Lease" : "Finance"}</div><div class="strong">${esc(vehName(v))}</div></div>
         <div class="row-meta"><div class="strong mono" style="font-size:1.05rem">${currency2(best.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>${best.delta != null ? `<div class="small ${best.delta <= (store.getSettings().dealMatchBand || 50) ? "" : "muted"}" style="${best.delta <= (store.getSettings().dealMatchBand || 50) ? "color:var(--success);font-weight:700" : ""}">${best.delta <= 0 ? currency(Math.abs(Math.round(best.delta))) + "/mo less" : best.delta <= (store.getSettings().dealMatchBand || 50) ? "≈ same" : "+" + currency(Math.round(best.delta)) + "/mo"}</div>` : ""}</div>
       </div>
     </div>

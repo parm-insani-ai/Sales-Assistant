@@ -71,7 +71,10 @@ const DEFAULT_STATE = {
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
-    dealMatchBand: 50, // $/mo within which a deal counts as a payment "match"
+    dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
+    dealMethod: "both", // "both" | "finance" | "lease"
+    leaseTerm: 36, // months
+    leaseResidualPct: 58, // % of price retained at lease end (estimate)
     // Dealer inventory websites for the one-tap search launcher. The network
     // site is pre-filtered to Used to match the "used only from other stores"
     // rule. All editable in Settings so this works for any dealer group.

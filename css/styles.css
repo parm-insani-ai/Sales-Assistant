@@ -474,6 +474,19 @@ html, body {
 .hint { font-size: 0.77rem; color: var(--muted); margin-top: 7px; line-height: 1.45; }
 .switch { display: flex; align-items: center; gap: 9px; font-size: 0.84rem; color: var(--text-2); font-weight: 550; cursor: pointer; }
 .switch input { width: 22px; height: 22px; flex: none; accent-color: var(--brand); }
+
+/* Segmented control */
+.seg { display: flex; background: var(--surface-2); border-radius: 12px; padding: 4px; gap: 4px; }
+.seg-btn {
+  flex: 1; border: none; background: transparent; color: var(--muted);
+  font-family: inherit; font-weight: 650; font-size: 0.9rem;
+  padding: 9px 8px; border-radius: 9px; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.seg-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.seg-btn:active { transform: scale(0.98); }
+
+/* Range slider */
+input[type="range"] { accent-color: var(--brand); height: 26px; }
 .hint .mono { color: var(--text-2); font-weight: 600; }
 
 /* ---------- Modal ---------- */
