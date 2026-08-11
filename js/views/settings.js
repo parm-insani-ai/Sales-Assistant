@@ -5,9 +5,11 @@ import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog } from "../components.js";
 import { esc } from "../utils.js";
 import { icon } from "../icons.js";
+import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
+  const sampleLoaded = hasSampleData();
   const el = document.createElement("div");
   el.innerHTML = `
     <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Home</button>
@@ -80,6 +82,7 @@ export function renderSettings(view) {
         <button class="btn btn-ghost btn-block" data-act="export">${icon("download")} Export backup</button>
         <button class="btn btn-ghost btn-block" data-act="import">${icon("upload")} Restore backup</button>
       </div>
+      <button class="btn ${sampleLoaded ? "btn-danger" : "btn-ghost"} btn-block" data-act="sample" style="margin-top:10px">${sampleLoaded ? "Remove sample data" : "Load sample data (try it out)"}</button>
       <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
     </div>
     <div class="fab-note">entoa · data lives on your device</div>
@@ -88,6 +91,17 @@ export function renderSettings(view) {
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => (location.hash = "/"));
   el.querySelector('[data-act="csv"]').addEventListener("click", () => (location.hash = "/import"));
+
+  el.querySelector('[data-act="sample"]').addEventListener("click", async () => {
+    if (sampleLoaded) {
+      removeSampleData();
+      toast("Sample data removed");
+    } else {
+      loadSampleData();
+      toast("Sample data loaded — check the Deal Radar", "success");
+    }
+    location.hash = "/";
+  });
 
   el.querySelector("#s-name").addEventListener("change", (e) =>
     store.updateSettings({ salesperson: e.target.value.trim() }));
