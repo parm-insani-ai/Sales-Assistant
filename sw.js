@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "entoa-v20";
+const CACHE = "entoa-v21";
 const ASSETS = [
   "./",
   "./index.html",
@@ -50,15 +50,27 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Network-first for navigations (get fresh app), cache-first for other assets,
-// falling back to cache when offline.
+// App code (HTML/JS/CSS) is fetched network-first so updates land on the next
+// reload — a cache-first strategy here would pin stale JavaScript in the PWA.
+// Static assets (icons/images) stay cache-first for instant loads. Both fall
+// back to cache when offline.
 self.addEventListener("fetch", (e) => {
   const { request } = e;
   if (request.method !== "GET") return;
 
-  if (request.mode === "navigate") {
+  const url = new URL(request.url);
+  const sameOrigin = url.origin === self.location.origin;
+  const isCode = request.mode === "navigate" || (sameOrigin && /\.(js|css|html)$/.test(url.pathname));
+
+  if (isCode) {
     e.respondWith(
-      fetch(request).catch(() => caches.match("./index.html"))
+      fetch(request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+          return res;
+        })
+        .catch(() => caches.match(request).then((c) => c || caches.match("./index.html")))
     );
     return;
   }
