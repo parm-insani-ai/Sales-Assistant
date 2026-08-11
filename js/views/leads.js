@@ -50,6 +50,10 @@ export function renderLeads(view, { param }) {
     ];
 
     wrap.innerHTML = `
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn btn-primary btn-block" data-act="add-lead">${icon("plus")} Add customer</button>
+        <button class="btn btn-ghost btn-block" data-act="import-prospects">${icon("upload")} Import prospects</button>
+      </div>
       <div class="searchbar">
         <input type="search" placeholder="Search leads…" value="${esc(search)}" />
       </div>
@@ -78,6 +82,12 @@ export function renderLeads(view, { param }) {
 
     wrap.querySelectorAll("[data-filter]").forEach((b) =>
       b.addEventListener("click", () => { filter = b.dataset.filter; draw(); }));
+
+    wrap.querySelector('[data-act="add-lead"]').addEventListener("click", () => openLeadForm());
+    wrap.querySelector('[data-act="import-prospects"]').addEventListener("click", () => {
+      try { sessionStorage.setItem("import-type", "leads"); } catch {}
+      navigate("/import");
+    });
   }
 
   function applyFilter() {

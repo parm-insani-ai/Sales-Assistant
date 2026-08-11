@@ -6,6 +6,8 @@ import * as store from "../store.js";
 import { toast, emptyState } from "../components.js";
 import { navigate } from "../router.js";
 import { parseCSV, autoMap, parseNumber, parseDateLoose, normalizeHeader } from "../csv.js";
+import { parseXLSX } from "../xlsx.js";
+import { startCadence } from "../cadence.js";
 import { esc, num, currency } from "../utils.js";
 import { icon } from "../icons.js";
 
@@ -49,22 +51,32 @@ const LEAD_TARGETS = [
 
 export function renderImport(view) {
   const el = document.createElement("div");
+  // Optional preselect (e.g. from the Leads page "Import prospects" button).
+  let preType = "";
+  try { preType = sessionStorage.getItem("import-type") || ""; sessionStorage.removeItem("import-type"); } catch {}
+
   el.innerHTML = `
     <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Home</button>
     <div class="card">
-      <div class="strong" style="font-size:1.1rem">Import from a spreadsheet</div>
-      <p class="small muted">Export your inventory from <b>vAuto</b> (or leads from <b>AutoAlert</b>, or any list) to CSV/Excel, then load it here. In Excel or Google Sheets choose <b>File → Save As / Download → CSV</b>.</p>
+      <div class="strong" style="font-size:1.1rem">Import a spreadsheet</div>
+      <p class="small muted">Load an <b>Excel (.xlsx)</b> or <b>CSV</b> file — an inventory export from vAuto, a customer/equity export from AutoAlert, or your own prospect list.</p>
 
       <div class="field">
         <label>What are you importing?</label>
         <select id="imp-type">
-          <option value="vehicles">Inventory (vehicles)</option>
-          <option value="leads">Leads / past customers</option>
+          <option value="vehicles" ${preType !== "leads" ? "selected" : ""}>Inventory (vehicles)</option>
+          <option value="leads" ${preType === "leads" ? "selected" : ""}>Leads / prospects / past customers</option>
         </select>
-        <div class="hint">Importing past customers with a <b>purchase date</b> fills your equity &amp; anniversary call list. Include an <b>AutoAlert equity export</b> (current payment, payoff, value) and the <b>Deal Builder</b> can match them to a new car at their current payment.</div>
+        <div class="hint">Past customers with a <b>purchase date</b> fill your equity &amp; anniversary call list; an <b>AutoAlert equity export</b> (payment, payoff, value) powers the Deal Builder.</div>
       </div>
-      <label class="btn btn-primary btn-block" for="imp-file">${icon("file")} Choose CSV file</label>
-      <input id="imp-file" type="file" accept=".csv,text/csv,text/plain" style="display:none">
+
+      <label class="switch" id="imp-outreach-wrap" style="margin:2px 0 14px;${preType === "leads" ? "" : "display:none"}">
+        <input id="imp-outreach" type="checkbox" checked>
+        <span>Automate outreach — start a follow-up plan (calls/texts) for each imported prospect</span>
+      </label>
+
+      <label class="btn btn-primary btn-block" for="imp-file">${icon("file")} Choose Excel or CSV file</label>
+      <input id="imp-file" type="file" accept=".csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
       <div class="hint">Everything stays on your device — the file isn't uploaded anywhere.</div>
     </div>
     <div id="imp-stage"></div>
@@ -73,24 +85,34 @@ export function renderImport(view) {
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/"));
 
+  // Show the outreach toggle only for lead/prospect imports.
+  const typeSel = el.querySelector("#imp-type");
+  const outreachWrap = el.querySelector("#imp-outreach-wrap");
+  typeSel.addEventListener("change", () => {
+    outreachWrap.style.display = typeSel.value === "leads" ? "" : "none";
+  });
+
   const stage = el.querySelector("#imp-stage");
   el.querySelector("#imp-file").addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    let text;
-    try { text = await file.text(); }
-    catch { toast("Couldn't read that file", "danger"); return; }
-    const parsed = parseCSV(text);
-    if (!parsed.headers.length || !parsed.rows.length) {
-      stage.innerHTML = emptyState("file", "No rows found", "Make sure the file is a CSV with a header row.");
+    const isXlsx = /\.xlsx$/i.test(file.name) || (file.type || "").includes("sheet");
+    let parsed;
+    try {
+      parsed = isXlsx ? await parseXLSX(await file.arrayBuffer()) : parseCSV(await file.text());
+    } catch (err) {
+      toast(err && err.message ? err.message : "Couldn't read that file", "danger");
       return;
     }
-    const type = el.querySelector("#imp-type").value;
-    showMapping(stage, type, parsed);
+    if (!parsed.headers.length || !parsed.rows.length) {
+      stage.innerHTML = emptyState("file", "No rows found", "Make sure the sheet has a header row and at least one data row.");
+      return;
+    }
+    showMapping(stage, typeSel.value, parsed, { outreach: () => el.querySelector("#imp-outreach")?.checked });
   });
 }
 
-function showMapping(stage, type, parsed) {
+function showMapping(stage, type, parsed, opts = {}) {
   const targets = type === "vehicles" ? VEHICLE_TARGETS : LEAD_TARGETS;
   const mapping = autoMap(parsed.headers, targets);
   const noneOpt = '<option value="">— none —</option>';
@@ -143,7 +165,16 @@ function showMapping(stage, type, parsed) {
   stage.querySelector('[data-act="run"]').addEventListener("click", () => {
     const m = readMapping();
     const result = runImport(type, parsed.rows, m);
-    toast(`Imported ${result.added} new, updated ${result.updated}${result.skipped ? `, skipped ${result.skipped}` : ""}`, "success");
+    // Automate outreach: start a follow-up cadence on each newly-created prospect.
+    let outreach = 0;
+    if (type === "leads" && opts.outreach && opts.outreach()) {
+      result.addedIds.forEach((id) => {
+        const l = store.get("leads", id);
+        if (l && l.stage === "new") { startCadence(id); outreach++; }
+      });
+    }
+    const extra = outreach ? ` · outreach started for ${outreach}` : "";
+    toast(`Imported ${result.added} new, updated ${result.updated}${result.skipped ? `, skipped ${result.skipped}` : ""}${extra}`, "success");
     navigate(type === "vehicles" ? "/inventory" : "/leads");
   });
 }
@@ -203,6 +234,7 @@ function buildRecord(type, row, mapping) {
 
 function runImport(type, rows, mapping) {
   let added = 0, updated = 0, skipped = 0;
+  const addedIds = [];
 
   if (type === "vehicles") {
     const existing = store.all("vehicles");
@@ -239,10 +271,11 @@ function runImport(type, rows, mapping) {
         store.update("leads", match.id, patch);
         updated++;
       } else {
-        store.create("leads", rec);
+        const created = store.create("leads", rec);
+        addedIds.push(created.id);
         added++;
       }
     });
   }
-  return { added, updated, skipped };
+  return { added, updated, skipped, addedIds };
 }
