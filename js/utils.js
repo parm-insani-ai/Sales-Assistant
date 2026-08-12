@@ -1,7 +1,10 @@
 // Small formatting + helper utilities shared across views.
 
 export function uid(prefix = "id") {
-  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  // Extra entropy so ids stay unique even as primary keys across many cloud
+  // accounts (records sync to one shared table, partitioned by user).
+  const rand = Math.random().toString(36).slice(2, 11) + Math.random().toString(36).slice(2, 6);
+  return `${prefix}_${Date.now().toString(36)}${rand}`;
 }
 
 export function currency(n) {

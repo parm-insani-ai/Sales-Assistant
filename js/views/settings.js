@@ -6,6 +6,8 @@ import { openModal, buildForm, toast, confirmDialog } from "../components.js";
 import { esc } from "../utils.js";
 import { icon } from "../icons.js";
 import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
+import * as backend from "../backend.js";
+import * as sync from "../sync.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -21,6 +23,9 @@ export function renderSettings(view) {
       <div class="field" style="margin-bottom:0"><label>Contact phone (for listings)</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
       <div class="hint">Used to fill in {salesperson} / {dealership} in message templates and your contact info in Marketplace listings.</div>
     </div>
+
+    <div class="section-title">Cloud sync &amp; account</div>
+    <div class="card" id="cloud-slot"></div>
 
     <div class="section-title">Deal defaults</div>
     <div class="card">
@@ -102,6 +107,20 @@ export function renderSettings(view) {
     }
     location.hash = "/";
   });
+
+  // --- Cloud sync section ---
+  const cloudSlot = el.querySelector("#cloud-slot");
+  buildCloud(cloudSlot);
+  const onSyncEvt = (e) => {
+    const line = cloudSlot.querySelector(".cloud-status");
+    if (!line) return;
+    const d = e.detail || {};
+    if (d.status === "syncing") line.textContent = "Syncing…";
+    else if (d.status === "synced") line.textContent = `Synced ${timeAgo(d.at)}${d.applied ? ` · ${d.applied} update${d.applied === 1 ? "" : "s"} in` : ""}`;
+    else if (d.status === "offline") line.textContent = "Offline — will sync when back online";
+    else if (d.status === "error") line.textContent = `Sync error: ${d.error}`;
+  };
+  window.addEventListener("entoa-sync", onSyncEvt);
 
   el.querySelector("#s-name").addEventListener("change", (e) =>
     store.updateSettings({ salesperson: e.target.value.trim() }));
@@ -268,6 +287,136 @@ export function renderSettings(view) {
       location.hash = "/";
     }
   });
+}
+
+function timeAgo(iso) {
+  if (!iso) return "just now";
+  const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+// Renders the cloud-sync card based on current config + auth state. Calls
+// itself to re-render after any state change.
+function buildCloud(slot) {
+  const s = store.getSettings();
+  const configured = backend.isConfigured();
+  const user = backend.currentUser();
+  const rerender = () => buildCloud(slot);
+
+  const setup = `
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} First-time setup (2 minutes)</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>Create a free project at <span class="mono">supabase.com</span>.</li>
+        <li>In the project: <b>SQL Editor → New query</b>, paste the contents of <span class="mono">supabase/schema.sql</span> from your repo, and Run.</li>
+        <li>Open <b>Project Settings → API</b> and copy the <b>Project URL</b> and the <b>anon public</b> key into the two boxes below.</li>
+        <li>Create your account below and you're synced. (Optional: in Auth settings, turn off “Confirm email” for instant sign-up.)</li>
+      </ol>
+    </details>`;
+
+  const configFields = `
+    <div class="field"><label>Supabase Project URL</label><input id="c-url" type="url" value="${esc(s.supabaseUrl || "")}" placeholder="https://xxxx.supabase.co"></div>
+    <div class="field"><label>Supabase anon key</label><input id="c-key" value="${esc(s.supabaseAnonKey || "")}" placeholder="eyJhbGciOi…"></div>`;
+
+  if (!configured) {
+    slot.innerHTML = `
+      <div class="small muted" style="margin-bottom:10px">Back up and sync your data across devices. Until you set this up, everything stays on this device exactly as now.</div>
+      ${setup}
+      ${configFields}
+      <div class="hint">The anon key is safe to store here — your data is protected by per-user security rules in the database.</div>`;
+    bindConfig();
+    return;
+  }
+
+  if (!user) {
+    slot.innerHTML = `
+      ${setup}
+      ${configFields}
+      <div class="section-title" style="margin-top:6px">Sign in</div>
+      <div class="field"><label>Email</label><input id="c-email" type="email" inputmode="email" autocomplete="username" placeholder="you@email.com"></div>
+      <div class="field"><label>Password</label><input id="c-pass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary btn-block" data-c="signin">Sign in</button>
+        <button class="btn btn-ghost btn-block" data-c="signup">Create account</button>
+      </div>
+      <div class="cloud-status small muted" style="margin-top:10px;text-align:center"></div>`;
+    bindConfig();
+    bindAuth();
+    return;
+  }
+
+  // Signed in.
+  slot.innerHTML = `
+    <div class="row" style="margin-bottom:12px">
+      <div class="row-main">
+        <div class="row-title">${icon("check")} Signed in</div>
+        <div class="row-sub">${esc(user.email || "")}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-c="signout">Sign out</button>
+    </div>
+    <label class="switch" style="margin-bottom:12px"><input id="c-auto" type="checkbox" ${s.cloudAutoSync ? "checked" : ""}><span>Auto-sync in the background</span></label>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-block" data-c="sync">${icon("download")} Sync now</button>
+      <button class="btn btn-ghost btn-block" data-c="backup">${icon("upload")} Back up all</button>
+    </div>
+    <div class="cloud-status small muted" style="margin-top:10px;text-align:center">${sync.lastSyncAt() ? "Synced " + esc(timeAgo(sync.lastSyncAt())) : "Not synced yet — tap Sync now"}</div>`;
+  bindConfig();
+
+  slot.querySelector('[data-c="signout"]').addEventListener("click", async () => {
+    await backend.signOut();
+    sync.disable();
+    toast("Signed out");
+    rerender();
+  });
+  slot.querySelector("#c-auto").addEventListener("change", (e) =>
+    store.updateSettings({ cloudAutoSync: e.target.checked }));
+  slot.querySelector('[data-c="sync"]').addEventListener("click", () => sync.syncNow());
+  slot.querySelector('[data-c="backup"]').addEventListener("click", async () => {
+    try { await sync.backupNow(); toast("Backed up to cloud", "success"); }
+    catch (e) { toast(e.message || "Backup failed", "danger"); }
+  });
+
+  function bindConfig() {
+    const urlEl = slot.querySelector("#c-url");
+    const keyEl = slot.querySelector("#c-key");
+    if (urlEl) urlEl.addEventListener("change", (e) => { store.updateSettings({ supabaseUrl: e.target.value.trim() }); rerender(); });
+    if (keyEl) keyEl.addEventListener("change", (e) => { store.updateSettings({ supabaseAnonKey: e.target.value.trim() }); rerender(); });
+  }
+
+  function bindAuth() {
+    const status = slot.querySelector(".cloud-status");
+    const creds = () => ({
+      email: (slot.querySelector("#c-email").value || "").trim(),
+      password: slot.querySelector("#c-pass").value || "",
+    });
+    const busy = (msg) => { if (status) status.textContent = msg; };
+    slot.querySelector('[data-c="signin"]').addEventListener("click", async () => {
+      const { email, password } = creds();
+      if (!email || !password) return busy("Enter your email and password");
+      busy("Signing in…");
+      try {
+        await backend.signIn(email, password);
+        sync.enable(); sync.init(); sync.syncNow();
+        toast("Signed in — syncing", "success");
+        rerender();
+      } catch (e) { busy(e.message || "Sign-in failed"); }
+    });
+    slot.querySelector('[data-c="signup"]').addEventListener("click", async () => {
+      const { email, password } = creds();
+      if (!email || password.length < 6) return busy("Use an email and a password of 6+ characters");
+      busy("Creating account…");
+      try {
+        const r = await backend.signUp(email, password);
+        if (r.needsConfirmation) { busy("Check your email to confirm, then sign in."); return; }
+        sync.enable(); sync.init(); sync.backupNow();
+        toast("Account created — backing up", "success");
+        rerender();
+      } catch (e) { busy(e.message || "Sign-up failed"); }
+    });
+  }
 }
 
 function openTemplateEditor(existing, onSaved) {

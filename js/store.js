@@ -59,6 +59,7 @@ const DEFAULT_STATE = {
   activity: [],
   spifs: [],
   specials: [],
+  outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
     dealership: "",
@@ -71,6 +72,10 @@ const DEFAULT_STATE = {
     messageTemplates: DEFAULT_TEMPLATES,
     goalUnits: 12, // sales per month
     goalCommission: 8000, // $ per month
+    // Cloud sync (Supabase). Empty = local-only, exactly like before.
+    supabaseUrl: "",
+    supabaseAnonKey: "",
+    cloudAutoSync: true,
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
@@ -160,6 +165,41 @@ export function updateSettings(patch) {
   persist();
 }
 
+// --- Cloud-sync change tracking ---
+// The outbox records local changes to push to the cloud. It only accumulates
+// while sync is turned on, so local-only users never grow it.
+let trackChanges = false;
+export function setSyncTracking(on) {
+  trackChanges = !!on;
+  if (!on) { state.outbox = {}; persist(); }
+}
+function markOutbox(name, id, deleted) {
+  if (!trackChanges) return;
+  state.outbox[`${name}:${id}`] = { collection: name, id, deleted: !!deleted, at: new Date().toISOString() };
+}
+export function getOutbox() {
+  return Object.values(state.outbox || {});
+}
+export function clearOutboxKeys(keys) {
+  keys.forEach((k) => { delete state.outbox[k]; });
+  persist();
+}
+// Apply a change pulled from the cloud WITHOUT re-queuing it for push.
+export function applyRemote(name, id, data) {
+  if (!Array.isArray(state[name])) state[name] = [];
+  const arr = state[name];
+  const idx = arr.findIndex((x) => x.id === id);
+  const rec = { ...data, id };
+  if (idx >= 0) arr[idx] = rec; else arr.unshift(rec);
+  persist();
+}
+export function applyRemoteDelete(name, id) {
+  if (!Array.isArray(state[name])) return;
+  const arr = state[name];
+  const idx = arr.findIndex((x) => x.id === id);
+  if (idx >= 0) { arr.splice(idx, 1); persist(); }
+}
+
 // --- Generic collection helpers ---
 function collection(name) {
   return state[name];
@@ -177,6 +217,7 @@ export function create(name, data) {
   const now = new Date().toISOString();
   const item = { id: uid(name.slice(0, 3)), createdAt: now, updatedAt: now, ...data };
   collection(name).unshift(item);
+  markOutbox(name, item.id, false);
   persist();
   return item;
 }
@@ -185,6 +226,7 @@ export function update(name, id, patch) {
   const item = get(name, id);
   if (!item) return null;
   Object.assign(item, patch, { updatedAt: new Date().toISOString() });
+  markOutbox(name, id, false);
   persist();
   return item;
 }
@@ -194,11 +236,15 @@ export function remove(name, id) {
   const idx = arr.findIndex((x) => x.id === id);
   if (idx >= 0) {
     arr.splice(idx, 1);
+    markOutbox(name, id, true);
     persist();
     return true;
   }
   return false;
 }
+
+// Every syncable collection (everything except settings/outbox metadata).
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials"];
 
 // --- Activity tracking (prospecting touches) ---
 // A "touch" is any outreach (call/text/logged contact). Used for the daily

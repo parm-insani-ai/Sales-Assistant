@@ -22,6 +22,7 @@ import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
 import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
 import { startVoiceAssistant } from "./voice.js";
+import * as sync from "./sync.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -115,6 +116,9 @@ document.getElementById("quick-add").addEventListener("click", () => {
 document.getElementById("voice-btn").addEventListener("click", startVoiceAssistant);
 
 startRouter();
+
+// Start cloud sync if it's configured and signed in (no-op otherwise).
+sync.init();
 
 // Register service worker for offline / installability.
 if ("serviceWorker" in navigator) {
