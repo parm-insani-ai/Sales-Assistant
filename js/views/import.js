@@ -126,7 +126,7 @@ function showMapping(stage, type, parsed, opts = {}) {
     <div class="section-title">Preview <span class="muted small">(first 3 rows)</span></div>
     <div class="card" id="imp-preview"></div>
     <button class="btn btn-success btn-block" data-act="run" style="margin-top:6px">Import ${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"}</button>
-    <div class="fab-note">Rows missing required info (${type === "vehicles" ? "make & model" : "a name"}) are skipped. Existing ${type} are updated when they match.</div>
+    <div class="fab-note">Rows missing required info (${type === "vehicles" ? "make & model" : "a name"}) are skipped. Rows that match an existing ${type === "vehicles" ? "vehicle (by VIN or stock #)" : "customer (by phone or email)"} are <b>merged</b> into that record — so each file you import deepens the profile instead of creating duplicates.</div>
   `;
 
   const mapRows = stage.querySelector(".map-rows");
@@ -173,8 +173,13 @@ function showMapping(stage, type, parsed, opts = {}) {
         if (l && l.stage === "new") { startCadence(id); outreach++; }
       });
     }
+    const verb = type === "vehicles" ? "updated" : "enriched";
+    const parts = [`${result.added} new`];
+    if (result.updated) parts.push(`${result.updated} ${verb}`);
+    if (result.unchanged) parts.push(`${result.unchanged} already current`);
+    if (result.skipped) parts.push(`${result.skipped} skipped`);
     const extra = outreach ? ` · outreach started for ${outreach}` : "";
-    toast(`Imported ${result.added} new, updated ${result.updated}${result.skipped ? `, skipped ${result.skipped}` : ""}${extra}`, "success");
+    toast(`Import complete — ${parts.join(", ")}${extra}`, "success");
     navigate(type === "vehicles" ? "/inventory" : "/leads");
   });
 }
@@ -232,8 +237,38 @@ function buildRecord(type, row, mapping) {
   };
 }
 
+const digits = (p) => String(p || "").replace(/\D/g, "");
+
+// Merge an incoming record into an existing customer, returning a patch of only
+// the fields that actually change. The goal: every file you import deepens the
+// same profile instead of creating a duplicate or clobbering good data.
+//   · identity/contact  → fill only if we don't already have it
+//   · name              → prefer the fuller version ("Ken Adams" over "Ken")
+//   · money / odometer  → take the newest value (a fresh export is more current)
+//   · notes             → append what's new instead of overwriting
+//   · stage/followUp/id → never touched by an import
+function mergeLead(existing, incoming) {
+  const patch = {};
+  const empty = (v) => v === "" || v == null;
+
+  ["phone", "email", "dob", "source", "vehicleInterest", "purchaseDate", "leaseEnd"].forEach((k) => {
+    if (!empty(incoming[k]) && empty(existing[k])) patch[k] = incoming[k];
+  });
+  if (!empty(incoming.name) && String(incoming.name).length > String(existing.name || "").length) {
+    patch.name = incoming.name;
+  }
+  ["currentPayment", "payoff", "currentValue", "currentApr"].forEach((k) => {
+    if (!empty(incoming[k])) patch[k] = incoming[k];
+  });
+  if (!empty(incoming.notes)) {
+    const cur = String(existing.notes || "");
+    if (!cur.includes(incoming.notes)) patch.notes = cur ? `${cur}\n${incoming.notes}` : incoming.notes;
+  }
+  return patch;
+}
+
 function runImport(type, rows, mapping) {
-  let added = 0, updated = 0, skipped = 0;
+  let added = 0, updated = 0, skipped = 0, unchanged = 0;
   const addedIds = [];
 
   if (type === "vehicles") {
@@ -257,25 +292,43 @@ function runImport(type, rows, mapping) {
       }
     });
   } else {
-    const existing = store.all("leads");
+    // Index existing customers by phone and email so each row folds into the
+    // right profile. Newly created records are added to the index too, so
+    // duplicates *within the same file* also merge instead of piling up.
+    const byPhone = new Map();
+    const byEmail = new Map();
+    store.all("leads").forEach((l) => {
+      if (l.phone) byPhone.set(digits(l.phone), l);
+      if (l.email) byEmail.set(l.email.toLowerCase(), l);
+    });
+
     rows.forEach((row) => {
       const rec = buildRecord("leads", row, mapping);
       if (!rec.name) { skipped++; return; }
-      const digits = (p) => String(p || "").replace(/\D/g, "");
-      const match = existing.find((l) =>
-        (rec.phone && l.phone && digits(l.phone) === digits(rec.phone)) ||
-        (rec.email && l.email && l.email.toLowerCase() === rec.email.toLowerCase()));
+      const ph = digits(rec.phone);
+      const em = rec.email ? rec.email.toLowerCase() : "";
+      const match = (ph && byPhone.get(ph)) || (em && byEmail.get(em)) || null;
+
       if (match) {
-        const patch = {};
-        Object.entries(rec).forEach(([k, val]) => { if (val !== "" && val != null && k !== "stage") patch[k] = val; });
-        store.update("leads", match.id, patch);
-        updated++;
+        const patch = mergeLead(match, rec);
+        if (Object.keys(patch).length) {
+          store.update("leads", match.id, patch);
+          Object.assign(match, patch); // keep our in-memory copy current
+          updated++;
+        } else {
+          unchanged++;
+        }
+        // A newly-learned phone/email lets later rows match this same person.
+        if (match.phone) byPhone.set(digits(match.phone), match);
+        if (match.email) byEmail.set(match.email.toLowerCase(), match);
       } else {
         const created = store.create("leads", rec);
         addedIds.push(created.id);
         added++;
+        if (ph) byPhone.set(ph, created);
+        if (em) byEmail.set(em, created);
       }
     });
   }
-  return { added, updated, skipped, addedIds };
+  return { added, updated, skipped, unchanged, addedIds };
 }
