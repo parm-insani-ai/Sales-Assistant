@@ -1,5 +1,6 @@
 // localStorage-backed data store. All app data lives on the device.
-// Collections: leads, tasks, vehicles, deliveries, appointments, sales. Plus settings.
+// Collections: leads, tasks, vehicles, deliveries, appointments, sales, spifs,
+// specials, activity. Plus settings.
 
 import { uid } from "./utils.js";
 
@@ -56,6 +57,8 @@ const DEFAULT_STATE = {
   appointments: [],
   sales: [],
   activity: [],
+  spifs: [],
+  specials: [],
   settings: {
     salesperson: "",
     dealership: "",

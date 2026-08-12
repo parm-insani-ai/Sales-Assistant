@@ -77,6 +77,16 @@ export function renderDashboard(view) {
       </div>`;
     })()}
 
+    <div class="card card-tap" data-goto="/tools" style="margin-top:12px">
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">${icon("grid")} Sales tools</div>
+          <div class="row-sub">Calculator · Compare · SPIFs · Specials · Deal Radar</div>
+        </div>
+        <div class="row-meta strong">›</div>
+      </div>
+    </div>
+
     <div class="stat-grid">
       <div class="stat"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due</div></div>
       <div class="stat"><div class="stat-value">${activeLeads.length}</div><div class="stat-label">Active leads</div></div>

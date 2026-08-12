@@ -33,6 +33,10 @@ const PATHS = {
   download: '<path d="M12 3.5v11"/><path d="m7.8 10.3 4.2 4.2 4.2-4.2"/><path d="M4.5 20h15"/>',
   upload: '<path d="M12 20.5v-11"/><path d="m7.8 13.7 4.2-4.2 4.2 4.2"/><path d="M4.5 4h15"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>',
+  award: '<circle cx="12" cy="9" r="5"/><path d="m9 13.4-1.6 7.1 4.6-2.6 4.6 2.6L15 13.4"/>',
+  compare: '<rect x="4" y="4.5" width="6.4" height="15" rx="1.4"/><rect x="13.6" y="8" width="6.4" height="11.5" rx="1.4"/>',
+  tag: '<path d="M20.5 12.3 12.3 20.5 3.5 11.7V4a.5.5 0 0 1 .5-.5h7.7z"/><circle cx="8.4" cy="8" r="1.4"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>',
 };
 
 export function icon(name, extra = "") {

@@ -683,3 +683,22 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* --- Tools hub grid --- */
+.tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tool-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 14px; }
+.tool-ico { display: inline-flex; color: var(--brand); margin-bottom: 6px; }
+.tool-label { font-weight: 650; color: var(--text); }
+.tool-sub { line-height: 1.2; }
+
+/* --- Vehicle comparison table --- */
+.cmp-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
+.cmp-col { flex: 0 0 46%; min-width: 150px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.cmp-col.cmp-labels { flex: 0 0 34%; min-width: 96px; background: var(--surface-2); }
+.cmp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; padding: 10px; min-height: 52px; border-bottom: 1px solid var(--border); }
+.cmp-name { font-weight: 650; font-size: 0.92rem; line-height: 1.15; color: var(--text); }
+.cmp-x { border: none; background: transparent; color: var(--muted); font-size: 1.2rem; line-height: 1; cursor: pointer; padding: 0 2px; }
+.cmp-cell { padding: 9px 10px; font-size: 0.9rem; border-bottom: 1px solid var(--border); min-height: 20px; }
+.cmp-col .cmp-cell:last-child { border-bottom: none; }
+.cmp-best { color: var(--success); font-weight: 650; }
+.cmp-tag { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .03em; background: var(--brand-tint); color: var(--brand-strong); padding: 1px 5px; border-radius: var(--radius-pill); vertical-align: middle; }
