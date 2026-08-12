@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder } from "./dealbuilder.js";
+import { openDealBuilder, topOpportunities } from "./dealbuilder.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
@@ -49,10 +49,20 @@ export function renderLeads(view, { param }) {
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: s.label })),
     ];
 
+    const oppCount = topOpportunities(50).length;
     wrap.innerHTML = `
       <div class="btn-row" style="margin-bottom:10px">
         <button class="btn btn-primary btn-block" data-act="add-lead">${icon("plus")} Add customer</button>
         <button class="btn btn-ghost btn-block" data-act="import-prospects">${icon("upload")} Import prospects</button>
+      </div>
+      <div class="card card-tap deal-radar-card" data-act="deal-radar" style="margin-bottom:12px">
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">${icon("dollar")} Deal Radar</div>
+            <div class="row-sub">${oppCount ? `${oppCount} customer${oppCount === 1 ? "" : "s"} can trade into a new car` : "Find customers who can trade up — tap to set up"}</div>
+          </div>
+          <div class="row-meta strong" style="font-size:1.3rem">${oppCount || ""} ›</div>
+        </div>
       </div>
       <div class="searchbar">
         <input type="search" placeholder="Search leads…" value="${esc(search)}" />
@@ -88,6 +98,7 @@ export function renderLeads(view, { param }) {
       try { sessionStorage.setItem("import-type", "leads"); } catch {}
       navigate("/import");
     });
+    wrap.querySelector('[data-act="deal-radar"]').addEventListener("click", () => navigate("/deals"));
   }
 
   function applyFilter() {

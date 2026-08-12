@@ -25,6 +25,68 @@ function dayHeading(key) {
   return `${rel} · ${wd}`;
 }
 
+// --- Calendar export (.ics) ---
+// Produces a standard iCalendar file for one appointment. Opening it adds the
+// event to whatever calendar the phone uses — Outlook, Apple Calendar, Google.
+// Works offline with no accounts; this is a one-way "add to calendar", not a
+// live two-way sync (that needs a backend + Microsoft/Google sign-in).
+function icsStamp(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+// Local wall-clock time with no zone, so the event lands at the time you set.
+function icsLocal(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+}
+function icsEscape(s) {
+  return String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+function buildICS(a) {
+  const start = icsLocal(a.when);
+  if (!start) return null;
+  const end = new Date(new Date(a.when).getTime() + 60 * 60 * 1000); // default 1h
+  const t = apptType(a.type);
+  const summary = `${a.title || t.label}${a.customerName ? " — " + a.customerName : ""}`;
+  const descBits = [a.vehicle ? `Vehicle: ${a.vehicle}` : "", a.notes || ""].filter(Boolean);
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//entoa//Sales Assistant//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${a.id}@entoa.ai`,
+    `DTSTAMP:${icsStamp(new Date())}`,
+    `DTSTART:${start}`,
+    `DTEND:${icsLocal(end.toISOString())}`,
+    `SUMMARY:${icsEscape(summary)}`,
+    descBits.length ? `DESCRIPTION:${icsEscape(descBits.join("\n"))}` : "",
+    "BEGIN:VALARM",
+    "TRIGGER:-PT30M",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsEscape(summary)}`,
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].filter(Boolean).join("\r\n");
+}
+function addToCalendar(a) {
+  const ics = buildICS(a);
+  if (!ics) { toast("Set a date & time first", "danger"); return; }
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const name = `${(a.customerName || "appointment").replace(/[^\w]+/g, "-").toLowerCase()}.ics`;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 export function renderCalendar(view, { param }) {
   if (param) return renderApptDetail(view, param);
 
@@ -154,6 +216,7 @@ function renderApptDetail(view, id) {
 
     <div class="section-title">Actions</div>
     <div class="card">
+      <button class="btn btn-ghost btn-block" data-act="ics" style="margin-bottom:10px">${icon("calendar")} Add to calendar (Outlook / Apple / Google)</button>
       ${a.status !== "done" ? `<button class="btn btn-success btn-block" data-act="done">${icon("checkline")} Mark completed</button>` : `<button class="btn btn-ghost btn-block" data-act="reopen">Reopen</button>`}
       <div class="btn-row" style="margin-top:10px">
         <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
@@ -165,6 +228,7 @@ function renderApptDetail(view, id) {
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/calendar"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openAppointmentForm(a));
+  el.querySelector('[data-act="ics"]').addEventListener("click", () => addToCalendar(a));
   const leadBtn = el.querySelector('[data-act="lead"]');
   if (leadBtn) leadBtn.addEventListener("click", () => navigate(`/leads/${a.leadId}`));
 

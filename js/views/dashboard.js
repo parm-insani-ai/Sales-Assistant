@@ -7,7 +7,6 @@ import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHr
 import { taskListEl, openTaskForm } from "./tasks.js";
 import { monthSummary } from "./goals.js";
 import { prospectSummary } from "./prospecting.js";
-import { topOpportunities } from "./dealbuilder.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 
@@ -58,24 +57,6 @@ export function renderDashboard(view) {
         <div class="row-meta strong" style="color:var(--brand-ink);font-size:1.6rem">${ps.total || ""} ›</div>
       </div>
     </div>`; })()}
-
-    ${(() => {
-      const deals = topOpportunities(50);
-      const top = deals[0];
-      const sub = deals.length
-        ? `${deals.length} deal${deals.length === 1 ? "" : "s"} ready — top: ${esc(top.lead.name)} → ${esc([top.best.vehicle.year, top.best.vehicle.make, top.best.vehicle.model].filter(Boolean).join(" "))}${top.best.delta != null && top.best.delta <= 50 ? " · same payment" : ""}`
-        : "Find customers who can trade into a new car — tap to set up";
-      return `
-      <div class="card card-tap deal-radar-card" data-goto="/deals">
-        <div class="row">
-          <div class="row-main">
-            <div class="row-title">${icon("dollar")} Deal Radar</div>
-            <div class="row-sub">${sub}</div>
-          </div>
-          <div class="row-meta strong" style="font-size:1.4rem">${deals.length || ""} ›</div>
-        </div>
-      </div>`;
-    })()}
 
     <div class="card card-tap" data-goto="/tools" style="margin-top:12px">
       <div class="row">
