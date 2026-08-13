@@ -73,19 +73,34 @@ export function renderLeads(view, { param }) {
 
     wrap.querySelector('input[type="search"]').addEventListener("input", (e) => {
       search = e.target.value;
-      // Re-render only the list for smoother typing.
-      const el = wrap.querySelector(".lead-list");
-      const filtered = applyFilter();
-      el.innerHTML = "";
-      if (!filtered.length) el.innerHTML = emptyState("search", "No matches", "");
-      else filtered.forEach((x) => el.appendChild(leadCard(x)));
+      renderList(); // re-render only the list for smoother typing
     });
 
+    // Switching filters re-renders only the list and updates the active chip in
+    // place — rebuilding the whole view would snap the scrollable filter row
+    // (and the page) back to the top.
     wrap.querySelectorAll("[data-filter]").forEach((b) =>
-      b.addEventListener("click", () => { filter = b.dataset.filter; draw(); }));
+      b.addEventListener("click", () => {
+        filter = b.dataset.filter;
+        wrap.querySelectorAll("[data-filter]").forEach((x) => {
+          const active = x === b;
+          x.classList.toggle("btn-primary", active);
+          x.classList.toggle("btn-ghost", !active);
+        });
+        renderList();
+      }));
 
     wrap.querySelector('[data-act="add-lead"]').addEventListener("click", () => openLeadForm());
     wrap.querySelector('[data-act="call-list"]').addEventListener("click", () => navigate("/prospecting"));
+  }
+
+  function renderList() {
+    const el = wrap.querySelector(".lead-list");
+    if (!el) return;
+    const filtered = applyFilter();
+    el.innerHTML = "";
+    if (!filtered.length) el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
+    else filtered.forEach((x) => el.appendChild(leadCard(x)));
   }
 
   function applyFilter() {
