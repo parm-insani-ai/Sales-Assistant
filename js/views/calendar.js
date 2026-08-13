@@ -157,7 +157,16 @@ export function renderCalendar(view, { param }) {
     }
     gridEl.innerHTML = cells;
     gridEl.querySelectorAll("[data-day]").forEach((c) =>
-      c.addEventListener("click", () => { selKey = c.dataset.day; drawMonth(); drawDay(); }));
+      c.addEventListener("click", () => selectDay(c.dataset.day)));
+  }
+
+  // Update selection in place — rebuilding the grid on every tap removes the
+  // cell under the finger and makes the page jump.
+  function selectDay(key) {
+    selKey = key;
+    gridEl.querySelectorAll(".cal-cell").forEach((c) =>
+      c.classList.toggle("selected", c.getAttribute("data-day") === key));
+    drawDay();
   }
 
   function drawDay() {

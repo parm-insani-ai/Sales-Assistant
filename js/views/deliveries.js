@@ -3,10 +3,9 @@
 import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
-import { esc, formatDate, relativeDay, daysFromToday } from "../utils.js";
+import { esc, formatDate, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { openReferralCapture } from "./referrals.js";
-import { openSaleForm } from "./goals.js";
 
 function progress(d) {
   const items = d.checklist || [];
@@ -197,23 +196,22 @@ function renderDeliveryDetail(view, id) {
     if (d.leadId) store.update("leads", d.leadId, { stage: "delivered" });
     toast("Congrats on the delivery!", "success");
 
-    // A delivered car is a sold car — make sure it counts toward your units and
-    // commission. If this deal isn't logged as a sale yet, capture it now; then
-    // ask for a referral (the best moment to). If it's already logged, skip
-    // straight to the referral so nothing is double-counted.
-    const askReferral = () => openReferralCapture(d.customerName, d.leadId);
+    // A delivered car is a sold car — count it toward your units immediately.
+    // Auto-log the sale (unless this deal is already logged) so the number
+    // always moves, even on a phone; commission can be filled in later in Goals.
     const alreadyLogged = store.all("sales").some((s) =>
       s.deliveryId === d.id || (d.leadId && s.leadId === d.leadId));
-    if (alreadyLogged) {
-      navigate("/deliveries");
-      askReferral();
-    } else {
-      openSaleForm(
-        null,
-        { customerName: d.customerName, vehicle: d.vehicle, leadId: d.leadId || null, deliveryId: d.id },
-        () => { navigate("/deliveries"); askReferral(); }
-      );
+    if (!alreadyLogged) {
+      store.create("sales", {
+        customerName: d.customerName, vehicle: d.vehicle, saleDate: todayISO(),
+        frontGross: 0, backGross: 0, commission: 0,
+        leadId: d.leadId || null, deliveryId: d.id,
+      });
+      toast("Counted as a sale — add your commission in Goals", "success");
     }
+    navigate("/deliveries");
+    // Delivery is the best moment to ask for a referral.
+    openReferralCapture(d.customerName, d.leadId);
   });
   const reopenBtn = el.querySelector('[data-act="reopen"]');
   if (reopenBtn) reopenBtn.addEventListener("click", () => {
