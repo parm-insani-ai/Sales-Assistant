@@ -65,6 +65,10 @@ export function toast(message, kind = "") {
 
 export function confirmDialog(message, { danger = true, confirmLabel = "Delete" } = {}) {
   return new Promise((resolve) => {
+    // Resolve exactly once. close() triggers onClose, so settle BEFORE closing —
+    // otherwise onClose's resolve(false) would beat the button's real answer.
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
     openModal("Confirm", (close) => {
       const wrap = document.createElement("div");
       wrap.innerHTML = `
@@ -73,10 +77,10 @@ export function confirmDialog(message, { danger = true, confirmLabel = "Delete" 
           <button class="btn btn-ghost btn-block" data-act="cancel">Cancel</button>
           <button class="btn ${danger ? "btn-danger" : "btn-primary"} btn-block" data-act="ok">${escapeText(confirmLabel)}</button>
         </div>`;
-      wrap.querySelector('[data-act="cancel"]').addEventListener("click", () => { close(); resolve(false); });
-      wrap.querySelector('[data-act="ok"]').addEventListener("click", () => { close(); resolve(true); });
+      wrap.querySelector('[data-act="cancel"]').addEventListener("click", () => { done(false); close(); });
+      wrap.querySelector('[data-act="ok"]').addEventListener("click", () => { done(true); close(); });
       return wrap;
-    }, { onClose: () => resolve(false) });
+    }, { onClose: () => done(false) });
   });
 }
 

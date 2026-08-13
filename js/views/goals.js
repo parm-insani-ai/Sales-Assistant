@@ -104,7 +104,7 @@ function saleCard(sale) {
   return el;
 }
 
-export function openSaleForm(existing, prefill = {}) {
+export function openSaleForm(existing, prefill = {}, onDone) {
   const isEdit = !!existing;
   const sale = existing || prefill;
   openModal(isEdit ? "Edit sale" : "Log a sale", (close) => {
@@ -122,9 +122,19 @@ export function openSaleForm(existing, prefill = {}) {
         submitLabel: isEdit ? "Save" : "Log sale",
         onSubmit: (data) => {
           if (isEdit) { store.update("sales", existing.id, data); toast("Sale updated", "success"); }
-          else { store.create("sales", { ...data, leadId: sale.leadId || null }); toast("Sale logged", "success"); }
+          else {
+            store.create("sales", { ...data, leadId: sale.leadId || null, deliveryId: sale.deliveryId || null });
+            // Keep the linked customer's pipeline stage in sync (don't downgrade
+            // a delivered customer back to sold).
+            if (sale.leadId) {
+              const lead = store.get("leads", sale.leadId);
+              if (lead && lead.stage !== "delivered") store.update("leads", sale.leadId, { stage: "sold" });
+            }
+            toast("Sale logged", "success");
+          }
           close();
           window.dispatchEvent(new HashChangeEvent("hashchange"));
+          if (onDone) onDone();
         },
       }
     );
