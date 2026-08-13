@@ -38,6 +38,7 @@ export function renderDashboard(view) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const name = s.salesperson ? `, ${s.salesperson.split(" ")[0]}` : "";
+  const todayLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   const el = document.createElement("div");
   el.innerHTML = `
@@ -45,6 +46,17 @@ export function renderDashboard(view) {
       <div class="hero-greeting">${greeting}${esc(name)}</div>
       <div class="hero-title">Here's your day</div>
     </div>
+
+    <div class="card card-tap" data-goto="/calendar" style="margin-bottom:6px">
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">${icon("calendar")} ${esc(todayLabel)}</div>
+          <div class="row-sub">${todaysAppts.length ? `${todaysAppts.length} event${todaysAppts.length === 1 ? "" : "s"} today · tap for month` : "Nothing scheduled today · tap for month"}</div>
+        </div>
+        <div class="row-meta strong">›</div>
+      </div>
+    </div>
+    <div class="appt-list"></div>
 
     <div class="stat-grid">
       <div class="stat"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due</div></div>
@@ -54,8 +66,6 @@ export function renderDashboard(view) {
     </div>
 
     ${goalCard(mtd, s)}
-
-    ${todaysAppts.length ? `<div class="section-title" style="display:flex;justify-content:space-between;align-items:center"><span>Today's schedule</span><a class="link small" href="#/calendar">All ›</a></div><div class="appt-list"></div>` : ""}
 
     <div class="section-title">Follow up today ${dueFollowUps.length ? `<span class="muted">· ${dueFollowUps.length}</span>` : ""}</div>
     <div class="due-list"></div>

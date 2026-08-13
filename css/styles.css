@@ -702,3 +702,17 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .cmp-col .cmp-cell:last-child { border-bottom: none; }
 .cmp-best { color: var(--success); font-weight: 650; }
 .cmp-tag { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .03em; background: var(--brand-tint); color: var(--brand-strong); padding: 1px 5px; border-radius: var(--radius-pill); vertical-align: middle; }
+
+/* --- Month calendar grid --- */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-title { font-size: 1rem; }
+.cal-nav { border: none; background: var(--surface-2); color: var(--text); width: 34px; height: 34px; border-radius: 10px; font-size: 1.2rem; line-height: 1; cursor: pointer; }
+.cal-nav:active { background: var(--surface-3); }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 0.72rem; letter-spacing: .02em; margin-bottom: 4px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-cell { position: relative; aspect-ratio: 1 / 1; border: none; background: transparent; color: var(--text); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; cursor: pointer; }
+.cal-cell.empty { visibility: hidden; cursor: default; }
+.cal-cell.today { color: var(--brand); font-weight: 700; }
+.cal-cell.selected { background: var(--brand); color: var(--brand-ink); font-weight: 700; }
+.cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); }
+.cal-cell.selected .cal-dot { background: var(--brand-ink); }

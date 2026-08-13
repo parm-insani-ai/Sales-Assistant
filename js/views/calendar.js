@@ -87,36 +87,95 @@ function addToCalendar(a) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+// Local day key (YYYY-MM-DD) so grid cells and events line up on the same day
+// regardless of timezone.
+function dkLocal(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function renderCalendar(view, { param }) {
   if (param) return renderApptDetail(view, param);
 
-  const appts = store.all("appointments").filter((a) => a.status !== "canceled");
   const el = document.createElement("div");
-
-  const now = new Date();
-  const todayKey = now.toISOString().slice(0, 10);
-  const upcoming = appts.filter((a) => dayKey(a.when) >= todayKey && a.status !== "done");
-  const past = appts.filter((a) => dayKey(a.when) < todayKey || a.status === "done");
+  const today = new Date();
+  const todayKey = dkLocal(today);
+  let selKey = todayKey;
+  let viewY = today.getFullYear();
+  let viewM = today.getMonth(); // 0-based
 
   el.innerHTML = `
     <div class="btn-row" style="margin-bottom:12px">
       <button class="btn btn-primary btn-block" data-act="new">＋ New appointment</button>
     </div>
-    <div class="upcoming"></div>
-    ${past.length ? `<div class="section-title">Past & completed</div><div class="past"></div>` : ""}
+    <div class="card">
+      <div class="cal-head">
+        <button class="cal-nav" data-act="prev" aria-label="Previous month">‹</button>
+        <div class="cal-title strong"></div>
+        <button class="cal-nav" data-act="next" aria-label="Next month">›</button>
+      </div>
+      <div class="cal-weekdays">${["S", "M", "T", "W", "T", "F", "S"].map((d) => `<span>${d}</span>`).join("")}</div>
+      <div class="cal-grid"></div>
+    </div>
+    <div class="section-title" id="cal-day-title"></div>
+    <div id="cal-day-list"></div>
   `;
   view.appendChild(el);
-
   el.querySelector('[data-act="new"]').addEventListener("click", () => openAppointmentForm());
 
-  const upEl = el.querySelector(".upcoming");
-  if (!upcoming.length) {
-    upEl.innerHTML = emptyState("calendar", "No upcoming appointments", "Tap “New appointment” to schedule one.");
-  } else {
-    renderGroups(upEl, upcoming, false);
+  // Single source of events. External calendar feeds (Apple/Outlook/Google) will
+  // merge into this list once connected — the grid and day list won't change.
+  const allEvents = () => store.all("appointments").filter((a) => a.status !== "canceled");
+  const eventsForDay = (key) =>
+    allEvents().filter((a) => dkLocal(a.when) === key).sort((a, b) => String(a.when).localeCompare(String(b.when)));
+
+  const titleEl = el.querySelector(".cal-title");
+  const gridEl = el.querySelector(".cal-grid");
+  const dayTitle = el.querySelector("#cal-day-title");
+  const dayList = el.querySelector("#cal-day-list");
+
+  function drawMonth() {
+    const first = new Date(viewY, viewM, 1);
+    const startDow = first.getDay();
+    const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
+    titleEl.textContent = first.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    const counts = {};
+    allEvents().forEach((a) => { const k = dkLocal(a.when); if (k) counts[k] = (counts[k] || 0) + 1; });
+
+    const pad = (n) => String(n).padStart(2, "0");
+    let cells = "";
+    for (let i = 0; i < startDow; i++) cells += `<span class="cal-cell empty"></span>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${viewY}-${pad(viewM + 1)}-${pad(d)}`;
+      const cls = ["cal-cell"];
+      if (key === todayKey) cls.push("today");
+      if (key === selKey) cls.push("selected");
+      cells += `<button class="${cls.join(" ")}" data-day="${key}"><span class="cal-num">${d}</span>${counts[key] ? '<span class="cal-dot"></span>' : ""}</button>`;
+    }
+    gridEl.innerHTML = cells;
+    gridEl.querySelectorAll("[data-day]").forEach((c) =>
+      c.addEventListener("click", () => { selKey = c.dataset.day; drawMonth(); drawDay(); }));
   }
-  const pastEl = el.querySelector(".past");
-  if (pastEl) renderGroups(pastEl, past.slice().reverse(), true);
+
+  function drawDay() {
+    const evts = eventsForDay(selKey);
+    dayTitle.textContent = dayHeading(selKey);
+    dayList.innerHTML = "";
+    if (!evts.length) {
+      dayList.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nothing scheduled.</div></div>`;
+    } else {
+      evts.forEach((a) => dayList.appendChild(apptCard(a)));
+    }
+  }
+
+  el.querySelector('[data-act="prev"]').addEventListener("click", () => { if (--viewM < 0) { viewM = 11; viewY--; } drawMonth(); });
+  el.querySelector('[data-act="next"]').addEventListener("click", () => { if (++viewM > 11) { viewM = 0; viewY++; } drawMonth(); });
+
+  drawMonth();
+  drawDay();
 }
 
 function renderGroups(container, list, isPast) {
