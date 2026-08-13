@@ -34,6 +34,12 @@ create policy "records are private to their owner"
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
+-- Table-level privileges for the roles PostgREST uses. RLS (above) still limits
+-- WHICH rows each user can touch; these GRANTs just allow reaching the table at
+-- all. Without them you get "permission denied for table records".
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.records to anon, authenticated;
+
 -- Keep updated_at honest even if a client forgets to set it.
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $$
