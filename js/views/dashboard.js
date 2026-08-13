@@ -6,7 +6,6 @@ import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHref } from "../utils.js";
 import { taskListEl, openTaskForm } from "./tasks.js";
 import { monthSummary } from "./goals.js";
-import { prospectSummary } from "./prospecting.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 
@@ -45,27 +44,6 @@ export function renderDashboard(view) {
     <div class="hero">
       <div class="hero-greeting">${greeting}${esc(name)}</div>
       <div class="hero-title">Here's your day</div>
-    </div>
-
-    ${(() => { const ps = prospectSummary(); return `
-    <div class="card card-tap prospect-card" data-goto="/prospecting">
-      <div class="row">
-        <div class="row-main">
-          <div class="row-title" style="color:var(--brand-ink)">${icon("target")} Today's call list</div>
-          <div class="row-sub" style="color:var(--brand-ink);opacity:.9">${ps.hot ? `${ps.hot} new — respond now · ${ps.total} to reach` : ps.total ? `${ps.total} ${ps.total === 1 ? "person" : "people"} to reach — book more appointments` : "You're all caught up on outreach"}</div>
-        </div>
-        <div class="row-meta strong" style="color:var(--brand-ink);font-size:1.6rem">${ps.total || ""} ›</div>
-      </div>
-    </div>`; })()}
-
-    <div class="card card-tap" data-goto="/tools" style="margin-top:12px">
-      <div class="row">
-        <div class="row-main">
-          <div class="row-title">${icon("grid")} Sales tools</div>
-          <div class="row-sub">Calculator · Compare · SPIFs · Specials · Deal Radar</div>
-        </div>
-        <div class="row-meta strong">›</div>
-      </div>
     </div>
 
     <div class="stat-grid">

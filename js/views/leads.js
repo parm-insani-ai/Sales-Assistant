@@ -11,6 +11,7 @@ import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, topOpportunities } from "./dealbuilder.js";
+import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref,
@@ -50,10 +51,20 @@ export function renderLeads(view, { param }) {
     ];
 
     const oppCount = topOpportunities(50).length;
+    const ps = prospectSummary();
     wrap.innerHTML = `
-      <div class="btn-row" style="margin-bottom:10px">
-        <button class="btn btn-primary btn-block" data-act="add-lead">${icon("plus")} Add customer</button>
-        <button class="btn btn-ghost btn-block" data-act="import-prospects">${icon("upload")} Import prospects</button>
+      <div class="searchbar">
+        <input type="search" placeholder="Search leads…" value="${esc(search)}" />
+      </div>
+      <button class="btn btn-primary btn-block" data-act="add-lead" style="margin-bottom:12px">${icon("plus")} Add customer</button>
+      <div class="card card-tap prospect-card" data-act="call-list" style="margin-bottom:12px">
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title" style="color:var(--brand-ink)">${icon("target")} Today's call list</div>
+            <div class="row-sub" style="color:var(--brand-ink);opacity:.9">${ps.hot ? `${ps.hot} new — respond now · ${ps.total} to reach` : ps.total ? `${ps.total} ${ps.total === 1 ? "person" : "people"} to reach — book more appointments` : "You're all caught up on outreach"}</div>
+          </div>
+          <div class="row-meta strong" style="color:var(--brand-ink);font-size:1.6rem">${ps.total || ""} ›</div>
+        </div>
       </div>
       <div class="card card-tap deal-radar-card" data-act="deal-radar" style="margin-bottom:12px">
         <div class="row">
@@ -63,9 +74,6 @@ export function renderLeads(view, { param }) {
           </div>
           <div class="row-meta strong" style="font-size:1.3rem">${oppCount || ""} ›</div>
         </div>
-      </div>
-      <div class="searchbar">
-        <input type="search" placeholder="Search leads…" value="${esc(search)}" />
       </div>
       <div class="btn-row" style="overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; margin-bottom:6px;">
         ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
@@ -94,10 +102,7 @@ export function renderLeads(view, { param }) {
       b.addEventListener("click", () => { filter = b.dataset.filter; draw(); }));
 
     wrap.querySelector('[data-act="add-lead"]').addEventListener("click", () => openLeadForm());
-    wrap.querySelector('[data-act="import-prospects"]').addEventListener("click", () => {
-      try { sessionStorage.setItem("import-type", "leads"); } catch {}
-      navigate("/import");
-    });
+    wrap.querySelector('[data-act="call-list"]').addEventListener("click", () => navigate("/prospecting"));
     wrap.querySelector('[data-act="deal-radar"]').addEventListener("click", () => navigate("/deals"));
   }
 
