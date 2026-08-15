@@ -8,6 +8,7 @@ import { taskListEl, openTaskForm } from "./tasks.js";
 import { monthSummary } from "./goals.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
+import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -31,6 +32,14 @@ export function renderDashboard(view) {
     .filter((a) => a.status === "scheduled" && String(a.when).slice(0, 10) === todayKey)
     .sort((a, b) => String(a.when).localeCompare(String(b.when)));
 
+  // External calendar events (Apple/Outlook/Google) happening today.
+  const dkLocal = (iso) => { const d = new Date(iso); if (isNaN(d)) return ""; const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+  const todayLocalKey = dkLocal(new Date());
+  const externalToday = getExternalEvents()
+    .filter((e) => dkLocal(e.when) === todayLocalKey)
+    .sort((a, b) => String(a.when).localeCompare(String(b.when)));
+  const todayCount = todaysAppts.length + externalToday.length;
+
   // Month-to-date sales vs goal.
   const mtd = monthSummary();
   const soldThisMonth = mtd.units;
@@ -51,7 +60,7 @@ export function renderDashboard(view) {
       <div class="row">
         <div class="row-main">
           <div class="row-title">${icon("calendar")} ${esc(todayLabel)}</div>
-          <div class="row-sub">${todaysAppts.length ? `${todaysAppts.length} event${todaysAppts.length === 1 ? "" : "s"} today · tap for month` : "Nothing scheduled today · tap for month"}</div>
+          <div class="row-sub">${todayCount ? `${todayCount} event${todayCount === 1 ? "" : "s"} today · tap for month` : "Nothing scheduled today · tap for month"}</div>
         </div>
         <div class="row-meta strong">›</div>
       </div>
@@ -98,9 +107,12 @@ export function renderDashboard(view) {
   el.querySelector(".tasks-slot").appendChild(taskListEl());
   el.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
 
-  // Appointments today
+  // Appointments today (own + external calendars)
   const al = el.querySelector(".appt-list");
-  if (al) todaysAppts.forEach((a) => al.appendChild(apptMini(a)));
+  if (al) {
+    todaysAppts.forEach((a) => al.appendChild(apptMini(a)));
+    externalToday.forEach((e) => al.appendChild(externalMini(e)));
+  }
 
   // Deliveries
   const dl = el.querySelector(".deliv-list");
@@ -113,6 +125,30 @@ export function renderDashboard(view) {
   // Tappable stat cards.
   el.querySelectorAll("[data-goto]").forEach((n) =>
     n.addEventListener("click", () => navigate(n.dataset.goto)));
+
+  // Pull fresh external calendar events in the background; re-render once when
+  // they land so today's count/list reflect them.
+  if (feedsConfigured()) {
+    const onFeeds = () => { window.removeEventListener("entoa-calfeeds", onFeeds); window.dispatchEvent(new HashChangeEvent("hashchange")); };
+    window.addEventListener("entoa-calfeeds", onFeeds);
+    refreshIfStale();
+  }
+}
+
+function externalMini(e) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const time = e.allDay ? "All day" : (e.when ? new Date(e.when).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "");
+  el.innerHTML = `
+    <div class="row">
+      <div class="row-main">
+        <div class="row-title">${icon("calendar")} ${esc(e.title)}</div>
+        <div class="row-sub"><span class="badge">${esc(e.source)}</span></div>
+      </div>
+      <div class="row-meta strong mono">${esc(time)}</div>
+    </div>
+  `;
+  return el;
 }
 
 function goalCard(mtd, s) {

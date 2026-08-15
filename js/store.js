@@ -76,6 +76,10 @@ const DEFAULT_STATE = {
     supabaseUrl: "",
     supabaseAnonKey: "",
     cloudAutoSync: true,
+    // External calendar feeds (Apple/Outlook/Google via .ics subscription),
+    // fetched through a small proxy. Empty = no external calendars.
+    calendarProxyUrl: "",
+    calendarFeeds: [], // [{ id, name, url, enabled }]
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,

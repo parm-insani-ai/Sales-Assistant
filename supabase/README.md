@@ -38,3 +38,44 @@ another device pulls everything down.
 - **Offline:** edits made offline queue up and sync the next time you're online.
 - **A whole team** can share one Supabase project — each person signs in with
   their own account and sees only their own customers.
+
+## Calendar feeds (Apple / Outlook / Google)
+
+To show your outside calendars *inside* entoa (read-only), the app subscribes to
+each calendar's `.ics` feed. Browsers can't fetch those directly, so a tiny
+proxy — a Supabase Edge Function — fetches them for you.
+
+### 1. Deploy the proxy (once)
+
+With the [Supabase CLI](https://supabase.com/docs/guides/cli) installed and your
+project linked (`supabase link`):
+
+```
+supabase functions deploy ics-proxy --no-verify-jwt
+```
+
+The function code is in [`functions/ics-proxy/index.ts`](./functions/ics-proxy/index.ts).
+After deploying, Supabase prints its URL, like:
+
+```
+https://<your-project>.supabase.co/functions/v1/ics-proxy
+```
+
+Paste that into entoa → **Settings → Calendar feeds → Calendar proxy URL**.
+
+### 2. Get each calendar's feed URL
+
+- **Google:** Calendar → *Settings* → your calendar → **"Secret address in iCal
+  format"** (copy the `.ics` link).
+- **Apple:** Calendar app → share a calendar → **Public Calendar** → copy the
+  `webcal://…` link (entoa handles `webcal://` automatically).
+- **Outlook:** Calendar → **Share → Publish** → copy the **ICS** link. On a
+  work/O'Regan's account this may be turned off by IT — if so, that one waits.
+
+Add each in **Settings → Calendar feeds → Add a calendar**, then **Refresh now**.
+Events are read-only, cached on your device, and refresh automatically. (To push
+entoa's own appointments the other way, into your calendar, use "Add to
+calendar" on any appointment.)
+
+The proxy only fetches known calendar hosts (Google/Apple/Outlook/Yahoo). Add
+more in the `ALLOW` list in the function if you use another provider.

@@ -8,6 +8,7 @@ import { icon } from "../icons.js";
 import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
 import * as backend from "../backend.js";
 import * as sync from "../sync.js";
+import * as calfeeds from "../calfeeds.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -26,6 +27,9 @@ export function renderSettings(view) {
 
     <div class="section-title">Cloud sync &amp; account</div>
     <div class="card" id="cloud-slot"></div>
+
+    <div class="section-title">Calendar feeds</div>
+    <div class="card" id="feeds-slot"></div>
 
     <div class="section-title">Deal defaults</div>
     <div class="card">
@@ -111,6 +115,7 @@ export function renderSettings(view) {
   // --- Cloud sync section ---
   const cloudSlot = el.querySelector("#cloud-slot");
   buildCloud(cloudSlot);
+  buildFeeds(el.querySelector("#feeds-slot"));
   const onSyncEvt = (e) => {
     const line = cloudSlot.querySelector(".cloud-status");
     if (!line) return;
@@ -417,6 +422,80 @@ function buildCloud(slot) {
       } catch (e) { busy(e.message || "Sign-up failed"); }
     });
   }
+}
+
+// External calendar feeds (Apple/Outlook/Google via .ics subscription).
+function buildFeeds(slot) {
+  const s = store.getSettings();
+  const feeds = s.calendarFeeds || [];
+  const rerender = () => buildFeeds(slot);
+
+  slot.innerHTML = `
+    <div class="small muted" style="margin-bottom:10px">Show your Apple, Outlook and Google events on your calendar (read-only). Fetched through a small proxy you host on your Supabase.</div>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} How to set this up</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li><b>Deploy the proxy once:</b> in Supabase, deploy the function in <span class="mono">supabase/functions/ics-proxy</span> (steps in <span class="mono">supabase/README.md</span>), then paste its URL below.</li>
+        <li><b>Google:</b> Calendar settings → your calendar → <b>Secret address in iCal format</b>.</li>
+        <li><b>Apple:</b> Calendar app → share a calendar → <b>Public Calendar</b> → copy the <span class="mono">webcal://</span> link.</li>
+        <li><b>Outlook:</b> Calendar → <b>Share → Publish</b> → copy the ICS link (may need IT on a work account).</li>
+      </ol>
+    </details>
+    <div class="field"><label>Calendar proxy URL</label><input id="cf-proxy" type="url" value="${esc(s.calendarProxyUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/ics-proxy"></div>
+    <div class="feeds-list"></div>
+    <div class="section-title" style="margin-top:6px">Add a calendar</div>
+    <div class="field"><label>Name</label><input id="cf-name" placeholder="My Google / Work Outlook / iPhone"></div>
+    <div class="field"><label>Feed URL (.ics or webcal)</label><input id="cf-url" type="url" placeholder="https://…  or  webcal://…"></div>
+    <button class="btn btn-ghost btn-block" data-cf="add">${icon("plus")} Add calendar</button>
+    <button class="btn btn-primary btn-block" data-cf="refresh" style="margin-top:10px">${icon("download")} Refresh now</button>
+    <div class="feeds-status small muted" style="margin-top:10px;text-align:center"></div>
+  `;
+
+  slot.querySelector("#cf-proxy").addEventListener("change", (e) => store.updateSettings({ calendarProxyUrl: e.target.value.trim() }));
+
+  const list = slot.querySelector(".feeds-list");
+  if (!feeds.length) list.innerHTML = `<div class="muted small" style="margin:4px 0 8px">No calendars added yet.</div>`;
+  feeds.forEach((f) => {
+    const row = document.createElement("div");
+    row.className = "check-item";
+    row.innerHTML = `
+      <label class="switch" style="flex:1"><input type="checkbox" ${f.enabled !== false ? "checked" : ""} data-cf-en="${f.id}"><span class="strong">${esc(f.name || "Calendar")}</span></label>
+      <button class="modal-close" data-cf-del="${f.id}" aria-label="Remove" style="font-size:1.2rem">&times;</button>`;
+    row.querySelector("[data-cf-en]").addEventListener("change", (e) => {
+      const next = (store.getSettings().calendarFeeds || []).map((x) => x.id === f.id ? { ...x, enabled: e.target.checked } : x);
+      store.updateSettings({ calendarFeeds: next });
+    });
+    row.querySelector("[data-cf-del]").addEventListener("click", () => {
+      const next = (store.getSettings().calendarFeeds || []).filter((x) => x.id !== f.id);
+      store.updateSettings({ calendarFeeds: next });
+      rerender();
+    });
+    list.appendChild(row);
+  });
+
+  const status = slot.querySelector(".feeds-status");
+  const last = calfeeds.lastFeedSync();
+  status.textContent = last ? `${calfeeds.externalEventCount()} events · updated ${timeAgo(last)}` : "Not synced yet";
+
+  slot.querySelector('[data-cf="add"]').addEventListener("click", () => {
+    const name = (slot.querySelector("#cf-name").value || "").trim();
+    const url = (slot.querySelector("#cf-url").value || "").trim();
+    if (!url) { status.textContent = "Enter a feed URL"; return; }
+    const id = "feed_" + Date.now().toString(36);
+    const next = (store.getSettings().calendarFeeds || []).concat([{ id, name: name || "Calendar", url, enabled: true }]);
+    store.updateSettings({ calendarFeeds: next });
+    rerender();
+  });
+
+  slot.querySelector('[data-cf="refresh"]').addEventListener("click", async () => {
+    status.textContent = "Refreshing…";
+    try {
+      const r = await calfeeds.refreshFeeds();
+      status.textContent = r.errors.length
+        ? `Some feeds failed: ${r.errors.join("; ")}`
+        : `Updated ${calfeeds.externalEventCount()} events just now`;
+    } catch (e) { status.textContent = e.message || "Refresh failed"; }
+  });
 }
 
 function openTemplateEditor(existing, onSaved) {

@@ -7,6 +7,7 @@ import { openModal, buildForm, toast, confirmDialog, emptyState } from "../compo
 import { navigate } from "../router.js";
 import { esc, relativeDay, daysFromToday } from "../utils.js";
 import { icon } from "../icons.js";
+import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -125,9 +126,12 @@ export function renderCalendar(view, { param }) {
   view.appendChild(el);
   el.querySelector('[data-act="new"]').addEventListener("click", () => openAppointmentForm());
 
-  // Single source of events. External calendar feeds (Apple/Outlook/Google) will
-  // merge into this list once connected — the grid and day list won't change.
-  const allEvents = () => store.all("appointments").filter((a) => a.status !== "canceled");
+  // Single source of events: the app's own appointments plus any connected
+  // external calendars (Apple/Outlook/Google), merged and rendered together.
+  const allEvents = () => [
+    ...store.all("appointments").filter((a) => a.status !== "canceled"),
+    ...getExternalEvents(),
+  ];
   const eventsForDay = (key) =>
     allEvents().filter((a) => dkLocal(a.when) === key).sort((a, b) => String(a.when).localeCompare(String(b.when)));
 
@@ -176,7 +180,7 @@ export function renderCalendar(view, { param }) {
     if (!evts.length) {
       dayList.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nothing scheduled.</div></div>`;
     } else {
-      evts.forEach((a) => dayList.appendChild(apptCard(a)));
+      evts.forEach((a) => dayList.appendChild(a.external ? externalEventCard(a) : apptCard(a)));
     }
   }
 
@@ -185,6 +189,30 @@ export function renderCalendar(view, { param }) {
 
   drawMonth();
   drawDay();
+
+  // Pull fresh external events in the background; redraw once when they arrive.
+  if (feedsConfigured()) {
+    const onFeeds = () => { window.removeEventListener("entoa-calfeeds", onFeeds); drawMonth(); drawDay(); };
+    window.addEventListener("entoa-calfeeds", onFeeds);
+    refreshIfStale();
+  }
+}
+
+// Read-only card for an event pulled from an external calendar.
+function externalEventCard(e) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const time = e.allDay ? "All day" : timeLabel(e.when);
+  el.innerHTML = `
+    <div class="row">
+      <div class="row-main">
+        <div class="row-title">${icon("calendar")} ${esc(e.title)}</div>
+        <div class="row-sub"><span class="badge">${esc(e.source)}</span>${e.location ? " · " + esc(e.location) : ""}</div>
+      </div>
+      <div class="row-meta strong mono">${esc(time)}</div>
+    </div>
+  `;
+  return el;
 }
 
 function renderGroups(container, list, isPast) {
