@@ -9,7 +9,7 @@ import { toast } from "./components.js";
 import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
-import { agentConfigured, runAgent } from "./agent.js";
+import { agentConfigured, createAgentSession } from "./agent.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export function voiceRecognitionSupported() { return !!SR; }
@@ -261,6 +261,10 @@ export function startVoiceAssistant() {
   overlay.querySelector(".voice-close").addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 
+  // A conversational agent session for this panel (so it can ask a follow-up
+  // and continue). Null when the agent isn't configured — we use the parser.
+  const session = agentConfigured() ? createAgentSession() : null;
+
   const onParser = (text) => {
     const cmd = parseCommand(text);
     const say = cmd.action !== "error" ? executeCommand(cmd) : null;
@@ -283,19 +287,25 @@ export function startVoiceAssistant() {
     // With the Claude-backed agent configured, hand it the request; it decides
     // which actions to run and we execute them locally. Fall back to the
     // on-device parser if the agent is unreachable.
-    if (agentConfigured()) {
+    if (session) {
       statusEl.textContent = "Thinking…";
       orb.classList.remove("listening");
       try {
-        const { say, notes } = await runAgent(text, (n) => {
+        const res = await session.send(text, (n) => {
           if (n && !n.startsWith("⚠")) statusEl.textContent = n.charAt(0).toUpperCase() + n.slice(1) + "…";
         });
-        const failed = notes.filter((n) => n.startsWith("⚠"));
-        const reply = say || notes.filter((n) => !n.startsWith("⚠")).join(", ") || "Done";
+        const reply = res.say || "Done";
         statusEl.textContent = reply;
         speak(reply);
-        toast(reply, failed.length ? "" : "success");
-        setTimeout(close, failed.length ? 2000 : 1300);
+        if (res.done) {
+          toast(reply, "success");
+          setTimeout(close, 1300);
+        } else {
+          // The agent needs more info — keep the panel open for the answer.
+          transcriptEl.textContent = "";
+          textInput.value = "";
+          textInput.focus();
+        }
         return;
       } catch (e) {
         statusEl.textContent = "Agent offline — trying on-device…";

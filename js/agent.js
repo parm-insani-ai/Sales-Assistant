@@ -29,13 +29,46 @@ function buildContext() {
   };
 }
 
+// The agent's brain lives here in the app (not on the server), so it can be
+// improved and shipped via the normal auto-update — no Supabase redeploy.
+const TOOLS = [
+  { name: "ask_user", description: "Ask the salesperson ONE short question when a required detail is genuinely missing or ambiguous (e.g. which customer, or a time you can't reasonably assume). Only use when you truly can't proceed.", input_schema: { type: "object", properties: { question: { type: "string" } }, required: ["question"] } },
+  { name: "find_customers", description: "Look up customers/leads by name/vehicle query, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
+  { name: "get_customer", description: "Full details for one customer by name.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
+  { name: "deal_radar", description: "Top trade-up opportunities (customer, matched vehicle, monthly, delta).", input_schema: { type: "object", properties: { limit: { type: "number" } } } },
+  { name: "get_stats", description: "This month's appointment funnel, units, commission, goals.", input_schema: { type: "object", properties: {} } },
+  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
+  { name: "create_lead", description: "Add a new customer.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
+  { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
+  { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
+  { name: "log_sale", description: "Log a sale.", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" } }, required: ["customer"] } },
+  { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
+  { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
+  { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "search_inventory", description: "Search dealer inventory.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+];
+
+function buildSystem(ctx) {
+  return [
+    `You are entoa's hands-free assistant for a car salesperson${ctx.salesperson ? " named " + ctx.salesperson : ""}. Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
+    `Understand plain, casual speech — the user will NOT use command words. Infer what they want from whatever they tell you. A bare fact usually implies an action: "Ken's coming in Thursday at 4" → book an appointment; "sold one to Moe, made 800" → log a sale; "Sara's cell is 902-555-1212" → update Sara's phone; "who should I call?" → check the deal radar / follow-ups.`,
+    `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
+    `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats). You can take multiple steps.`,
+    `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
+    `Match people to existing customers by name; create a new lead only if clearly new.`,
+    `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
+    ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
+  ].filter(Boolean).join("\n");
+}
+
 async function callAgent(messages) {
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
   if (!url) throw new Error("Voice agent isn't set up");
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, context: buildContext() }),
+    body: JSON.stringify({ system: buildSystem(buildContext()), tools: TOOLS, messages, max_tokens: 1024 }),
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
@@ -188,31 +221,58 @@ function execTool(name, p = {}) {
   }
 }
 
-// The agent loop. onProgress(note) is called as each action runs. Returns
-// { say, notes } once Claude stops calling tools (or the step cap is hit).
-export async function runAgent(transcript, onProgress) {
-  const messages = [{ role: "user", content: transcript }];
-  const notes = [];
-  for (let step = 0; step < 6; step++) {
-    const resp = await callAgent(messages);
-    const content = resp.content || [];
-    const toolUses = content.filter((b) => b.type === "tool_use");
-    const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+// A conversational agent session. It keeps the message history so the agent can
+// ask a follow-up question (via the ask_user tool) and continue once you answer.
+// send(text) runs the tool-use loop and returns:
+//   { say, done:true }              — finished (spoken reply)
+//   { say:question, done:false }    — needs an answer; call send(answer) next
+export function createAgentSession() {
+  const messages = [];
+  let pending = null; // { results:[...], askId } while awaiting a human answer
 
-    if (!toolUses.length || resp.stop_reason !== "tool_use") {
-      return { say: text, notes };
-    }
+  async function loop(onProgress) {
+    for (let step = 0; step < 8; step++) {
+      const resp = await callAgent(messages);
+      const content = resp.content || [];
+      const toolUses = content.filter((b) => b.type === "tool_use");
+      const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
 
-    const results = [];
-    for (const tu of toolUses) {
-      let out;
-      try { out = execTool(tu.name, tu.input || {}); }
-      catch (e) { out = { result: `error: ${e && e.message ? e.message : e}`, note: "" }; }
-      if (out.note) { notes.push(out.note); if (onProgress) onProgress(out.note); }
-      results.push({ type: "tool_result", tool_use_id: tu.id, content: typeof out.result === "string" ? out.result : JSON.stringify(out.result) });
+      if (!toolUses.length || resp.stop_reason !== "tool_use") return { say: text, done: true };
+
+      messages.push({ role: "assistant", content });
+      const results = [];
+      let askId = null, question = null;
+      for (const tu of toolUses) {
+        if (tu.name === "ask_user") {
+          askId = tu.id;
+          question = (tu.input && tu.input.question) || "Could you give me a bit more detail?";
+        } else {
+          let out;
+          try { out = execTool(tu.name, tu.input || {}); }
+          catch (e) { out = { result: `error: ${e && e.message ? e.message : e}`, note: "" }; }
+          if (out.note && onProgress) onProgress(out.note);
+          results.push({ type: "tool_result", tool_use_id: tu.id, content: typeof out.result === "string" ? out.result : JSON.stringify(out.result) });
+        }
+      }
+      // If the agent asked something, hold the other results and wait for the
+      // human — we'll answer all tool calls together on the next send().
+      if (askId) { pending = { results, askId }; return { say: question, done: false }; }
+      messages.push({ role: "user", content: results });
     }
-    messages.push({ role: "assistant", content });
-    messages.push({ role: "user", content: results });
+    return { say: "That needed too many steps — try breaking it into smaller asks.", done: true };
   }
-  return { say: "That needed too many steps — try breaking it into smaller asks.", notes };
+
+  async function send(text, onProgress) {
+    if (pending) {
+      const results = pending.results;
+      results.push({ type: "tool_result", tool_use_id: pending.askId, content: String(text) });
+      messages.push({ role: "user", content: results });
+      pending = null;
+    } else {
+      messages.push({ role: "user", content: String(text) });
+    }
+    return loop(onProgress);
+  }
+
+  return { send };
 }
