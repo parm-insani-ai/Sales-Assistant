@@ -81,6 +81,9 @@ const DEFAULT_STATE = {
     // fetched through a small proxy. Empty = no external calendars.
     calendarProxyUrl: "",
     calendarFeeds: [], // [{ id, name, url, enabled }]
+    // Voice agent endpoint (a Supabase function that calls Claude). Empty = the
+    // on-device command parser is used instead.
+    agentUrl: "",
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,

@@ -9,6 +9,7 @@ import { toast } from "./components.js";
 import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
+import { agentConfigured, runAgent, executeActions } from "./agent.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export function voiceRecognitionSupported() { return !!SR; }
@@ -260,9 +261,7 @@ export function startVoiceAssistant() {
   overlay.querySelector(".voice-close").addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 
-  const run = (text) => {
-    if (!text || !text.trim()) return;
-    transcriptEl.textContent = `“${text.trim()}”`;
+  const onParser = (text) => {
     const cmd = parseCommand(text);
     const say = cmd.action !== "error" ? executeCommand(cmd) : null;
     if (say) {
@@ -275,6 +274,33 @@ export function startVoiceAssistant() {
       orb.classList.remove("listening");
       speak("Sorry, I didn't catch that.");
     }
+  };
+
+  const run = async (text) => {
+    if (!text || !text.trim()) return;
+    transcriptEl.textContent = `“${text.trim()}”`;
+
+    // With the Claude-backed agent configured, hand it the request; it decides
+    // which actions to run and we execute them locally. Fall back to the
+    // on-device parser if the agent is unreachable.
+    if (agentConfigured()) {
+      statusEl.textContent = "Thinking…";
+      orb.classList.remove("listening");
+      try {
+        const { say, actions } = await runAgent(text);
+        const { notes } = executeActions(actions);
+        const failed = notes.filter((n) => n.startsWith("⚠"));
+        const reply = say || (notes.length ? notes.join(", ") : "Done");
+        statusEl.textContent = reply;
+        speak(reply);
+        toast(reply, failed.length ? "" : "success");
+        setTimeout(close, failed.length ? 1800 : 1100);
+        return;
+      } catch (e) {
+        statusEl.textContent = "Agent offline — trying on-device…";
+      }
+    }
+    onParser(text);
   };
 
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });

@@ -32,6 +32,9 @@ export function renderSettings(view) {
     <div class="section-title">Calendar feeds</div>
     <div class="card" id="feeds-slot"></div>
 
+    <div class="section-title">Voice agent</div>
+    <div class="card" id="agent-slot"></div>
+
     <div class="section-title">Deal defaults</div>
     <div class="card">
       <div class="field-inline">
@@ -123,6 +126,7 @@ export function renderSettings(view) {
   const cloudSlot = el.querySelector("#cloud-slot");
   buildCloud(cloudSlot);
   buildFeeds(el.querySelector("#feeds-slot"));
+  buildAgent(el.querySelector("#agent-slot"));
   const onSyncEvt = (e) => {
     const line = cloudSlot.querySelector(".cloud-status");
     if (!line) return;
@@ -439,6 +443,26 @@ function buildCloud(slot) {
       } catch (e) { busy(e.message || "Sign-up failed"); }
     });
   }
+}
+
+// Voice agent (Claude-backed) endpoint config.
+function buildAgent(slot) {
+  const s = store.getSettings();
+  slot.innerHTML = `
+    <div class="small muted" style="margin-bottom:10px">Turn the Voice button into a real assistant that understands plain language and runs tasks — "book Ken a test drive Thursday at 4", "mark Sara's appointment sold", "log a sale for Moe, commission 800". Powered by Claude through a function on your Supabase.</div>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} How to set this up</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>Get an API key at <span class="mono">console.anthropic.com</span>.</li>
+        <li>Set it as a secret: <span class="mono">supabase secrets set ANTHROPIC_API_KEY=sk-ant-…</span></li>
+        <li>Deploy: <span class="mono">supabase functions deploy voice-agent --no-verify-jwt</span></li>
+        <li>Paste the function URL below.</li>
+      </ol>
+    </details>
+    <div class="field"><label>Voice agent URL</label><input id="ag-url" type="url" value="${esc(s.agentUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/voice-agent"></div>
+    <div class="hint">Leave blank to use the built-in on-device commands. When set, the mic understands natural language and carries out tasks.</div>
+  `;
+  slot.querySelector("#ag-url").addEventListener("change", (e) => store.updateSettings({ agentUrl: e.target.value.trim() }));
 }
 
 // External calendar feeds (Apple/Outlook/Google via .ics subscription).

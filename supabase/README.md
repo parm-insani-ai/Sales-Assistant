@@ -79,3 +79,27 @@ calendar" on any appointment.)
 
 The proxy only fetches known calendar hosts (Google/Apple/Outlook/Yahoo). Add
 more in the `ALLOW` list in the function if you use another provider.
+
+## Voice agent (Claude)
+
+Makes the Voice button a real assistant: speak in plain language and it runs the
+task — "book Ken a test drive Thursday at 4", "mark Sara's appointment sold",
+"log a sale for Moe, commission 800", "add a task to call the bank tomorrow".
+
+A Supabase Edge Function holds your Anthropic API key (never in the app), asks
+Claude what to do, and returns the actions; the app runs them on-device.
+
+### Deploy
+
+1. Get an API key at [console.anthropic.com](https://console.anthropic.com).
+2. Store it as a secret and deploy the function:
+   ```
+   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+   supabase functions deploy voice-agent --no-verify-jwt
+   ```
+   The function is in [`functions/voice-agent/index.ts`](./functions/voice-agent/index.ts).
+3. Paste the printed URL into entoa → **Settings → Voice agent → Voice agent URL**.
+
+Notes: usage costs a small amount per request (billed by Anthropic). To change
+the model, set a `MODEL` secret (default is a fast Haiku). Leave the URL blank in
+entoa to keep using the free, offline on-device commands.
