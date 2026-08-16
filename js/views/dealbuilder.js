@@ -7,6 +7,7 @@ import * as store from "../store.js";
 import { computeDeal } from "./calculator.js";
 import { openModal, toast } from "../components.js";
 import { navigate } from "../router.js";
+import { openAppointmentForm } from "./calendar.js";
 import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
 import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday } from "../utils.js";
@@ -358,9 +359,10 @@ function opportunityCard({ lead, best, score, reasons }) {
       </div>
     </div>
     ${reasons.length ? `<div class="btn-row" style="gap:6px;margin-top:10px">${reasons.map((r) => `<span class="badge badge-working">${esc(r)}</span>`).join("")}</div>` : ""}
-    <div class="btn-row" style="margin-top:12px">
-      ${lead.phone ? `<a class="btn btn-primary btn-sm" data-act="offer" style="flex:1" href="${smsHref(lead.phone, offerText(lead, best))}">${icon("message")} Text offer</a>
-      <a class="btn btn-success btn-sm" data-act="call" style="flex:0 0 auto" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
+    <button class="btn btn-primary btn-block" data-act="book" style="margin-top:12px">${icon("calendar")} Book appointment</button>
+    <div class="btn-row" style="margin-top:8px">
+      ${lead.phone ? `<a class="btn btn-ghost btn-sm" data-act="offer" style="flex:1" href="${smsHref(lead.phone, offerText(lead, best))}">${icon("message")} Text offer</a>
+      <a class="btn btn-ghost btn-sm" data-act="call" style="flex:0 0 auto" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
       <button class="btn btn-ghost btn-sm" data-act="more" style="flex:1">${icon("dollar")} Options</button>
     </div>
   `;
@@ -369,6 +371,8 @@ function opportunityCard({ lead, best, score, reasons }) {
   if (offer) offer.addEventListener("click", touch);
   const call = el.querySelector('[data-act="call"]');
   if (call) call.addEventListener("click", touch);
+  el.querySelector('[data-act="book"]').addEventListener("click", () =>
+    openAppointmentForm(null, { leadId: lead.id, customerName: lead.name, vehicle: vehName(best.vehicle), type: "appointment" }));
   el.querySelector('[data-act="more"]').addEventListener("click", () => openDealBuilder(lead));
   return el;
 }

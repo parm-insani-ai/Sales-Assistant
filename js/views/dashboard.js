@@ -5,7 +5,7 @@ import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHref } from "../utils.js";
 import { taskListEl, openTaskForm } from "./tasks.js";
-import { monthSummary } from "./goals.js";
+import { monthSummary, apptFunnel } from "./goals.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
@@ -152,11 +152,17 @@ function externalMini(e) {
 }
 
 function goalCard(mtd, s) {
+  const funnel = apptFunnel();
+  const apptPct = s.goalAppointments > 0 ? Math.min(100, Math.round((funnel.set / s.goalAppointments) * 100)) : 0;
   const unitPct = s.goalUnits > 0 ? Math.min(100, Math.round((mtd.units / s.goalUnits) * 100)) : 0;
   const commPct = s.goalCommission > 0 ? Math.min(100, Math.round((mtd.commission / s.goalCommission) * 100)) : 0;
   return `
     <div class="card card-tap" data-goto="/goals" style="margin-top:12px">
       <div class="row"><div class="strong">Monthly goal</div><div class="small muted">Details ›</div></div>
+      <div style="margin-top:10px">
+        <div class="row small"><span class="muted">Appointments set</span><span class="mono">${funnel.set} / ${s.goalAppointments || 0}${funnel.showRate ? ` · ${funnel.showRate}% show` : ""}</span></div>
+        <div class="progress"><span style="width:${apptPct}%;background:var(--brand)"></span></div>
+      </div>
       <div style="margin-top:10px">
         <div class="row small"><span class="muted">Units</span><span class="mono">${mtd.units} / ${s.goalUnits || 0}</span></div>
         <div class="progress"><span style="width:${unitPct}%"></span></div>

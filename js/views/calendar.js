@@ -5,7 +5,7 @@ import * as store from "../store.js";
 import { APPT_TYPES, apptType } from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
 import { navigate } from "../router.js";
-import { esc, relativeDay, daysFromToday } from "../utils.js";
+import { esc, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 
@@ -305,16 +305,25 @@ function renderApptDetail(view, id) {
       <div class="row-title" style="font-size:1.3rem">${icon(t.icon)} ${esc(a.title || t.label)}</div>
       <div class="row-sub" style="margin-top:4px">${esc(a.customerName || "")}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
       <div class="kv" style="margin-top:12px"><span class="k">When</span><span class="v">${a.when ? esc(relativeDay(dayKey(a.when))) + " at " + esc(timeLabel(a.when)) : "—"}</span></div>
-      <div class="kv"><span class="k">Status</span><span class="v">${esc(a.status || "scheduled")}</span></div>
+      <div class="kv"><span class="k">Status</span><span class="v">${a.outcome === "sold" ? "Sold" : a.outcome === "showed" ? "Showed" : a.outcome === "no_show" ? "No-show" : a.confirmed ? "Confirmed" : "Set"}</span></div>
     </div>
     ${a.notes ? `<div class="section-title">Notes</div><div class="card"><div style="white-space:pre-wrap">${esc(a.notes)}</div></div>` : ""}
     ${lead ? `<button class="btn btn-ghost btn-block" data-act="lead" style="margin-bottom:12px">${icon("users")} Open ${esc(lead.name)}'s lead</button>` : ""}
 
+    <div class="section-title">Outcome</div>
+    <div class="card">
+      <button class="btn ${a.confirmed ? "btn-success" : "btn-ghost"} btn-block" data-o="confirm">${icon(a.confirmed ? "check" : "bell")} ${a.confirmed ? "Confirmed ✓" : "Confirm appointment"}</button>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn ${a.outcome === "showed" ? "btn-primary" : "btn-ghost"} btn-block" data-o="showed">${icon("checkline")} Showed</button>
+        <button class="btn ${a.outcome === "no_show" ? "btn-danger" : "btn-ghost"} btn-block" data-o="no_show">No-show</button>
+      </div>
+      <button class="btn ${a.outcome === "sold" ? "btn-success" : "btn-ghost"} btn-block" data-o="sold" style="margin-top:10px">${icon("dollar")} ${a.outcome === "sold" ? "Sold ✓" : "Mark sold"}</button>
+    </div>
+
     <div class="section-title">Actions</div>
     <div class="card">
       <button class="btn btn-ghost btn-block" data-act="ics" style="margin-bottom:10px">${icon("calendar")} Add to calendar (Outlook / Apple / Google)</button>
-      ${a.status !== "done" ? `<button class="btn btn-success btn-block" data-act="done">${icon("checkline")} Mark completed</button>` : `<button class="btn btn-ghost btn-block" data-act="reopen">Reopen</button>`}
-      <div class="btn-row" style="margin-top:10px">
+      <div class="btn-row">
         <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
         <button class="btn btn-danger btn-block" data-act="delete">Delete</button>
       </div>
@@ -328,10 +337,41 @@ function renderApptDetail(view, id) {
   const leadBtn = el.querySelector('[data-act="lead"]');
   if (leadBtn) leadBtn.addEventListener("click", () => navigate(`/leads/${a.leadId}`));
 
-  const doneBtn = el.querySelector('[data-act="done"]');
-  if (doneBtn) doneBtn.addEventListener("click", () => { store.update("appointments", a.id, { status: "done" }); toast("Marked completed", "success"); navigate("/calendar"); });
-  const reopenBtn = el.querySelector('[data-act="reopen"]');
-  if (reopenBtn) reopenBtn.addEventListener("click", () => { store.update("appointments", a.id, { status: "scheduled" }); view.innerHTML = ""; renderApptDetail(view, id); });
+  const refresh = () => { view.innerHTML = ""; renderApptDetail(view, id); };
+  el.querySelector('[data-o="confirm"]').addEventListener("click", () => {
+    store.update("appointments", a.id, { confirmed: !a.confirmed });
+    toast(a.confirmed ? "Unconfirmed" : "Confirmed", "success");
+    refresh();
+  });
+  el.querySelector('[data-o="showed"]').addEventListener("click", () => {
+    store.update("appointments", a.id, { outcome: a.outcome === "showed" ? "" : "showed", confirmed: true });
+    toast("Marked showed", "success");
+    refresh();
+  });
+  el.querySelector('[data-o="no_show"]').addEventListener("click", () => {
+    store.update("appointments", a.id, { outcome: a.outcome === "no_show" ? "" : "no_show" });
+    toast("Marked no-show");
+    refresh();
+  });
+  el.querySelector('[data-o="sold"]').addEventListener("click", () => {
+    store.update("appointments", a.id, { outcome: "sold", confirmed: true });
+    // Connect the funnel to units: log the sale if this deal isn't logged yet.
+    const logged = store.all("sales").some((sl) => sl.apptId === a.id || (a.leadId && sl.leadId === a.leadId));
+    if (!logged) {
+      store.create("sales", {
+        customerName: a.customerName, vehicle: a.vehicle, saleDate: todayISO(),
+        frontGross: 0, backGross: 0, commission: 0, leadId: a.leadId || null, apptId: a.id,
+      });
+      if (a.leadId) {
+        const l = store.get("leads", a.leadId);
+        if (l && l.stage !== "delivered") store.update("leads", a.leadId, { stage: "sold" });
+      }
+      toast("Sold — logged as a sale, add commission in Goals", "success");
+    } else {
+      toast("Marked sold", "success");
+    }
+    refresh();
+  });
 
   el.querySelector('[data-act="delete"]').addEventListener("click", async () => {
     if (await confirmDialog("Delete this appointment?")) { store.remove("appointments", a.id); toast("Deleted"); navigate("/calendar"); }

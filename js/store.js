@@ -72,6 +72,7 @@ const DEFAULT_STATE = {
     messageTemplates: DEFAULT_TEMPLATES,
     goalUnits: 12, // sales per month
     goalCommission: 8000, // $ per month
+    goalAppointments: 30, // appointments set per month — the north-star activity
     // Cloud sync (Supabase). Empty = local-only, exactly like before.
     supabaseUrl: "",
     supabaseAnonKey: "",

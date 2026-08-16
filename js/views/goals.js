@@ -28,6 +28,21 @@ export function monthSummary(mKey = thisMonthKey()) {
   return { sales, units, front, back, totalGross: front + back, commission };
 }
 
+// The appointment funnel — the north star. Set → confirmed → showed → sold.
+export function apptFunnel(mKey = thisMonthKey()) {
+  const now = Date.now();
+  const appts = store.all("appointments").filter((a) => a.status !== "canceled" && monthKey(a.when) === mKey);
+  const isPast = (a) => { const t = new Date(a.when).getTime(); return !isNaN(t) && t < now; };
+  const set = appts.length;
+  const confirmed = appts.filter((a) => a.confirmed).length;
+  const showed = appts.filter((a) => a.outcome === "showed" || a.outcome === "sold").length;
+  const sold = appts.filter((a) => a.outcome === "sold").length;
+  const past = appts.filter(isPast).length;
+  const showRate = past ? Math.round((showed / past) * 100) : 0; // of appts that have happened
+  const closeRate = showed ? Math.round((sold / showed) * 100) : 0;
+  return { set, confirmed, showed, sold, past, showRate, closeRate };
+}
+
 function progressCard(label, value, goal, fmt) {
   const pct = goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 0;
   const hit = goal > 0 && value >= goal;
@@ -46,11 +61,26 @@ export function renderGoals(view) {
   const s = store.getSettings();
   const mKey = thisMonthKey();
   const sum = monthSummary(mKey);
+  const funnel = apptFunnel(mKey);
 
   const el = document.createElement("div");
   el.innerHTML = `
     <div style="margin:2px 4px 14px"><div class="muted small">Month to date</div><div class="strong" style="font-size:1.15rem">${esc(monthLabel(mKey))}</div></div>
 
+    <div class="section-title">Appointments — the goal</div>
+    <div class="funnel-grid">
+      <div class="stat"><div class="stat-value" style="color:var(--brand)">${funnel.set}</div><div class="stat-label">Set</div></div>
+      <div class="stat"><div class="stat-value">${funnel.confirmed}</div><div class="stat-label">Confirmed</div></div>
+      <div class="stat"><div class="stat-value">${funnel.showed}</div><div class="stat-label">Showed</div></div>
+      <div class="stat"><div class="stat-value" style="color:var(--success)">${funnel.sold}</div><div class="stat-label">Sold</div></div>
+    </div>
+    <div class="card" style="margin-top:6px">
+      <div class="row"><span class="muted small">Show rate <span class="muted">(of ${funnel.past} past)</span></span><span class="mono strong">${funnel.showRate}%</span></div>
+      <div class="row" style="margin-top:8px"><span class="muted small">Appointment → sold</span><span class="mono strong" style="color:var(--success)">${funnel.closeRate}%</span></div>
+    </div>
+    ${progressCard("Appointments set", funnel.set, s.goalAppointments, (v) => String(v))}
+
+    <div class="section-title">Sales this month</div>
     <div class="stat-grid" style="margin-bottom:6px">
       <div class="stat"><div class="stat-value">${sum.units}</div><div class="stat-label">Units sold</div></div>
       <div class="stat"><div class="stat-value" style="color:var(--success)">${currency(sum.commission)}</div><div class="stat-label">Commission</div></div>
@@ -58,7 +88,6 @@ export function renderGoals(view) {
       <div class="stat"><div class="stat-value mono" style="font-size:1.25rem">${sum.units ? currency(Math.round(sum.commission / sum.units)) : "$0"}</div><div class="stat-label">Avg / unit</div></div>
     </div>
 
-    <div class="section-title">Goals</div>
     ${progressCard("Units", sum.units, s.goalUnits, (v) => String(v))}
     ${progressCard("Commission", sum.commission, s.goalCommission, (v) => currency(v))}
     <button class="btn btn-ghost btn-sm btn-block" data-act="edit-goals">Edit monthly goals</button>
@@ -161,13 +190,14 @@ function openGoalsForm() {
   openModal("Monthly goals", (close) => {
     const { element } = buildForm(
       [
+        { name: "goalAppointments", label: "Appointments set / month", value: s.goalAppointments, type: "number", inputmode: "numeric", hint: "Your north-star activity — set this and the app rallies around it." },
         { name: "goalUnits", label: "Units per month", value: s.goalUnits, type: "number", inputmode: "numeric", half: true },
         { name: "goalCommission", label: "Commission ($) per month", value: s.goalCommission, type: "number", inputmode: "decimal", half: true },
       ],
       {
         submitLabel: "Save goals",
         onSubmit: (data) => {
-          store.updateSettings({ goalUnits: Number(data.goalUnits) || 0, goalCommission: Number(data.goalCommission) || 0 });
+          store.updateSettings({ goalAppointments: Number(data.goalAppointments) || 0, goalUnits: Number(data.goalUnits) || 0, goalCommission: Number(data.goalCommission) || 0 });
           toast("Goals saved", "success");
           close();
           window.dispatchEvent(new HashChangeEvent("hashchange"));

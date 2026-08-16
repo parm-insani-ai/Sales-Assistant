@@ -716,3 +716,9 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .cal-cell.selected { background: var(--brand); color: var(--brand-ink); font-weight: 700; }
 .cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); }
 .cal-cell.selected .cal-dot { background: var(--brand-ink); }
+
+/* --- Appointment funnel scoreboard --- */
+.funnel-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.funnel-grid .stat { padding: 12px 6px; }
+.funnel-grid .stat-value { font-size: 1.35rem; }
+.funnel-grid .stat-label { font-size: 0.68rem; }
