@@ -542,7 +542,7 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
   position: fixed;
   bottom: calc(88px + var(--safe-bottom));
   left: 0; right: 0;
-  z-index: 60;
+  z-index: 100; /* above the voice overlay (70) and modals so alerts are readable */
   display: flex;
   flex-direction: column;
   align-items: center;

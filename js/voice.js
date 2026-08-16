@@ -308,10 +308,13 @@ export function startVoiceAssistant() {
         }
         return;
       } catch (e) {
-        // Surface the real error (so it's diagnosable) before falling back.
+        // Show the real error right in the panel so it's readable on the phone.
         const msg = e && e.message ? e.message : "couldn't reach the assistant";
+        orb.classList.remove("listening");
+        statusEl.textContent = "Voice agent error";
+        transcriptEl.textContent = msg;
         toast(`Voice agent: ${msg}`, "danger");
-        statusEl.textContent = "Assistant unavailable — using basic commands…";
+        return;
       }
     }
     onParser(text);
