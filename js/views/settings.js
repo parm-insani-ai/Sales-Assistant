@@ -9,6 +9,7 @@ import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
 import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import * as calfeeds from "../calfeeds.js";
+import { checkForUpdate, getVersion } from "../updater.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -93,6 +94,12 @@ export function renderSettings(view) {
       </div>
       <button class="btn ${sampleLoaded ? "btn-danger" : "btn-ghost"} btn-block" data-act="sample" style="margin-top:10px">${sampleLoaded ? "Remove sample data" : "Load sample data (try it out)"}</button>
       <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
+    </div>
+
+    <div class="section-title">App</div>
+    <div class="card">
+      <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
+      <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">entoa</div>
     </div>
     <div class="fab-note">entoa · data lives on your device</div>
   `;
@@ -291,6 +298,16 @@ export function renderSettings(view) {
       toast("All data reset");
       location.hash = "/";
     }
+  });
+
+  // App version + manual update check.
+  const verEl = el.querySelector("#app-version");
+  getVersion().then((v) => { if (verEl) verEl.textContent = v ? `Version ${v.version} · ${new Date(v.built).toLocaleDateString()}` : "entoa"; });
+  el.querySelector('[data-act="update"]').addEventListener("click", async () => {
+    toast("Checking for updates…");
+    const updating = await checkForUpdate();
+    if (updating) toast("Update found — refreshing…", "success");
+    else setTimeout(() => toast("You're on the latest version", "success"), 500);
   });
 }
 

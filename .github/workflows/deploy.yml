@@ -21,6 +21,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Stamp the build so every push ships a genuinely new service worker and
+      # the installed PWA auto-updates. The cache name becomes the commit hash,
+      # and version.json lets the app show/what's-live and "Check for updates".
+      - name: Stamp build version
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sed -i "s/const CACHE = \"[^\"]*\";/const CACHE = \"entoa-${SHA}\";/" sw.js
+          printf '{"version":"%s","built":"%s"}\n' "$SHA" "$BUILT" > version.json
+          echo "Stamped sw.js and version.json with $SHA"
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:

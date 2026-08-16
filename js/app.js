@@ -23,6 +23,7 @@ import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
+import { initAutoUpdate } from "./updater.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -120,9 +121,5 @@ startRouter();
 // Start cloud sync if it's configured and signed in (no-op otherwise).
 sync.init();
 
-// Register service worker for offline / installability.
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  });
-}
+// Register the service worker and keep the app auto-updating to new deploys.
+initAutoUpdate();
