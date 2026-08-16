@@ -9,7 +9,7 @@ import { toast } from "./components.js";
 import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
-import { agentConfigured, runAgent, executeActions } from "./agent.js";
+import { agentConfigured, runAgent } from "./agent.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export function voiceRecognitionSupported() { return !!SR; }
@@ -287,14 +287,15 @@ export function startVoiceAssistant() {
       statusEl.textContent = "Thinking…";
       orb.classList.remove("listening");
       try {
-        const { say, actions } = await runAgent(text);
-        const { notes } = executeActions(actions);
+        const { say, notes } = await runAgent(text, (n) => {
+          if (n && !n.startsWith("⚠")) statusEl.textContent = n.charAt(0).toUpperCase() + n.slice(1) + "…";
+        });
         const failed = notes.filter((n) => n.startsWith("⚠"));
-        const reply = say || (notes.length ? notes.join(", ") : "Done");
+        const reply = say || notes.filter((n) => !n.startsWith("⚠")).join(", ") || "Done";
         statusEl.textContent = reply;
         speak(reply);
         toast(reply, failed.length ? "" : "success");
-        setTimeout(close, failed.length ? 1800 : 1100);
+        setTimeout(close, failed.length ? 2000 : 1300);
         return;
       } catch (e) {
         statusEl.textContent = "Agent offline — trying on-device…";
