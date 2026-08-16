@@ -308,7 +308,10 @@ export function startVoiceAssistant() {
         }
         return;
       } catch (e) {
-        statusEl.textContent = "Agent offline — trying on-device…";
+        // Surface the real error (so it's diagnosable) before falling back.
+        const msg = e && e.message ? e.message : "couldn't reach the assistant";
+        toast(`Voice agent: ${msg}`, "danger");
+        statusEl.textContent = "Assistant unavailable — using basic commands…";
       }
     }
     onParser(text);
