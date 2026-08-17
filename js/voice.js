@@ -215,12 +215,12 @@ export function executeCommand(cmd) {
 
 // ---------- Overlay UI ----------
 const EXAMPLES = [
-  "New lead John Smith interested in a Rogue",
-  "Add task call the bank tomorrow",
-  "Schedule a test drive with Priya at 3 pm",
-  "Log a sale for Sarah, commission 700",
-  "Find a used Pathfinder on the network",
-  "Go to inventory",
+  "Book Ken a test drive Thursday at 4",
+  "Who should I call today?",
+  "Log a sale for Sara, $700 commission",
+  "How many appointments this week?",
+  "Add Jennifer White — wants a Rogue",
+  "Mark my 2 o'clock sold",
 ];
 
 export function startVoiceAssistant() {
@@ -228,18 +228,20 @@ export function startVoiceAssistant() {
   const overlay = document.createElement("div");
   overlay.className = "voice-overlay";
   overlay.innerHTML = `
-    <button class="voice-close" aria-label="Close">&times;</button>
-    <div class="voice-inner">
+    <div class="voice-sheet">
+      <div class="voice-grip"></div>
+      <button class="voice-close" aria-label="Close">&times;</button>
       <div class="voice-orb" id="v-orb">${icon("mic")}</div>
       <div class="voice-status" id="v-status">Listening…</div>
       <div class="voice-transcript" id="v-transcript"></div>
-      <form class="voice-form" id="v-form">
-        <input id="v-text" type="text" placeholder="…or type a command" autocomplete="off" />
-        <button class="btn btn-primary" type="submit">Go</button>
+      <form class="voice-input" id="v-form">
+        <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" />
+        <button class="voice-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h13"/><path d="M12.5 6.5 19 12l-6.5 5.5"/></svg></button>
       </form>
-      <div class="voice-hint">Tap the box, then the <b>microphone key</b> on your keyboard to speak — or type.</div>
-      <div class="voice-examples">
-        ${EXAMPLES.map((e) => `<button class="voice-eg" type="button">${e}</button>`).join("")}
+      <div class="voice-hint">Tap the box, then your keyboard's mic to speak — or just type.</div>
+      <div class="voice-chips-label">Try saying</div>
+      <div class="voice-chips">
+        ${EXAMPLES.map((e) => `<button class="voice-chip" type="button">${e}</button>`).join("")}
       </div>
     </div>
   `;
@@ -321,7 +323,7 @@ export function startVoiceAssistant() {
   };
 
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
-  overlay.querySelectorAll(".voice-eg").forEach((b) =>
+  overlay.querySelectorAll(".voice-chip").forEach((b) =>
     b.addEventListener("click", () => { textInput.value = b.textContent; run(b.textContent); }));
   // Tapping the orb focuses the box (opens the keyboard so its dictation mic is reachable).
   orb.addEventListener("click", () => textInput.focus());
@@ -364,7 +366,7 @@ export function startVoiceAssistant() {
         else if (!closed && statusEl.textContent === "Listening…") statusEl.textContent = "Go ahead — or type below.";
       };
       rec.start();
-      setTimeout(() => textInput && textInput.setAttribute("placeholder", "…or type a command"), 10);
+      setTimeout(() => textInput && textInput.setAttribute("placeholder", "Ask or tell me anything…"), 10);
     } catch {
       orb.classList.remove("listening");
       statusEl.textContent = "Type your command, or tap your keyboard's mic to dictate.";
