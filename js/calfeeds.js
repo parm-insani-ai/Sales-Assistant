@@ -12,8 +12,11 @@ const CACHE_KEY = "entoa:calfeeds:cache"; // { [feedId]: { at, events:[...] } }
 export function getFeeds() {
   return (store.getSettings().calendarFeeds || []).filter((f) => f && f.url);
 }
+// The dedicated proxy URL wins if set; otherwise feeds ride through the voice
+// agent function, which doubles as the calendar proxy (GET ?url=...).
 export function getProxyUrl() {
-  return (store.getSettings().calendarProxyUrl || "").trim().replace(/\/+$/, "");
+  const s = store.getSettings();
+  return ((s.calendarProxyUrl || s.agentUrl || "")).trim().replace(/\/+$/, "");
 }
 export function feedsConfigured() {
   return !!getProxyUrl() && getFeeds().length > 0;
@@ -59,7 +62,7 @@ export function externalEventCount() {
 // Fetch + parse every enabled feed through the proxy. Returns { errors, at }.
 export async function refreshFeeds() {
   const proxy = getProxyUrl();
-  if (!proxy) throw new Error("Add your calendar proxy URL first");
+  if (!proxy) throw new Error("Set up the voice agent first (Settings → Voice agent) — calendar feeds use the same function");
   const feeds = getFeeds().filter((f) => f.enabled !== false);
   if (!feeds.length) throw new Error("Add at least one calendar feed");
 
@@ -72,7 +75,18 @@ export async function refreshFeeds() {
   for (const f of feeds) {
     try {
       const res = await fetch(`${proxy}?url=${encodeURIComponent(f.url)}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`${f.name || "Feed"}: HTTP ${res.status}`);
+      if (!res.ok) {
+        let body = "";
+        try { body = await res.text(); } catch {}
+        // An old function build answers GET with the agent's "No messages" 400.
+        if (res.status === 400 && /No messages/i.test(body))
+          throw new Error("Your Supabase function needs the calendar update — replace its code with the latest and redeploy (see setup steps)");
+        if (res.status === 404)
+          throw new Error("No function at the proxy URL (404) — run Test connection under Voice agent");
+        if (res.status === 403 && /Host not allowed/i.test(body))
+          throw new Error(`${f.name || "Feed"}: that calendar host isn't on the proxy's allow-list`);
+        throw new Error(`${f.name || "Feed"}: HTTP ${res.status}`);
+      }
       const text = await res.text();
       if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error(`${f.name || "Feed"}: not a calendar feed`);
       const events = parseICS(text, { rangeStart, rangeEnd });

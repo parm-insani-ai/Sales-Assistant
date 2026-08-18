@@ -515,17 +515,19 @@ function buildFeeds(slot) {
   const rerender = () => buildFeeds(slot);
 
   slot.innerHTML = `
-    <div class="small muted" style="margin-bottom:10px">Show your Apple, Outlook and Google events on your calendar (read-only). Fetched through a small proxy you host on your Supabase.</div>
+    <div class="small muted" style="margin-bottom:10px">Show your Apple, Outlook and Google events on your calendar (read-only). Feeds come through the same Supabase function that powers voice — no extra setup beyond a one-time code update.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} How to set this up</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li><b>Deploy the proxy once:</b> in Supabase, deploy the function in <span class="mono">supabase/functions/ics-proxy</span> (steps in <span class="mono">supabase/README.md</span>), then paste its URL below.</li>
+        <li><b>One-time:</b> in Supabase → Edge Functions → your function, replace its code with the latest <span class="mono">supabase/functions/voice-agent/index.ts</span> from entoa and deploy. (The update adds calendar fetching to the function voice already uses.)</li>
         <li><b>Google:</b> Calendar settings → your calendar → <b>Secret address in iCal format</b>.</li>
         <li><b>Apple:</b> Calendar app → share a calendar → <b>Public Calendar</b> → copy the <span class="mono">webcal://</span> link.</li>
         <li><b>Outlook:</b> Calendar → <b>Share → Publish</b> → copy the ICS link (may need IT on a work account).</li>
+        <li>Add each calendar below, then tap <b>Refresh now</b>.</li>
       </ol>
     </details>
-    <div class="field"><label>Calendar proxy URL</label><input id="cf-proxy" type="url" value="${esc(s.calendarProxyUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/ics-proxy"></div>
+    <div class="field"><label>Calendar proxy URL <span class="muted">(optional)</span></label><input id="cf-proxy" type="url" value="${esc(s.calendarProxyUrl || "")}" placeholder="Leave blank to use your voice agent function"></div>
+    ${!s.calendarProxyUrl && s.agentUrl ? `<div class="hint" style="margin-top:-8px;margin-bottom:12px">${icon("checkline")} Using your voice agent function.</div>` : ""}
     <div class="feeds-list"></div>
     <div class="section-title" style="margin-top:6px">Add a calendar</div>
     <div class="field"><label>Name</label><input id="cf-name" placeholder="My Google / Work Outlook / iPhone"></div>

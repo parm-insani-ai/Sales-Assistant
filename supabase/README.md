@@ -42,26 +42,23 @@ another device pulls everything down.
 ## Calendar feeds (Apple / Outlook / Google)
 
 To show your outside calendars *inside* entoa (read-only), the app subscribes to
-each calendar's `.ics` feed. Browsers can't fetch those directly, so a tiny
-proxy — a Supabase Edge Function — fetches them for you.
+each calendar's `.ics` feed. Browsers can't fetch those directly, so your
+Supabase function fetches them for you — **the same function that powers the
+voice agent** doubles as the calendar proxy (POST runs the agent, GET proxies a
+feed). No second function or URL is needed.
 
-### 1. Deploy the proxy (once)
+### 1. Make sure your function has the calendar update (once)
 
-With the [Supabase CLI](https://supabase.com/docs/guides/cli) installed and your
-project linked (`supabase link`):
+If you deployed the voice agent before calendar feeds existed, update it: in
+Supabase → **Edge Functions** → your function, replace its code with the latest
+[`functions/voice-agent/index.ts`](./functions/voice-agent/index.ts) and deploy.
+(Or with the CLI: `supabase functions deploy voice-agent --no-verify-jwt`.)
 
-```
-supabase functions deploy ics-proxy --no-verify-jwt
-```
-
-The function code is in [`functions/ics-proxy/index.ts`](./functions/ics-proxy/index.ts).
-After deploying, Supabase prints its URL, like:
-
-```
-https://<your-project>.supabase.co/functions/v1/ics-proxy
-```
-
-Paste that into entoa → **Settings → Calendar feeds → Calendar proxy URL**.
+entoa automatically routes feeds through your voice agent URL. If you'd rather
+run a separate proxy, deploy
+[`functions/ics-proxy/index.ts`](./functions/ics-proxy/index.ts) and paste its
+URL into **Settings → Calendar feeds → Calendar proxy URL** — that field
+overrides the default.
 
 ### 2. Get each calendar's feed URL
 

@@ -1,8 +1,11 @@
-// entoa voice agent — a thin Claude relay (Supabase Edge Function).
-// The agent's brain (system prompt + tools) lives in the app now, so it can be
-// improved via normal app updates without redeploying this. This function just
-// holds your Anthropic API key, forwards the request to Claude, and returns the
-// raw turn ({ content, stop_reason }). No customer data is stored here.
+// entoa's one Supabase Edge Function — two jobs, one URL:
+//   POST {system, tools, messages}  → Claude relay for the voice agent.
+//   GET  ?url=<calendar feed>       → CORS proxy for Apple/Outlook/Google
+//                                     (.ics) feeds, which browsers can't
+//                                     fetch cross-origin themselves.
+// The agent's brain (system prompt + tools) lives in the app, so it improves
+// via normal app updates without redeploying this. No customer data is stored
+// here.
 //
 // Deploy:
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...   (or set it in the
@@ -12,15 +15,63 @@
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 function json(obj: unknown, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 
+// Calendar hosts the proxy will fetch from (suffix match). Add your own if you
+// use another provider.
+const ICS_ALLOW = [
+  "calendar.google.com",
+  "icloud.com",       // p##-caldav.icloud.com, p##-calendars.icloud.com
+  "me.com",
+  "outlook.office365.com",
+  "outlook.office.com",
+  "outlook.live.com",
+  "office.com",
+  "calendar.yahoo.com",
+];
+
+async function proxyICS(req: Request): Promise<Response> {
+  const reqUrl = new URL(req.url);
+  // Calendar apps hand out webcal:// links — they're just https.
+  const target = (reqUrl.searchParams.get("url") || "").replace(/^webcal:\/\//i, "https://");
+
+  let parsed: URL;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return new Response("Bad or missing ?url", { status: 400, headers: CORS });
+  }
+  if (!/^https?:$/.test(parsed.protocol)) {
+    return new Response("Only http(s) feeds allowed", { status: 400, headers: CORS });
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!ICS_ALLOW.some((h) => host === h || host.endsWith("." + h))) {
+    return new Response(`Host not allowed: ${host}`, { status: 403, headers: CORS });
+  }
+
+  try {
+    const upstream = await fetch(parsed.toString(), {
+      headers: { "User-Agent": "entoa-ics-proxy", "Accept": "text/calendar, text/plain, */*" },
+      redirect: "follow",
+    });
+    const body = await upstream.text();
+    return new Response(body, {
+      status: upstream.status,
+      headers: { ...CORS, "Content-Type": "text/calendar; charset=utf-8" },
+    });
+  } catch (err) {
+    return new Response(`Fetch failed: ${err}`, { status: 502, headers: CORS });
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "GET") return proxyICS(req);
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
