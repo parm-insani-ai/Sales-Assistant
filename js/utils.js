@@ -40,6 +40,13 @@ export function smsHref(p, body = "") {
   return `sms:${d}${body ? `?&body=${encodeURIComponent(body)}` : ""}`;
 }
 
+export function mailtoHref(email, subject = "", body = "") {
+  const to = String(email || "").trim();
+  if (!to) return "#";
+  const q = [subject && `subject=${encodeURIComponent(subject)}`, body && `body=${encodeURIComponent(body)}`].filter(Boolean).join("&");
+  return `mailto:${encodeURIComponent(to)}${q ? "?" + q : ""}`;
+}
+
 // --- Dates ---
 export function todayISO() {
   return new Date().toISOString().slice(0, 10);

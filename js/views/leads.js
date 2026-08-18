@@ -14,9 +14,10 @@ import { openDealBuilder } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
-  currency, esc, initials, phoneDisplay, telHref, smsHref,
+  currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
   relativeDay, daysFromToday, formatDate, todayISO,
 } from "../utils.js";
+import { emailsForLead, logEmail } from "../email.js";
 
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
@@ -216,10 +217,11 @@ function renderLeadDetail(view, id) {
         <span class="badge ${st.badge}">${esc(st.label)}</span>
       </div>
 
-      ${l.phone ? `
+      ${(l.phone || l.email) ? `
       <div class="btn-row" style="margin-top:14px">
-        <a class="btn btn-success btn-sm" data-act="call" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
-        <a class="btn btn-primary btn-sm" data-act="text" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>
+        ${l.phone ? `<a class="btn btn-success btn-sm" data-act="call" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
+        <a class="btn btn-primary btn-sm" data-act="text" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>` : ""}
+        ${l.email ? `<a class="btn btn-primary btn-sm" data-act="email" style="flex:1" href="${mailtoHref(l.email)}">${icon("mail")} Email</a>` : ""}
       </div>` : ""}
       ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
     </div>
@@ -244,6 +246,12 @@ function renderLeadDetail(view, id) {
     </div>
 
     ${l.notes ? `<div class="section-title">Notes</div><div class="card"><div style="white-space:pre-wrap">${esc(l.notes)}</div></div>` : ""}
+
+    <div class="section-title">Email history</div>
+    <div class="card">
+      <div class="email-log"></div>
+      <button class="btn btn-ghost btn-sm btn-block" data-act="log-email">${icon("mail")} Log an email</button>
+    </div>
 
     <div class="section-title">Actions</div>
     <div class="card">
@@ -289,6 +297,51 @@ function renderLeadDetail(view, id) {
   if (callBtn) callBtn.addEventListener("click", logTouch);
   const textBtn = el.querySelector('[data-act="text"]');
   if (textBtn) textBtn.addEventListener("click", logTouch);
+  const emailBtn = el.querySelector('[data-act="email"]');
+  if (emailBtn) emailBtn.addEventListener("click", () => {
+    logTouch();
+    logEmail(l.id, { direction: "out", subject: "", body: "", via: "mail-app" });
+  });
+
+  // --- Email history: sent emails (templates / automated) + hand-logged replies.
+  const drawEmailLog = () => {
+    const box = el.querySelector(".email-log");
+    const items = emailsForLead(l.id);
+    if (!items.length) { box.innerHTML = `<div class="muted small" style="margin-bottom:10px">Nothing logged yet. Emails sent from entoa land here automatically.</div>`; return; }
+    box.innerHTML = items.slice(0, 12).map((e) => `
+      <div class="kv" style="align-items:flex-start">
+        <span class="k" style="flex:none">${e.direction === "in" ? "↓ In" : "↑ Out"}</span>
+        <span class="v" style="text-align:left;flex:1;font-weight:550">
+          ${esc(e.subject || "(no subject)")}
+          <div class="small muted" style="font-weight:450">${esc(formatDate(e.createdAt))}${e.via === "auto" ? " · sent automatically" : ""}</div>
+        </span>
+      </div>`).join("");
+  };
+  drawEmailLog();
+
+  el.querySelector('[data-act="log-email"]').addEventListener("click", () => {
+    openModal("Log an email", (close) => {
+      const { element } = buildForm(
+        [
+          { name: "direction", label: "Direction", value: "in", type: "select",
+            options: [{ value: "in", label: "Received from customer" }, { value: "out", label: "Sent to customer" }] },
+          { name: "subject", label: "Subject", value: "", placeholder: "Re: the Rogue" },
+          { name: "body", label: "Email text (optional)", value: "", type: "textarea", placeholder: "Paste the email here…" },
+        ],
+        {
+          submitLabel: "Log it",
+          onSubmit: (data) => {
+            logEmail(l.id, { direction: data.direction, subject: data.subject, body: data.body, via: "manual" });
+            if (data.direction === "out") logTouch();
+            toast("Email logged", "success");
+            close();
+            drawEmailLog();
+          },
+        }
+      );
+      return element;
+    });
+  });
 
   el.querySelector('[data-act="cadence"]').addEventListener("click", () => {
     if (hasCadence(l.id)) { toast("Follow-up plan already running", ""); return; }

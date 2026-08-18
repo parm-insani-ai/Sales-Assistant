@@ -11,6 +11,7 @@ import * as sync from "../sync.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion } from "../updater.js";
 import { testAgent, findAgentFunction } from "../agent.js";
+import { sendEmail, emailSendConfigured } from "../email.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -35,6 +36,9 @@ export function renderSettings(view) {
 
     <div class="section-title">Voice agent</div>
     <div class="card" id="agent-slot"></div>
+
+    <div class="section-title">Email</div>
+    <div class="card" id="email-slot"></div>
 
     <div class="section-title">Deal defaults</div>
     <div class="card">
@@ -128,6 +132,7 @@ export function renderSettings(view) {
   buildCloud(cloudSlot);
   buildFeeds(el.querySelector("#feeds-slot"));
   buildAgent(el.querySelector("#agent-slot"));
+  buildEmail(el.querySelector("#email-slot"));
   const onSyncEvt = (e) => {
     const line = cloudSlot.querySelector(".cloud-status");
     if (!line) return;
@@ -505,6 +510,51 @@ function buildAgent(slot) {
       testOut.textContent = `✗ ${msg}`;
     }
     testBtn.disabled = false;
+  });
+}
+
+// Email: tap-to-email works out of the box; automated sending is optional and
+// runs through the same Supabase function (Resend secrets).
+function buildEmail(slot) {
+  const s = store.getSettings();
+  slot.innerHTML = `
+    <div class="small muted" style="margin-bottom:10px">Tap-to-email with templates already works from any customer — it opens your mail app with the message filled in. Optionally, entoa can also <b>send cadence emails automatically</b> when you open the app, so follow-ups go out without you touching them.</div>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} Set up automated sending (optional)</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>Create a free account at <span class="mono">resend.com</span> and verify a domain you own (so emails come from your address, not spam).</li>
+        <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">RESEND_API_KEY</span> (from Resend) and <span class="mono">EMAIL_FROM</span> (like <span class="mono">Parm &lt;parm@yourdomain.com&gt;</span>).</li>
+        <li>Make sure your function has the latest entoa code, then use <b>Send a test</b> below.</li>
+      </ol>
+    </details>
+    <label class="switch" style="margin-bottom:12px">
+      <input type="checkbox" id="em-auto" ${s.emailAutoSend ? "checked" : ""}>
+      Send due cadence emails automatically when the app opens
+    </label>
+    <div class="field"><label>Send a test to</label><input id="em-test-to" type="email" placeholder="you@email.com" value="${esc(s.contactEmail || "")}"></div>
+    <button class="btn btn-sm" id="em-test" type="button">Send a test email</button>
+    <div class="hint" id="em-test-out"></div>
+  `;
+  slot.querySelector("#em-auto").addEventListener("change", (e) => {
+    store.updateSettings({ emailAutoSend: e.target.checked });
+    toast(e.target.checked ? "Automated emails on" : "Automated emails off", "success");
+  });
+  const out = slot.querySelector("#em-test-out");
+  const btn = slot.querySelector("#em-test");
+  btn.addEventListener("click", async () => {
+    const to = (slot.querySelector("#em-test-to").value || "").trim();
+    if (!to) { out.textContent = "Enter an address to send the test to"; return; }
+    if (!emailSendConfigured()) { out.textContent = "Set up the voice agent first (its function does the sending)"; return; }
+    btn.disabled = true;
+    out.textContent = "Sending…";
+    try {
+      await sendEmail({ to, subject: "entoa test email", text: "This is a test from entoa — automated sending is working. 🎉" });
+      out.textContent = "✓ Sent! Check that inbox (and spam, the first time).";
+      toast("Test email sent", "success");
+    } catch (e) {
+      out.textContent = `✗ ${e.message || "Send failed"}`;
+    }
+    btn.disabled = false;
   });
 }
 

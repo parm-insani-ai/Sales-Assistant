@@ -2,6 +2,7 @@
 // Messages or Mail composer, or copy to clipboard.
 
 import * as store from "../store.js";
+import { DEFAULT_TEMPLATES } from "../store.js";
 import { openModal, toast } from "../components.js";
 import { esc, smsHref } from "../utils.js";
 import { icon } from "../icons.js";
@@ -22,9 +23,16 @@ export function fillTemplate(text, lead) {
     Object.prototype.hasOwnProperty.call(map, key) ? map[key] : m);
 }
 
+// Saved templates plus any newer built-in defaults the user's stored settings
+// predate (settings merge shallowly, so new defaults never reach old installs).
+export function allTemplates() {
+  const saved = store.getSettings().messageTemplates || [];
+  return saved.concat(DEFAULT_TEMPLATES.filter((d) => !saved.some((s) => s.id === d.id)));
+}
+
 // Open the template picker for a given lead.
 export function openTemplatePicker(lead) {
-  const templates = store.getSettings().messageTemplates || [];
+  const templates = allTemplates();
   openModal("Send a message", (close) => {
     const wrap = document.createElement("div");
     if (!lead.phone && !lead.email) {
@@ -92,6 +100,11 @@ function openComposer(template, lead) {
       // Stamp last-contacted and count it as a prospecting touch.
       store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
       store.logActivity("touch");
+      // Emails also land in the lead's email history.
+      if (isEmail) store.create("emails", {
+        leadId: lead.id, direction: "out",
+        subject: subjEl ? subjEl.value : "", body: bodyEl.value, via: "mail-app",
+      });
       setTimeout(close, 50);
     });
 

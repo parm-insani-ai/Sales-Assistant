@@ -100,3 +100,21 @@ Claude what to do, and returns the actions; the app runs them on-device.
 Notes: usage costs a small amount per request (billed by Anthropic). To change
 the model, set a `MODEL` secret (default is a fast Haiku). Leave the URL blank in
 entoa to keep using the free, offline on-device commands.
+
+## Email sending (optional)
+
+The same function can also send real emails — used for automated cadence
+follow-ups (entoa → **Settings → Email**) . It sends through
+[Resend](https://resend.com) (free tier ~100 emails/day):
+
+1. Create a Resend account and **verify a domain you own**, so emails come from
+   your address and don't land in spam.
+2. In Supabase → Edge Functions → **Secrets**, add:
+   - `RESEND_API_KEY` — from the Resend dashboard
+   - `EMAIL_FROM` — e.g. `Parm Shokar <parm@yourdomain.com>`
+3. Make sure the function is on the latest code, then in entoa →
+   **Settings → Email** use **Send a test email**.
+
+With the "send automatically" toggle on, any due cadence steps whose channel is
+email go out when you open the app (capped, logged to each lead's email
+history, and skipped for leads with no email or already sold/lost).

@@ -1,5 +1,8 @@
-// entoa's one Supabase Edge Function — two jobs, one URL:
+// entoa's one Supabase Edge Function — three jobs, one URL:
 //   POST {system, tools, messages}  → Claude relay for the voice agent.
+//   POST {email: {to, subject, text}} → send a real email via Resend
+//                                     (needs RESEND_API_KEY + EMAIL_FROM
+//                                     secrets; optional).
 //   GET  ?url=<calendar feed>       → CORS proxy for Apple/Outlook/Google
 //                                     (.ics) feeds, which browsers can't
 //                                     fetch cross-origin themselves.
@@ -74,11 +77,33 @@ Deno.serve(async (req: Request) => {
   if (req.method === "GET") return proxyICS(req);
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) return json({ error: "Server missing ANTHROPIC_API_KEY" }, 500);
-
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+
+  // --- Optional email sending (Resend) ---
+  if (body.email) {
+    const key = Deno.env.get("RESEND_API_KEY");
+    const from = Deno.env.get("EMAIL_FROM");
+    if (!key) return json({ error: "Server missing RESEND_API_KEY" }, 500);
+    if (!from) return json({ error: "Server missing EMAIL_FROM" }, 500);
+    const { to, subject, text } = body.email || {};
+    if (!to || !subject) return json({ error: "email needs to + subject" }, 400);
+    try {
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to: [to], subject, text: String(text || "") }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) return json({ error: data?.message || `Email failed (${r.status})` }, 502);
+      return json({ sent: true, id: data?.id || null });
+    } catch (err) {
+      return json({ error: `Email failed: ${err}` }, 502);
+    }
+  }
+
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) return json({ error: "Server missing ANTHROPIC_API_KEY" }, 500);
   if (!Array.isArray(body.messages) || !body.messages.length) return json({ error: "No messages" }, 400);
 
   try {

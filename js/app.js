@@ -1,7 +1,7 @@
 // App bootstrap: routing, page titles, quick-add menu, service worker.
 
 import { route, startRouter, currentBase, navigate } from "./router.js";
-import { openModal } from "./components.js";
+import { openModal, toast } from "./components.js";
 import { icon } from "./icons.js";
 import { renderDashboard } from "./views/dashboard.js";
 import { renderLeads, openLeadForm } from "./views/leads.js";
@@ -24,6 +24,7 @@ import { renderCompare } from "./views/compare.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
+import { autoSendDueEmails } from "./email.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -123,3 +124,9 @@ sync.init();
 
 // Register the service worker and keep the app auto-updating to new deploys.
 initAutoUpdate();
+
+// Automated cadence emails (optional): send anything due, quietly, on open.
+autoSendDueEmails().then((r) => {
+  if (r.sent) toast(`${r.sent} follow-up email${r.sent === 1 ? "" : "s"} sent automatically`, "success");
+  else if (r.errors && r.errors.length) toast(`Auto-email: ${r.errors[0]}`, "danger");
+}).catch(() => {});

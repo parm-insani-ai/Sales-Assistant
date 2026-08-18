@@ -36,12 +36,20 @@ const DEFAULT_TEMPLATES = [
     body: "Hi {firstName}, hope you're loving the {vehicle}! If you know anyone in the market for a vehicle, I'd be grateful for the introduction. - {salesperson}" },
   { id: "tpl_email_intro", name: "Email intro", channel: "email", subject: "Your inquiry on the {vehicle}",
     body: "Hi {name},\n\nThank you for reaching out about the {vehicle}. I'd love to help you find the right fit and answer any questions.\n\nWhat's the best day and time for you to stop by for a look and a test drive?\n\nBest,\n{salesperson}\n{dealership}" },
+  { id: "tpl_email_follow", name: "Email follow-up", channel: "email", subject: "Following up on the {vehicle}",
+    body: "Hi {firstName},\n\nJust following up on the {vehicle} — I'd hate for you to miss out if the right one comes through. Any questions I can answer, or a good time for you to come by?\n\nBest,\n{salesperson}\n{dealership}" },
+  { id: "tpl_email_appt", name: "Email appointment confirm", channel: "email", subject: "See you soon — {vehicle}",
+    body: "Hi {firstName},\n\nLooking forward to our appointment about the {vehicle}. If anything changes, just reply here and we'll find another time.\n\nBest,\n{salesperson}\n{dealership}" },
+  { id: "tpl_email_delivered", name: "Email delivery thank-you", channel: "email", subject: "Congratulations on your {vehicle}!",
+    body: "Hi {firstName},\n\nCongratulations again on your {vehicle} — it was a pleasure working with you. If you ever need anything, I'm one reply away.\n\nAnd if you know anyone in the market for a vehicle, I'd be grateful for the introduction.\n\nBest,\n{salesperson}\n{dealership}" },
 ];
+export { DEFAULT_TEMPLATES };
 
 // A proven multi-touch follow-up cadence, applied to new leads so none go cold.
 const DEFAULT_CADENCE = [
   { day: 0, channel: "call", label: "Intro call" },
   { day: 0, channel: "text", label: "Intro text" },
+  { day: 1, channel: "email", label: "Intro email" },
   { day: 2, channel: "call", label: "Follow-up call" },
   { day: 4, channel: "text", label: "Value follow-up" },
   { day: 7, channel: "call", label: "One-week call" },
@@ -59,6 +67,7 @@ const DEFAULT_STATE = {
   activity: [],
   spifs: [],
   specials: [],
+  emails: [], // logged emails per lead: { leadId, direction: "in"|"out", subject, body, via }
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -84,6 +93,9 @@ const DEFAULT_STATE = {
     // Voice agent endpoint (a Supabase function that calls Claude). Empty = the
     // on-device command parser is used instead.
     agentUrl: "",
+    // Automated sending: when on (and the function has RESEND_API_KEY +
+    // EMAIL_FROM secrets), due cadence emails go out on app open.
+    emailAutoSend: false,
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
@@ -263,7 +275,7 @@ export function restore(name, item) {
 }
 
 // Every syncable collection (everything except settings/outbox metadata).
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails"];
 
 // --- Activity tracking (prospecting touches) ---
 // A "touch" is any outreach (call/text/logged contact). Used for the daily
