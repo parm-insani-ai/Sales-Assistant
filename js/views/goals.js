@@ -6,6 +6,7 @@ import { openModal, buildForm, toast, confirmDialog, emptyState } from "../compo
 import { navigate } from "../router.js";
 import { currency, esc, formatDate, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
+import { afterSale, leadByName } from "../connections.js";
 
 function monthKey(iso) {
   return (iso || "").slice(0, 7); // YYYY-MM
@@ -156,16 +157,12 @@ export function openSaleForm(existing, prefill = {}, onDone) {
             // create one — so the buyer shows up in Leads/Comms for follow-up.
             let leadId = sale.leadId || null;
             if (!leadId) {
-              const q = String(data.customerName || "").trim().toLowerCase();
-              const match = q && store.all("leads").find((l) => (l.name || "").toLowerCase() === q);
+              const match = leadByName(data.customerName);
               leadId = match ? match.id
                 : store.create("leads", { name: data.customerName, vehicleInterest: data.vehicle || "", stage: "sold", source: "Sale" }).id;
             }
             store.create("sales", { ...data, leadId, deliveryId: sale.deliveryId || null });
-            // Keep the linked customer's pipeline stage in sync (don't downgrade
-            // a delivered customer back to sold).
-            const lead = store.get("leads", leadId);
-            if (lead && lead.stage !== "delivered") store.update("leads", leadId, { stage: "sold" });
+            afterSale(leadId, { vehicle: data.vehicle, fromDelivery: !!sale.deliveryId });
             toast("Sale logged", "success");
           }
           close();

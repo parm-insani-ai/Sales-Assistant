@@ -18,6 +18,7 @@ import {
   relativeDay, daysFromToday, formatDate, todayISO,
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
+import { afterSale, closeFollowUps } from "../connections.js";
 
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
@@ -366,8 +367,21 @@ function renderLeadDetail(view, id) {
 
   el.querySelectorAll("[data-stage]").forEach((b) =>
     b.addEventListener("click", () => {
-      store.update("leads", l.id, { stage: b.dataset.stage });
-      toast(`Moved to ${stageMeta(b.dataset.stage).label}`, "success");
+      const stage = b.dataset.stage;
+      store.update("leads", l.id, { stage });
+      toast(`Moved to ${stageMeta(stage).label}`, "success");
+      // Stage changes ripple through the rest of the app.
+      if (stage === "sold") {
+        const hasSale = store.all("sales").some((s) => s.leadId === l.id);
+        if (!hasSale) {
+          // Sold means a sale — open the form prefilled so units/commission count.
+          openSaleForm(null, { customerName: l.name, vehicle: l.vehicleInterest, leadId: l.id }, () => renderRefresh(view, id));
+          return;
+        }
+        afterSale(l.id, { vehicle: l.vehicleInterest || "" });
+      } else if (stage === "lost") {
+        closeFollowUps(l.id);
+      }
       renderRefresh(view, id);
     }));
 

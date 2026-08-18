@@ -8,6 +8,7 @@ import { navigate } from "../router.js";
 import { esc, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
+import { afterSale, afterAppointmentBooked, leadByName } from "../connections.js";
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -282,7 +283,14 @@ export function openAppointmentForm(existing, prefill = {}) {
         onSubmit: (data) => {
           const title = APPT_TYPES.find((t) => t.id === data.type)?.label || "Appointment";
           if (isEdit) { store.update("appointments", existing.id, { ...data, title }); toast("Updated", "success"); }
-          else { store.create("appointments", { ...data, title, status: "scheduled", leadId: a.leadId || null }); toast("Appointment scheduled", "success"); }
+          else {
+            // Link the appointment to the customer (matching by name if it
+            // wasn't opened from a lead) and move their pipeline stage.
+            const leadId = a.leadId || leadByName(data.customerName)?.id || null;
+            store.create("appointments", { ...data, title, status: "scheduled", leadId });
+            afterAppointmentBooked(leadId);
+            toast("Appointment scheduled", "success");
+          }
           close();
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         },
@@ -362,10 +370,7 @@ function renderApptDetail(view, id) {
         customerName: a.customerName, vehicle: a.vehicle, saleDate: todayISO(),
         frontGross: 0, backGross: 0, commission: 0, leadId: a.leadId || null, apptId: a.id,
       });
-      if (a.leadId) {
-        const l = store.get("leads", a.leadId);
-        if (l && l.stage !== "delivered") store.update("leads", a.leadId, { stage: "sold" });
-      }
+      if (a.leadId) afterSale(a.leadId, { vehicle: a.vehicle || "" });
       toast("Sold — logged as a sale, add commission in Goals", "success");
     } else {
       toast("Marked sold", "success");

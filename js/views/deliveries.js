@@ -6,6 +6,7 @@ import { navigate } from "../router.js";
 import { esc, formatDate, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { openReferralCapture } from "./referrals.js";
+import { afterSale, afterDeliveryComplete, leadByName } from "../connections.js";
 
 function progress(d) {
   const items = d.checklist || [];
@@ -92,8 +93,10 @@ export function openDeliveryForm(existing) {
           if (isEdit) { store.update("deliveries", existing.id, data); toast("Updated", "success"); }
           else {
             const settings = store.getSettings();
+            // Link to the customer by name so completing it updates their record.
+            const leadId = d.leadId || leadByName(data.customerName)?.id || null;
             store.create("deliveries", {
-              ...data, status: "prep", notes: "",
+              ...data, status: "prep", notes: "", leadId,
               checklist: settings.deliveryChecklist.map((label) => ({ label, done: false })),
             });
             toast("Delivery created", "success");
@@ -199,7 +202,6 @@ function renderDeliveryDetail(view, id) {
     const remaining = (d.checklist || []).filter((i) => !i.done).length;
     if (remaining > 0 && !(await confirmDialog(`${remaining} item(s) still unchecked. Mark delivered anyway?`, { danger: false, confirmLabel: "Mark delivered" }))) return;
     store.update("deliveries", d.id, { status: "delivered" });
-    if (d.leadId) store.update("leads", d.leadId, { stage: "delivered" });
     toast("Congrats on the delivery!", "success");
 
     // A delivered car is a sold car — count it toward your units immediately.
@@ -214,6 +216,13 @@ function renderDeliveryDetail(view, id) {
         leadId: d.leadId || null, deliveryId: d.id,
       });
       toast("Counted as a sale — add your commission in Goals", "success");
+    }
+    if (d.leadId) {
+      afterSale(d.leadId, { vehicle: d.vehicle || "", fromDelivery: true });
+      store.update("leads", d.leadId, { stage: "delivered" });
+      // Queue the post-delivery follow-up plan (thank-you, check-in, referral).
+      const n = afterDeliveryComplete(d);
+      if (n) toast("Post-delivery follow-ups queued in Comms", "success");
     }
     navigate("/deliveries");
     // Delivery is the best moment to ask for a referral.

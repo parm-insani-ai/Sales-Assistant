@@ -12,6 +12,7 @@ import { maybeStartCadence, startCadence } from "./cadence.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { topOpportunities } from "./views/dealbuilder.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
+import { afterSale, afterAppointmentBooked, closeFollowUps } from "./connections.js";
 
 export function agentConfigured() {
   return !!(store.getSettings().agentUrl || "").trim();
@@ -226,6 +227,10 @@ function execTool(name, p = {}) {
       ["phone", "email", "stage", "followUp", "notes"].forEach((k) => { if (p[k] != null && p[k] !== "") patch[k] = p[k]; });
       if (p.vehicle) patch.vehicleInterest = p.vehicle;
       store.update("leads", lead.id, patch);
+      // Stage changes ripple: sold sets up delivery prep + retires follow-ups,
+      // lost just retires them.
+      if (patch.stage === "sold") afterSale(lead.id, { vehicle: p.vehicle || "" });
+      else if (patch.stage === "lost") closeFollowUps(lead.id);
       return { result: `updated ${lead.name}`, note: `updated ${lead.name}` };
     }
     case "add_task": {
@@ -239,7 +244,7 @@ function execTool(name, p = {}) {
       const lead = findLead(name) ||
         store.create("leads", { name, vehicleInterest: p.vehicle || "", stage: "sold", source: "Voice" });
       store.create("sales", { customerName: name, vehicle: p.vehicle || "", saleDate: p.date || new Date().toISOString().slice(0, 10), commission: num(p.commission), frontGross: num(p.front ?? p.frontGross), backGross: num(p.back ?? p.backGross), leadId: lead.id, notes: "" });
-      if (lead.stage !== "delivered") store.update("leads", lead.id, { stage: "sold" });
+      afterSale(lead.id, { vehicle: p.vehicle || "" });
       return { result: `logged sale`, note: `logged sale for ${name}` };
     }
     case "undo_sale": {
@@ -255,10 +260,14 @@ function execTool(name, p = {}) {
       return { result: `removed sale for ${sale.customerName}`, note: `removed the sale for ${sale.customerName}` };
     }
     case "book_appointment": case "schedule_appointment": {
-      const lead = findLead(p.customer || p.name);
+      // Everyone with an appointment is a customer — create the lead if new.
+      const who = p.customer || p.name || "Customer";
+      const lead = findLead(who) ||
+        store.create("leads", { name: who, vehicleInterest: p.vehicle || "", stage: "new", source: "Voice" });
       const type = ["testdrive", "delivery", "call", "appointment"].includes(p.type) ? p.type : "appointment";
       const label = { appointment: "Appointment", testdrive: "Test drive", delivery: "Delivery", call: "Phone call" }[type];
-      const a2 = store.create("appointments", { type, title: label, customerName: p.customer || p.name || (lead ? lead.name : ""), vehicle: p.vehicle || (lead ? lead.vehicleInterest : "") || "", when: p.when || "", status: "scheduled", confirmed: false, outcome: "", leadId: lead ? lead.id : null, notes: "" });
+      const a2 = store.create("appointments", { type, title: label, customerName: lead.name, vehicle: p.vehicle || lead.vehicleInterest || "", when: p.when || "", status: "scheduled", confirmed: false, outcome: "", leadId: lead.id, notes: "" });
+      afterAppointmentBooked(lead.id);
       return { result: `booked ${label} with ${a2.customerName} at ${a2.when}`, note: `booked ${label.toLowerCase()} with ${a2.customerName || "customer"}` };
     }
     case "appointment_outcome": case "set_outcome": {
@@ -273,7 +282,7 @@ function execTool(name, p = {}) {
         const logged = store.all("sales").some((s) => s.apptId === appt.id || (appt.leadId && s.leadId === appt.leadId));
         if (!logged) {
           store.create("sales", { customerName: appt.customerName, vehicle: appt.vehicle, saleDate: new Date().toISOString().slice(0, 10), frontGross: 0, backGross: 0, commission: 0, leadId: appt.leadId || null, apptId: appt.id });
-          if (appt.leadId) { const l = store.get("leads", appt.leadId); if (l && l.stage !== "delivered") store.update("leads", appt.leadId, { stage: "sold" }); }
+          if (appt.leadId) afterSale(appt.leadId, { vehicle: appt.vehicle || "" });
         }
         return { result: "sold", note: `marked ${appt.customerName} sold` };
       }
