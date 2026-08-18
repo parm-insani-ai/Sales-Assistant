@@ -24,7 +24,9 @@ export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
 
   let search = "";
-  let filter = "active"; // active | all | <stage>
+  // active | due | all | <stage>. A stat card can preset the filter (one-shot).
+  let filter = sessionStorage.getItem("leads-filter") || "active";
+  sessionStorage.removeItem("leads-filter");
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -33,6 +35,7 @@ export function renderLeads(view, { param }) {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
+    else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
       [l.name, l.phone, l.vehicleInterest, l.notes].join(" ").toLowerCase().includes(q));
@@ -47,6 +50,7 @@ export function renderLeads(view, { param }) {
 
     const chips = [
       { id: "active", label: "Active" },
+      { id: "due", label: "Due follow-ups" },
       { id: "all", label: "All" },
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: s.label })),
     ];
@@ -108,6 +112,7 @@ export function renderLeads(view, { param }) {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
+    else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
       [l.name, l.phone, l.vehicleInterest, l.notes].join(" ").toLowerCase().includes(q));

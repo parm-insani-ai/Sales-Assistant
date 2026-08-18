@@ -68,7 +68,7 @@ export function renderDashboard(view) {
     <div class="appt-list"></div>
 
     <div class="stat-grid">
-      <div class="stat card-tap" data-goto="/leads"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
+      <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
       <div class="stat card-tap" data-goto="/leads"><div class="stat-value">${activeLeads.length}</div><div class="stat-label">Active leads ›</div></div>
       <div class="stat card-tap" data-goto="/deliveries"><div class="stat-value">${activeDeliveries.length}</div><div class="stat-label">Deliveries in prep ›</div></div>
       <div class="stat card-tap" data-goto="/goals"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month ›</div></div>
@@ -122,9 +122,12 @@ export function renderDashboard(view) {
       .forEach((d) => dl.appendChild(deliveryMini(d)));
   }
 
-  // Tappable stat cards.
+  // Tappable stat cards. A stat can preset the leads filter (e.g. "due").
   el.querySelectorAll("[data-goto]").forEach((n) =>
-    n.addEventListener("click", () => navigate(n.dataset.goto)));
+    n.addEventListener("click", () => {
+      if (n.dataset.leadFilter) sessionStorage.setItem("leads-filter", n.dataset.leadFilter);
+      navigate(n.dataset.goto);
+    }));
 
   // Pull fresh external calendar events in the background; re-render once when
   // they land so today's count/list reflect them.
