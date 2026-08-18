@@ -21,6 +21,7 @@ import { renderTools } from "./views/tools.js";
 import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
 import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
+import { renderComms } from "./views/comms.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
@@ -43,6 +44,7 @@ const PAGES = {
   "/spiffs": { title: "SPIF Organizer", render: renderSpiffs },
   "/specials": { title: "Monthly Specials", render: renderSpecials },
   "/compare": { title: "Compare Vehicles", render: renderCompare },
+  "/comms": { title: "Communication", render: renderComms },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
 };
