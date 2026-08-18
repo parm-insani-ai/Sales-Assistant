@@ -67,7 +67,7 @@ async function describeAgentError(res) {
   const j = await res.json().catch(() => ({}));
   const msg = j.error || j.message || "";
   if (res.status === 404)
-    return "No function at that URL (404). In Supabase → Edge Functions, open your function and copy its exact URL — the name at the end must match the function's name.";
+    return "No function at that URL (404). Open Settings → Voice agent and tap Test connection — it will find the right function and fix the URL for you.";
   if (res.status === 401 || res.status === 403)
     return `The function rejected the call (${res.status}). Turn OFF "Verify JWT" for it in Supabase.`;
   return msg || `Agent error (${res.status})`;
@@ -103,6 +103,34 @@ export async function testAgent() {
   }
   if (!res.ok) throw new Error(await describeAgentError(res));
   return true;
+}
+
+// When the saved URL 404s, the function exists under a different name — scan
+// the same project for it. Supabase's gateway answers 404 (with CORS) for names
+// that don't exist, and anything else for ones that do, so a tiny POST per
+// candidate tells them apart. Returns the working URL or null.
+const FN_CANDIDATES = [
+  "quick-api", "voice-agent", "voice_agent", "voiceagent", "voice",
+  "agent", "assistant", "claude", "smart-api", "hello-world", "rapid-api", "super-api",
+];
+export async function findAgentFunction() {
+  const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
+  const m = url.match(/^(https?:\/\/[^/]+\/functions\/v1)(?:\/|$)/);
+  if (!m) return null;
+  const base = m[1];
+  const current = url.slice(base.length).replace(/^\//, "");
+  for (const name of FN_CANDIDATES) {
+    if (name === current) continue;
+    try {
+      const res = await fetch(`${base}/${name}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}", // our function answers 400 "No messages" — cheap, no Claude call
+      });
+      if (res.status !== 404) return `${base}/${name}`;
+    } catch { /* network/CORS — can't tell, keep scanning */ }
+  }
+  return null;
 }
 
 // ---- Entity resolution ----

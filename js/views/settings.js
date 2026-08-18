@@ -10,7 +10,7 @@ import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion } from "../updater.js";
-import { testAgent } from "../agent.js";
+import { testAgent, findAgentFunction } from "../agent.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -479,7 +479,30 @@ function buildAgent(slot) {
       testOut.textContent = "✓ Connected — the voice assistant is ready.";
       toast("Voice agent connected", "success");
     } catch (e) {
-      testOut.textContent = `✗ ${e.message || "Test failed"}`;
+      const msg = e.message || "Test failed";
+      // On a 404 the function exists under another name — find it and fix the
+      // URL automatically instead of making the user hunt through Supabase.
+      if (msg.includes("404")) {
+        testOut.textContent = "Nothing at that URL — scanning your project for the function…";
+        try {
+          const found = await findAgentFunction();
+          if (found) {
+            store.updateSettings({ agentUrl: found });
+            slot.querySelector("#ag-url").value = found;
+            const name = found.split("/").pop();
+            await testAgent();
+            testOut.textContent = `✓ Found your function ("${name}") — URL fixed and connected.`;
+            toast("Voice agent connected", "success");
+            testBtn.disabled = false;
+            return;
+          }
+        } catch (e2) {
+          testOut.textContent = `✗ Found the function, but: ${e2.message || "it errored"}`;
+          testBtn.disabled = false;
+          return;
+        }
+      }
+      testOut.textContent = `✗ ${msg}`;
     }
     testBtn.disabled = false;
   });
