@@ -88,9 +88,15 @@ export async function refreshFeeds() {
         throw new Error(`${f.name || "Feed"}: HTTP ${res.status}`);
       }
       const text = await res.text();
-      if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error(`${f.name || "Feed"}: not a calendar feed`);
+      if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error(`${f.name || "Feed"}: not a calendar feed — check the link is the ICS one`);
       const events = parseICS(text, { rangeStart, rangeEnd });
       cache[f.id] = { at: now.toISOString(), events };
+      // Zero events with a healthy feed deserves a real explanation, not silence.
+      if (!events.length) {
+        const raw = (text.match(/BEGIN:VEVENT/g) || []).length;
+        if (!raw) errors.push(`${f.name || "Feed"}: connected, but the feed is empty right now — a newly published Outlook/Google link can take a few hours to fill in. Check back later.`);
+        else errors.push(`${f.name || "Feed"}: connected — ${raw} event${raw === 1 ? "" : "s"} in the feed, but none between last month and a year out.`);
+      }
     } catch (err) {
       errors.push(err && err.message ? err.message : String(err));
     }
