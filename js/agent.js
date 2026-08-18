@@ -234,10 +234,13 @@ function execTool(name, p = {}) {
       return { result: `added task`, note: `added to-do: ${p.title}` };
     }
     case "log_sale": {
-      const lead = findLead(p.customer || p.name);
-      store.create("sales", { customerName: p.customer || p.name || "Customer", vehicle: p.vehicle || "", saleDate: p.date || new Date().toISOString().slice(0, 10), commission: num(p.commission), frontGross: num(p.front ?? p.frontGross), backGross: num(p.back ?? p.backGross), leadId: lead ? lead.id : null, notes: "" });
-      if (lead && lead.stage !== "delivered") store.update("leads", lead.id, { stage: "sold" });
-      return { result: `logged sale`, note: `logged sale for ${p.customer || p.name || "customer"}` };
+      const name = p.customer || p.name || "Customer";
+      // Every sale gets a customer — create one if the name doesn't match.
+      const lead = findLead(name) ||
+        store.create("leads", { name, vehicleInterest: p.vehicle || "", stage: "sold", source: "Voice" });
+      store.create("sales", { customerName: name, vehicle: p.vehicle || "", saleDate: p.date || new Date().toISOString().slice(0, 10), commission: num(p.commission), frontGross: num(p.front ?? p.frontGross), backGross: num(p.back ?? p.backGross), leadId: lead.id, notes: "" });
+      if (lead.stage !== "delivered") store.update("leads", lead.id, { stage: "sold" });
+      return { result: `logged sale`, note: `logged sale for ${name}` };
     }
     case "undo_sale": {
       const q = String(p.customer || p.name || "").trim().toLowerCase();

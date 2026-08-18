@@ -152,13 +152,20 @@ export function openSaleForm(existing, prefill = {}, onDone) {
         onSubmit: (data) => {
           if (isEdit) { store.update("sales", existing.id, data); toast("Sale updated", "success"); }
           else {
-            store.create("sales", { ...data, leadId: sale.leadId || null, deliveryId: sale.deliveryId || null });
+            // Every sale gets a customer: link by name if one exists, otherwise
+            // create one — so the buyer shows up in Leads/Comms for follow-up.
+            let leadId = sale.leadId || null;
+            if (!leadId) {
+              const q = String(data.customerName || "").trim().toLowerCase();
+              const match = q && store.all("leads").find((l) => (l.name || "").toLowerCase() === q);
+              leadId = match ? match.id
+                : store.create("leads", { name: data.customerName, vehicleInterest: data.vehicle || "", stage: "sold", source: "Sale" }).id;
+            }
+            store.create("sales", { ...data, leadId, deliveryId: sale.deliveryId || null });
             // Keep the linked customer's pipeline stage in sync (don't downgrade
             // a delivered customer back to sold).
-            if (sale.leadId) {
-              const lead = store.get("leads", sale.leadId);
-              if (lead && lead.stage !== "delivered") store.update("leads", sale.leadId, { stage: "sold" });
-            }
+            const lead = store.get("leads", leadId);
+            if (lead && lead.stage !== "delivered") store.update("leads", leadId, { stage: "sold" });
             toast("Sale logged", "success");
           }
           close();

@@ -92,10 +92,13 @@ export function renderComms(view) {
     dueBox.appendChild(row);
   });
 
-  // --- Send a message: pick a customer, then a template. ---
+  // --- Send a message: pick a customer, then a template. Everyone but lost
+  // leads shows here — sold and delivered customers are exactly who thank-you
+  // and referral messages go to. Missing contact info gets a tap-to-add path
+  // instead of silently hiding the customer.
   const people = el.querySelector("#c-people");
   const contactable = leads
-    .filter((l) => !["delivered", "lost"].includes(l.stage) && (l.phone || l.email))
+    .filter((l) => l.stage !== "lost")
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const drawPeople = (q = "") => {
     const query = q.trim().toLowerCase();
@@ -103,18 +106,19 @@ export function renderComms(view) {
       ? contactable.filter((l) => [l.name, l.vehicleInterest, l.phone, l.email].join(" ").toLowerCase().includes(query))
       : contactable
     ).slice(0, 8);
-    people.innerHTML = list.length ? "" : `<div class="muted small">No customers with a phone or email${query ? " match that" : " yet"}.</div>`;
+    people.innerHTML = list.length ? "" : `<div class="muted small">No customers${query ? " match that" : " yet"}.</div>`;
     list.forEach((l) => {
+      const hasContact = !!(l.phone || l.email);
       const row = document.createElement("div");
       row.className = "kv";
       row.style.cssText = "align-items:center;cursor:pointer";
       row.innerHTML = `
         <span class="v" style="text-align:left;flex:1;font-weight:550">${esc(l.name)}
-          <div class="small muted" style="font-weight:450">${esc(l.vehicleInterest || "No vehicle noted")}</div>
+          <div class="small muted" style="font-weight:450">${hasContact ? esc(l.vehicleInterest || "No vehicle noted") : "No phone or email — tap to add"}</div>
         </span>
         <span class="muted" style="flex:none">${l.phone ? icon("message") : ""} ${l.email ? icon("mail") : ""}</span>
       `;
-      row.addEventListener("click", () => openTemplatePicker(l));
+      row.addEventListener("click", () => hasContact ? openTemplatePicker(l) : navigate(`/leads/${l.id}`));
       people.appendChild(row);
     });
   };
