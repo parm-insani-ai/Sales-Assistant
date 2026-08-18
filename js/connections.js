@@ -98,3 +98,37 @@ export function afterAppointmentBooked(leadId) {
     store.update("leads", lead.id, { stage: "appointment" });
   }
 }
+
+// One-time healing for records created before linking existed (or imported):
+// any sale/delivery with NO customer link gets one — matched by name or
+// created. Appointments link by name only (an old calendar entry isn't strong
+// enough evidence to create a customer). Records whose linked customer was
+// deliberately deleted are left alone. Runs at startup; idempotent.
+export function reconcileLinks() {
+  let changed = 0;
+  store.all("sales").forEach((s) => {
+    if (s.leadId) return; // linked (or the customer was deleted on purpose)
+    const name = (s.customerName || "").trim();
+    if (!name) return;
+    const lead = leadByName(name) ||
+      store.create("leads", { name, vehicleInterest: s.vehicle || "", stage: "sold", source: "Sale" });
+    store.update("sales", s.id, { leadId: lead.id });
+    if (!["sold", "delivered"].includes(lead.stage)) store.update("leads", lead.id, { stage: "sold" });
+    changed++;
+  });
+  store.all("deliveries").forEach((d) => {
+    if (d.leadId) return;
+    const name = (d.customerName || "").trim();
+    if (!name) return;
+    const lead = leadByName(name) ||
+      store.create("leads", { name, vehicleInterest: d.vehicle || "", stage: d.status === "delivered" ? "delivered" : "sold", source: "Delivery" });
+    store.update("deliveries", d.id, { leadId: lead.id });
+    changed++;
+  });
+  store.all("appointments").forEach((a) => {
+    if (a.leadId) return;
+    const lead = leadByName(a.customerName);
+    if (lead) { store.update("appointments", a.id, { leadId: lead.id }); changed++; }
+  });
+  return changed;
+}

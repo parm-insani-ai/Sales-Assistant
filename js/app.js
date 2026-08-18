@@ -26,6 +26,7 @@ import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails } from "./email.js";
+import { reconcileLinks } from "./connections.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -126,6 +127,10 @@ sync.init();
 
 // Register the service worker and keep the app auto-updating to new deploys.
 initAutoUpdate();
+
+// Heal any pre-linking records (sales/deliveries without a customer) so old
+// data participates in the connected graph too.
+try { reconcileLinks(); } catch {}
 
 // Automated cadence emails (optional): send anything due, quietly, on open.
 autoSendDueEmails().then((r) => {
