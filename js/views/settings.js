@@ -10,6 +10,7 @@ import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion } from "../updater.js";
+import { testAgent } from "../agent.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -461,8 +462,27 @@ function buildAgent(slot) {
     </details>
     <div class="field"><label>Voice agent URL</label><input id="ag-url" type="url" value="${esc(s.agentUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/voice-agent"></div>
     <div class="hint">Leave blank to use the built-in on-device commands. When set, the mic understands natural language and carries out tasks.</div>
+    <button class="btn btn-sm" id="ag-test" type="button" style="margin-top:10px">Test connection</button>
+    <div class="hint" id="ag-test-out"></div>
   `;
   slot.querySelector("#ag-url").addEventListener("change", (e) => store.updateSettings({ agentUrl: e.target.value.trim() }));
+  const testBtn = slot.querySelector("#ag-test");
+  const testOut = slot.querySelector("#ag-test-out");
+  testBtn.addEventListener("click", async () => {
+    // Pick up an un-blurred edit before testing.
+    const typed = slot.querySelector("#ag-url").value.trim();
+    if (typed !== (store.getSettings().agentUrl || "")) store.updateSettings({ agentUrl: typed });
+    testBtn.disabled = true;
+    testOut.textContent = "Testing…";
+    try {
+      await testAgent();
+      testOut.textContent = "✓ Connected — the voice assistant is ready.";
+      toast("Voice agent connected", "success");
+    } catch (e) {
+      testOut.textContent = `✗ ${e.message || "Test failed"}`;
+    }
+    testBtn.disabled = false;
+  });
 }
 
 // External calendar feeds (Apple/Outlook/Google via .ics subscription).

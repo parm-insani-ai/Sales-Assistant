@@ -62,6 +62,17 @@ function buildSystem(ctx) {
   ].filter(Boolean).join("\n");
 }
 
+// Turn an HTTP failure into a message that says what to actually fix.
+async function describeAgentError(res) {
+  const j = await res.json().catch(() => ({}));
+  const msg = j.error || j.message || "";
+  if (res.status === 404)
+    return "No function at that URL (404). In Supabase → Edge Functions, open your function and copy its exact URL — the name at the end must match the function's name.";
+  if (res.status === 401 || res.status === 403)
+    return `The function rejected the call (${res.status}). Turn OFF "Verify JWT" for it in Supabase.`;
+  return msg || `Agent error (${res.status})`;
+}
+
 async function callAgent(messages) {
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
   if (!url) throw new Error("Voice agent isn't set up");
@@ -70,11 +81,28 @@ async function callAgent(messages) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ system: buildSystem(buildContext()), tools: TOOLS, messages, max_tokens: 1024 }),
   });
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw new Error(j.error || `Agent error (${res.status})`);
-  }
+  if (!res.ok) throw new Error(await describeAgentError(res));
   return res.json(); // { content:[...], stop_reason }
+}
+
+// Cheap end-to-end check used by Settings: hits the saved URL with a tiny
+// request so the user can verify the function name, JWT setting, and API key
+// without opening voice mode. Resolves true or throws a fix-it message.
+export async function testAgent() {
+  const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
+  if (!url) throw new Error("Paste your function URL first");
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "Reply with the word OK." }], max_tokens: 8 }),
+    });
+  } catch {
+    throw new Error("Couldn't reach that URL — check it for typos and make sure you're online.");
+  }
+  if (!res.ok) throw new Error(await describeAgentError(res));
+  return true;
 }
 
 // ---- Entity resolution ----
