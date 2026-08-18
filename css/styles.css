@@ -181,89 +181,119 @@ html, body {
   stroke-linecap: round; stroke-linejoin: round;
 }
 
-/* ---------- Voice assistant (bottom sheet) ---------- */
+/* ---------- Voice assistant (Apple-inspired takeover) ---------- */
 .voice-overlay {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(8, 10, 14, 0.46);
-  backdrop-filter: blur(6px) saturate(130%);
-  -webkit-backdrop-filter: blur(6px) saturate(130%);
+  background: rgba(6, 8, 12, 0.30);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  animation: fade 0.16s ease;
+  animation: fade 0.22s ease;
 }
 .voice-sheet {
   position: relative;
   width: 100%;
   max-width: 540px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  min-height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   border-bottom: none;
-  border-radius: 28px 28px 0 0;
-  padding: 12px 22px calc(26px + var(--safe-bottom));
-  box-shadow: 0 -24px 70px rgba(0, 0, 0, 0.34);
-  animation: sheet-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 38px 38px 0 0;
+  padding: 10px 24px calc(24px + var(--safe-bottom));
+  box-shadow: 0 -30px 90px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  animation: sheet-up 0.42s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes sheet-up { from { transform: translateY(101%); } to { transform: translateY(0); } }
-.voice-grip { width: 40px; height: 5px; border-radius: 999px; background: var(--border-strong); margin: 2px auto 16px; }
+.voice-grip { width: 38px; height: 5px; border-radius: 999px; background: color-mix(in srgb, var(--text) 18%, transparent); margin: 2px auto 4px; flex: none; }
 .voice-close {
-  position: absolute; top: 16px; right: 18px;
-  width: 32px; height: 32px; border-radius: 50%;
-  background: var(--surface-2); border: none; color: var(--muted);
-  font-size: 1.3rem; line-height: 1; cursor: pointer;
-  display: grid; place-items: center;
+  position: absolute; top: 18px; right: 20px;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 8%, transparent); border: none; color: var(--muted);
+  cursor: pointer; display: grid; place-items: center;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: transform 0.12s, background 0.15s;
+  z-index: 2;
 }
-.voice-close:active { transform: scale(0.92); }
-.voice-wave { width: 100%; height: 56px; display: block; margin: 10px 0 16px; }
-.voice-status { text-align: center; font-size: 1.3rem; font-weight: 720; letter-spacing: -0.03em; color: var(--text); min-height: 1.4em; }
-.voice-transcript { text-align: center; color: var(--muted); font-size: 0.98rem; margin-top: 6px; min-height: 1.3em; }
+.voice-close svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+.voice-close:active { transform: scale(0.9); background: color-mix(in srgb, var(--text) 14%, transparent); }
+
+/* Flowing Siri-style waveform, centered as the hero */
+.voice-stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+.voice-stage::before {
+  content: "";
+  position: absolute;
+  left: 6%; right: 6%; top: 50%; height: 190px;
+  transform: translateY(-50%);
+  background: radial-gradient(58% 62% at 50% 50%, color-mix(in srgb, var(--brand) 26%, transparent), transparent 72%);
+  filter: blur(26px);
+  pointer-events: none;
+}
+.voice-wave { position: relative; width: 100%; height: 140px; display: block; }
+.voice-status {
+  text-align: center; font-size: 1.5rem; font-weight: 600;
+  letter-spacing: -0.03em; line-height: 1.2; color: var(--text);
+  min-height: 1.3em; margin-top: 2px;
+}
+.voice-transcript { text-align: center; color: var(--muted); font-size: 1rem; margin-top: 8px; min-height: 1.3em; font-weight: 450; }
+
+/* "Try saying" suggestion rows */
+.voice-suggest { margin: 22px 0 14px; }
+.voice-suggest-label {
+  font-size: 0.72rem; font-weight: 650; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted); margin: 0 4px 10px;
+}
+.voice-sugg {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+  border-radius: 16px;
+  padding: 13px 15px; margin-bottom: 8px;
+  color: var(--text); font-size: 0.96rem; font-weight: 500;
+  font-family: inherit; cursor: pointer;
+  transition: transform 0.12s, background 0.15s;
+}
+.voice-sugg:active { transform: scale(0.985); background: color-mix(in srgb, var(--text) 10%, transparent); }
+.voice-sugg-ico { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Frosted capsule input */
 .voice-input {
   display: flex; align-items: center; gap: 8px;
-  margin: 20px 0 12px;
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: 18px;
-  padding: 6px 6px 6px 16px;
+  margin-top: auto;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: 999px;
+  padding: 6px 6px 6px 18px;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
-.voice-input:focus-within { border-color: var(--brand); box-shadow: var(--ring); background: var(--surface); }
-.voice-input input { flex: 1; min-width: 0; border: none; background: transparent; font-size: 16px; color: var(--text); padding: 9px 0; }
+.voice-input:focus-within { border-color: var(--brand); box-shadow: var(--ring); background: color-mix(in srgb, var(--surface) 90%, transparent); }
+.voice-input input { flex: 1; min-width: 0; border: none; background: transparent; font-size: 16px; color: var(--text); padding: 10px 0; }
 .voice-input input:focus { outline: none; }
 .voice-send {
-  flex: none; width: 40px; height: 40px; border-radius: 13px;
+  flex: none; width: 42px; height: 42px; border-radius: 50%;
   border: none; background: var(--brand); color: var(--brand-ink);
   display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(10, 143, 91, 0.32);
   transition: transform 0.12s;
 }
 .voice-send:active { transform: scale(0.9); }
 .voice-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
-.voice-hint { text-align: center; color: var(--muted); font-size: 0.8rem; margin-bottom: 18px; }
-.voice-chips {
-  display: flex; gap: 8px; flex-wrap: nowrap;
-  overflow-x: auto; padding-bottom: 2px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 14px), transparent);
-}
-.voice-chips::-webkit-scrollbar { display: none; }
-.voice-chip {
-  flex: 0 0 auto; white-space: nowrap;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 9px 15px;
-  color: var(--text-2);
-  font-size: 0.86rem; font-weight: 550;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.12s, background 0.12s, border-color 0.12s;
-}
-.voice-chip:first-child { margin-left: 12px; }
-.voice-chip:last-child { margin-right: 12px; }
-.voice-chip:active { transform: scale(0.95); background: var(--surface-3); border-color: var(--border-strong); }
+.voice-hint { text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 12px; }
 
 /* ---------- View area ---------- */
 .view {

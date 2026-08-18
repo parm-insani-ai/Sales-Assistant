@@ -223,59 +223,64 @@ const EXAMPLES = [
   "Mark my 2 o'clock sold",
 ];
 
-function roundRectPath(c, x, y, w, h, r) {
-  r = Math.max(0, Math.min(r, w / 2, h / 2));
-  c.beginPath();
-  c.moveTo(x + r, y);
-  c.arcTo(x + w, y, x + w, y + h, r);
-  c.arcTo(x + w, y + h, x, y + h, r);
-  c.arcTo(x, y + h, x, y, r);
-  c.arcTo(x, y, x + w, y, r);
-  c.closePath();
-}
-
-// A canvas soundwave: gentle idle motion, energetic bars while you speak
-// (pulsed by each recognized/dictated chunk), and a traveling shimmer while the
-// assistant is thinking. Returns { bump, set, stop }.
+// A flowing Siri-style soundwave: several translucent sine ribbons layered in a
+// cool gradient (brand → cyan → indigo) that taper to a point at both ends. The
+// ribbon rests as a near-flat glow when idle, swells with your voice while
+// listening (pulsed by each recognized/dictated chunk), and settles into a
+// steady travelling shimmer while the assistant thinks. Returns { bump, set, stop }.
 function makeWave(canvas) {
   const ctx = canvas.getContext("2d");
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const BARS = 42;
-  const heights = new Array(BARS).fill(0.05);
   const t0 = performance.now();
-  let energy = 0, mode = "listening", raf = 0;
-  let color = "#10c96f";
-  try { const v = getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(); if (v) color = v; } catch {}
+  let energy = 0, level = 0.06, mode = "listening", raf = 0;
+
+  // Harmonize the lead ribbon with the theme's brand color.
+  let brand = "#10c96f";
+  try { const v = getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(); if (v) brand = v; } catch {}
+  const LAYERS = [
+    { amp: 1.00, cycles: 1.3, sp: 0.9,  w: 2.8, col: brand,     a: 0.95 },
+    { amp: 0.74, cycles: 2.0, sp: -1.4, w: 2.3, col: "#22d3ee", a: 0.60 }, // cyan
+    { amp: 0.52, cycles: 2.8, sp: 1.9,  w: 2.0, col: "#6366f1", a: 0.48 }, // indigo
+  ];
+  const TAU = Math.PI * 2;
 
   function resize() {
-    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 56;
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 140;
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   function frame(now) {
-    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 56;
-    const t = (now - t0) / 1000;
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 140;
+    const t = (now - t0) / 1000, mid = h / 2;
     ctx.clearRect(0, 0, w, h);
-    const gap = 3.2, bw = Math.max(2, (w - gap * (BARS - 1)) / BARS), mid = h / 2;
-    energy *= 0.88;
-    ctx.fillStyle = color;
-    for (let i = 0; i < BARS; i++) {
-      const center = 1 - Math.abs(i - (BARS - 1) / 2) / ((BARS - 1) / 2);
-      let target;
-      if (mode === "thinking") {
-        target = 0.12 + 0.20 * (0.5 + 0.5 * Math.sin(t * 7 - i * 0.55));
-      } else if (mode === "idle") {
-        target = 0.05 + 0.04 * (0.5 + 0.5 * Math.sin(t * 1.8 + i * 0.55));
-      } else { // listening
-        const idle = 0.06 + 0.05 * (0.5 + 0.5 * Math.sin(t * 2.6 + i * 0.55));
-        const active = energy * (0.2 + 0.8 * center) * (0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 13 + i * 1.3)));
-        target = idle + active;
+    energy *= 0.93;
+    // Ease the overall amplitude toward the target for the current mode.
+    let target;
+    if (mode === "idle") target = 0.05;
+    else if (mode === "thinking") target = 0.32;
+    else target = 0.13 + energy * 1.15; // listening
+    level += (target - level) * 0.18;
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const L of LAYERS) {
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 2) {
+        const nx = x / w;                                   // 0..1
+        const env = Math.pow(Math.sin(Math.PI * nx), 1.7);  // taper both ends
+        const A = level * (h * 0.44) * L.amp;
+        const y = mid + env * A * Math.sin(nx * TAU * L.cycles + t * L.sp * 2.4);
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
-      heights[i] += (target - heights[i]) * 0.4;
-      const bh = Math.max(bw, heights[i] * (h - 6));
-      roundRectPath(ctx, i * (bw + gap), mid - bh / 2, bw, bh, bw / 2);
-      ctx.fill();
+      ctx.lineWidth = L.w;
+      ctx.strokeStyle = L.col;
+      ctx.globalAlpha = L.a;
+      ctx.shadowColor = L.col;
+      ctx.shadowBlur = 12;
+      ctx.stroke();
     }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
     raf = requestAnimationFrame(frame);
   }
   resize();
@@ -295,18 +300,21 @@ export function startVoiceAssistant() {
   overlay.innerHTML = `
     <div class="voice-sheet">
       <div class="voice-grip"></div>
-      <button class="voice-close" aria-label="Close">&times;</button>
-      <canvas class="voice-wave" id="v-wave" aria-hidden="true"></canvas>
+      <button class="voice-close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div class="voice-stage">
+        <canvas class="voice-wave" id="v-wave" aria-hidden="true"></canvas>
+      </div>
       <div class="voice-status" id="v-status">Listening…</div>
       <div class="voice-transcript" id="v-transcript"></div>
+      <div class="voice-suggest">
+        <div class="voice-suggest-label">Try saying</div>
+        ${EXAMPLES.slice(0, 4).map((e) => `<button class="voice-sugg" type="button"><span>${e}</span><svg class="voice-sugg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`).join("")}
+      </div>
       <form class="voice-input" id="v-form">
         <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" enterkeyhint="send" />
         <button class="voice-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h13"/><path d="M12.5 6.5 19 12l-6.5 5.5"/></svg></button>
       </form>
-      <div class="voice-hint">Tap the box, then your keyboard's mic to speak — or just type.</div>
-      <div class="voice-chips">
-        ${EXAMPLES.map((e) => `<button class="voice-chip" type="button">${e}</button>`).join("")}
-      </div>
+      <div class="voice-hint">Tap the field, then your keyboard's mic to speak — or just type.</div>
     </div>
   `;
   root.appendChild(overlay);
@@ -393,8 +401,8 @@ export function startVoiceAssistant() {
   };
 
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
-  overlay.querySelectorAll(".voice-chip").forEach((b) =>
-    b.addEventListener("click", () => { textInput.value = b.textContent; run(b.textContent); }));
+  overlay.querySelectorAll(".voice-sugg").forEach((b) =>
+    b.addEventListener("click", () => { const s = b.querySelector("span").textContent; textInput.value = s; run(s); }));
 
   // iOS Safari's speech recognition is unreliable and unavailable in installed
   // (home-screen) mode, so on iOS we lead with the text box + keyboard dictation,
