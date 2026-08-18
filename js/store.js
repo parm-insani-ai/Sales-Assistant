@@ -251,6 +251,17 @@ export function remove(name, id) {
   return false;
 }
 
+// Put back a record that was just removed (undo). Keeps the original id so
+// cloud sync re-uploads it instead of creating a duplicate.
+export function restore(name, item) {
+  if (!item || !item.id) return null;
+  const arr = collection(name);
+  if (!arr.find((x) => x.id === item.id)) arr.unshift({ ...item });
+  markOutbox(name, item.id, false);
+  persist();
+  return get(name, item.id);
+}
+
 // Every syncable collection (everything except settings/outbox metadata).
 export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials"];
 

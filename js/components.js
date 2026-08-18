@@ -63,6 +63,31 @@ export function toast(message, kind = "") {
   }, 2200);
 }
 
+// Toast with an Undo action — the safety net after a swipe-delete. Stays up
+// longer than a normal toast; tapping Undo restores and dismisses.
+export function undoToast(message, onUndo) {
+  const el = document.createElement("div");
+  el.className = "toast toast-undo";
+  const span = document.createElement("span");
+  span.textContent = message;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = "Undo";
+  el.appendChild(span);
+  el.appendChild(btn);
+  toastRoot().appendChild(el);
+  let gone = false;
+  const dismiss = () => {
+    if (gone) return;
+    gone = true;
+    el.style.transition = "opacity .3s";
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 300);
+  };
+  btn.addEventListener("click", () => { if (!gone) { dismiss(); if (onUndo) onUndo(); } });
+  setTimeout(dismiss, 6000);
+}
+
 export function confirmDialog(message, { danger = true, confirmLabel = "Delete" } = {}) {
   return new Promise((resolve) => {
     // Resolve exactly once. close() triggers onClose, so settle BEFORE closing —
@@ -265,6 +290,16 @@ export function swipeable(el, { onDelete, label = "Delete" } = {}) {
     }
   }, true);
 
-  btn.addEventListener("click", () => { closeRow(); wrap.remove(); if (onDelete) onDelete(); });
+  btn.addEventListener("click", () => {
+    closeRow();
+    // Remember where the row sat so an Undo can slot it right back.
+    const parent = wrap.parentNode, next = wrap.nextSibling;
+    wrap.remove();
+    const restoreRow = () => {
+      if (!parent) return;
+      parent.insertBefore(wrap, next && next.parentNode === parent ? next : null);
+    };
+    if (onDelete) onDelete(restoreRow);
+  });
   return wrap;
 }

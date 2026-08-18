@@ -2,7 +2,7 @@
 
 import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
-import { openModal, buildForm, toast, confirmDialog, emptyState, swipeable } from "../components.js";
+import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swipeable } from "../components.js";
 import { navigate } from "../router.js";
 import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
@@ -21,7 +21,6 @@ import {
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
 
-  const leads = store.all("leads");
   let search = "";
   let filter = "active"; // active | all | <stage>
 
@@ -30,7 +29,7 @@ export function renderLeads(view, { param }) {
 
   function draw() {
     const q = search.toLowerCase();
-    let list = leads;
+    let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
@@ -105,7 +104,7 @@ export function renderLeads(view, { param }) {
 
   function applyFilter() {
     const q = search.toLowerCase();
-    let list = leads;
+    let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
@@ -145,7 +144,11 @@ function leadCard(l) {
   `;
   el.addEventListener("click", () => navigate(`/leads/${l.id}`));
   return swipeable(el, {
-    onDelete: () => { store.remove("leads", l.id); toast(`Deleted ${l.name}`); },
+    onDelete: (restoreRow) => {
+      const snapshot = { ...l };
+      store.remove("leads", l.id);
+      undoToast(`Deleted ${l.name}`, () => { store.restore("leads", snapshot); restoreRow(); });
+    },
   });
 }
 
