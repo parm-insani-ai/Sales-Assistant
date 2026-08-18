@@ -1,7 +1,7 @@
 // To-do / reminders. Rendered inline on the dashboard, with a shared add form.
 
 import * as store from "../store.js";
-import { openModal, buildForm, toast } from "../components.js";
+import { openModal, buildForm, toast, swipeable } from "../components.js";
 import { esc, relativeDay, daysFromToday } from "../utils.js";
 import { icon } from "../icons.js";
 
@@ -81,7 +81,14 @@ export function taskListEl({ onChange } = {}) {
         if (e.target.tagName === "INPUT") return;
         openTaskForm(t);
       });
-      card.appendChild(row);
+      card.appendChild(swipeable(row, {
+        onDelete: () => {
+          store.remove("tasks", t.id);
+          toast("Deleted");
+          draw();
+          if (onChange) onChange();
+        },
+      }));
     });
     container.innerHTML = "";
     container.appendChild(card);

@@ -39,10 +39,11 @@ const TOOLS = [
   { name: "deal_radar", description: "Top trade-up opportunities (customer, matched vehicle, monthly, delta).", input_schema: { type: "object", properties: { limit: { type: "number" } } } },
   { name: "get_stats", description: "This month's appointment funnel, units, commission, goals.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
-  { name: "create_lead", description: "Add a new customer.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
+  { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
   { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
-  { name: "log_sale", description: "Log a sale.", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" } }, required: ["customer"] } },
+  { name: "log_sale", description: "Log a CLOSED sale. Use ONLY when the salesperson clearly says the deal is done — 'sold', 'bought', 'signed', 'took delivery', 'made $X on'. Never for interest ('wants/looking at a Rogue' is create_lead or update_lead, not a sale).", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" } }, required: ["customer"] } },
+  { name: "undo_sale", description: "Remove a sale that was logged by mistake (e.g. 'I didn't sell that car', 'that wasn't a sale'). Deletes the customer's most recent sale record and moves their stage back from sold.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
@@ -53,6 +54,7 @@ function buildSystem(ctx) {
   return [
     `You are entoa's hands-free assistant for a car salesperson${ctx.salesperson ? " named " + ctx.salesperson : ""}. Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
     `Understand plain, casual speech — the user will NOT use command words. Infer what they want from whatever they tell you. A bare fact usually implies an action: "Ken's coming in Thursday at 4" → book an appointment; "sold one to Moe, made 800" → log a sale; "Sara's cell is 902-555-1212" → update Sara's phone; "who should I call?" → check the deal radar / follow-ups.`,
+    `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats). You can take multiple steps.`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
@@ -236,6 +238,18 @@ function execTool(name, p = {}) {
       store.create("sales", { customerName: p.customer || p.name || "Customer", vehicle: p.vehicle || "", saleDate: p.date || new Date().toISOString().slice(0, 10), commission: num(p.commission), frontGross: num(p.front ?? p.frontGross), backGross: num(p.back ?? p.backGross), leadId: lead ? lead.id : null, notes: "" });
       if (lead && lead.stage !== "delivered") store.update("leads", lead.id, { stage: "sold" });
       return { result: `logged sale`, note: `logged sale for ${p.customer || p.name || "customer"}` };
+    }
+    case "undo_sale": {
+      const q = String(p.customer || p.name || "").trim().toLowerCase();
+      const sales = store.all("sales")
+        .filter((s) => (s.customerName || "").toLowerCase().includes(q))
+        .sort((a, b) => (b.createdAt || b.saleDate || "").localeCompare(a.createdAt || a.saleDate || ""));
+      if (!q || !sales.length) return { result: "not found", note: `⚠ no sale found for ${p.customer || "that customer"}` };
+      const sale = sales[0];
+      store.remove("sales", sale.id);
+      const lead = sale.leadId ? store.get("leads", sale.leadId) : findLead(sale.customerName);
+      if (lead && lead.stage === "sold") store.update("leads", lead.id, { stage: "working" });
+      return { result: `removed sale for ${sale.customerName}`, note: `removed the sale for ${sale.customerName}` };
     }
     case "book_appointment": case "schedule_appointment": {
       const lead = findLead(p.customer || p.name);

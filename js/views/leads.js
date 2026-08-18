@@ -2,7 +2,7 @@
 
 import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
-import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
+import { openModal, buildForm, toast, confirmDialog, emptyState, swipeable } from "../components.js";
 import { navigate } from "../router.js";
 import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
@@ -144,7 +144,9 @@ function leadCard(l) {
     ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
   `;
   el.addEventListener("click", () => navigate(`/leads/${l.id}`));
-  return el;
+  return swipeable(el, {
+    onDelete: () => { store.remove("leads", l.id); toast(`Deleted ${l.name}`); },
+  });
 }
 
 // --- Add / edit form ---

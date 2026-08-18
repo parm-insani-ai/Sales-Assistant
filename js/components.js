@@ -197,3 +197,74 @@ export function emptyState(iconName, title, sub) {
     <div class="strong">${escapeText(title)}</div>
     ${sub ? `<div class="small">${escapeText(sub)}</div>` : ""}</div>`;
 }
+
+// --- Swipe to delete ---
+// iOS-style: wrap a list card/row so sliding it left reveals a red Delete
+// button; tapping that button is the confirmation. Returns the wrapper to
+// append in place of the element. Vertical scrolling is untouched (we only
+// claim the gesture once the movement is clearly horizontal).
+let closeOpenSwipe = null;
+export function swipeable(el, { onDelete, label = "Delete" } = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "swipe-wrap" + (el.classList.contains("card") ? " swipe-wrap-card" : "");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "swipe-del";
+  btn.innerHTML = `${icon("trash")}<span>${escapeText(label)}</span>`;
+  el.classList.add("swipe-card");
+  wrap.appendChild(btn);
+  wrap.appendChild(el);
+
+  const W = 92; // revealed width
+  let startX = 0, startY = 0, dx = 0, horiz = null, tracking = false, open = false, moved = false;
+
+  const setX = (x) => { el.style.transform = x ? `translate3d(${x}px,0,0)` : ""; };
+  const closeRow = () => { open = false; dx = 0; setX(0); if (closeOpenSwipe === closeRow) closeOpenSwipe = null; };
+
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    tracking = true; horiz = null; moved = false;
+    startX = e.clientX; startY = e.clientY;
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!tracking) return;
+    const mx = e.clientX - startX, my = e.clientY - startY;
+    if (horiz === null) {
+      if (Math.abs(mx) < 7 && Math.abs(my) < 7) return;
+      horiz = Math.abs(mx) > Math.abs(my);
+      if (horiz) {
+        try { el.setPointerCapture(e.pointerId); } catch {}
+        el.classList.add("dragging");
+        if (closeOpenSwipe && closeOpenSwipe !== closeRow) closeOpenSwipe();
+      }
+    }
+    if (!horiz) { tracking = false; return; }
+    moved = true;
+    dx = Math.max(-W - 24, Math.min(0, (open ? -W : 0) + mx));
+    setX(dx);
+  });
+  const finish = () => {
+    if (!tracking) return;
+    tracking = false;
+    el.classList.remove("dragging");
+    if (!horiz) return;
+    open = dx < -W / 2;
+    setX(open ? -W : 0);
+    closeOpenSwipe = open ? closeRow : (closeOpenSwipe === closeRow ? null : closeOpenSwipe);
+  };
+  el.addEventListener("pointerup", finish);
+  el.addEventListener("pointercancel", finish);
+
+  // A drag (or a tap while open) must not trigger the row's own tap action.
+  el.addEventListener("click", (e) => {
+    if (moved || open) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (open && !moved) closeRow();
+      moved = false;
+    }
+  }, true);
+
+  btn.addEventListener("click", () => { closeRow(); wrap.remove(); if (onDelete) onDelete(); });
+  return wrap;
+}

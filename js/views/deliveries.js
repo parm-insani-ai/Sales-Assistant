@@ -1,7 +1,7 @@
 // Delivery prep — checklists to get a sold car ready for handoff.
 
 import * as store from "../store.js";
-import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
+import { openModal, buildForm, toast, confirmDialog, emptyState, swipeable } from "../components.js";
 import { navigate } from "../router.js";
 import { esc, formatDate, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
@@ -67,7 +67,9 @@ function deliveryCard(d) {
     <div class="progress"><span style="width:${p.pct}%"></span></div>
   `;
   el.addEventListener("click", () => navigate(`/deliveries/${d.id}`));
-  return el;
+  return swipeable(el, {
+    onDelete: () => { store.remove("deliveries", d.id); toast("Delivery deleted"); },
+  });
 }
 
 export function openDeliveryForm(existing) {
