@@ -251,30 +251,10 @@ html, body {
 }
 .voice-transcript { text-align: center; color: var(--muted); font-size: 1rem; margin-top: 8px; min-height: 1.3em; font-weight: 450; }
 
-/* "Try saying" suggestion rows */
-.voice-suggest { margin: 22px 0 14px; }
-.voice-suggest-label {
-  font-size: 0.72rem; font-weight: 650; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--muted); margin: 0 4px 10px;
-}
-.voice-sugg {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; text-align: left;
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  border: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
-  border-radius: 16px;
-  padding: 13px 15px; margin-bottom: 8px;
-  color: var(--text); font-size: 0.96rem; font-weight: 500;
-  font-family: inherit; cursor: pointer;
-  transition: transform 0.12s, background 0.15s;
-}
-.voice-sugg:active { transform: scale(0.985); background: color-mix(in srgb, var(--text) 10%, transparent); }
-.voice-sugg-ico { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-
 /* Frosted capsule input */
 .voice-input {
   display: flex; align-items: center; gap: 8px;
-  margin-top: auto;
+  margin: 24px 0 6px;
   background: color-mix(in srgb, var(--text) 6%, transparent);
   border: 1.5px solid color-mix(in srgb, var(--text) 8%, transparent);
   border-radius: 999px;
@@ -293,7 +273,6 @@ html, body {
 }
 .voice-send:active { transform: scale(0.9); }
 .voice-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
-.voice-hint { text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 12px; }
 
 /* ---------- View area ---------- */
 .view {

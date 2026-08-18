@@ -214,15 +214,6 @@ export function executeCommand(cmd) {
 }
 
 // ---------- Overlay UI ----------
-const EXAMPLES = [
-  "Book Ken a test drive Thursday at 4",
-  "Who should I call today?",
-  "Log a sale for Sara, $700 commission",
-  "How many appointments this week?",
-  "Add Jennifer White — wants a Rogue",
-  "Mark my 2 o'clock sold",
-];
-
 // A flowing Siri-style soundwave: several translucent sine ribbons layered in a
 // cool gradient (brand → cyan → indigo) that taper to a point at both ends. The
 // ribbon rests as a near-flat glow when idle, swells with your voice while
@@ -306,15 +297,10 @@ export function startVoiceAssistant() {
       </div>
       <div class="voice-status" id="v-status">Listening…</div>
       <div class="voice-transcript" id="v-transcript"></div>
-      <div class="voice-suggest">
-        <div class="voice-suggest-label">Try saying</div>
-        ${EXAMPLES.slice(0, 4).map((e) => `<button class="voice-sugg" type="button"><span>${e}</span><svg class="voice-sugg-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`).join("")}
-      </div>
       <form class="voice-input" id="v-form">
         <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" enterkeyhint="send" />
         <button class="voice-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h13"/><path d="M12.5 6.5 19 12l-6.5 5.5"/></svg></button>
       </form>
-      <div class="voice-hint">Tap the field, then your keyboard's mic to speak — or just type.</div>
     </div>
   `;
   root.appendChild(overlay);
@@ -352,7 +338,7 @@ export function startVoiceAssistant() {
       toast(say, "success");
       setTimeout(close, 900);
     } else {
-      statusEl.textContent = "Sorry, I didn't catch that. Try one of these:";
+      statusEl.textContent = "Sorry, I didn't catch that — try rephrasing.";
       wave.set("idle");
       speak("Sorry, I didn't catch that.");
     }
@@ -401,8 +387,6 @@ export function startVoiceAssistant() {
   };
 
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
-  overlay.querySelectorAll(".voice-sugg").forEach((b) =>
-    b.addEventListener("click", () => { const s = b.querySelector("span").textContent; textInput.value = s; run(s); }));
 
   // iOS Safari's speech recognition is unreliable and unavailable in installed
   // (home-screen) mode, so on iOS we lead with the text box + keyboard dictation,
