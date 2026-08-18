@@ -223,6 +223,71 @@ const EXAMPLES = [
   "Mark my 2 o'clock sold",
 ];
 
+function roundRectPath(c, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// A canvas soundwave: gentle idle motion, energetic bars while you speak
+// (pulsed by each recognized/dictated chunk), and a traveling shimmer while the
+// assistant is thinking. Returns { bump, set, stop }.
+function makeWave(canvas) {
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const BARS = 42;
+  const heights = new Array(BARS).fill(0.05);
+  const t0 = performance.now();
+  let energy = 0, mode = "listening", raf = 0;
+  let color = "#10c96f";
+  try { const v = getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(); if (v) color = v; } catch {}
+
+  function resize() {
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 56;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  function frame(now) {
+    const w = canvas.clientWidth || 320, h = canvas.clientHeight || 56;
+    const t = (now - t0) / 1000;
+    ctx.clearRect(0, 0, w, h);
+    const gap = 3.2, bw = Math.max(2, (w - gap * (BARS - 1)) / BARS), mid = h / 2;
+    energy *= 0.88;
+    ctx.fillStyle = color;
+    for (let i = 0; i < BARS; i++) {
+      const center = 1 - Math.abs(i - (BARS - 1) / 2) / ((BARS - 1) / 2);
+      let target;
+      if (mode === "thinking") {
+        target = 0.12 + 0.20 * (0.5 + 0.5 * Math.sin(t * 7 - i * 0.55));
+      } else if (mode === "idle") {
+        target = 0.05 + 0.04 * (0.5 + 0.5 * Math.sin(t * 1.8 + i * 0.55));
+      } else { // listening
+        const idle = 0.06 + 0.05 * (0.5 + 0.5 * Math.sin(t * 2.6 + i * 0.55));
+        const active = energy * (0.2 + 0.8 * center) * (0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 13 + i * 1.3)));
+        target = idle + active;
+      }
+      heights[i] += (target - heights[i]) * 0.4;
+      const bh = Math.max(bw, heights[i] * (h - 6));
+      roundRectPath(ctx, i * (bw + gap), mid - bh / 2, bw, bh, bw / 2);
+      ctx.fill();
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  resize();
+  window.addEventListener("resize", resize);
+  raf = requestAnimationFrame(frame);
+  return {
+    bump(v = 1) { energy = Math.min(1, Math.max(energy, v)); },
+    set(m) { mode = m; },
+    stop() { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); },
+  };
+}
+
 export function startVoiceAssistant() {
   const root = document.getElementById("modal-root");
   const overlay = document.createElement("div");
@@ -231,15 +296,14 @@ export function startVoiceAssistant() {
     <div class="voice-sheet">
       <div class="voice-grip"></div>
       <button class="voice-close" aria-label="Close">&times;</button>
-      <div class="voice-orb" id="v-orb">${icon("mic")}</div>
+      <canvas class="voice-wave" id="v-wave" aria-hidden="true"></canvas>
       <div class="voice-status" id="v-status">Listening…</div>
       <div class="voice-transcript" id="v-transcript"></div>
       <form class="voice-input" id="v-form">
-        <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" />
+        <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" enterkeyhint="send" />
         <button class="voice-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h13"/><path d="M12.5 6.5 19 12l-6.5 5.5"/></svg></button>
       </form>
       <div class="voice-hint">Tap the box, then your keyboard's mic to speak — or just type.</div>
-      <div class="voice-chips-label">Try saying</div>
       <div class="voice-chips">
         ${EXAMPLES.map((e) => `<button class="voice-chip" type="button">${e}</button>`).join("")}
       </div>
@@ -249,8 +313,8 @@ export function startVoiceAssistant() {
 
   const statusEl = overlay.querySelector("#v-status");
   const transcriptEl = overlay.querySelector("#v-transcript");
-  const orb = overlay.querySelector("#v-orb");
   const textInput = overlay.querySelector("#v-text");
+  const wave = makeWave(overlay.querySelector("#v-wave"));
 
   let rec = null;
   let closed = false;
@@ -258,10 +322,14 @@ export function startVoiceAssistant() {
     if (closed) return;
     closed = true;
     try { if (rec) rec.abort(); } catch {}
+    wave.stop();
     overlay.remove();
   };
   overlay.querySelector(".voice-close").addEventListener("click", close);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  // Pulse the waveform as dictated/typed words stream in.
+  textInput.addEventListener("input", () => wave.bump(0.85));
+  overlay.querySelector("#v-wave").addEventListener("click", () => textInput.focus());
 
   // A conversational agent session for this panel (so it can ask a follow-up
   // and continue). Null when the agent isn't configured — we use the parser.
@@ -277,7 +345,7 @@ export function startVoiceAssistant() {
       setTimeout(close, 900);
     } else {
       statusEl.textContent = "Sorry, I didn't catch that. Try one of these:";
-      orb.classList.remove("listening");
+      wave.set("idle");
       speak("Sorry, I didn't catch that.");
     }
   };
@@ -291,7 +359,7 @@ export function startVoiceAssistant() {
     // on-device parser if the agent is unreachable.
     if (session) {
       statusEl.textContent = "Thinking…";
-      orb.classList.remove("listening");
+      wave.set("thinking");
       try {
         const res = await session.send(text, (n) => {
           if (n && !n.startsWith("⚠")) statusEl.textContent = n.charAt(0).toUpperCase() + n.slice(1) + "…";
@@ -300,10 +368,12 @@ export function startVoiceAssistant() {
         statusEl.textContent = reply;
         speak(reply);
         if (res.done) {
+          wave.set("idle");
           toast(reply, "success");
           setTimeout(close, 1300);
         } else {
           // The agent needs more info — keep the panel open for the answer.
+          wave.set("listening");
           transcriptEl.textContent = "";
           textInput.value = "";
           textInput.focus();
@@ -312,7 +382,7 @@ export function startVoiceAssistant() {
       } catch (e) {
         // Show the real error right in the panel so it's readable on the phone.
         const msg = e && e.message ? e.message : "couldn't reach the assistant";
-        orb.classList.remove("listening");
+        wave.set("idle");
         statusEl.textContent = "Voice agent error";
         transcriptEl.textContent = msg;
         toast(`Voice agent: ${msg}`, "danger");
@@ -325,8 +395,6 @@ export function startVoiceAssistant() {
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
   overlay.querySelectorAll(".voice-chip").forEach((b) =>
     b.addEventListener("click", () => { textInput.value = b.textContent; run(b.textContent); }));
-  // Tapping the orb focuses the box (opens the keyboard so its dictation mic is reachable).
-  orb.addEventListener("click", () => textInput.focus());
 
   // iOS Safari's speech recognition is unreliable and unavailable in installed
   // (home-screen) mode, so on iOS we lead with the text box + keyboard dictation,
@@ -342,7 +410,7 @@ export function startVoiceAssistant() {
       rec.interimResults = true;
       rec.maxAlternatives = 1;
       rec.continuous = false;
-      orb.classList.add("listening");
+      wave.set("listening");
       let finalText = "";
       rec.onresult = (ev) => {
         let interim = "";
@@ -351,29 +419,30 @@ export function startVoiceAssistant() {
           if (r.isFinal) finalText += r[0].transcript;
           else interim += r[0].transcript;
         }
+        wave.bump(0.9);
         transcriptEl.textContent = `“${(finalText || interim).trim()}”`;
       };
       rec.onerror = (ev) => {
-        orb.classList.remove("listening");
+        wave.set("idle");
         if (ev.error === "not-allowed" || ev.error === "service-not-allowed")
           statusEl.textContent = "Microphone blocked — type your command below.";
         else if (ev.error === "no-speech") statusEl.textContent = "Didn't hear anything — try again or type below.";
         else statusEl.textContent = "Voice unavailable — type your command below.";
       };
       rec.onend = () => {
-        orb.classList.remove("listening");
+        wave.set("idle");
         if (!closed && finalText.trim()) run(finalText);
         else if (!closed && statusEl.textContent === "Listening…") statusEl.textContent = "Go ahead — or type below.";
       };
       rec.start();
       setTimeout(() => textInput && textInput.setAttribute("placeholder", "Ask or tell me anything…"), 10);
     } catch {
-      orb.classList.remove("listening");
+      wave.set("idle");
       statusEl.textContent = "Type your command, or tap your keyboard's mic to dictate.";
       textInput.focus();
     }
   } else {
-    orb.classList.remove("listening");
+    wave.set("idle");
     statusEl.textContent = "Say your command";
     // Focus synchronously (within the tap gesture) so iOS opens the keyboard,
     // where the user can tap the dictation mic to speak.
