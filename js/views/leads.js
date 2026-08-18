@@ -155,7 +155,8 @@ function leadCard(l) {
 }
 
 // --- Add / edit form ---
-export function openLeadForm(existing) {
+// opts.focus: field name to focus once open (tap-to-edit from the detail page).
+export function openLeadForm(existing, opts = {}) {
   const isEdit = !!existing;
   const l = existing || {};
   openModal(isEdit ? "Edit lead" : "New lead", (close) => {
@@ -191,6 +192,8 @@ export function openLeadForm(existing) {
         },
       }
     );
+    // Land on the field the user tapped (after the sheet's slide-up).
+    if (opts.focus) setTimeout(() => element.querySelector(`[name="${opts.focus}"]`)?.focus(), 150);
     return element;
   });
 }
@@ -211,9 +214,9 @@ function renderLeadDetail(view, id) {
 
     <div class="card">
       <div class="row">
-        <div class="row-main">
+        <div class="row-main" data-edit="name" style="cursor:pointer">
           <div class="row-title" style="font-size:1.35rem">${esc(l.name)}</div>
-          <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}</div>
+          <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted — tap to add"}</div>
         </div>
         <span class="badge ${st.badge}">${esc(st.label)}</span>
       </div>
@@ -234,19 +237,19 @@ function renderLeadDetail(view, id) {
       </div>
     </div>
 
-    <div class="section-title">Details</div>
+    <div class="section-title">Details <span class="muted" style="font-weight:500;font-size:0.78rem">· tap a row to edit</span></div>
     <div class="card">
-      <div class="kv"><span class="k">Phone</span><span class="v">${l.phone ? esc(phoneDisplay(l.phone)) : "—"}</span></div>
-      <div class="kv"><span class="k">Email</span><span class="v">${l.email ? esc(l.email) : "—"}</span></div>
-      <div class="kv"><span class="k">Source</span><span class="v">${esc(l.source || "—")}</span></div>
-      <div class="kv"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "—"}</span></div>
+      <div class="kv" data-edit="phone" style="cursor:pointer"><span class="k">Phone</span><span class="v">${l.phone ? esc(phoneDisplay(l.phone)) : "Tap to add"}</span></div>
+      <div class="kv" data-edit="email" style="cursor:pointer"><span class="k">Email</span><span class="v">${l.email ? esc(l.email) : "Tap to add"}</span></div>
+      <div class="kv" data-edit="source" style="cursor:pointer"><span class="k">Source</span><span class="v">${esc(l.source || "—")}</span></div>
+      <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
       ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
       ${(l.currentValue != null || l.payoff != null) ? `<div class="kv"><span class="k">Est. equity</span><span class="v mono" style="color:${((l.currentValue||0)-(l.payoff||0))>=0?"var(--success)":"var(--danger)"}">${currency((l.currentValue||0)-(l.payoff||0))}</span></div>` : ""}
       <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
     </div>
 
-    ${l.notes ? `<div class="section-title">Notes</div><div class="card"><div style="white-space:pre-wrap">${esc(l.notes)}</div></div>` : ""}
+    ${l.notes ? `<div class="section-title">Notes</div><div class="card" data-edit="notes" style="cursor:pointer"><div style="white-space:pre-wrap">${esc(l.notes)}</div></div>` : ""}
 
     <div class="section-title">Email history</div>
     <div class="card">
@@ -285,6 +288,9 @@ function renderLeadDetail(view, id) {
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/leads"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openLeadForm(l));
+  // Tap-to-edit: any detail row opens the form focused on that field.
+  el.querySelectorAll("[data-edit]").forEach((n) =>
+    n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));

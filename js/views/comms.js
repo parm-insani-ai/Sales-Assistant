@@ -3,10 +3,35 @@
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
+import { openModal, buildForm, toast } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, initials, formatDate, relativeDay, daysFromToday, telHref, smsHref, mailtoHref } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured } from "../email.js";
+
+// A customer without a phone or email: collect it on the spot, then go
+// straight into picking a message — no detour through the lead page.
+function addContactThenMessage(lead) {
+  openModal(`Reach ${String(lead.name || "them").split(" ")[0]}`, (close) => {
+    const { element } = buildForm(
+      [
+        { name: "phone", label: "Phone", value: lead.phone || "", type: "tel", inputmode: "tel", placeholder: "(902) 555-1234" },
+        { name: "email", label: "Email", value: lead.email || "", type: "email", placeholder: "name@email.com" },
+      ],
+      {
+        submitLabel: "Save & choose message",
+        onSubmit: (data) => {
+          store.update("leads", lead.id, { phone: (data.phone || "").trim(), email: (data.email || "").trim() });
+          close();
+          const updated = store.get("leads", lead.id);
+          if (updated.phone || updated.email) openTemplatePicker(updated);
+          else toast("Add a phone or email to message them", "");
+        },
+      }
+    );
+    return element;
+  });
+}
 
 const chMeta = (c) =>
   c === "text" ? { icon: "message", label: "Text" } :
@@ -118,7 +143,7 @@ export function renderComms(view) {
         </span>
         <span class="muted" style="flex:none">${l.phone ? icon("message") : ""} ${l.email ? icon("mail") : ""}</span>
       `;
-      row.addEventListener("click", () => hasContact ? openTemplatePicker(l) : navigate(`/leads/${l.id}`));
+      row.addEventListener("click", () => hasContact ? openTemplatePicker(l) : addContactThenMessage(l));
       people.appendChild(row);
     });
   };
