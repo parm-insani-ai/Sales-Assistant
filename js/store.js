@@ -73,6 +73,7 @@ const DEFAULT_STATE = {
     salesperson: "",
     dealership: "",
     contactPhone: "",
+    contactEmail: "",
     taxRate: 6.5, // %
     docFee: 499,
     defaultTerm: 72,
