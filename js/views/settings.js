@@ -676,7 +676,10 @@ function buildBooking(slot) {
   const refreshLink = () => {
     const link = bookingLink();
     slot.querySelector("#bk-link").value = link;
-    slot.querySelector("#bk-sms").href = `sms:?&body=${encodeURIComponent(`Book a time that works for you here: ${link}`)}`;
+    const first = (store.getSettings().salesperson || "").split(" ")[0];
+    slot.querySelector("#bk-sms").href = `sms:?&body=${encodeURIComponent(
+      `Hi! ${first ? `It's ${first} — ` : ""}here's my calendar. Grab any time that works for you and I'll have everything ready when you come in:\n\n${link}`
+    )}`;
     slot.querySelector("#bk-open").href = link;
   };
   refreshLink();
