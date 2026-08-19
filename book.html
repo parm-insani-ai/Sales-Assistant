@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Book a visit</title>
+<style>
+  :root {
+    --brand: #0a8f5b; --brand-ink: #fff; --bg: #f6f7f8; --surface: #fff;
+    --text: #16191d; --muted: #6b7580; --border: #e5e8ea; --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --brand: #10c96f; --brand-ink: #04140c; --bg: #0c0f12; --surface: #14181c; --text: #eef1f3; --muted: #8b949c; --border: #242a30; }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; padding: 20px 16px calc(24px + env(safe-area-inset-bottom)); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 1.45rem; letter-spacing: -0.03em; margin: 6px 0 4px; }
+  .sub { color: var(--muted); font-size: 0.92rem; margin-bottom: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .label { font-size: 0.8rem; font-weight: 650; color: var(--muted); margin: 2px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .days, .slots { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1.5px solid var(--border); background: var(--surface); color: var(--text); border-radius: 12px; padding: 10px 12px; font: inherit; font-weight: 600; cursor: pointer; }
+  .chip.sel { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+  .chip:disabled { opacity: 0.35; cursor: default; }
+  .slots .chip { flex: 0 0 calc(25% - 6px); text-align: center; padding: 11px 4px; font-variant-numeric: tabular-nums; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 0.82rem; font-weight: 650; margin-bottom: 6px; }
+  .field input { width: 100%; padding: 13px 14px; font-size: 16px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); }
+  .field input:focus { outline: none; border-color: var(--brand); }
+  .btn { width: 100%; padding: 15px; border: none; border-radius: 14px; background: var(--brand); color: var(--brand-ink); font: inherit; font-size: 1.02rem; font-weight: 700; cursor: pointer; }
+  .btn:disabled { opacity: 0.5; }
+  .muted { color: var(--muted); font-size: 0.85rem; }
+  .err { color: #d33d54; font-size: 0.9rem; margin-top: 10px; min-height: 1.2em; }
+  .done { text-align: center; padding: 40px 10px; }
+  .done .big { font-size: 3rem; margin-bottom: 12px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="bad" class="card hidden">This booking link looks incomplete — please ask for a fresh one.</div>
+
+  <div id="flow" class="hidden">
+    <h1 id="t-title">Book a visit</h1>
+    <div class="sub" id="t-sub"></div>
+
+    <div class="card">
+      <div class="label">Pick a day</div>
+      <div class="days" id="days"></div>
+    </div>
+
+    <div class="card hidden" id="slot-card">
+      <div class="label">Pick a time</div>
+      <div class="slots" id="slots"></div>
+      <div class="muted" id="slot-note" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card hidden" id="form-card">
+      <div class="label">Your details</div>
+      <div class="field"><label>Name</label><input id="f-name" autocomplete="name" placeholder="Your name"></div>
+      <div class="field"><label>Phone</label><input id="f-phone" type="tel" autocomplete="tel" placeholder="(902) 555-1234"></div>
+      <div class="field"><label>Email (for a confirmation)</label><input id="f-email" type="email" autocomplete="email" placeholder="Optional"></div>
+      <div class="field"><label>Vehicle you're interested in</label><input id="f-vehicle" placeholder="Optional — e.g. 2025 Rogue"></div>
+      <button class="btn" id="go">Book it</button>
+      <div class="err" id="err"></div>
+    </div>
+  </div>
+
+  <div id="done" class="done hidden">
+    <div class="big">🎉</div>
+    <h1>You're booked!</h1>
+    <div class="sub" id="done-sub"></div>
+    <div class="muted">You'll get a text if anything needs to change.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  function b64urlDecode(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    return decodeURIComponent(Array.from(atob(s), function (c) { return "%" + c.charCodeAt(0).toString(16).padStart(2, "0"); }).join(""));
+  }
+  var cfg = null;
+  try { cfg = JSON.parse(b64urlDecode(new URLSearchParams(location.search).get("c") || "")); } catch (e) {}
+  if (!cfg || !cfg.u || !cfg.fn) { document.getElementById("bad").classList.remove("hidden"); return; }
+
+  var days = cfg.days || [1, 2, 3, 4, 5, 6]; // JS weekday numbers open for booking
+  var startH = cfg.h && cfg.h[0] != null ? cfg.h[0] : 9;
+  var endH = cfg.h && cfg.h[1] != null ? cfg.h[1] : 19;
+  var slotMin = cfg.slot || 30;
+
+  document.getElementById("flow").classList.remove("hidden");
+  document.getElementById("t-title").textContent = "Book a visit" + (cfg.d ? " at " + cfg.d : "");
+  document.getElementById("t-sub").textContent = (cfg.n ? "With " + cfg.n + ". " : "") + "Pick a time that works — it goes straight into the calendar.";
+
+  var pad = function (n) { return String(n).padStart(2, "0"); };
+  var selDate = null, selTime = null;
+
+  // Next 10 bookable days.
+  var dayEl = document.getElementById("days");
+  var shown = 0;
+  for (var i = 0; i < 21 && shown < 10; i++) {
+    var d = new Date(); d.setDate(d.getDate() + i);
+    if (days.indexOf(d.getDay()) < 0) continue;
+    shown++;
+    var iso = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    var b = document.createElement("button");
+    b.className = "chip"; b.type = "button";
+    b.textContent = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    b.dataset.date = iso;
+    b.addEventListener("click", function () { pickDay(this); });
+    dayEl.appendChild(b);
+  }
+
+  function pickDay(btn) {
+    Array.prototype.forEach.call(dayEl.children, function (c) { c.classList.remove("sel"); });
+    btn.classList.add("sel");
+    selDate = btn.dataset.date; selTime = null;
+    document.getElementById("form-card").classList.add("hidden");
+    var card = document.getElementById("slot-card");
+    card.classList.remove("hidden");
+    var grid = document.getElementById("slots");
+    grid.innerHTML = "";
+    document.getElementById("slot-note").textContent = "Checking the calendar…";
+    fetch(cfg.fn + "?avail=1&u=" + encodeURIComponent(cfg.u) + "&date=" + selDate)
+      .then(function (r) { return r.json(); })
+      .then(function (j) { renderSlots(j.busy || []); })
+      .catch(function () { renderSlots([], true); });
+  }
+
+  function renderSlots(busy, offline) {
+    var grid = document.getElementById("slots");
+    grid.innerHTML = "";
+    var note = document.getElementById("slot-note");
+    note.textContent = offline ? "Couldn't check for conflicts — your time will be confirmed by text." : "";
+    var now = new Date();
+    var isToday = selDate === now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+    var count = 0;
+    for (var h = startH; h < endH; h++) {
+      for (var m = 0; m < 60; m += slotMin) {
+        var t = pad(h) + ":" + pad(m);
+        var taken = busy.indexOf(t) >= 0;
+        var past = isToday && (h * 60 + m) <= (now.getHours() * 60 + now.getMinutes() + 30);
+        var b = document.createElement("button");
+        b.className = "chip"; b.type = "button"; b.textContent = t;
+        b.disabled = taken || past;
+        if (!b.disabled) {
+          count++;
+          b.addEventListener("click", function () {
+            Array.prototype.forEach.call(grid.children, function (c) { c.classList.remove("sel"); });
+            this.classList.add("sel");
+            selTime = this.textContent;
+            document.getElementById("form-card").classList.remove("hidden");
+            document.getElementById("form-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+        }
+        grid.appendChild(b);
+      }
+    }
+    if (!count) note.textContent = "No times left this day — try another.";
+  }
+
+  document.getElementById("go").addEventListener("click", function () {
+    var err = document.getElementById("err");
+    var name = document.getElementById("f-name").value.trim();
+    var phone = document.getElementById("f-phone").value.trim();
+    if (!selDate || !selTime) { err.textContent = "Pick a day and time above."; return; }
+    if (!name || !phone) { err.textContent = "Name and phone are needed so we can reach you."; return; }
+    err.textContent = "";
+    var btn = this; btn.disabled = true; btn.textContent = "Booking…";
+    fetch(cfg.fn, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ book: {
+        u: cfg.u, date: selDate, time: selTime, name: name, phone: phone,
+        email: document.getElementById("f-email").value.trim(),
+        vehicle: document.getElementById("f-vehicle").value.trim(),
+        type: "appointment",
+      }}),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok || res.j.error) {
+          btn.disabled = false; btn.textContent = "Book it";
+          err.textContent = res.j.error === "slot_taken"
+            ? "That time was just taken — pick another."
+            : (res.j.error || "Something went wrong — try again.");
+          if (res.j.error === "slot_taken") { var again = document.querySelector('#days .sel'); if (again) pickDay(again); }
+          return;
+        }
+        document.getElementById("flow").classList.add("hidden");
+        document.getElementById("done").classList.remove("hidden");
+        var d = new Date(selDate + "T" + selTime);
+        document.getElementById("done-sub").textContent =
+          d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) + " at " + selTime +
+          (cfg.d ? " — " + cfg.d : "") + (cfg.n ? ", with " + cfg.n : "") + ".";
+      })
+      .catch(function () {
+        btn.disabled = false; btn.textContent = "Book it";
+        err.textContent = "Couldn't reach the calendar — check your connection and try again.";
+      });
+  });
+})();
+</script>
+</body>
+</html>

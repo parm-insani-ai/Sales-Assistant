@@ -53,8 +53,22 @@ export function renderComms(view) {
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
     .slice(0, 10);
 
+  // Appointments today/tomorrow that should be confirmed or reminded — the
+  // no-show killers.
+  const pad = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const todayK = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const tm = new Date(now); tm.setDate(tm.getDate() + 1);
+  const tomorrowK = `${tm.getFullYear()}-${pad(tm.getMonth() + 1)}-${pad(tm.getDate())}`;
+  const upcoming = store.all("appointments")
+    .filter((a) => a.status !== "canceled" && !a.outcome && a.when &&
+      (a.when.startsWith(todayK) || a.when.startsWith(tomorrowK)))
+    .sort((a, b) => (a.when || "").localeCompare(b.when || ""));
+
   const el = document.createElement("div");
   el.innerHTML = `
+    ${upcoming.length ? `<div class="section-title">Confirmations &amp; reminders</div>
+    <div class="card" id="c-remind"></div>` : ""}
     <div class="section-title">Outreach due</div>
     <div class="card" id="c-due">${due.length ? "" : `<div class="muted small">Nothing due — every follow-up is on schedule. 🎉</div>`}</div>
 
@@ -82,6 +96,40 @@ export function renderComms(view) {
     </div>
   `;
   view.appendChild(el);
+
+  // --- Confirmations & reminders: one-tap prefilled text; sending marks the
+  // appointment confirmed and logs the touch.
+  const remindBox = el.querySelector("#c-remind");
+  if (remindBox) upcoming.slice(0, 10).forEach((a) => {
+    const lead = a.leadId ? leadById(a.leadId) : null;
+    const phone = a.phone || (lead && lead.phone) || "";
+    const isToday = a.when.startsWith(todayK);
+    const time = a.when.slice(11, 16);
+    const fn = String(a.customerName || (lead && lead.name) || "there").split(" ")[0];
+    const msg = `Hi ${fn}, ${a.confirmed ? "quick reminder about" : "confirming"} your ${(a.title || "appointment").toLowerCase()} ${isToday ? "today" : "tomorrow"} at ${time}${s.dealership ? ` at ${s.dealership}` : ""}. See you then!${s.salesperson ? ` — ${s.salesperson}` : ""}`;
+    const row = document.createElement("div");
+    row.className = "kv";
+    row.style.alignItems = "center";
+    row.innerHTML = `
+      <span class="v" style="text-align:left;flex:1;font-weight:550;cursor:pointer">${esc(a.customerName || "Customer")}
+        <div class="small muted" style="font-weight:450">${esc(a.title || "Appointment")} · ${isToday ? "today" : "tomorrow"} ${esc(time)}${a.confirmed ? " · confirmed ✓" : ""}</div>
+      </span>
+      ${phone
+        ? `<a class="btn ${a.confirmed ? "btn-ghost" : "btn-primary"} btn-sm" href="${smsHref(phone, msg)}" style="flex:none">${icon("message")} ${a.confirmed ? "Remind" : "Confirm"}</a>`
+        : `<button class="btn btn-ghost btn-sm" data-open style="flex:none">Open</button>`}
+    `;
+    row.querySelector("span").addEventListener("click", () => navigate(`/calendar/${a.id}`));
+    const openB = row.querySelector("[data-open]");
+    if (openB) openB.addEventListener("click", () => navigate(`/calendar/${a.id}`));
+    const actB = row.querySelector("a");
+    if (actB) actB.addEventListener("click", () => {
+      store.update("appointments", a.id, { confirmed: true });
+      if (lead) store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
+      store.logActivity("touch");
+      row.querySelector(".small").textContent = `${a.title || "Appointment"} · ${isToday ? "today" : "tomorrow"} ${time} · confirmed ✓`;
+    });
+    remindBox.appendChild(row);
+  });
 
   // --- Outreach due: one-tap act (marks the step done + logs the touch). ---
   const dueBox = el.querySelector("#c-due");

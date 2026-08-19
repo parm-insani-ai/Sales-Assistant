@@ -1,4 +1,4 @@
-// entoa's one Supabase Edge Function — three jobs, one URL:
+// entoa's one Supabase Edge Function — four jobs, one URL:
 //   POST {system, tools, messages}  → Claude relay for the voice agent.
 //   POST {email: {to, subject, text}} → send a real email via Resend
 //                                     (needs RESEND_API_KEY + EMAIL_FROM
@@ -6,6 +6,11 @@
 //   GET  ?url=<calendar feed>       → CORS proxy for Apple/Outlook/Google
 //                                     (.ics) feeds, which browsers can't
 //                                     fetch cross-origin themselves.
+//   GET  ?avail=1&u=<uid>&date=…    → booked time slots for the public
+//   POST {book: {...}}                self-serve booking page, and booking a
+//                                     slot: the appointment is written into
+//                                     the salesperson's synced records so it
+//                                     appears in their app on the next sync.
 // The agent's brain (system prompt + tools) lives in the app, so it improves
 // via normal app updates without redeploying this. No customer data is stored
 // here.
@@ -72,13 +77,107 @@ async function proxyICS(req: Request): Promise<Response> {
   }
 }
 
+// ---- Self-serve booking (records table via the service role) ----
+function sbHeaders() {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  return { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+}
+function sbUrl(path: string) {
+  return `${Deno.env.get("SUPABASE_URL") || ""}/rest/v1${path}`;
+}
+
+// Times already taken on one date, for the booking page's slot grid.
+async function bookedTimes(uid: string, date: string): Promise<string[]> {
+  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.appointments&deleted=eq.false&select=data`;
+  const res = await fetch(sbUrl(q), { headers: sbHeaders() });
+  if (!res.ok) throw new Error(`availability lookup failed (${res.status})`);
+  const rows = await res.json();
+  return rows
+    .map((r: any) => String(r.data?.when || ""))
+    .filter((w: string) => w.startsWith(date) && w.includes("T"))
+    .map((w: string) => w.slice(11, 16));
+}
+
+async function handleAvail(req: Request): Promise<Response> {
+  const u = new URL(req.url);
+  const uid = u.searchParams.get("u") || "";
+  const date = u.searchParams.get("date") || "";
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad link" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "bad date" }, 400);
+  try {
+    return json({ busy: await bookedTimes(uid, date) });
+  } catch (e) {
+    return json({ error: String(e) }, 502);
+  }
+}
+
+async function handleBook(body: any): Promise<Response> {
+  const b = body.book || {};
+  const uid = String(b.u || "");
+  const date = String(b.date || "");
+  const time = String(b.time || "");
+  const name = String(b.name || "").trim().slice(0, 80);
+  const phone = String(b.phone || "").trim().slice(0, 25);
+  const email = String(b.email || "").trim().slice(0, 120);
+  const vehicle = String(b.vehicle || "").trim().slice(0, 80);
+  const type = ["appointment", "testdrive"].includes(b.type) ? b.type : "appointment";
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad link" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return json({ error: "bad slot" }, 400);
+  if (!name || !phone) return json({ error: "name and phone required" }, 400);
+
+  try {
+    // The slot may have been taken since the grid loaded.
+    const busy = await bookedTimes(uid, date);
+    if (busy.includes(time)) return json({ error: "slot_taken" }, 409);
+
+    const now = new Date().toISOString();
+    const id = "apt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    const data = {
+      id, type, title: type === "testdrive" ? "Test drive" : "Appointment",
+      customerName: name, phone, email, vehicle,
+      when: `${date}T${time}`, status: "scheduled", confirmed: true,
+      outcome: "", leadId: null, source: "self-booked",
+      notes: String(b.note || "").trim().slice(0, 400),
+      createdAt: now, updatedAt: now,
+    };
+    const res = await fetch(sbUrl("/records"), {
+      method: "POST",
+      headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ id, user_id: uid, collection: "appointments", data, deleted: false }),
+    });
+    if (!res.ok) return json({ error: `booking save failed (${res.status})` }, 502);
+
+    // Best-effort confirmation email to the customer (needs the Resend setup).
+    const key = Deno.env.get("RESEND_API_KEY"), from = Deno.env.get("EMAIL_FROM");
+    if (key && from && email) {
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from, to: [email],
+          subject: `You're booked — ${date} at ${time}`,
+          text: `Hi ${name},\n\nYour ${data.title.toLowerCase()} is confirmed for ${date} at ${time}.\n\nSee you then!`,
+        }),
+      }).catch(() => {});
+    }
+    return json({ booked: true, when: data.when });
+  } catch (e) {
+    return json({ error: String(e) }, 502);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method === "GET") return proxyICS(req);
+  if (req.method === "GET") {
+    const u = new URL(req.url);
+    if (u.searchParams.get("avail")) return handleAvail(req);
+    return proxyICS(req);
+  }
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+  if (body.book) return handleBook(body);
 
   // --- Optional email sending (Resend) ---
   if (body.email) {

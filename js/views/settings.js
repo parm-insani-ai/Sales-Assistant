@@ -42,6 +42,9 @@ export function renderSettings(view) {
     <div class="section-title">Email</div>
     <div class="card" id="email-slot"></div>
 
+    <div class="section-title">Booking page</div>
+    <div class="card" id="booking-slot"></div>
+
     <div class="section-title">Deal defaults</div>
     <div class="card">
       <div class="field-inline">
@@ -135,6 +138,7 @@ export function renderSettings(view) {
   buildFeeds(el.querySelector("#feeds-slot"));
   buildAgent(el.querySelector("#agent-slot"));
   buildEmail(el.querySelector("#email-slot"));
+  buildBooking(el.querySelector("#booking-slot"));
   const onSyncEvt = (e) => {
     const line = cloudSlot.querySelector(".cloud-status");
     if (!line) return;
@@ -613,6 +617,86 @@ function buildEmail(slot) {
     disconnectOutlook();
     toast("Outlook disconnected");
     buildEmail(slot);
+  });
+}
+
+// Self-serve booking page: customers book their own slot from a link; the
+// appointment lands in the cloud and syncs into the app.
+function bookingLink() {
+  const s = store.getSettings();
+  const cfg = {
+    u: backend.currentUser().id,
+    fn: (s.agentUrl || "").trim().replace(/\/+$/, ""),
+    n: s.salesperson || "",
+    d: s.dealership || "",
+    h: [s.bookStart ?? 9, s.bookEnd ?? 19],
+    slot: s.bookSlot || 30,
+    days: s.bookDays || [1, 2, 3, 4, 5, 6],
+  };
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/$/, "");
+  return `${base}/book.html?c=${b64}`;
+}
+
+function buildBooking(slot) {
+  const s = store.getSettings();
+  const user = backend.currentUser();
+  const ready = !!(user && user.id && (s.agentUrl || "").trim());
+  const days = s.bookDays || [1, 2, 3, 4, 5, 6];
+  const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hourOpts = (sel) => Array.from({ length: 15 }, (_, i) => i + 7)
+    .map((h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${h > 12 ? h - 12 : h}${h >= 12 ? "pm" : "am"}</option>`).join("");
+
+  slot.innerHTML = `
+    <div class="small muted" style="margin-bottom:10px">Your personal booking link. Text it to a customer and they pick their own time slot — the appointment lands on your calendar, confirmed, and they become a customer automatically. No back-and-forth.</div>
+    ${!ready ? `<div class="hint" style="margin-bottom:6px">Needs two things you may already have: sign in to <b>Cloud sync</b> (bookings travel through it) and set up the <b>Voice agent</b> function (it hosts the booking API — make sure it's on the latest code).</div>` : `
+    <div class="field-inline">
+      <div class="field"><label>Open from</label><select id="bk-start">${hourOpts(s.bookStart ?? 9)}</select></div>
+      <div class="field"><label>Until</label><select id="bk-end">${hourOpts(s.bookEnd ?? 19)}</select></div>
+    </div>
+    <div class="field"><label>Slot length</label><select id="bk-slot">
+      <option value="15" ${s.bookSlot === 15 ? "selected" : ""}>15 minutes</option>
+      <option value="30" ${(s.bookSlot || 30) === 30 ? "selected" : ""}>30 minutes</option>
+      <option value="60" ${s.bookSlot === 60 ? "selected" : ""}>1 hour</option>
+    </select></div>
+    <div class="field"><label>Bookable days</label>
+      <div class="btn-row">${DAY_LABELS.map((lb, i) =>
+        `<button type="button" class="btn btn-sm ${days.includes(i) ? "btn-primary" : "btn-ghost"}" data-bk-day="${i}">${lb}</button>`).join("")}</div>
+    </div>
+    <div class="field"><label>Your link</label><input id="bk-link" readonly value="${esc(bookingLink())}" style="font-size:0.8rem"></div>
+    <div class="btn-row">
+      <button class="btn btn-sm btn-primary" id="bk-copy" type="button">${icon("file")} Copy link</button>
+      <a class="btn btn-sm btn-ghost" id="bk-sms" href="#">${icon("message")} Text it</a>
+      <a class="btn btn-sm btn-ghost" id="bk-open" href="#" target="_blank" rel="noopener">Preview</a>
+    </div>`}
+  `;
+  if (!ready) return;
+
+  const refreshLink = () => {
+    const link = bookingLink();
+    slot.querySelector("#bk-link").value = link;
+    slot.querySelector("#bk-sms").href = `sms:?&body=${encodeURIComponent(`Book a time that works for you here: ${link}`)}`;
+    slot.querySelector("#bk-open").href = link;
+  };
+  refreshLink();
+
+  slot.querySelector("#bk-start").addEventListener("change", (e) => { store.updateSettings({ bookStart: +e.target.value }); refreshLink(); });
+  slot.querySelector("#bk-end").addEventListener("change", (e) => { store.updateSettings({ bookEnd: +e.target.value }); refreshLink(); });
+  slot.querySelector("#bk-slot").addEventListener("change", (e) => { store.updateSettings({ bookSlot: +e.target.value }); refreshLink(); });
+  slot.querySelectorAll("[data-bk-day]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const d = +b.dataset.bkDay;
+      const cur = store.getSettings().bookDays || [1, 2, 3, 4, 5, 6];
+      const next = cur.includes(d) ? cur.filter((x) => x !== d) : cur.concat([d]).sort();
+      store.updateSettings({ bookDays: next });
+      b.classList.toggle("btn-primary");
+      b.classList.toggle("btn-ghost");
+      refreshLink();
+    }));
+  slot.querySelector("#bk-copy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(slot.querySelector("#bk-link").value); toast("Booking link copied", "success"); }
+    catch { slot.querySelector("#bk-link").select(); toast("Select and copy the link", ""); }
   });
 }
 

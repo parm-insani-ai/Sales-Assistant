@@ -127,8 +127,24 @@ export function reconcileLinks() {
   });
   store.all("appointments").forEach((a) => {
     if (a.leadId) return;
-    const lead = leadByName(a.customerName);
-    if (lead) { store.update("appointments", a.id, { leadId: lead.id }); changed++; }
+    let lead = leadByName(a.customerName);
+    // A phone number on an unlinked appointment (e.g. a self-serve booking) is
+    // strong enough evidence to create the customer outright.
+    if (!lead && a.phone && (a.customerName || "").trim()) {
+      lead = store.create("leads", {
+        name: a.customerName.trim(),
+        phone: a.phone,
+        email: a.email || "",
+        vehicleInterest: a.vehicle || "",
+        stage: "appointment",
+        source: a.source === "self-booked" ? "Self-booked" : "Appointment",
+      });
+    }
+    if (lead) {
+      store.update("appointments", a.id, { leadId: lead.id });
+      afterAppointmentBooked(lead.id);
+      changed++;
+    }
   });
   return changed;
 }

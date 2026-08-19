@@ -53,6 +53,51 @@ export function emailsForLead(leadId) {
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 }
 
+// Automatic appointment reminder emails: anything scheduled today or tomorrow
+// whose customer has an email gets one reminder per appointment day. Runs on
+// app open when automated email is on; SMS confirmations stay one-tap in Comms.
+export async function autoSendAppointmentReminders() {
+  const s = store.getSettings();
+  if (!s.emailAutoSend || !emailSendConfigured()) return { sent: 0, errors: [] };
+  const pad = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const todayK = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const tm = new Date(now); tm.setDate(tm.getDate() + 1);
+  const tomorrowK = `${tm.getFullYear()}-${pad(tm.getMonth() + 1)}-${pad(tm.getDate())}`;
+
+  const due = store.all("appointments").filter((a) =>
+    a.status !== "canceled" && !a.outcome && a.when &&
+    (a.when.startsWith(todayK) || a.when.startsWith(tomorrowK)) &&
+    a.remindedFor !== a.when.slice(0, 10));
+
+  let sent = 0;
+  const errors = [];
+  for (const a of due.slice(0, 5)) {
+    const lead = a.leadId ? store.get("leads", a.leadId) : null;
+    const to = a.email || (lead && lead.email) || "";
+    if (!to) continue;
+    const isToday = a.when.startsWith(todayK);
+    const time = a.when.slice(11, 16);
+    const fn = String(a.customerName || (lead && lead.name) || "there").split(" ")[0];
+    const subject = `Reminder: your ${(a.title || "appointment").toLowerCase()} ${isToday ? "today" : "tomorrow"} at ${time}`;
+    const body = `Hi ${fn},\n\nA quick reminder about your ${(a.title || "appointment").toLowerCase()} ${isToday ? "today" : "tomorrow"} at ${time}${s.dealership ? ` at ${s.dealership}` : ""}. If anything changes, just reply here.\n\nSee you then!${s.salesperson ? `\n${s.salesperson}` : ""}`;
+    try {
+      await sendEmail({ to, subject, text: body });
+      store.update("appointments", a.id, { remindedFor: a.when.slice(0, 10), confirmed: true });
+      if (lead) {
+        store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
+        logEmail(lead.id, { direction: "out", subject, body, via: "auto" });
+      }
+      store.logActivity("touch");
+      sent++;
+    } catch (e) {
+      errors.push(e && e.message ? e.message : String(e));
+      break;
+    }
+  }
+  return { sent, errors };
+}
+
 // Tier 2's automation: send any due cadence email steps. Called on app open.
 // Caps at 5 per run and stops on the first failure (it's almost always config).
 export async function autoSendDueEmails() {

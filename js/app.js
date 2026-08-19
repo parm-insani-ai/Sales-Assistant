@@ -25,7 +25,7 @@ import { renderComms } from "./views/comms.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
-import { autoSendDueEmails } from "./email.js";
+import { autoSendDueEmails, autoSendAppointmentReminders } from "./email.js";
 import { reconcileLinks } from "./connections.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 
@@ -149,8 +149,20 @@ window.addEventListener("entoa-mail", (e) => {
   if (n) toast(`${n} customer email${n === 1 ? "" : "s"} filed from Outlook`, "success");
 });
 
-// Automated cadence emails (optional): send anything due, quietly, on open.
-autoSendDueEmails().then((r) => {
-  if (r.sent) toast(`${r.sent} follow-up email${r.sent === 1 ? "" : "s"} sent automatically`, "success");
-  else if (r.errors && r.errors.length) toast(`Auto-email: ${r.errors[0]}`, "danger");
+// Automated cadence emails + appointment reminder emails (optional): send
+// anything due, quietly, on open.
+autoSendDueEmails().then(async (r) => {
+  const r2 = await autoSendAppointmentReminders().catch(() => ({ sent: 0, errors: [] }));
+  const sent = (r.sent || 0) + (r2.sent || 0);
+  const errs = (r.errors || []).concat(r2.errors || []);
+  if (sent) toast(`${sent} email${sent === 1 ? "" : "s"} sent automatically`, "success");
+  else if (errs.length) toast(`Auto-email: ${errs[0]}`, "danger");
 }).catch(() => {});
+
+// New synced records (e.g. a customer self-booking from the booking page) get
+// linked into the connected graph as soon as they arrive.
+window.addEventListener("entoa-sync", (e) => {
+  if (e.detail && e.detail.status === "synced" && e.detail.applied) {
+    try { reconcileLinks(); } catch {}
+  }
+});

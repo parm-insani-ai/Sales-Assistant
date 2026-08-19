@@ -147,3 +147,19 @@ demand with **Check mail now**.
 Note: a work mailbox (e.g. O'Regan's) may require IT to approve the sign-in
 the first time (Microsoft calls this admin consent). A personal
 Outlook/Hotmail account works with no approval.
+
+## Self-serve booking page
+
+Your personal booking link (entoa → **Settings → Booking page**) lets customers
+pick their own appointment slot — no back-and-forth. The public page lives at
+`/book.html`; the booking API is two more routes on the same Edge Function
+(`GET ?avail=1` for taken slots, `POST {book}` to book). A booking is written
+directly into your synced `records` as a confirmed appointment (using the
+function's service-role access), so it appears in the app on the next sync, the
+customer is auto-created as a lead, and — if the Resend email secrets are set —
+they get a confirmation email on the spot. Double-booking is rejected
+server-side.
+
+Requirements: cloud sync signed in (bookings travel through it) and the
+function on the latest code. Bookable days/hours/slot length are set in the
+same Settings section; the link encodes them.

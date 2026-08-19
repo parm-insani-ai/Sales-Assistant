@@ -101,6 +101,11 @@ const DEFAULT_STATE = {
     // the user's own Entra app registration; empty = not connected.
     msClientId: "",
     msTenant: "common",
+    // Self-serve booking page: bookable hours/days and slot length.
+    bookStart: 9,
+    bookEnd: 19,
+    bookSlot: 30,
+    bookDays: [1, 2, 3, 4, 5, 6], // Mon–Sat (JS weekday numbers)
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
