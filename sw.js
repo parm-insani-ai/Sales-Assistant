@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "entoa-v58";
+const CACHE = "entoa-v59";
 const ASSETS = [
   "./",
   "./index.html",
@@ -13,6 +13,7 @@ const ASSETS = [
   "./js/calfeeds.js",
   "./js/email.js",
   "./js/connections.js",
+  "./js/msmail.js",
   "./js/backend.js",
   "./js/sync.js",
   "./js/icons.js",
@@ -73,6 +74,10 @@ self.addEventListener("fetch", (e) => {
 
   const url = new URL(request.url);
   const sameOrigin = url.origin === self.location.origin;
+  // Never intercept cross-origin APIs (Graph mail, calendar feeds, Supabase) —
+  // caching authorized responses would be wrong, and a failed passthrough here
+  // would mask the real network error.
+  if (!sameOrigin && request.mode !== "navigate") return;
   const isCode = request.mode === "navigate" || (sameOrigin && /\.(js|css|html)$/.test(url.pathname));
 
   if (isCode) {

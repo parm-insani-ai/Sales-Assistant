@@ -118,3 +118,32 @@ follow-ups (entoa → **Settings → Email**) . It sends through
 With the "send automatically" toggle on, any due cadence steps whose channel is
 email go out when you open the app (capped, logged to each lead's email
 history, and skipped for leads with no email or already sold/lost).
+
+## Outlook inbox (read customer replies)
+
+entoa can pull your Outlook inbox and file customer replies into each lead's
+email history automatically. This runs entirely on your phone — the app signs
+into Microsoft directly (OAuth + PKCE), tokens stay on the device, and only
+mail from your customers is kept. No server involved.
+
+### One-time setup (~5 minutes)
+
+1. Go to [entra.microsoft.com](https://entra.microsoft.com) → **App
+   registrations** → **New registration**. Name it "entoa".
+2. Supported account types: **Accounts in any organizational directory and
+   personal Microsoft accounts**.
+3. Redirect URI: pick platform **Single-page application (SPA)** and enter your
+   app's URL (e.g. `https://entoa.ai/`). The SPA platform type is required —
+   it's what lets the app exchange tokens without a server secret.
+4. Copy the **Application (client) ID** and paste it into entoa →
+   **Settings → Email → Outlook inbox**, then tap **Connect Outlook** and sign
+   in with the Microsoft account whose mail you want.
+
+Mail is matched to customers by email address first, then by exact name (a
+name match backfills the customer's email address). Unmatched mail is ignored
+and never stored. entoa checks in the background when you open the app, or on
+demand with **Check mail now**.
+
+Note: a work mailbox (e.g. O'Regan's) may require IT to approve the sign-in
+the first time (Microsoft calls this admin consent). A personal
+Outlook/Hotmail account works with no approval.

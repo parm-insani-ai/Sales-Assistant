@@ -12,6 +12,7 @@ import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion } from "../updater.js";
 import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured } from "../email.js";
+import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -537,6 +538,31 @@ function buildEmail(slot) {
     <div class="field"><label>Send a test to</label><input id="em-test-to" type="email" placeholder="you@email.com" value="${esc(s.contactEmail || "")}"></div>
     <button class="btn btn-sm" id="em-test" type="button">Send a test email</button>
     <div class="hint" id="em-test-out"></div>
+
+    <hr class="divider" />
+    <div class="strong" style="margin-bottom:6px">${icon("mail")} Outlook inbox</div>
+    <div class="small muted" style="margin-bottom:10px">Connect your Outlook and entoa pulls customer replies into each lead's email history automatically. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} One-time setup (~5 min)</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>Go to <span class="mono">entra.microsoft.com</span> → <b>App registrations</b> → <b>New registration</b>. Name it "entoa".</li>
+        <li>Supported accounts: <b>any org directory and personal Microsoft accounts</b>.</li>
+        <li>Redirect URI: choose platform <b>Single-page application (SPA)</b> and enter <span class="mono">${esc(location.origin + location.pathname)}</span></li>
+        <li>Copy the <b>Application (client) ID</b> and paste it below, then tap Connect.</li>
+      </ol>
+      <div class="small muted" style="margin-top:6px">A work (O'Regan's) mailbox may need IT to allow the sign-in; a personal Outlook/Hotmail account works right away.</div>
+    </details>
+    ${outlookConnected() ? `
+      <div class="small" style="margin-bottom:10px">${icon("checkline")} Connected as <b>${esc((outlookAccount() || {}).email || "your account")}</b>${lastMailPull() ? ` <span class="muted">· last checked ${esc(timeAgo(lastMailPull()))}</span>` : ""}</div>
+      <div class="btn-row">
+        <button class="btn btn-sm btn-primary" id="ms-pull" type="button">Check mail now</button>
+        <button class="btn btn-sm btn-ghost" id="ms-off" type="button">Disconnect</button>
+      </div>
+    ` : `
+      <div class="field"><label>Application (client) ID</label><input id="ms-client" value="${esc(s.msClientId || "")}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+      <button class="btn btn-sm btn-primary" id="ms-connect" type="button">Connect Outlook</button>
+    `}
+    <div class="hint" id="ms-out"></div>
   `;
   slot.querySelector("#em-auto").addEventListener("change", (e) => {
     store.updateSettings({ emailAutoSend: e.target.checked });
@@ -558,6 +584,35 @@ function buildEmail(slot) {
       out.textContent = `✗ ${e.message || "Send failed"}`;
     }
     btn.disabled = false;
+  });
+
+  // --- Outlook inbox controls ---
+  const msOut = slot.querySelector("#ms-out");
+  const msClient = slot.querySelector("#ms-client");
+  if (msClient) msClient.addEventListener("change", (e) => store.updateSettings({ msClientId: e.target.value.trim() }));
+  const msConnect = slot.querySelector("#ms-connect");
+  if (msConnect) msConnect.addEventListener("click", async () => {
+    if (msClient) store.updateSettings({ msClientId: msClient.value.trim() });
+    try { await connectOutlook(); } catch (e) { msOut.textContent = `✗ ${e.message}`; }
+  });
+  const msPull = slot.querySelector("#ms-pull");
+  if (msPull) msPull.addEventListener("click", async () => {
+    msPull.disabled = true;
+    msOut.textContent = "Checking your inbox…";
+    try {
+      const r = await pullOutlookMail();
+      msOut.textContent = `✓ Checked ${r.checked} message${r.checked === 1 ? "" : "s"} — ${r.linked ? `${r.linked} filed to customers` : "none from customers"}.`;
+      if (r.linked) toast(`${r.linked} customer email${r.linked === 1 ? "" : "s"} filed`, "success");
+    } catch (e) {
+      msOut.textContent = `✗ ${e.message || "Mail check failed"}`;
+    }
+    msPull.disabled = false;
+  });
+  const msOff = slot.querySelector("#ms-off");
+  if (msOff) msOff.addEventListener("click", () => {
+    disconnectOutlook();
+    toast("Outlook disconnected");
+    buildEmail(slot);
   });
 }
 

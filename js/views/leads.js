@@ -325,7 +325,7 @@ function renderLeadDetail(view, id) {
         <span class="k" style="flex:none">${e.direction === "in" ? "↓ In" : "↑ Out"}</span>
         <span class="v" style="text-align:left;flex:1;font-weight:550">
           ${esc(e.subject || "(no subject)")}
-          <div class="small muted" style="font-weight:450">${esc(formatDate(e.createdAt))}${e.via === "auto" ? " · sent automatically" : ""}</div>
+          <div class="small muted" style="font-weight:450">${esc(formatDate(e.receivedAt || e.createdAt))}${e.via === "auto" ? " · sent automatically" : e.via === "outlook" ? " · from Outlook" : ""}</div>
         </span>
       </div>`).join("");
   };

@@ -97,6 +97,10 @@ const DEFAULT_STATE = {
     // Automated sending: when on (and the function has RESEND_API_KEY +
     // EMAIL_FROM secrets), due cadence emails go out on app open.
     emailAutoSend: false,
+    // Outlook inbox sync (Microsoft Graph, on-device OAuth). The client ID of
+    // the user's own Entra app registration; empty = not connected.
+    msClientId: "",
+    msTenant: "common",
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,

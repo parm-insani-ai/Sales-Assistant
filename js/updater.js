@@ -23,6 +23,7 @@ export function initAutoUpdate() {
       // HTTP cache, so a new deploy is always noticed.
       reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
     } catch { return; }
+    if (!reg) return; // registration unavailable (private mode, blocked SWs)
 
     const check = () => reg.update().catch(() => {});
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });

@@ -160,7 +160,7 @@ export function renderComms(view) {
     row.innerHTML = `
       <span class="k" style="flex:none">${e.direction === "in" ? "↓ In" : "↑ Out"}</span>
       <span class="v" style="text-align:left;flex:1;font-weight:550">${esc(e.subject || "(no subject)")}
-        <div class="small muted" style="font-weight:450">${esc(l ? l.name : "Customer")} · ${esc(formatDate(e.createdAt))}${e.via === "auto" ? " · automatic" : ""}</div>
+        <div class="small muted" style="font-weight:450">${esc(l ? l.name : "Customer")} · ${esc(formatDate(e.receivedAt || e.createdAt))}${e.via === "auto" ? " · automatic" : e.via === "outlook" ? " · Outlook" : ""}</div>
       </span>
     `;
     row.addEventListener("click", () => l && navigate(`/leads/${l.id}`));

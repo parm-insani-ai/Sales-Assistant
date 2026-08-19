@@ -27,6 +27,7 @@ import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails } from "./email.js";
 import { reconcileLinks } from "./connections.js";
+import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -131,6 +132,22 @@ initAutoUpdate();
 // Heal any pre-linking records (sales/deliveries without a customer) so old
 // data participates in the connected graph too.
 try { reconcileLinks(); } catch {}
+
+// Outlook inbox: finish an in-flight sign-in if Microsoft just redirected
+// back, then pull new customer mail in the background.
+handleAuthRedirect()
+  .then((connected) => {
+    if (connected) {
+      toast("Outlook connected — pulling your mail", "success");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
+    pullMailIfStale();
+  })
+  .catch((e) => toast(`Outlook: ${e.message || "sign-in failed"}`, "danger"));
+window.addEventListener("entoa-mail", (e) => {
+  const n = e.detail && e.detail.linked;
+  if (n) toast(`${n} customer email${n === 1 ? "" : "s"} filed from Outlook`, "success");
+});
 
 // Automated cadence emails (optional): send anything due, quietly, on open.
 autoSendDueEmails().then((r) => {
