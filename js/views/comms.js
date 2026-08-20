@@ -8,6 +8,7 @@ import { icon } from "../icons.js";
 import { esc, initials, formatDate, relativeDay, daysFromToday, telHref, smsHref, mailtoHref } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured } from "../email.js";
+import { getOccasions, markOccasion } from "../occasions.js";
 
 // A customer without a phone or email: collect it on the spot, then go
 // straight into picking a message — no detour through the lead page.
@@ -65,10 +66,14 @@ export function renderComms(view) {
       (a.when.startsWith(todayK) || a.when.startsWith(tomorrowK)))
     .sort((a, b) => (a.when || "").localeCompare(b.when || ""));
 
+  const occasions = getOccasions();
+
   const el = document.createElement("div");
   el.innerHTML = `
     ${upcoming.length ? `<div class="section-title">Confirmations &amp; reminders</div>
     <div class="card" id="c-remind"></div>` : ""}
+    ${occasions.length ? `<div class="section-title">Reasons to reach out</div>
+    <div class="card" id="c-occ"></div>` : ""}
     <div class="section-title">Outreach due</div>
     <div class="card" id="c-due">${due.length ? "" : `<div class="muted small">Nothing due — every follow-up is on schedule. 🎉</div>`}</div>
 
@@ -129,6 +134,42 @@ export function renderComms(view) {
       row.querySelector(".small").textContent = `${a.title || "Appointment"} · ${isToday ? "today" : "tomorrow"} ${time} · confirmed ✓`;
     });
     remindBox.appendChild(row);
+  });
+
+  // --- Reasons to reach out: date-driven occasions (lease maturities,
+  // birthdays, purchase anniversaries) with a ready-to-send message. Acting or
+  // dismissing marks the occasion on the lead so it never nags twice.
+  const occBox = el.querySelector("#c-occ");
+  if (occBox) occasions.slice(0, 8).forEach((o) => {
+    const row = document.createElement("div");
+    row.className = "kv";
+    row.style.alignItems = "center";
+    const canText = !!o.lead.phone;
+    row.innerHTML = `
+      <span class="v" style="text-align:left;flex:1;font-weight:550;cursor:pointer">${esc(o.lead.name)}
+        <div class="small muted" style="font-weight:450">${esc(o.label)}</div>
+      </span>
+      ${canText
+        ? `<a class="btn btn-primary btn-sm" href="${smsHref(o.lead.phone, o.message)}" style="flex:none">${icon("message")} Text</a>`
+        : `<button class="btn btn-ghost btn-sm" data-occ-open style="flex:none">Open</button>`}
+      <button class="modal-close" data-occ-skip aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>
+    `;
+    row.querySelector("span").addEventListener("click", () => navigate(`/leads/${o.lead.id}`));
+    const openB = row.querySelector("[data-occ-open]");
+    if (openB) openB.addEventListener("click", () => navigate(`/leads/${o.lead.id}`));
+    const textB = row.querySelector("a");
+    if (textB) textB.addEventListener("click", () => {
+      markOccasion(o.lead.id, o.key);
+      store.update("leads", o.lead.id, { lastContacted: new Date().toISOString() });
+      store.logActivity("touch");
+      row.style.opacity = "0.45";
+    });
+    row.querySelector("[data-occ-skip]").addEventListener("click", () => {
+      markOccasion(o.lead.id, o.key);
+      row.remove();
+      if (!occBox.children.length) occBox.innerHTML = `<div class="muted small">All caught up.</div>`;
+    });
+    occBox.appendChild(row);
   });
 
   // --- Outreach due: one-tap act (marks the step done + logs the touch). ---
