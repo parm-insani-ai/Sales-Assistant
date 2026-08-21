@@ -13,6 +13,7 @@ import { checkForUpdate, getVersion } from "../updater.js";
 import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured } from "../email.js";
 import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
+import { shorten, shortUrl } from "../shortlink.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -622,9 +623,9 @@ function buildEmail(slot) {
 
 // Self-serve booking page: customers book their own slot from a link; the
 // appointment lands in the cloud and syncs into the app.
-export function bookingLink() {
+function bookingCfg() {
   const s = store.getSettings();
-  const cfg = {
+  return {
     u: backend.currentUser().id,
     fn: (s.agentUrl || "").trim().replace(/\/+$/, ""),
     n: s.salesperson || "",
@@ -633,10 +634,39 @@ export function bookingLink() {
     slot: s.bookSlot || 30,
     days: s.bookDays || [1, 2, 3, 4, 5, 6],
   };
-  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+}
+
+export function bookingLink() {
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(bookingCfg()))))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/$/, "");
   return `${base}/book.html?c=${b64}`;
+}
+
+// The short booking link is minted once and cached; a config change (hours,
+// days, name) invalidates it and the next refresh mints a fresh code.
+export function cachedShortBookingLink() {
+  try {
+    const c = store.getSettings().bookShort;
+    if (!c || !c.code || !c.s || c.sig !== JSON.stringify(bookingCfg())) return null;
+    return shortUrl("book.html", c.code, c.s);
+  } catch {
+    return null;
+  }
+}
+
+export async function shortBookingLink() {
+  const cached = cachedShortBookingLink();
+  if (cached) return cached;
+  try {
+    const cfg = bookingCfg();
+    const r = await shorten("book", cfg);
+    if (!r) return null;
+    store.updateSettings({ bookShort: { code: r.code, s: r.s, sig: JSON.stringify(cfg) } });
+    return shortUrl("book.html", r.code, r.s);
+  } catch {
+    return null;
+  }
 }
 
 function buildBooking(slot) {
@@ -673,14 +703,21 @@ function buildBooking(slot) {
   `;
   if (!ready) return;
 
-  const refreshLink = () => {
-    const link = bookingLink();
-    slot.querySelector("#bk-link").value = link;
+  const applyLink = (link) => {
+    const input = slot.querySelector("#bk-link");
+    if (!input) return;
+    input.value = link;
     const first = (store.getSettings().salesperson || "").split(" ")[0];
     slot.querySelector("#bk-sms").href = `sms:?&body=${encodeURIComponent(
       `Hi! ${first ? `It's ${first} — ` : ""}here's my calendar. Grab any time that works for you and I'll have everything ready when you come in:\n\n${link}`
     )}`;
     slot.querySelector("#bk-open").href = link;
+  };
+  const refreshLink = () => {
+    // Long link right away so the field is never empty; the clean short link
+    // replaces it as soon as the cloud hands back a code.
+    applyLink(bookingLink());
+    shortBookingLink().then((u) => { if (u) applyLink(u); });
   };
   refreshLink();
 

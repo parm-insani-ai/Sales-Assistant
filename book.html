@@ -98,9 +98,9 @@
     while (s.length % 4) s += "=";
     return decodeURIComponent(Array.from(atob(s), function (c) { return "%" + c.charCodeAt(0).toString(16).padStart(2, "0"); }).join(""));
   }
-  var cfg = null;
-  try { cfg = JSON.parse(b64urlDecode(new URLSearchParams(location.search).get("c") || "")); } catch (e) {}
-  if (!cfg || !cfg.u || !cfg.fn) { document.getElementById("bad").classList.remove("hidden"); return; }
+  function bad() { document.getElementById("bad").classList.remove("hidden"); }
+  function init(cfg) {
+  if (!cfg || !cfg.u || !cfg.fn) { bad(); return; }
 
   var days = cfg.days || [1, 2, 3, 4, 5, 6]; // JS weekday numbers open for booking
   var startH = cfg.h && cfg.h[0] != null ? cfg.h[0] : 9;
@@ -217,6 +217,26 @@
         err.textContent = "Couldn't reach the calendar — check your connection and try again.";
       });
   });
+  }
+
+  // Two link shapes: short (?l=<code>&s=<host>~<function> — the config lives
+  // in the cloud) and legacy long (?c=<base64 config> — self-contained).
+  var q = new URLSearchParams(location.search);
+  var code = q.get("l"), sref = q.get("s") || "";
+  if (code) {
+    var ti = sref.indexOf("~");
+    var host = ti > 0 ? sref.slice(0, ti) : "", fn = ti > 0 ? sref.slice(ti + 1) : "";
+    if (!/^[\w.-]+(:\d+)?$/.test(host) || !/^[\w-]+$/.test(fn)) { bad(); return; }
+    var scheme = /^(localhost|127\.)/.test(host) ? "http" : "https";
+    fetch(scheme + "://" + host + "/functions/v1/" + fn + "?l=" + encodeURIComponent(code))
+      .then(function (r) { return r.json(); })
+      .then(function (j) { init(j && j.payload); })
+      .catch(bad);
+  } else {
+    var cfg = null;
+    try { cfg = JSON.parse(b64urlDecode(q.get("c") || "")); } catch (e) {}
+    init(cfg);
+  }
 })();
 </script>
 </body>

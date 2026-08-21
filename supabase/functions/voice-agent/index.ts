@@ -98,6 +98,49 @@ async function bookedTimes(uid: string, date: string): Promise<string[]> {
     .map((w: string) => w.slice(11, 16));
 }
 
+// ---- Short links (clean URLs for shared pages) ----
+// POST {shorten:{u, kind, data}} stores the payload in the salesperson's
+// records and returns a short code; GET ?l=<code> returns it. The code is the
+// only secret — unguessable, random, no auth needed to resolve.
+function randCode(n = 7): string {
+  const a = "abcdefghjkmnpqrstuvwxyz23456789";
+  const buf = crypto.getRandomValues(new Uint8Array(n));
+  let s = "";
+  for (const b of buf) s += a[b % a.length];
+  return s;
+}
+
+async function handleShorten(sh: any): Promise<Response> {
+  const uid = String(sh?.u || "");
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad link" }, 400);
+  const kind = sh.kind === "book" ? "book" : "compare";
+  const payload = sh.data;
+  if (!payload || JSON.stringify(payload).length > 100000) return json({ error: "bad payload" }, 400);
+  const code = randCode();
+  const res = await fetch(sbUrl("/records"), {
+    method: "POST",
+    headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({
+      id: "lnk_" + code, user_id: uid, collection: "links",
+      data: { kind, payload, createdAt: new Date().toISOString() }, deleted: false,
+    }),
+  });
+  if (!res.ok) return json({ error: `save failed (${res.status})` }, 502);
+  return json({ code });
+}
+
+async function handleResolve(code: string): Promise<Response> {
+  if (!/^[a-z0-9]{5,12}$/.test(code)) return json({ error: "bad link" }, 400);
+  const res = await fetch(
+    sbUrl(`/records?id=eq.lnk_${encodeURIComponent(code)}&collection=eq.links&deleted=eq.false&select=data&limit=1`),
+    { headers: sbHeaders() },
+  );
+  if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
+  const rows = await res.json();
+  if (!rows.length) return json({ error: "not found" }, 404);
+  return json(rows[0].data);
+}
+
 async function handleAvail(req: Request): Promise<Response> {
   const u = new URL(req.url);
   const uid = u.searchParams.get("u") || "";
@@ -170,6 +213,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method === "GET") {
     const u = new URL(req.url);
+    if (u.searchParams.get("l")) return handleResolve(u.searchParams.get("l") || "");
     if (u.searchParams.get("avail")) return handleAvail(req);
     return proxyICS(req);
   }
@@ -178,6 +222,7 @@ Deno.serve(async (req: Request) => {
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
   if (body.book) return handleBook(body);
+  if (body.shorten) return handleShorten(body.shorten);
 
   // --- Optional email sending (Resend) ---
   if (body.email) {

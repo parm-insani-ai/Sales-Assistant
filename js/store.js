@@ -68,6 +68,7 @@ const DEFAULT_STATE = {
   spifs: [],
   specials: [],
   emails: [], // logged emails per lead: { leadId, direction: "in"|"out", subject, body, via }
+  links: [], // short-link payloads live in the cloud; rows land here on pull and are otherwise unused
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -106,6 +107,7 @@ const DEFAULT_STATE = {
     bookEnd: 19,
     bookSlot: 30,
     bookDays: [1, 2, 3, 4, 5, 6], // Mon–Sat (JS weekday numbers)
+    bookShort: null, // cached short booking link {code, s, sig} — re-minted when the config changes
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,

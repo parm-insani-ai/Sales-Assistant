@@ -9,8 +9,9 @@ import { openModal, buildForm, toast, emptyState } from "../components.js";
 import { currency, esc, num } from "../utils.js";
 import { icon } from "../icons.js";
 import { SPEC_LIBRARY, SPEC_DISCLAIMER } from "../specs.js";
-import { bookingLink } from "./settings.js";
+import { bookingLink, cachedShortBookingLink } from "./settings.js";
 import * as backend from "../backend.js";
+import { shortenLink } from "../shortlink.js";
 
 // Unified spec rows. `best` picks a winner across columns: "low" (price, fuel)
 // or "high" (power, cargo, towing, seats).
@@ -140,7 +141,10 @@ export function renderCompare(view) {
   el.querySelector('[data-act="add"]').addEventListener("click", () =>
     openVehiclePicker((v) => { selected.push(v); draw(); }));
 
-  shareBtn.addEventListener("click", () => openShare(selected));
+  shareBtn.addEventListener("click", async () => {
+    shareBtn.disabled = true;
+    try { await openShare(selected); } finally { shareBtn.disabled = !selected.length; }
+  });
 
   draw();
 }
@@ -255,18 +259,21 @@ function openCustomForm(onPick) {
 }
 
 // ---------- Sharing: a branded web page (plus plain-text fallback) ----------
-function compareLink(selected) {
+function comparePayload(selected) {
   const s = store.getSettings();
   let book = "";
-  try { if (backend.currentUser() && (s.agentUrl || "").trim()) book = bookingLink(); } catch {}
+  try { if (backend.currentUser() && (s.agentUrl || "").trim()) book = cachedShortBookingLink() || bookingLink(); } catch {}
   const rows = activeRows(selected);
-  const payload = {
+  return {
     n: s.salesperson || "", d: s.dealership || "", b: book,
     v: selected.map((v) => ({ name: vehName(v), cells: rows.map((r) => r.get(v)) })),
     r: rows.map((r) => r.label),
     w: winners(selected),
     k: rows.map((r) => r.key),
   };
+}
+
+function compareLink(payload) {
   const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/$/, "");
@@ -285,16 +292,19 @@ function comparisonText(selected) {
   return lines.join("\n").trim();
 }
 
-function openShare(selected) {
+async function openShare(selected) {
   if (!selected.length) return;
-  const link = compareLink(selected);
+  const payload = comparePayload(selected);
+  // A clean short link when the cloud is reachable; the long self-contained
+  // link still works everywhere as the fallback.
+  const link = (await shortenLink("compare.html", "compare", payload)) || compareLink(payload);
   const s = store.getSettings();
   const first = (s.salesperson || "").split(" ")[0];
   const intro = `Hi! ${first ? `It's ${first} — ` : ""}here's the side-by-side comparison we talked about:\n\n${link}`;
   openModal("Send the comparison", (close) => {
     const wrap = document.createElement("div");
     wrap.innerHTML = `
-      <div class="small muted" style="margin-bottom:12px">The customer gets a clean web page with the full feature-by-feature table${compareHasBooking(link) ? " — ending with a button to book their visit" : ""}.</div>
+      <div class="small muted" style="margin-bottom:12px">The customer gets a clean web page with the full feature-by-feature table${payload.b ? " — ending with a button to book their visit" : ""}.</div>
       <a class="btn btn-primary btn-block" style="margin-bottom:10px" href="sms:?&body=${encodeURIComponent(intro)}">${icon("message")} Text it</a>
       <a class="btn btn-primary btn-block" style="margin-bottom:10px" href="mailto:?subject=${encodeURIComponent("Your vehicle comparison")}&body=${encodeURIComponent(intro + "\n\n" + comparisonText(selected))}">${icon("mail")} Email it</a>
       <button class="btn btn-ghost btn-block" style="margin-bottom:10px" id="sh-copy">${icon("file")} Copy the link</button>
@@ -308,9 +318,4 @@ function openShare(selected) {
     });
     return wrap;
   });
-}
-
-function compareHasBooking(link) {
-  try { return JSON.parse(decodeURIComponent(escape(atob(link.split("?c=")[1].replace(/-/g, "+").replace(/_/g, "/"))))).b; }
-  catch { return false; }
 }

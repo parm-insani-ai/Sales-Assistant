@@ -64,9 +64,9 @@
     return decodeURIComponent(Array.from(atob(s), function (c) { return "%" + c.charCodeAt(0).toString(16).padStart(2, "0"); }).join(""));
   }
   var esc = function (t) { var d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; };
-  var data = null;
-  try { data = JSON.parse(b64urlDecode(new URLSearchParams(location.search).get("c") || "")); } catch (e) {}
-  if (!data || !data.v || !data.v.length || !data.r) { document.getElementById("bad").classList.remove("hidden"); return; }
+  function bad() { document.getElementById("bad").classList.remove("hidden"); }
+  function init(data) {
+  if (!data || !data.v || !data.v.length || !data.r) { bad(); return; }
 
   document.getElementById("page").classList.remove("hidden");
   document.getElementById("sub").textContent =
@@ -95,6 +95,26 @@
   document.getElementById("foot").textContent =
     "Specs and pricing are approximate (base trims, Canadian market) — we'll confirm exact details together." +
     (data.n ? " — " + data.n : "");
+  }
+
+  // Two link shapes: short (?l=<code>&s=<host>~<function> — the payload lives
+  // in the cloud) and legacy long (?c=<base64 payload> — self-contained).
+  var q = new URLSearchParams(location.search);
+  var code = q.get("l"), sref = q.get("s") || "";
+  if (code) {
+    var ti = sref.indexOf("~");
+    var host = ti > 0 ? sref.slice(0, ti) : "", fn = ti > 0 ? sref.slice(ti + 1) : "";
+    if (!/^[\w.-]+(:\d+)?$/.test(host) || !/^[\w-]+$/.test(fn)) { bad(); return; }
+    var scheme = /^(localhost|127\.)/.test(host) ? "http" : "https";
+    fetch(scheme + "://" + host + "/functions/v1/" + fn + "?l=" + encodeURIComponent(code))
+      .then(function (r) { return r.json(); })
+      .then(function (j) { init(j && j.payload); })
+      .catch(bad);
+  } else {
+    var data = null;
+    try { data = JSON.parse(b64urlDecode(q.get("c") || "")); } catch (e) {}
+    init(data);
+  }
 })();
 </script>
 </body>
