@@ -622,7 +622,7 @@ function buildEmail(slot) {
 
 // Self-serve booking page: customers book their own slot from a link; the
 // appointment lands in the cloud and syncs into the app.
-function bookingLink() {
+export function bookingLink() {
   const s = store.getSettings();
   const cfg = {
     u: backend.currentUser().id,

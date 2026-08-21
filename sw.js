@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "entoa-v62";
+const CACHE = "entoa-v63";
 const ASSETS = [
   "./",
   "./index.html",
@@ -15,6 +15,7 @@ const ASSETS = [
   "./js/connections.js",
   "./js/msmail.js",
   "./js/occasions.js",
+  "./js/specs.js",
   "./js/backend.js",
   "./js/sync.js",
   "./js/icons.js",

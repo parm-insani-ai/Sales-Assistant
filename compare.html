@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your comparison</title>
+<meta name="description" content="A side-by-side, feature-by-feature vehicle comparison.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="entoa">
+<meta property="og:title" content="Your vehicle comparison">
+<meta property="og:description" content="Side by side, feature by feature — see how they stack up.">
+<meta property="og:image" content="https://entoa.ai/icons/compare-banner.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://entoa.ai/icons/compare-banner.png">
+<link rel="icon" href="./icons/icon.svg">
+<style>
+  :root {
+    --brand: #0a8f5b; --brand-ink: #fff; --bg: #f6f7f8; --surface: #fff;
+    --text: #16191d; --muted: #6b7580; --border: #e5e8ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --brand: #10c96f; --brand-ink: #04140c; --bg: #0c0f12; --surface: #14181c; --text: #eef1f3; --muted: #8b949c; --border: #242a30; }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; padding: 20px 14px calc(28px + env(safe-area-inset-bottom)); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; letter-spacing: -0.03em; margin: 4px 0 4px; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 16px; }
+  .scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
+  .col { flex: 0 0 46%; min-width: 150px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .col.labels { flex: 0 0 32%; min-width: 92px; background: transparent; border-color: transparent; }
+  .head { padding: 12px 10px; min-height: 56px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 0.92rem; line-height: 1.2; display: flex; align-items: flex-start; }
+  .labels .head { border-color: transparent; }
+  .cell { padding: 10px; font-size: 0.88rem; border-bottom: 1px solid var(--border); min-height: 40px; line-height: 1.35; }
+  .labels .cell { color: var(--muted); font-size: 0.78rem; border-color: transparent; font-weight: 600; }
+  .col .cell:last-child, .col .head:last-child { border-bottom: none; }
+  .best { color: var(--brand); font-weight: 700; }
+  .tag { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; background: color-mix(in srgb, var(--brand) 16%, transparent); color: var(--brand); padding: 1px 5px; border-radius: 99px; vertical-align: middle; }
+  .cta { display: block; text-align: center; margin-top: 18px; padding: 15px; border-radius: 14px; background: var(--brand); color: var(--brand-ink); font-weight: 700; text-decoration: none; font-size: 1rem; }
+  .foot { color: var(--muted); font-size: 0.76rem; text-align: center; margin-top: 16px; line-height: 1.5; }
+  .bad { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="bad" class="bad hidden">This comparison link looks incomplete — ask for a fresh one.</div>
+  <div id="page" class="hidden">
+    <h1>Your comparison</h1>
+    <div class="sub" id="sub"></div>
+    <div class="scroll" id="table"></div>
+    <a class="cta hidden" id="cta" href="#">📅 Book a time to see it in person</a>
+    <div class="foot" id="foot"></div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  function b64urlDecode(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    return decodeURIComponent(Array.from(atob(s), function (c) { return "%" + c.charCodeAt(0).toString(16).padStart(2, "0"); }).join(""));
+  }
+  var esc = function (t) { var d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML; };
+  var data = null;
+  try { data = JSON.parse(b64urlDecode(new URLSearchParams(location.search).get("c") || "")); } catch (e) {}
+  if (!data || !data.v || !data.v.length || !data.r) { document.getElementById("bad").classList.remove("hidden"); return; }
+
+  document.getElementById("page").classList.remove("hidden");
+  document.getElementById("sub").textContent =
+    (data.n ? "Put together for you by " + data.n : "Side by side, feature by feature") + (data.d ? " · " + data.d : "");
+
+  var w = data.w || {};
+  var keys = data.k || [];
+  var html = '<div class="col labels"><div class="head"></div>' +
+    data.r.map(function (label) { return '<div class="cell">' + esc(label) + "</div>"; }).join("") + "</div>";
+  data.v.forEach(function (v, ci) {
+    html += '<div class="col"><div class="head">' + esc(v.name) + "</div>" +
+      v.cells.map(function (cell, ri) {
+        var isBest = keys[ri] != null && w[keys[ri]] === ci;
+        return '<div class="cell' + (isBest ? " best" : "") + '">' + esc(cell) + (isBest ? ' <span class="tag">best</span>' : "") + "</div>";
+      }).join("") + "</div>";
+  });
+  document.getElementById("table").innerHTML = html;
+
+  if (data.b) {
+    var cta = document.getElementById("cta");
+    cta.href = data.b;
+    cta.classList.remove("hidden");
+  }
+  document.getElementById("foot").textContent =
+    "Specs and pricing are approximate (base trims, Canadian market) — we'll confirm exact details together." +
+    (data.n ? " — " + data.n : "");
+})();
+</script>
+</body>
+</html>
