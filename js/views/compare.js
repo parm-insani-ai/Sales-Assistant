@@ -88,7 +88,7 @@ export function renderCompare(view) {
     <div id="cmp-table"></div>
     <div class="btn-row" style="margin-top:12px">
       <button class="btn btn-primary btn-block" data-act="add">${icon("plus")} Add vehicle</button>
-      <button class="btn btn-ghost btn-block" data-act="share" disabled>${icon("upload")} Send to customer</button>
+      <button class="btn btn-ghost btn-block" data-act="share" disabled>${icon("send")} Send to customer</button>
     </div>
     <div class="fab-note">${esc(SPEC_DISCLAIMER)}</div>
   `;
