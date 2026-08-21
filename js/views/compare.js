@@ -166,8 +166,12 @@ function openVehiclePicker(onPick) {
         const btn = document.createElement("button");
         btn.className = "btn btn-ghost btn-block";
         btn.style.cssText = "justify-content:space-between;margin-bottom:8px;text-align:left";
-        btn.innerHTML = `<span>${v.make === "Nissan" ? icon("car") + " " : ""}${esc(v.label)}</span><span class="mono small muted">from ${esc(currency(v.msrp))}</span>`;
-        btn.addEventListener("click", () => { close(); onPick({ ...v }); });
+        btn.innerHTML = `<span>${v.make === "Nissan" ? icon("car") + " " : ""}${esc(v.label)}</span><span class="mono small muted">from ${esc(currency(v.msrp))}${v.trims ? ` · ${v.trims.length} trims ›` : ""}</span>`;
+        btn.addEventListener("click", () => {
+          close();
+          if (v.trims && v.trims.length > 1) openTrimPicker(v, onPick);
+          else onPick({ ...v });
+        });
         lib.appendChild(btn);
       });
       if (!list.length) lib.innerHTML = `<div class="muted small" style="text-align:center;margin:8px 0">Not in the database — enter it manually below.</div>`;
@@ -185,6 +189,37 @@ function openVehiclePicker(onPick) {
       btn.innerHTML = `<span>${esc(vehName(v))}</span><span class="mono small muted">${v.price != null && v.price !== "" ? esc(currency(v.price)) : ""}</span>`;
       btn.addEventListener("click", () => { close(); onPick({ ...v }); });
       invBox.appendChild(btn);
+    });
+    return wrap;
+  });
+}
+
+// Trim chooser: each trim carries its own price, what it adds, and optional
+// spec overrides (AWD, hybrid power, screens…) merged over the base entry.
+function openTrimPicker(v, onPick) {
+  openModal(v.label, (close) => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="small muted" style="margin-bottom:12px">Pick the trim — prices and features adjust to it.</div>`;
+    v.trims.forEach((t) => {
+      const btn = document.createElement("button");
+      btn.className = "btn btn-ghost btn-block";
+      btn.style.cssText = "justify-content:flex-start;text-align:left;margin-bottom:8px;height:auto;padding:12px 14px";
+      btn.innerHTML = `<div style="width:100%">
+        <div class="row" style="gap:8px"><span class="strong">${esc(t.name)}</span><span class="mono small muted" style="flex:none">from ${esc(currency(t.msrp))}</span></div>
+        ${t.adds ? `<div class="small muted" style="margin-top:3px">${esc(t.adds)}</div>` : ""}
+      </div>`;
+      btn.addEventListener("click", () => {
+        close();
+        onPick({
+          ...v,
+          ...(t.set || {}),
+          msrp: t.msrp,
+          label: `${v.label} ${t.name}`,
+          features: t.adds || v.features,
+          trims: undefined,
+        });
+      });
+      wrap.appendChild(btn);
     });
     return wrap;
   });
