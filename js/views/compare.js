@@ -1,15 +1,14 @@
 // Side-by-side vehicle comparison — AutoTrader-style, feature by feature.
-// Line up Nissans against their cross-shops from the built-in spec library,
-// your own inventory, an AI-filled spec sheet for anything else, or a manual
-// entry — then send the whole comparison to a customer as a branded web page
-// (text or email) that ends in your booking link.
+// Line up Nissans against their cross-shops from the built-in vehicle database
+// (~50 vehicles across every segment), your own inventory, or a manual entry —
+// then send the whole comparison to a customer as a branded web page (text or
+// email) that ends in your booking link.
 
 import * as store from "../store.js";
 import { openModal, buildForm, toast, emptyState } from "../components.js";
 import { currency, esc, num } from "../utils.js";
 import { icon } from "../icons.js";
 import { SPEC_LIBRARY, SPEC_DISCLAIMER } from "../specs.js";
-import { agentConfigured } from "../agent.js";
 import { bookingLink } from "./settings.js";
 import * as backend from "../backend.js";
 
@@ -24,13 +23,24 @@ const ROWS = [
   { key: "trans", label: "Transmission", get: (v) => v.trans || v.transmission || "—" },
   { key: "fuel", label: "Fuel (combined)", best: "low", num: (v) => Number(v.fuel) || null,
     get: (v) => v.fuel ? `${v.fuel} L/100km` : (v.fuelType || "—") },
+  { key: "fuelcity", label: "Fuel (city)", best: "low", num: (v) => Number(v.fuelCity) || null,
+    get: (v) => v.fuelCity ? `${v.fuelCity} L/100km` : "—" },
+  { key: "fuelhwy", label: "Fuel (highway)", best: "low", num: (v) => Number(v.fuelHwy) || null,
+    get: (v) => v.fuelHwy ? `${v.fuelHwy} L/100km` : "—" },
   { key: "fuelreq", label: "Fuel type", get: (v) => v.fuelReq || "—" },
+  { key: "range", label: "Electric range", best: "high", num: (v) => Number(v.range) || null,
+    get: (v) => v.range ? `~${num(v.range)} km` : "—" },
+  { key: "tank", label: "Fuel tank", best: "high", num: (v) => Number(v.tank) || null,
+    get: (v) => v.tank ? `${v.tank} L` : "—" },
   { key: "drive", label: "Drivetrain", get: (v) => v.drive || v.drivetrain || "—" },
   { key: "clearance", label: "Ground clearance", best: "high", num: (v) => Number(v.clearance) || null,
     get: (v) => v.clearance ? `${v.clearance} mm` : "—" },
+  { key: "length", label: "Length", get: (v) => v.length ? `${num(v.length)} mm` : "—" },
   { key: "seats", label: "Seats", best: "high", num: (v) => Number(v.seats) || null, get: (v) => v.seats || "—" },
-  { key: "cargo", label: "Cargo", best: "high", num: (v) => Number(v.cargo) || null, get: (v) => v.cargo ? `${num(v.cargo)} L` : "—" },
+  { key: "cargo", label: "Cargo (seats up)", best: "high", num: (v) => Number(v.cargo) || null, get: (v) => v.cargo ? `${num(v.cargo)} L` : "—" },
+  { key: "cargomax", label: "Cargo (seats folded)", best: "high", num: (v) => Number(v.cargoMax) || null, get: (v) => v.cargoMax ? `${num(v.cargoMax)} L` : "—" },
   { key: "tow", label: "Towing", best: "high", num: (v) => Number(v.tow) || null, get: (v) => v.tow ? `${num(v.tow)} lb` : "—" },
+  { key: "carplay", label: "CarPlay / Android Auto", get: (v) => v.carplay || "—" },
   { key: "heated", label: "Heated seats / wheel", get: (v) => v.heated || "—" },
   { key: "screen", label: "Screen", get: (v) => v.screen || "—" },
   { key: "adas", label: "Driver assistance", get: (v) => v.adas || "—" },
@@ -136,11 +146,10 @@ function openVehiclePicker(onPick) {
   openModal("Add a vehicle", (close) => {
     const wrap = document.createElement("div");
     wrap.innerHTML = `
-      <div class="searchbar" style="margin-bottom:10px"><input type="search" id="cmp-q" placeholder="Search the spec library…"></div>
+      <div class="searchbar" style="margin-bottom:10px"><input type="search" id="cmp-q" placeholder="Search ${SPEC_LIBRARY.length} vehicles — RAV4, Forester, Telluride…"></div>
       <div id="cmp-lib"></div>
       <div class="btn-row" style="margin:12px 0 4px">
-        ${agentConfigured() ? `<button class="btn btn-ghost btn-block" id="cmp-ai">${icon("sparkles")} Ask AI for any vehicle</button>` : ""}
-        <button class="btn btn-ghost btn-block" id="cmp-manual">${icon("edit")} Enter manually</button>
+        <button class="btn btn-ghost btn-block" id="cmp-manual">${icon("edit")} Enter a vehicle manually</button>
       </div>
       ${inv.length ? `<div class="section-title">From your inventory</div><div id="cmp-inv"></div>` : ""}
     `;
@@ -148,10 +157,10 @@ function openVehiclePicker(onPick) {
     const lib = wrap.querySelector("#cmp-lib");
     const drawLib = (q = "") => {
       const query = q.trim().toLowerCase();
-      const list = (query
-        ? SPEC_LIBRARY.filter((v) => `${v.label} ${v.make}`.toLowerCase().includes(query))
-        : SPEC_LIBRARY
-      ).slice(0, query ? 12 : 8);
+      // Default view leads with the Nissan lineup; search spans the whole DB.
+      const list = query
+        ? SPEC_LIBRARY.filter((v) => `${v.label} ${v.make}`.toLowerCase().includes(query)).slice(0, 14)
+        : SPEC_LIBRARY.filter((v) => v.make === "Nissan");
       lib.innerHTML = "";
       list.forEach((v) => {
         const btn = document.createElement("button");
@@ -161,13 +170,11 @@ function openVehiclePicker(onPick) {
         btn.addEventListener("click", () => { close(); onPick({ ...v }); });
         lib.appendChild(btn);
       });
-      if (!list.length) lib.innerHTML = `<div class="muted small" style="text-align:center;margin:8px 0">Not in the library — use AI or manual entry below.</div>`;
+      if (!list.length) lib.innerHTML = `<div class="muted small" style="text-align:center;margin:8px 0">Not in the database — enter it manually below.</div>`;
     };
     drawLib();
     wrap.querySelector("#cmp-q").addEventListener("input", (e) => drawLib(e.target.value));
 
-    const ai = wrap.querySelector("#cmp-ai");
-    if (ai) ai.addEventListener("click", () => { close(); openAIFill(onPick); });
     wrap.querySelector("#cmp-manual").addEventListener("click", () => { close(); openCustomForm(onPick); });
 
     const invBox = wrap.querySelector("#cmp-inv");
@@ -178,50 +185,6 @@ function openVehiclePicker(onPick) {
       btn.innerHTML = `<span>${esc(vehName(v))}</span><span class="mono small muted">${v.price != null && v.price !== "" ? esc(currency(v.price)) : ""}</span>`;
       btn.addEventListener("click", () => { close(); onPick({ ...v }); });
       invBox.appendChild(btn);
-    });
-    return wrap;
-  });
-}
-
-// AI spec fill: the Claude relay returns a JSON spec sheet for any vehicle.
-function openAIFill(onPick) {
-  openModal("AI spec sheet", (close) => {
-    const wrap = document.createElement("div");
-    wrap.innerHTML = `
-      <div class="field"><label>Vehicle</label><input id="ai-name" placeholder="2025 Subaru Forester Touring"></div>
-      <button class="btn btn-primary btn-block" id="ai-go">${icon("sparkles")} Fetch specs</button>
-      <div class="hint" id="ai-out" style="margin-top:10px">${esc(SPEC_DISCLAIMER)}</div>
-    `;
-    wrap.querySelector("#ai-go").addEventListener("click", async () => {
-      const name = wrap.querySelector("#ai-name").value.trim();
-      const out = wrap.querySelector("#ai-out");
-      if (!name) { out.textContent = "Type a vehicle first."; return; }
-      const btn = wrap.querySelector("#ai-go");
-      btn.disabled = true;
-      out.textContent = "Asking…";
-      try {
-        const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            system: 'Return ONLY a JSON object (no prose, no code fences) describing the requested vehicle for the Canadian market, base trim, with keys: label (string, year make model), msrp (number, CAD), engine (string), hp (number), torque (number, lb-ft, or null), trans (string, e.g. "CVT" or "8-speed auto"), fuel (number, combined L/100km), fuelReq (string, "Regular"/"Premium"/"Electric"), drive (string), clearance (number, ground clearance in mm, or null), seats (number), cargo (number, litres, or null), tow (number, lb, or null), heated (string, heated seats/wheel availability), screen (string, infotainment size), adas (string, the driver-assistance suite), warranty (string), features (string, the 2-3 standout features). Approximate values are fine.',
-            messages: [{ role: "user", content: name }],
-            max_tokens: 400,
-          }),
-        });
-        const j = await res.json();
-        if (!res.ok || j.error) throw new Error(j.error || `HTTP ${res.status}`);
-        const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
-        const spec = JSON.parse(text.replace(/^```(json)?|```$/g, "").trim());
-        if (!spec.label) spec.label = name;
-        close();
-        onPick(spec);
-        toast("Specs added — double-check the numbers", "success");
-      } catch (e) {
-        out.textContent = `Couldn't fetch specs (${e.message || "error"}) — try manual entry.`;
-        btn.disabled = false;
-      }
     });
     return wrap;
   });
