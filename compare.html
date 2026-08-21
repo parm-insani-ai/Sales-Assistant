@@ -28,14 +28,14 @@
   .wrap { max-width: 640px; margin: 0 auto; }
   h1 { font-size: 1.4rem; letter-spacing: -0.03em; margin: 4px 0 4px; }
   .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 16px; }
-  .scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
-  .col { flex: 0 0 46%; min-width: 150px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-  .col.labels { flex: 0 0 32%; min-width: 92px; background: transparent; border-color: transparent; }
-  .head { padding: 12px 10px; min-height: 56px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 0.92rem; line-height: 1.2; display: flex; align-items: flex-start; }
-  .labels .head { border-color: transparent; }
-  .cell { padding: 10px; font-size: 0.88rem; border-bottom: 1px solid var(--border); min-height: 40px; line-height: 1.35; }
-  .labels .cell { color: var(--muted); font-size: 0.78rem; border-color: transparent; font-weight: 600; }
-  .col .cell:last-child, .col .head:last-child { border-bottom: none; }
+  /* One grid for the whole table so every row shares one height — labels
+     always line up with their values, even when a cell wraps. */
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  .grid { display: grid; width: max-content; min-width: 100%; }
+  .cell { padding: 10px; font-size: 0.88rem; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); line-height: 1.35; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+  .lcell { position: sticky; left: 0; z-index: 1; background: var(--bg); color: var(--muted); font-size: 0.76rem; font-weight: 650; border-left: none; }
+  .hcell { font-weight: 700; font-size: 0.92rem; align-items: flex-start; background: var(--surface); }
+  .last { border-bottom: none; }
   .best { color: var(--brand); font-weight: 700; }
   .tag { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; background: color-mix(in srgb, var(--brand) 16%, transparent); color: var(--brand); padding: 1px 5px; border-radius: 99px; vertical-align: middle; }
   .cta { display: block; text-align: center; margin-top: 18px; padding: 15px; border-radius: 14px; background: var(--brand); color: var(--brand-ink); font-weight: 700; text-decoration: none; font-size: 1rem; }
@@ -74,16 +74,18 @@
 
   var w = data.w || {};
   var keys = data.k || [];
-  var html = '<div class="col labels"><div class="head"></div>' +
-    data.r.map(function (label) { return '<div class="cell">' + esc(label) + "</div>"; }).join("") + "</div>";
-  data.v.forEach(function (v, ci) {
-    html += '<div class="col"><div class="head">' + esc(v.name) + "</div>" +
-      v.cells.map(function (cell, ri) {
-        var isBest = keys[ri] != null && w[keys[ri]] === ci;
-        return '<div class="cell' + (isBest ? " best" : "") + '">' + esc(cell) + (isBest ? ' <span class="tag">best</span>' : "") + "</div>";
-      }).join("") + "</div>";
+  var cells = ['<div class="cell lcell hcell"></div>'];
+  data.v.forEach(function (v) { cells.push('<div class="cell hcell">' + esc(v.name) + "</div>"); });
+  data.r.forEach(function (label, ri) {
+    var last = ri === data.r.length - 1 ? " last" : "";
+    cells.push('<div class="cell lcell' + last + '">' + esc(label) + "</div>");
+    data.v.forEach(function (v, ci) {
+      var isBest = keys[ri] != null && w[keys[ri]] === ci;
+      cells.push('<div class="cell' + (isBest ? " best" : "") + last + '">' + esc(v.cells[ri]) + (isBest ? ' <span class="tag">best</span>' : "") + "</div>");
+    });
   });
-  document.getElementById("table").innerHTML = html;
+  document.getElementById("table").innerHTML =
+    '<div class="grid" style="grid-template-columns: 104px repeat(' + data.v.length + ', minmax(150px, 180px))">' + cells.join("") + "</div>";
 
   if (data.b) {
     var cta = document.getElementById("cta");

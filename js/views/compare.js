@@ -97,25 +97,25 @@ export function renderCompare(view) {
     const rows = activeRows(selected);
     const win = winners(selected);
 
-    const cols = selected.map((v, i) => `
-      <div class="cmp-col">
-        <div class="cmp-head">
-          <div class="cmp-name">${esc(vehName(v))}</div>
-          <button class="cmp-x" data-remove="${i}" aria-label="Remove">&times;</button>
-        </div>
-        ${rows.map((r) => {
-          const isBest = win[r.key] === i;
-          return `<div class="cmp-cell${isBest ? " cmp-best" : ""}">${esc(r.get(v))}${isBest ? ' <span class="cmp-tag">best</span>' : ""}</div>`;
-        }).join("")}
-      </div>`).join("");
-
+    // One grid, row-major, so every spec row shares one height and labels
+    // always line up with their values.
+    const cells = [];
+    cells.push(`<div class="cmp-cell cmp-lcell cmp-hcell"></div>`);
+    selected.forEach((v, i) => cells.push(
+      `<div class="cmp-cell cmp-hcell"><span>${esc(vehName(v))}</span><button class="cmp-x" data-remove="${i}" aria-label="Remove">&times;</button></div>`));
+    rows.forEach((r, ri) => {
+      const last = ri === rows.length - 1 ? " cmp-last" : "";
+      cells.push(`<div class="cmp-cell cmp-lcell${last}">${esc(r.label)}</div>`);
+      selected.forEach((v, i) => {
+        const isBest = win[r.key] === i;
+        cells.push(`<div class="cmp-cell${isBest ? " cmp-best" : ""}${last}">${esc(r.get(v))}${isBest ? ' <span class="cmp-tag">best</span>' : ""}</div>`);
+      });
+    });
     tableWrap.innerHTML = `
       <div class="cmp-scroll">
-        <div class="cmp-col cmp-labels">
-          <div class="cmp-head"><div class="cmp-name muted small">Spec</div></div>
-          ${rows.map((r) => `<div class="cmp-cell muted small">${esc(r.label)}</div>`).join("")}
+        <div class="cmp-grid" style="grid-template-columns: 106px repeat(${selected.length}, minmax(150px, 170px))">
+          ${cells.join("")}
         </div>
-        ${cols}
       </div>`;
 
     tableWrap.querySelectorAll("[data-remove]").forEach((b) =>
