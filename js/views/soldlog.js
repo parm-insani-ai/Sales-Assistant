@@ -11,6 +11,7 @@ import { openModal, buildForm, toast, undoToast, emptyState, swipeable } from ".
 import { currency, esc, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { afterSale, leadByName } from "../connections.js";
+import { downloadXlsx } from "../xlsxwrite.js";
 
 export const LEAD_TYPES = ["Walk-in", "Hand Off", "Referral", "Facebook", "BDC", "Service", "Auto Alert", "Other"];
 const MAKE_READY = [
@@ -49,6 +50,7 @@ export function renderSoldLog(view) {
       <div class="strong" id="sl-month" style="flex:1;text-align:center"></div>
       <button class="btn btn-ghost btn-sm" data-nav="1" aria-label="Next month">›</button>
       <button class="btn btn-ghost btn-sm" data-nav="year">Year</button>
+      <button class="btn btn-ghost btn-sm" data-act="export" aria-label="Export spreadsheet">${icon("download")}</button>
     </div>
     <div id="sl-list"></div>
     <button class="btn btn-primary btn-block" data-act="add" style="margin:12px 0 4px">${icon("plus")} Log a deal</button>
@@ -222,6 +224,66 @@ export function renderSoldLog(view) {
     draw();
   }));
   el.querySelector('[data-act="add"]').addEventListener("click", () => openDealForm(null, draw));
+
+  // Export the current view (month or year) as a real .xlsx — the deal log on
+  // one sheet, the summary panels on another, numbers as numbers so Excel can
+  // keep summing them.
+  el.querySelector('[data-act="export"]').addEventListener("click", () => {
+    const deals = scoped();
+    if (!deals.length) { toast("Nothing to export for this " + (yearMode ? "year" : "month")); return; }
+    const n = (v) => { const x = Number(v); return v == null || v === "" || !isFinite(x) ? "" : x; };
+    const m2 = (v) => Math.round(v * 100) / 100;
+    const avg = (arr, fn) => arr.length ? m2(arr.reduce((t, s) => t + fn(s), 0) / arr.length) : 0;
+    const sum = (arr, fn) => m2(arr.reduce((t, s) => t + fn(s), 0));
+    const pctN = (c) => deals.length ? m2((c / deals.length) * 100) + "%" : "0%";
+
+    const dealRows = [
+      ["#", "Date", "Customer", "Lead type", "Brand", "Model", "Trim", "Year", "KMs", "New/Used", "Stock #", "VIN", "File #", "Etch #",
+        ...MAKE_READY.map(([, lb]) => lb), "B. Manager", "Front comm", "Business gross", "B.O. comm", "Total comm", "Notes"],
+      ...deals.map((s, i) => [
+        i + 1, s.saleDate || "", s.customerName || "", s.leadType || "", s.brand || "", s.model || "", s.trim || "",
+        n(s.year), n(s.kms), s.newUsed || "", s.stock || "", s.vin || "", s.fileNo || "", s.etchNo || "",
+        ...MAKE_READY.map(([k]) => (s.makeReady && s.makeReady[k] ? "✓" : "")),
+        s.bm || "", n(s.frontComm), n(s.bizGross), n(s.boComm), m2(dealTotal(s)), s.notes || "",
+      ]),
+    ];
+
+    const news = deals.filter((s) => s.newUsed === "New");
+    const useds = deals.filter((s) => s.newUsed === "Used");
+    const groupBy = (fn) => {
+      const m = new Map();
+      deals.forEach((s) => { const k = fn(s); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(s); });
+      return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+    };
+    const summaryRows = [
+      ["New vs used"], ["", "New", "Used", "Total"],
+      ["Deals", news.length, useds.length, deals.length],
+      ["Share", pctN(news.length), pctN(useds.length), deals.length ? "100%" : "0%"],
+      ["Avg front", avg(news, dealFront), avg(useds, dealFront), avg(deals, dealFront)],
+      ["Front total", sum(news, dealFront), sum(useds, dealFront), sum(deals, dealFront)],
+      ["Avg B.O.", avg(news, dealBO), avg(useds, dealBO), avg(deals, dealBO)],
+      ["Avg total", avg(news, dealTotal), avg(useds, dealTotal), avg(deals, dealTotal)],
+      [],
+      ["Where deals came from"], ["Lead type", "Deals", "Total comm", "Avg comm", "% of deals"],
+      ...groupBy((s) => s.leadType || "Untracked").map(([k, arr]) => [k, arr.length, sum(arr, dealTotal), avg(arr, dealTotal), pctN(arr.length)]),
+      [],
+      ["Business managers"], ["Manager", "Deals", "B.O. total", "B.O. avg"],
+      ...groupBy((s) => s.bm || "").map(([k, arr]) => [k, arr.length, sum(arr, dealBO), avg(arr, dealBO)]),
+      [],
+      ["Manufacturers"], ["Brand", "Deals"],
+      ...groupBy((s) => s.brand || "").map(([k, arr]) => [k, arr.length]),
+      [],
+      ["Models"], ["Model", "Deals", "New"],
+      ...groupBy((s) => [s.brand, s.model].filter(Boolean).join(" ")).map(([k, arr]) => [k, arr.length, arr.filter((s) => s.newUsed === "New").length]),
+    ];
+
+    const stamp = yearMode ? ym.slice(0, 4) : ym;
+    downloadXlsx(`sold-tracker-${stamp}.xlsx`, [
+      { name: "Deals", rows: dealRows, widths: [4, 11, 20, 11, 10, 12, 10, 6, 9, 9, 10, 19, 13, 13, ...MAKE_READY.map(() => 6), 12, 11, 13, 10, 11, 28] },
+      { name: "Summary", rows: summaryRows, widths: [16, 10, 12, 12, 10] },
+    ]);
+    toast("Spreadsheet downloaded", "success");
+  });
 
   draw();
 }
