@@ -22,6 +22,7 @@ import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
 import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
 import { renderComms } from "./views/comms.js";
+import { renderSoldLog, openDealForm } from "./views/soldlog.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
@@ -47,6 +48,7 @@ const PAGES = {
   "/specials": { title: "Monthly Specials", render: renderSpecials },
   "/compare": { title: "Compare Vehicles", render: renderCompare },
   "/comms": { title: "Communication", render: renderComms },
+  "/soldlog": { title: "Sold Tracker", render: renderSoldLog },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
 };
@@ -86,6 +88,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
     task: { icon: "check", label: "New to-do", fn: () => openTaskForm() },
     appt: { icon: "calendar", label: "New appointment", fn: () => openAppointmentForm() },
     sale: { icon: "dollar", label: "Log a sale", fn: () => openSaleForm() },
+    soldlog: { icon: "checkline", label: "Sold Tracker (full deal)", fn: () => openDealForm(null, () => navigate("/soldlog")) },
     vehicle: { icon: "car", label: "Add vehicle", fn: () => openVehicleForm() },
     delivery: { icon: "box", label: "New delivery", fn: () => openDeliveryForm() },
     calc: { icon: "calculator", label: "Deal calculator", fn: () => navigate("/calculator") },
@@ -98,8 +101,8 @@ document.getElementById("quick-add").addEventListener("click", () => {
     import: { icon: "file", label: "Import from spreadsheet", fn: () => navigate("/import") },
   };
   // The most relevant action for the current tab goes first.
-  const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calculator": "calc", "/calendar": "appt", "/goals": "sale", "/spiffs": "spif", "/specials": "specials", "/compare": "compare" };
-  const order = ["lead", "prospect", "referral", "task", "appt", "sale", "deals", "compare", "spif", "specials", "vehicle", "delivery", "calc", "dealer", "tools", "import"];
+  const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calculator": "calc", "/calendar": "appt", "/goals": "sale", "/soldlog": "soldlog", "/spiffs": "spif", "/specials": "specials", "/compare": "compare" };
+  const order = ["lead", "prospect", "referral", "task", "appt", "sale", "soldlog", "deals", "compare", "spif", "specials", "vehicle", "delivery", "calc", "dealer", "tools", "import"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
   const actions = keys.map((k) => byKey[k]);

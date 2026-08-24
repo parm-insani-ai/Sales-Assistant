@@ -13,6 +13,7 @@ const TOOLS = [
   { icon: "tag", label: "Monthly specials", sub: "APR / lease / cash", go: () => navigate("/specials") },
   { icon: "target", label: "Prospecting", sub: "Today's call list", go: () => navigate("/prospecting") },
   { icon: "dollar", label: "Goals & commission", sub: "Month-to-date", go: () => navigate("/goals") },
+  { icon: "checkline", label: "Sold Tracker", sub: "Full deal log & summaries", go: () => navigate("/soldlog") },
   { icon: "search", label: "Search inventory", sub: "Find a car for a customer", go: () => openDealerSearch() },
   { icon: "file", label: "Import spreadsheet", sub: "Customers & inventory", go: () => navigate("/import") },
   { icon: "calendar", label: "Calendar", sub: "Appointments", go: () => navigate("/calendar") },
