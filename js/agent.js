@@ -11,9 +11,15 @@ import { navigate } from "./router.js";
 import { maybeStartCadence, startCadence } from "./cadence.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
-import { topOpportunities } from "./views/dealbuilder.js";
+import { topOpportunities, dealsForLead } from "./views/dealbuilder.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
-import { afterSale, afterAppointmentBooked, closeFollowUps } from "./connections.js";
+import { afterSale, afterAppointmentBooked, afterDeliveryComplete, closeFollowUps } from "./connections.js";
+import { getOccasions } from "./occasions.js";
+import { computeDeal } from "./views/calculator.js";
+import { sendEmail, logEmail } from "./email.js";
+import { smsHref, telHref } from "./utils.js";
+import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
+import * as backend from "./backend.js";
 
 export function agentConfigured() {
   return !!(store.getSettings().agentUrl || "").trim();
@@ -40,10 +46,25 @@ const TOOLS = [
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
   { name: "deal_radar", description: "Top trade-up opportunities (customer, matched vehicle, monthly, delta).", input_schema: { type: "object", properties: { limit: { type: "number" } } } },
   { name: "get_stats", description: "This month's appointment funnel, units, commission, goals.", input_schema: { type: "object", properties: {} } },
-  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
+  { name: "get_tasks", description: "List open to-dos ('what's on my plate?'). dueToday also includes overdue.", input_schema: { type: "object", properties: { dueToday: { type: "boolean" } } } },
+  { name: "get_deliveries", description: "Upcoming deliveries with prep progress ('when's Sara's delivery?', 'what's left to prep?').", input_schema: { type: "object", properties: {} } },
+  { name: "get_occasions", description: "Reasons to reach out — upcoming birthdays, lease maturities, purchase anniversaries, each with a ready-to-send message.", input_schema: { type: "object", properties: {} } },
+  { name: "get_specials", description: "Current manufacturer/monthly specials on file (APRs, lease deals, cash offers).", input_schema: { type: "object", properties: {} } },
+  { name: "get_spiffs", description: "Current spifs/bonuses on file.", input_schema: { type: "object", properties: {} } },
+  { name: "payment_quote", description: "Estimate a monthly car payment. Uses the salesperson's saved tax rate, doc fee, APR and term for anything not given.", input_schema: { type: "object", properties: { price: { type: "number" }, down: { type: "number" }, trade: { type: "number", description: "trade-in allowance" }, payoff: { type: "number", description: "trade-in payoff owed" }, apr: { type: "number" }, term: { type: "number", description: "months" } }, required: ["price"] } },
+  { name: "deal_options", description: "Payment-matched vehicles from inventory for one customer ('what could I put Dana in?').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
+  { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
+  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "comms", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
   { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
   { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
+  { name: "complete_task", description: "Check off an open to-do (match by words from its title — 'mark the plates thing done').", input_schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
+  { name: "complete_delivery", description: "Mark a customer's delivery as delivered/handed over. Kicks off the post-delivery follow-up plan.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
+  { name: "text_customer", description: "Open Messages prefilled with a text to a customer — YOU write a natural message; the salesperson just hits send. Use for 'text Ken that his car is ready', or to send the booking link / a comparison.", input_schema: { type: "object", properties: { customer: { type: "string" }, message: { type: "string" } }, required: ["customer", "message"] } },
+  { name: "call_customer", description: "Open the phone dialer with a customer's number ('call Moe').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
+  { name: "send_email", description: "Actually send an email to a customer (needs their email on file and email sending set up). YOU write the subject and body.", input_schema: { type: "object", properties: { customer: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["customer", "subject", "body"] } },
+  { name: "add_special", description: "Save a manufacturer/monthly special ('0% for 60 months on Rogues till Monday').", input_schema: { type: "object", properties: { model: { type: "string" }, financeApr: { type: "number" }, financeTerm: { type: "number" }, leasePayment: { type: "number" }, leaseTerm: { type: "number" }, leaseDown: { type: "number" }, cash: { type: "number" }, expiry: { type: "string", description: "YYYY-MM-DD" }, notes: { type: "string" } }, required: ["model"] } },
+  { name: "add_spif", description: "Save a spif/bonus ('$500 on every Pathfinder this weekend').", input_schema: { type: "object", properties: { title: { type: "string" }, amount: { type: "number" }, match: { type: "string", description: "keyword a sale's vehicle must contain to count" }, expiry: { type: "string", description: "YYYY-MM-DD" }, notes: { type: "string" } }, required: ["title"] } },
   { name: "log_sale", description: "Log a CLOSED sale. Use ONLY when the salesperson clearly says the deal is done — 'sold', 'bought', 'signed', 'took delivery', 'made $X on'. Never for interest ('wants/looking at a Rogue' is create_lead or update_lead, not a sale).", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" } }, required: ["customer"] } },
   { name: "undo_sale", description: "Remove a sale that was logged by mistake (e.g. 'I didn't sell that car', 'that wasn't a sale'). Deletes the customer's most recent sale record and moves their stage back from sold.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
@@ -59,7 +80,8 @@ function buildSystem(ctx) {
     `Understand plain, casual speech — the user will NOT use command words. Infer what they want from whatever they tell you. A bare fact usually implies an action: "Ken's coming in Thursday at 4" → book an appointment; "sold one to Moe, made 800" → log a sale; "Sara's cell is 902-555-1212" → update Sara's phone; "who should I call?" → check the deal radar / follow-ups; "compare the Kicks with the CR-V" or "customer's cross-shopping the RAV4" → compare_vehicles (never search_inventory for that).`,
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
-    `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats). You can take multiple steps.`,
+    `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
+    `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
@@ -164,13 +186,16 @@ const ROUTES = {
   home: "/", dashboard: "/", leads: "/leads", customers: "/leads", inventory: "/inventory",
   calculator: "/calculator", deliveries: "/deliveries", calendar: "/calendar", schedule: "/calendar",
   goals: "/goals", radar: "/deals", deals: "/deals", prospecting: "/prospecting", tools: "/tools",
+  comms: "/comms", communication: "/comms", messages: "/comms",
   spiffs: "/spiffs", specials: "/specials", compare: "/compare", import: "/import", settings: "/settings",
 };
 
 // Run one tool. Returns { result, note } — `result` is what Claude sees (data
 // object for reads, a short confirmation string for writes); `note` is a
 // human-facing action summary (⚠ prefix = failure), or "" for silent reads.
-function execTool(name, p = {}) {
+// Async because a few tools (send_email) do real network work. Exported so
+// tests can exercise every tool without a live Claude relay.
+export async function execTool(name, p = {}) {
   const t = (name || "").toLowerCase();
   switch (t) {
     // ---- READS ----
@@ -208,6 +233,62 @@ function execTool(name, p = {}) {
       const f = apptFunnel(); const m = monthSummary(); const s = store.getSettings();
       return { result: { appointmentsSet: f.set, confirmed: f.confirmed, showed: f.showed, sold: f.sold, showRate: `${f.showRate}%`, appointmentToSold: `${f.closeRate}%`, unitsSold: m.units, commission: m.commission, goalAppointments: s.goalAppointments, goalUnits: s.goalUnits }, note: "" };
     }
+    case "get_tasks": {
+      let list = store.all("tasks").filter((x) => !x.done);
+      if (p.dueToday) {
+        const today = new Date(); const pad2 = (n) => String(n).padStart(2, "0");
+        const iso = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+        list = list.filter((x) => x.due && String(x.due).slice(0, 10) <= iso);
+      }
+      list.sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+      return { result: { count: list.length, tasks: list.slice(0, 20).map((x) => ({ title: x.title, due: x.due || null, priority: x.priority || "normal" })) }, note: "" };
+    }
+    case "get_deliveries": {
+      const list = store.all("deliveries").filter((d) => d.status !== "delivered")
+        .sort((a, b) => (a.deliveryDate || "9999").localeCompare(b.deliveryDate || "9999"));
+      return { result: { count: list.length, deliveries: list.slice(0, 15).map((d) => {
+        const items = d.checklist || [];
+        return { customer: d.customerName || "", vehicle: d.vehicle || "", date: d.deliveryDate || null, prepDone: `${items.filter((i) => i.done).length}/${items.length}`, remaining: items.filter((i) => !i.done).map((i) => i.label).slice(0, 10) };
+      }) }, note: "" };
+    }
+    case "get_occasions": {
+      const occ = getOccasions().slice(0, 12).map((o) => ({ customer: o.lead.name, phone: o.lead.phone || "", occasion: o.label, suggestedMessage: o.message }));
+      return { result: { occasions: occ }, note: "" };
+    }
+    case "get_specials": {
+      const today = new Date().toISOString().slice(0, 10);
+      const list = store.all("specials").filter((x) => !x.expiry || x.expiry >= today);
+      return { result: { specials: list.map((x) => ({ model: x.model, financeApr: x.financeApr ?? null, financeTerm: x.financeTerm ?? null, leasePayment: x.leasePayment ?? null, leaseTerm: x.leaseTerm ?? null, leaseDown: x.leaseDown ?? null, cash: x.cash ?? null, expires: x.expiry || null, notes: x.notes || "" })) }, note: "" };
+    }
+    case "get_spiffs": {
+      const today = new Date().toISOString().slice(0, 10); const mo = today.slice(0, 7);
+      const list = store.all("spifs").filter((x) => (x.expiry ? x.expiry >= today : (x.month || mo) === mo));
+      return { result: { spiffs: list.map((x) => ({ title: x.title, amount: x.amount ?? null, countsWhenVehicleContains: x.match || null, target: x.target ?? null, expires: x.expiry || null, notes: x.notes || "" })) }, note: "" };
+    }
+    case "payment_quote": case "quote_payment": {
+      const price = num(p.price);
+      if (!price) return { result: "need a price", note: "" };
+      const s = store.getSettings();
+      const apr = p.apr != null ? Number(p.apr) : (s.defaultApr || 0);
+      const term = p.term != null ? Number(p.term) : (s.defaultTerm || 72);
+      const d = computeDeal({ price, down: num(p.down) || 0, tradeAllowance: num(p.trade) || 0, tradePayoff: num(p.payoff) || 0, fees: p.fees != null ? num(p.fees) : (s.docFee || 0), taxRate: p.taxRate != null ? Number(p.taxRate) : (s.taxRate || 0), apr, term });
+      return { result: { monthly: Math.round(d.monthly), amountFinanced: Math.round(d.amountFinanced), tax: Math.round(d.tax), term: d.term, aprUsed: apr, assumptions: "salesperson's saved tax rate/doc fee/APR/term fill in anything not stated" }, note: "" };
+    }
+    case "deal_options": case "match_deals": {
+      const lead = findLead(p.customer || p.name);
+      if (!lead) return { result: "not found", note: "" };
+      const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method }));
+      return { result: { customer: lead.name, currentPayment: lead.currentPayment ?? null, options: rows }, note: "" };
+    }
+    case "get_booking_link": {
+      try {
+        if (!backend.currentUser()) return { result: "booking links need Cloud sync — the salesperson should sign in under Settings", note: "" };
+        if (!(store.getSettings().agentUrl || "").trim()) return { result: "booking links need the agent function set up in Settings", note: "" };
+        return { result: { link: cachedShortBookingLink() || bookingLink() }, note: "" };
+      } catch (e) {
+        return { result: `booking link unavailable: ${e && e.message ? e.message : e}`, note: "" };
+      }
+    }
 
     // ---- WRITES ----
     case "open_page": case "navigate": {
@@ -239,6 +320,73 @@ function execTool(name, p = {}) {
       if (!p.title) return { result: "need a task", note: "⚠ need a task" };
       store.create("tasks", { title: p.title, due: p.due || "", priority: p.priority || "normal", done: false });
       return { result: `added task`, note: `added to-do: ${p.title}` };
+    }
+    case "complete_task": case "finish_task": {
+      const ql = String(p.title || "").trim().toLowerCase();
+      if (!ql) return { result: "which to-do?", note: "" };
+      const open = store.all("tasks").filter((x) => !x.done);
+      const titleOf = (x) => (x.title || "").toLowerCase();
+      // Spoken references are loose ("the plates thing") — drop filler words,
+      // then match all remaining words, then settle for a unique partial match.
+      const STOP = new Set(["the", "that", "this", "thing", "task", "todo", "item", "one", "for", "and", "done", "off", "mark", "with", "about"]);
+      const tokens = ql.split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w));
+      let hit = open.find((x) => titleOf(x).includes(ql));
+      if (!hit && tokens.length) hit = open.find((x) => tokens.every((w) => titleOf(x).includes(w)));
+      if (!hit && tokens.length) {
+        const partial = open.filter((x) => tokens.some((w) => titleOf(x).includes(w)));
+        if (partial.length === 1) hit = partial[0];
+      }
+      if (!hit) return { result: `no open to-do matching "${p.title}"`, note: `⚠ no to-do matching "${p.title}"` };
+      store.update("tasks", hit.id, { done: true });
+      return { result: `done: ${hit.title}`, note: `checked off: ${hit.title}` };
+    }
+    case "complete_delivery": case "mark_delivered": {
+      const q = String(p.customer || p.name || "").trim().toLowerCase();
+      const d = q ? store.all("deliveries").find((x) => x.status !== "delivered" && (x.customerName || "").toLowerCase().includes(q)) : null;
+      if (!d) return { result: "no active delivery found", note: `⚠ no active delivery for ${p.customer || "that customer"}` };
+      store.update("deliveries", d.id, { status: "delivered", checklist: (d.checklist || []).map((i) => ({ ...i, done: true })) });
+      afterDeliveryComplete(d);
+      const dl = d.leadId ? store.get("leads", d.leadId) : findLead(d.customerName);
+      if (dl && dl.stage === "sold") store.update("leads", dl.id, { stage: "delivered" });
+      return { result: `marked delivered — post-delivery follow-ups queued`, note: `marked ${d.customerName}'s delivery complete` };
+    }
+    case "text_customer": case "text": {
+      const lead = findLead(p.customer || p.name);
+      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      if (!lead.phone) return { result: `${lead.name} has no phone number on file`, note: `⚠ no phone on file for ${lead.name}` };
+      location.href = smsHref(lead.phone, String(p.message || ""));
+      return { result: `opened a prefilled text to ${lead.name} — the salesperson just hits send`, note: `texting ${lead.name}` };
+    }
+    case "call_customer": case "call": {
+      const lead = findLead(p.customer || p.name);
+      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      if (!lead.phone) return { result: `${lead.name} has no phone number on file`, note: `⚠ no phone on file for ${lead.name}` };
+      location.href = telHref(lead.phone);
+      return { result: `dialing ${lead.name}`, note: `calling ${lead.name}` };
+    }
+    case "send_email": case "email_customer": {
+      const lead = findLead(p.customer || p.name);
+      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      const to = String(p.to || lead.email || "").trim();
+      if (!to) return { result: `${lead.name} has no email on file`, note: `⚠ no email on file for ${lead.name}` };
+      if (!p.subject || !p.body) return { result: "need a subject and body", note: "" };
+      try {
+        await sendEmail({ to, subject: p.subject, text: p.body });
+        logEmail(lead.id, { direction: "out", subject: p.subject, body: p.body, via: "voice" });
+        return { result: `email sent to ${to}`, note: `emailed ${lead.name}` };
+      } catch (e) {
+        return { result: `email failed: ${e && e.message ? e.message : e}`, note: `⚠ email failed: ${e && e.message ? e.message : e}` };
+      }
+    }
+    case "add_special": {
+      if (!p.model) return { result: "need the model", note: "" };
+      store.create("specials", { model: p.model, financeApr: num(p.financeApr), financeTerm: num(p.financeTerm), leasePayment: num(p.leasePayment), leaseTerm: num(p.leaseTerm), leaseDown: num(p.leaseDown), cash: num(p.cash), expiry: p.expiry || "", notes: p.notes || "" });
+      return { result: `saved special on ${p.model}`, note: `added special: ${p.model}` };
+    }
+    case "add_spif": case "log_spif": {
+      if (!p.title) return { result: "need the spif", note: "" };
+      store.create("spifs", { title: p.title, amount: num(p.amount), match: p.match || "", target: num(p.target), expiry: p.expiry || "", notes: p.notes || "", month: new Date().toISOString().slice(0, 7) });
+      return { result: `saved spif`, note: `added spif: ${p.title}` };
     }
     case "log_sale": {
       const name = p.customer || p.name || "Customer";
@@ -343,7 +491,7 @@ export function createAgentSession() {
           question = (tu.input && tu.input.question) || "Could you give me a bit more detail?";
         } else {
           let out;
-          try { out = execTool(tu.name, tu.input || {}); }
+          try { out = await execTool(tu.name, tu.input || {}); }
           catch (e) { out = { result: `error: ${e && e.message ? e.message : e}`, note: "" }; }
           if (out.note && onProgress) onProgress(out.note);
           results.push({ type: "tool_result", tool_use_id: tu.id, content: typeof out.result === "string" ? out.result : JSON.stringify(out.result) });
