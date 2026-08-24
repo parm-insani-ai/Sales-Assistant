@@ -10,6 +10,7 @@ import * as store from "./store.js";
 import { navigate } from "./router.js";
 import { maybeStartCadence, startCadence } from "./cadence.js";
 import { openDealerSearch } from "./views/dealer.js";
+import { findSpec, queueCompare } from "./views/compare.js";
 import { topOpportunities } from "./views/dealbuilder.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
 import { afterSale, afterAppointmentBooked, closeFollowUps } from "./connections.js";
@@ -48,13 +49,14 @@ const TOOLS = [
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
-  { name: "search_inventory", description: "Search dealer inventory.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "search_inventory", description: "Search the dealership's live inventory for a vehicle in stock. NOT for comparing models against each other — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
 
 function buildSystem(ctx) {
   return [
     `You are entoa's hands-free assistant for a car salesperson${ctx.salesperson ? " named " + ctx.salesperson : ""}. Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
-    `Understand plain, casual speech — the user will NOT use command words. Infer what they want from whatever they tell you. A bare fact usually implies an action: "Ken's coming in Thursday at 4" → book an appointment; "sold one to Moe, made 800" → log a sale; "Sara's cell is 902-555-1212" → update Sara's phone; "who should I call?" → check the deal radar / follow-ups.`,
+    `Understand plain, casual speech — the user will NOT use command words. Infer what they want from whatever they tell you. A bare fact usually implies an action: "Ken's coming in Thursday at 4" → book an appointment; "sold one to Moe, made 800" → log a sale; "Sara's cell is 902-555-1212" → update Sara's phone; "who should I call?" → check the deal radar / follow-ups; "compare the Kicks with the CR-V" or "customer's cross-shopping the RAV4" → compare_vehicles (never search_inventory for that).`,
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats). You can take multiple steps.`,
@@ -297,6 +299,17 @@ function execTool(name, p = {}) {
     case "search_inventory": case "find_vehicle": {
       openDealerSearch({ vehicleInterest: p.query || p.vehicle || "" });
       return { result: "opened search", note: `searching inventory${p.query ? " for " + p.query : ""}` };
+    }
+    case "compare_vehicles": case "compare": {
+      const wanted = (Array.isArray(p.vehicles) ? p.vehicles : [p.a, p.b, p.query]).filter(Boolean);
+      if (!wanted.length) return { result: "need vehicle names", note: "⚠ which vehicles should I compare?" };
+      const found = [], missing = [];
+      wanted.forEach((q) => { const v = findSpec(q); if (v) found.push(v); else missing.push(q); });
+      if (!found.length) return { result: `not in the spec database: ${missing.join(", ")}. Tell the salesperson they can add it manually on the compare screen.`, note: `⚠ ${missing.join(" and ")} not in the vehicle database` };
+      queueCompare(found);
+      navigate("/compare");
+      const names = found.map((v) => v.label).join(" vs ");
+      return { result: `opened the comparison: ${names}${missing.length ? `. Not in the database (can be entered manually on that screen): ${missing.join(", ")}` : ""}`, note: `comparing ${names}` };
     }
     default:
       return { result: `unknown tool ${t}`, note: `⚠ I can't do "${t}" yet` };

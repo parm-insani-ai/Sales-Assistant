@@ -85,8 +85,34 @@ function winners(selected) {
   return w;
 }
 
+// ---------- Programmatic entry (voice agent) ----------
+// The voice agent hands vehicles here, then navigates to /compare — the next
+// render starts with them already in the table.
+let queued = null;
+export function queueCompare(vehicles) {
+  queued = Array.isArray(vehicles) && vehicles.length ? vehicles : null;
+}
+
+// Loose name match against the built-in spec database: every word of the query
+// must appear in the entry's label+make, ignoring case and punctuation — so
+// "Honda CRV", "cr-v" and "2026 CR-V" all land on the Honda CR-V. Ties go to
+// the shortest label (the base model, not a sub-variant).
+export function findSpec(query) {
+  const norm = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const tokens = String(query || "").split(/\s+/).map(norm).filter(Boolean);
+  if (!tokens.length) return null;
+  const hits = SPEC_LIBRARY.filter((v) => {
+    const hay = norm(`${v.label} ${v.make}`);
+    return tokens.every((t) => hay.includes(t));
+  });
+  if (!hits.length) return null;
+  hits.sort((a, b) => a.label.length - b.label.length);
+  return { ...hits[0] };
+}
+
 export function renderCompare(view) {
   const selected = []; // working set of vehicles being compared
+  if (queued) { selected.push(...queued); queued = null; }
 
   const el = document.createElement("div");
   el.innerHTML = `
