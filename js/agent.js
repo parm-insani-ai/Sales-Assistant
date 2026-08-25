@@ -19,6 +19,7 @@ import { computeDeal } from "./views/calculator.js";
 import { sendEmail, logEmail } from "./email.js";
 import { smsHref, telHref } from "./utils.js";
 import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
+import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import * as backend from "./backend.js";
 
 export function agentConfigured() {
@@ -55,7 +56,8 @@ const TOOLS = [
   { name: "deal_options", description: "Payment-matched vehicles from inventory for one customer ('what could I put Dana in?').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
-  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "comms", "soldlog", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
+  { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
+  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "comms", "soldlog", "coach", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
   { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
   { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
@@ -82,7 +84,7 @@ function buildSystem(ctx) {
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
-    `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
+    `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
@@ -189,6 +191,7 @@ const ROUTES = {
   goals: "/goals", radar: "/deals", deals: "/deals", prospecting: "/prospecting", tools: "/tools",
   comms: "/comms", communication: "/comms", messages: "/comms",
   soldlog: "/soldlog", sold: "/soldlog", tracker: "/soldlog",
+  coach: "/coach",
   spiffs: "/spiffs", specials: "/specials", compare: "/compare", import: "/import", settings: "/settings",
 };
 
@@ -281,6 +284,18 @@ export async function execTool(name, p = {}) {
       if (!lead) return { result: "not found", note: "" };
       const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method }));
       return { result: { customer: lead.name, currentPayment: lead.currentPayment ?? null, options: rows }, note: "" };
+    }
+    case "get_coach": case "weekly_review": {
+      const mon = weekStart();
+      const weeks = Array.from({ length: 8 }, (_, i) => {
+        const d = new Date(mon); d.setDate(d.getDate() - 7 * i);
+        return weekStats(d);
+      });
+      const brief = (w) => ({ units: w.units, commission: Math.round(w.total), front: Math.round(w.front), backOffice: Math.round(w.bo), apptsSet: w.apptsSet, showRate: w.showRate, newLeads: w.leadsNew, touches: w.touches, linkOpens: w.linksOpened });
+      return { result: {
+        thisWeek: brief(weeks[0]), lastWeek: brief(weeks[1]),
+        insights: coachInsights(weeks, { current: true }).map((i) => i.text),
+      }, note: "" };
     }
     case "get_link_activity": {
       const links = store.all("links")

@@ -27,8 +27,8 @@ export function dealTotal(s) {
   if (f != null || b != null) return (f || 0) + (b || 0);
   return nNum(s.commission) || 0;
 }
-const dealFront = (s) => nNum(s.frontComm) ?? nNum(s.commission) ?? 0;
-const dealBO = (s) => nNum(s.boComm) ?? 0;
+export const dealFront = (s) => nNum(s.frontComm) ?? nNum(s.commission) ?? 0;
+export const dealBO = (s) => nNum(s.boComm) ?? 0;
 
 function vehLabel(s) {
   return [s.year, s.brand, s.model, s.trim].filter(Boolean).join(" ") || s.vehicle || "Vehicle";

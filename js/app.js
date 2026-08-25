@@ -23,6 +23,7 @@ import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
 import { renderComms } from "./views/comms.js";
 import { renderSoldLog, openDealForm } from "./views/soldlog.js";
+import { renderCoach } from "./views/coach.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
@@ -49,6 +50,7 @@ const PAGES = {
   "/compare": { title: "Compare Vehicles", render: renderCompare },
   "/comms": { title: "Communication", render: renderComms },
   "/soldlog": { title: "Sold Tracker", render: renderSoldLog },
+  "/coach": { title: "Sales Coach", render: renderCoach },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
 };
