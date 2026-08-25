@@ -75,6 +75,8 @@ const DEFAULT_STATE = {
     dealership: "",
     contactPhone: "",
     contactEmail: "",
+    reviewLink: "", // Google review URL — folded into the day-after delivery text
+
     taxRate: 6.5, // %
     docFee: 499,
     defaultTerm: 72,
@@ -222,6 +224,9 @@ export function applyRemote(name, id, data) {
   const arr = state[name];
   const idx = arr.findIndex((x) => x.id === id);
   const rec = { ...data, id };
+  // Short-link rows sync down only for their activity (label, opens, times) —
+  // the shared page's payload lives in the cloud and would bloat localStorage.
+  if (name === "links") delete rec.payload;
   if (idx >= 0) arr[idx] = rec; else arr.unshift(rec);
   persist();
 }

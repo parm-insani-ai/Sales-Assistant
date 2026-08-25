@@ -116,13 +116,17 @@ async function handleShorten(sh: any): Promise<Response> {
   const kind = sh.kind === "book" ? "book" : "compare";
   const payload = sh.data;
   if (!payload || JSON.stringify(payload).length > 100000) return json({ error: "bad payload" }, 400);
+  // Optional label ("Rogue vs CR-V") so the app can show which link got opened.
+  const meta = sh.meta && typeof sh.meta === "object"
+    ? { label: String(sh.meta.label || "").slice(0, 120) } : {};
   const code = randCode();
+  const now = new Date().toISOString();
   const res = await fetch(sbUrl("/records"), {
     method: "POST",
     headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" },
     body: JSON.stringify({
       id: "lnk_" + code, user_id: uid, collection: "links",
-      data: { kind, payload, createdAt: new Date().toISOString() }, deleted: false,
+      data: { kind, payload, meta, opens: 0, createdAt: now, updatedAt: now }, deleted: false,
     }),
   });
   if (!res.ok) return json({ error: `save failed (${res.status})` }, 502);
@@ -138,7 +142,20 @@ async function handleResolve(code: string): Promise<Response> {
   if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
   const rows = await res.json();
   if (!rows.length) return json({ error: "not found" }, 404);
-  return json(rows[0].data);
+  const d = rows[0].data || {};
+  // Count the open (best-effort; the customer's page never waits on it). The
+  // bumped updatedAt makes the app's next cloud pull pick the activity up.
+  const now = new Date().toISOString();
+  const tracked = {
+    ...d, opens: (Number(d.opens) || 0) + 1,
+    firstOpenAt: d.firstOpenAt || now, lastOpenAt: now, updatedAt: now,
+  };
+  fetch(sbUrl(`/records?id=eq.lnk_${encodeURIComponent(code)}&collection=eq.links`), {
+    method: "PATCH",
+    headers: sbHeaders(),
+    body: JSON.stringify({ data: tracked, updated_at: now }),
+  }).catch(() => {});
+  return json(d);
 }
 
 async function handleAvail(req: Request): Promise<Response> {

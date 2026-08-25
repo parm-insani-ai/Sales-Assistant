@@ -65,12 +65,19 @@ export function afterSale(leadId, { vehicle = "", fromDelivery = false } = {}) {
 }
 
 // After a delivery completes: queue the post-delivery follow-up plan (once).
+// The text steps carry a ready-to-send body — the day-after thank you doubles
+// as the review ask (when a review link is set in Settings), and day 30 is the
+// referral ask. Comms opens Messages with the body already written.
 export function afterDeliveryComplete(d) {
   if (!d || !d.leadId) return 0;
   if (store.all("tasks").some((t) => t.leadId === d.leadId && t.postDelivery)) return 0;
   const lead = store.get("leads", d.leadId);
   const fn = String((lead && lead.name) || d.customerName || "them").trim().split(/\s+/)[0];
-  const mk = (days, channel, label) => {
+  const s = store.getSettings();
+  const me = s.salesperson ? ` — ${s.salesperson}` : "";
+  const veh = d.vehicle || "new ride";
+  const review = (s.reviewLink || "").trim();
+  const mk = (days, channel, label, body) => {
     const dt = new Date();
     dt.setDate(dt.getDate() + days);
     const verb = channel === "text" ? "Text" : channel === "email" ? "Email" : "Call";
@@ -83,11 +90,15 @@ export function afterDeliveryComplete(d) {
       cadence: true,
       postDelivery: true,
       channel,
+      body: body || "",
     });
   };
-  mk(1, "text", "day-after thank you");
+  mk(1, "text", review ? "thank you + review ask" : "day-after thank you",
+    `Hi ${fn}! Congrats again on the ${veh} — hope day one has been great. Anything at all, I'm a text away.` +
+    (review ? ` And if you have 60 seconds, a quick Google review would mean the world to me: ${review}` : "") + me);
   mk(7, "call", "one-week check-in");
-  mk(30, "text", "30-day referral ask");
+  mk(30, "text", "30-day referral ask",
+    `Hi ${fn}, a month already with the ${veh} — hope you're loving it! If anyone in your circle starts car shopping, send them my way and I'll take great care of them.${me}`);
   return 3;
 }
 

@@ -323,7 +323,8 @@ async function openShare(selected) {
   const payload = comparePayload(selected);
   // A clean short link when the cloud is reachable; the long self-contained
   // link still works everywhere as the fallback.
-  const link = (await shortenLink("compare.html", "compare", payload)) || compareLink(payload);
+  const label = selected.map((v) => vehName(v)).join(" vs ");
+  const link = (await shortenLink("compare.html", "compare", payload, { label })) || compareLink(payload);
   const s = store.getSettings();
   const first = (s.salesperson || "").split(" ")[0];
   const intro = `Hi! ${first ? `It's ${first} — ` : ""}here's the side-by-side comparison we talked about:\n\n${link}`;

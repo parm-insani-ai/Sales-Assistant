@@ -27,8 +27,9 @@ export function renderSettings(view) {
       <div class="field"><label>Your name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
       <div class="field"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
       <div class="field"><label>Contact phone (for listings)</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
-      <div class="field" style="margin-bottom:0"><label>Your email</label><input id="s-email" type="email" value="${esc(s.contactEmail || "")}" placeholder="you@email.com"></div>
-      <div class="hint">Used to fill in {salesperson} / {dealership} in message templates, your contact info in Marketplace listings, and as the default address for email tests.</div>
+      <div class="field"><label>Your email</label><input id="s-email" type="email" value="${esc(s.contactEmail || "")}" placeholder="you@email.com"></div>
+      <div class="field" style="margin-bottom:0"><label>Google review link</label><input id="s-review" type="url" value="${esc(s.reviewLink || "")}" placeholder="https://g.page/r/…/review"></div>
+      <div class="hint">Used to fill in {salesperson} / {dealership} in message templates, your contact info in Marketplace listings, and as the default address for email tests. The review link gets folded into the day-after-delivery thank-you text (Google Business Profile → Ask for reviews → copy the link).</div>
     </div>
 
     <div class="section-title">Cloud sync &amp; account</div>
@@ -159,6 +160,8 @@ export function renderSettings(view) {
     store.updateSettings({ contactPhone: e.target.value.trim() }));
   el.querySelector("#s-email").addEventListener("change", (e) =>
     store.updateSettings({ contactEmail: e.target.value.trim() }));
+  el.querySelector("#s-review").addEventListener("change", (e) =>
+    store.updateSettings({ reviewLink: e.target.value.trim() }));
 
   const dealerBind = { "d-store-name": "storeSiteName", "d-store-url": "storeSiteUrl", "d-net-name": "networkSiteName", "d-net-url": "networkSiteUrl", "d-net-suffix": "networkUsedSuffix" };
   Object.entries(dealerBind).forEach(([id, key]) =>
@@ -660,7 +663,7 @@ export async function shortBookingLink() {
   if (cached) return cached;
   try {
     const cfg = bookingCfg();
-    const r = await shorten("book", cfg);
+    const r = await shorten("book", cfg, { label: "Booking link" });
     if (!r) return null;
     store.updateSettings({ bookShort: { code: r.code, s: r.s, sig: JSON.stringify(cfg) } });
     return shortUrl("book.html", r.code, r.s);

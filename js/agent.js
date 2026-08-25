@@ -54,6 +54,7 @@ const TOOLS = [
   { name: "payment_quote", description: "Estimate a monthly car payment. Uses the salesperson's saved tax rate, doc fee, APR and term for anything not given.", input_schema: { type: "object", properties: { price: { type: "number" }, down: { type: "number" }, trade: { type: "number", description: "trade-in allowance" }, payoff: { type: "number", description: "trade-in payoff owed" }, apr: { type: "number" }, term: { type: "number", description: "months" } }, required: ["price"] } },
   { name: "deal_options", description: "Payment-matched vehicles from inventory for one customer ('what could I put Dana in?').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
+  { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "comms", "soldlog", "tools", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
   { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
   { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
@@ -280,6 +281,19 @@ export async function execTool(name, p = {}) {
       if (!lead) return { result: "not found", note: "" };
       const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method }));
       return { result: { customer: lead.name, currentPayment: lead.currentPayment ?? null, options: rows }, note: "" };
+    }
+    case "get_link_activity": {
+      const links = store.all("links")
+        .slice()
+        .sort((a, b) => (b.lastOpenAt || b.createdAt || "").localeCompare(a.lastOpenAt || a.createdAt || ""))
+        .slice(0, 10)
+        .map((lk) => ({
+          link: (lk.meta && lk.meta.label) || (lk.kind === "book" ? "Booking link" : "Comparison"),
+          opens: Number(lk.opens) || 0,
+          lastOpened: lk.lastOpenAt || null,
+          sent: lk.createdAt || null,
+        }));
+      return { result: { links, note: "opens sync in from the cloud — a very recent open is a hot signal" }, note: "" };
     }
     case "get_booking_link": {
       try {

@@ -68,8 +68,27 @@ export function renderComms(view) {
 
   const occasions = getOccasions();
 
+  // Link activity: every short link you've sent (booking page, comparisons)
+  // reports its opens back through cloud sync. An open in the last 48h is the
+  // hottest signal in the app — that customer is reading your stuff right now.
+  const links = store.all("links")
+    .slice()
+    .sort((a, b) => (b.lastOpenAt || b.createdAt || "").localeCompare(a.lastOpenAt || a.createdAt || ""))
+    .slice(0, 6);
+  const HOT_MS = 48 * 3600 * 1000;
+  const timeAgo = (iso) => {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!isFinite(ms) || ms < 0) return "";
+    const min = Math.round(ms / 60000);
+    if (min < 60) return `${Math.max(1, min)}m ago`;
+    if (min < 1440) return `${Math.round(min / 60)}h ago`;
+    return `${Math.round(min / 1440)}d ago`;
+  };
+
   const el = document.createElement("div");
   el.innerHTML = `
+    ${links.length ? `<div class="section-title">Link activity</div>
+    <div class="card" id="c-links"></div>` : ""}
     ${upcoming.length ? `<div class="section-title">Confirmations &amp; reminders</div>
     <div class="card" id="c-remind"></div>` : ""}
     ${occasions.length ? `<div class="section-title">Reasons to reach out</div>
@@ -101,6 +120,26 @@ export function renderComms(view) {
     </div>
   `;
   view.appendChild(el);
+
+  // --- Link activity rows ---
+  const linkBox = el.querySelector("#c-links");
+  if (linkBox) links.forEach((lk) => {
+    const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "Booking link" : "Comparison");
+    const opens = Number(lk.opens) || 0;
+    const hot = lk.lastOpenAt && Date.now() - new Date(lk.lastOpenAt).getTime() < HOT_MS;
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.cssText = "padding:7px 0;border-bottom:1px solid var(--border)";
+    row.innerHTML = `
+      <div class="row-main">
+        <div class="row-title" style="font-size:0.92rem">${esc(label)} ${hot ? '<span class="badge badge-soon">🔥 hot</span>' : ""}</div>
+        <div class="row-sub">${opens
+          ? `Opened ${opens}×${lk.lastOpenAt ? ` · last ${esc(timeAgo(lk.lastOpenAt))}` : ""}`
+          : `Not opened yet${lk.createdAt ? ` · sent ${esc(timeAgo(lk.createdAt))}` : ""}`}</div>
+      </div>
+      ${opens ? `<div class="row-meta strong mono">${opens}×</div>` : ""}`;
+    linkBox.appendChild(row);
+  });
 
   // --- Confirmations & reminders: one-tap prefilled text; sending marks the
   // appointment confirmed and logs the touch.
@@ -179,8 +218,8 @@ export function renderComms(view) {
     const m = chMeta(t.channel);
     const overdue = daysFromToday(t.due) < 0;
     const href = !l ? "#" :
-      t.channel === "text" ? smsHref(l.phone) :
-      t.channel === "email" ? mailtoHref(l.email) : telHref(l.phone);
+      t.channel === "text" ? smsHref(l.phone, t.body || "") :
+      t.channel === "email" ? mailtoHref(l.email, "", t.body || "") : telHref(l.phone);
     const usable = l && (t.channel === "email" ? !!l.email : !!l.phone);
     const row = document.createElement("div");
     row.className = "kv";

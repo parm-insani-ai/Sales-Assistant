@@ -18,7 +18,9 @@ export function fnParts(url) {
 
 // Store a payload and get back {code, s} for building short URLs, or null when
 // shortening isn't possible (offline, not signed in, no agent function).
-export async function shorten(kind, payload) {
+// `meta` (optional) labels the link — {label: "Rogue vs CR-V"} — so the app's
+// link-activity panel can say which link got opened.
+export async function shorten(kind, payload, meta) {
   try {
     const s = store.getSettings();
     const user = backend.currentUser();
@@ -29,7 +31,7 @@ export async function shorten(kind, payload) {
     const res = await fetch((s.agentUrl || "").trim().replace(/\/+$/, ""), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shorten: { u: user.id, kind, data: payload } }),
+      body: JSON.stringify({ shorten: { u: user.id, kind, data: payload, meta: meta || undefined } }),
       signal: ctl.signal,
     });
     clearTimeout(timer);
@@ -49,7 +51,7 @@ export function shortUrl(page, code, s) {
 }
 
 // One-call convenience: shorten and return the finished URL (or null).
-export async function shortenLink(page, kind, payload) {
-  const r = await shorten(kind, payload);
+export async function shortenLink(page, kind, payload, meta) {
+  const r = await shorten(kind, payload, meta);
   return r ? shortUrl(page, r.code, r.s) : null;
 }
