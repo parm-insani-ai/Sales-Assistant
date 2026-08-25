@@ -743,11 +743,25 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 }
 
 /* --- Tools hub grid --- */
-.tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.tool-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 14px; }
-.tool-ico { display: inline-flex; color: var(--brand); margin-bottom: 6px; }
-.tool-label { font-weight: 650; color: var(--text); }
-.tool-sub { line-height: 1.2; }
+/* Quick-add sheet: one visual language for everything behind the + button.
+   Uniform springboard-style tiles — icon in a tinted rounded square, short
+   label under it — for both the add actions and the tools. */
+.qa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.qa-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 14px 4px 12px; font: inherit; color: var(--text); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  transition: transform 0.12s ease, background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.qa-tile:active { transform: scale(0.94); }
+.qa-ico {
+  width: 46px; height: 46px; border-radius: 14px; flex: none;
+  display: grid; place-items: center; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+.qa-ico .ico { width: 23px; height: 23px; stroke-width: 1.7; }
+.qa-label { font-size: 0.72rem; font-weight: 600; text-align: center; line-height: 1.25; }
 
 /* --- Vehicle comparison table ---
    One CSS grid for the whole table so every spec row shares one height —
