@@ -20,6 +20,8 @@
 //     dashboard: Edge Functions → Secrets)
 //   deploy the function and turn OFF "Verify JWT" so the app can call it.
 
+import webpush from "npm:web-push@3.6.7";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
@@ -98,6 +100,101 @@ async function bookedTimes(uid: string, date: string): Promise<string[]> {
     .map((w: string) => w.slice(11, 16));
 }
 
+// ---- Web push (the agent's voice when the app is closed) ----
+// Subscriptions live in the records table (collection "push", one row per
+// device, written by the app). Needs secrets: VAPID_PUBLIC_KEY,
+// VAPID_PRIVATE_KEY, and optionally VAPID_SUBJECT (mailto:you@...).
+let vapidConfigured = false;
+function ensureVapid(): boolean {
+  const pub = Deno.env.get("VAPID_PUBLIC_KEY"), priv = Deno.env.get("VAPID_PRIVATE_KEY");
+  if (!pub || !priv) return false;
+  if (!vapidConfigured) {
+    webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") || "mailto:push@entoa.ai", pub, priv);
+    vapidConfigured = true;
+  }
+  return true;
+}
+
+async function pushSubs(uid: string): Promise<any[]> {
+  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.push&deleted=eq.false&select=id,data`;
+  const res = await fetch(sbUrl(q), { headers: sbHeaders() });
+  return res.ok ? res.json() : [];
+}
+
+// Send {title, body, url, tag} to every device the user registered.
+// Dead subscriptions (404/410 from the push service) are tombstoned so we
+// stop trying them. Returns how many devices accepted.
+async function sendPush(uid: string, payload: Record<string, unknown>): Promise<number> {
+  if (!ensureVapid()) return 0;
+  const rows = await pushSubs(uid);
+  let sent = 0;
+  for (const row of rows) {
+    const sub = row.data?.sub;
+    if (!sub?.endpoint) continue;
+    try {
+      await webpush.sendNotification(sub, JSON.stringify(payload));
+      sent++;
+    } catch (e: any) {
+      const code = e?.statusCode || 0;
+      if (code === 404 || code === 410) {
+        fetch(sbUrl(`/records?id=eq.${encodeURIComponent(row.id)}&collection=eq.push`), {
+          method: "PATCH", headers: sbHeaders(),
+          body: JSON.stringify({ deleted: true, updated_at: new Date().toISOString() }),
+        }).catch(() => {});
+      }
+    }
+  }
+  return sent;
+}
+
+// The morning play sheet: a scheduled job POSTs {plays:1} (Supabase
+// Dashboard → Integrations → Cron). Every user with a registered device
+// gets one summary push; the app computes the full ranked sheet on open.
+async function handleMorningPlays(body: any): Promise<Response> {
+  const cronKey = Deno.env.get("CRON_KEY");
+  if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  if (!ensureVapid()) return json({ error: "VAPID keys not set" }, 500);
+
+  const res = await fetch(sbUrl(`/records?collection=eq.push&deleted=eq.false&select=user_id`), { headers: sbHeaders() });
+  if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
+  const users = [...new Set(((await res.json()) as any[]).map((r) => r.user_id))];
+  const today = new Date().toISOString().slice(0, 10);
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  let pushed = 0;
+
+  for (const uid of users) {
+    const rows = async (coll: string) => {
+      const r = await fetch(
+        sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data`),
+        { headers: sbHeaders() });
+      return r.ok ? (await r.json()).map((x: any) => x.data || {}) : [];
+    };
+    const appts = (await rows("appointments")).filter((a: any) =>
+      a.status === "scheduled" && !a.outcome && String(a.when || "").startsWith(today));
+    const unconfirmed = appts.filter((a: any) => !a.confirmed).length;
+    const tasksDue = (await rows("tasks")).filter((t: any) =>
+      !t.done && t.due && String(t.due).slice(0, 10) <= today).length;
+    const links = (await rows("links")).filter((l: any) => l.lastOpenAt && l.lastOpenAt >= dayAgo);
+
+    const bits: string[] = [];
+    if (links.length) {
+      const label = links[0]?.meta?.label;
+      bits.push(label ? `${label} was opened overnight 👀` : `${links.length} link${links.length === 1 ? "" : "s"} opened overnight 👀`);
+    }
+    if (appts.length) bits.push(`${appts.length} appointment${appts.length === 1 ? "" : "s"} today${unconfirmed ? ` (${unconfirmed} unconfirmed)` : ""}`);
+    if (tasksDue) bits.push(`${tasksDue} follow-up${tasksDue === 1 ? "" : "s"} due`);
+    if (!bits.length) continue; // quiet day — no noise
+
+    pushed += await sendPush(uid, {
+      title: "Your plays today",
+      body: bits.join(" · "),
+      tag: "plays",
+      url: "./#/",
+    });
+  }
+  return json({ users: users.length, pushed });
+}
+
 // ---- Short links (clean URLs for shared pages) ----
 // POST {shorten:{u, kind, data}} stores the payload in the salesperson's
 // records and returns a short code; GET ?l=<code> returns it. The code is the
@@ -136,13 +233,14 @@ async function handleShorten(sh: any): Promise<Response> {
 async function handleResolve(code: string): Promise<Response> {
   if (!/^[a-z0-9]{5,12}$/.test(code)) return json({ error: "bad link" }, 400);
   const res = await fetch(
-    sbUrl(`/records?id=eq.lnk_${encodeURIComponent(code)}&collection=eq.links&deleted=eq.false&select=data&limit=1`),
+    sbUrl(`/records?id=eq.lnk_${encodeURIComponent(code)}&collection=eq.links&deleted=eq.false&select=data,user_id&limit=1`),
     { headers: sbHeaders() },
   );
   if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
   const rows = await res.json();
   if (!rows.length) return json({ error: "not found" }, 404);
   const d = rows[0].data || {};
+  const uid = rows[0].user_id;
   // Count the open (best-effort; the customer's page never waits on it). The
   // bumped updatedAt makes the app's next cloud pull pick the activity up.
   const now = new Date().toISOString();
@@ -155,6 +253,19 @@ async function handleResolve(code: string): Promise<Response> {
     headers: sbHeaders(),
     body: JSON.stringify({ data: tracked, updated_at: now }),
   }).catch(() => {});
+  // Speed-to-lead reflex: tell the salesperson the moment a customer opens a
+  // link — but at most once per 10 minutes per link, so a customer scrolling
+  // and reloading doesn't spam the phone.
+  const quiet = !d.lastOpenAt || Date.now() - new Date(d.lastOpenAt).getTime() > 10 * 60 * 1000;
+  if (uid && quiet) {
+    const label = d.meta?.label || (d.kind === "book" ? "Your booking link" : "Your comparison");
+    sendPush(uid, {
+      title: `👀 ${label} was just opened`,
+      body: `Opened ${tracked.opens}× so far — they're looking right now. Strike while it's warm.`,
+      tag: `link-${code}`,
+      url: "./#/comms",
+    }).catch(() => {});
+  }
   return json(d);
 }
 
@@ -220,6 +331,13 @@ async function handleBook(body: any): Promise<Response> {
         }),
       }).catch(() => {});
     }
+    // Reflex push: a self-booking is the hottest possible signal.
+    sendPush(uid, {
+      title: "📅 New booking!",
+      body: `${name} booked ${date} at ${time}${vehicle ? ` — ${vehicle}` : ""}. It's on your calendar.`,
+      tag: "booking",
+      url: "./#/calendar",
+    }).catch(() => {});
     return json({ booked: true, when: data.when });
   } catch (e) {
     return json({ error: String(e) }, 502);
@@ -230,6 +348,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method === "GET") {
     const u = new URL(req.url);
+    if (u.searchParams.get("push") === "cfg") return json({ publicKey: Deno.env.get("VAPID_PUBLIC_KEY") || null });
     if (u.searchParams.get("l")) return handleResolve(u.searchParams.get("l") || "");
     if (u.searchParams.get("avail")) return handleAvail(req);
     return proxyICS(req);
@@ -240,6 +359,19 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
   if (body.book) return handleBook(body);
   if (body.shorten) return handleShorten(body.shorten);
+  if (body.plays) return handleMorningPlays(body);
+  if (body.testpush) {
+    const uid = String(body.testpush.u || "");
+    if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
+    if (!ensureVapid()) return json({ error: "VAPID keys not set — add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to the function's secrets" }, 500);
+    const sent = await sendPush(uid, {
+      title: "entoa is live 🎉",
+      body: "This is what a play will look like. The agent can reach you now.",
+      tag: "test",
+      url: "./#/",
+    });
+    return json({ sent });
+  }
 
   // --- Optional email sending (Resend) ---
   if (body.email) {

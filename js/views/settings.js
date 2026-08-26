@@ -14,6 +14,7 @@ import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured } from "../email.js";
 import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
 import { shorten, shortUrl } from "../shortlink.js";
+import { enablePush, disablePush, pushEnabled, pushSupported, needsInstall, sendTestPush } from "../push.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -34,6 +35,9 @@ export function renderSettings(view) {
 
     <div class="section-title">Cloud sync &amp; account</div>
     <div class="card" id="cloud-slot"></div>
+
+    <div class="section-title">Notifications</div>
+    <div class="card" id="push-slot"></div>
 
     <div class="section-title">Calendar feeds</div>
     <div class="card" id="feeds-slot"></div>
@@ -137,6 +141,7 @@ export function renderSettings(view) {
   // --- Cloud sync section ---
   const cloudSlot = el.querySelector("#cloud-slot");
   buildCloud(cloudSlot);
+  buildPush(el.querySelector("#push-slot"));
   buildFeeds(el.querySelector("#feeds-slot"));
   buildAgent(el.querySelector("#agent-slot"));
   buildEmail(el.querySelector("#email-slot"));
@@ -741,6 +746,49 @@ function buildBooking(slot) {
     try { await navigator.clipboard.writeText(slot.querySelector("#bk-link").value); toast("Booking link copied", "success"); }
     catch { slot.querySelector("#bk-link").select(); toast("Select and copy the link", ""); }
   });
+}
+
+// Push notifications — the agent's ability to start conversations: the
+// morning play sheet, link-open alerts, and instant booking alerts.
+function buildPush(slot) {
+  const render = async () => {
+    const on = await pushEnabled().catch(() => false);
+    slot.innerHTML = `
+      <div class="small muted" style="margin-bottom:10px">Turns entoa from an assistant into an agent: a morning "your plays today" push, an instant heads-up when a customer opens a link you sent, and a ping the moment someone books on your calendar — even with the app closed.</div>
+      ${needsInstall() ? `<div class="hint" style="margin-bottom:10px">On iPhone, first add entoa to your Home Screen (Share → Add to Home Screen) — Apple only allows notifications for installed apps.</div>` : ""}
+      <details class="cloud-setup" style="margin-bottom:12px">
+        <summary class="strong small">${icon("help")} One-time server setup</summary>
+        <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+          <li>Re-paste the latest <span class="mono">voice-agent/index.ts</span> into your Supabase function and deploy.</li>
+          <li>In Supabase → Edge Functions → Secrets, add <span class="mono">VAPID_PUBLIC_KEY</span> and <span class="mono">VAPID_PRIVATE_KEY</span> (ask Claude for your generated pair, or run <span class="mono">npx web-push generate-vapid-keys</span>).</li>
+          <li>For the morning push: Supabase → Integrations → Cron → new job, schedule <span class="mono">0 11 * * *</span> (8am Halifax), HTTP request to your function URL with body <span class="mono">{"plays":1}</span>.</li>
+          <li>Come back here and tap <b>Turn on notifications</b>.</li>
+        </ol>
+      </details>
+      <button class="btn ${on ? "btn-ghost" : "btn-primary"} btn-block" id="push-toggle">${on ? "Turn off on this device" : `${icon("bell")} Turn on notifications`}</button>
+      ${on ? `<button class="btn btn-ghost btn-block" id="push-test" style="margin-top:10px">Send a test push</button>
+      <div class="hint" style="margin-top:10px">${icon("checkline")} This device is registered.</div>` : ""}
+    `;
+    slot.querySelector("#push-toggle").addEventListener("click", async () => {
+      try {
+        if (on) { await disablePush(); toast("Notifications off on this device"); }
+        else { await enablePush(); toast("Notifications on — the agent can reach you now", "success"); }
+      } catch (e) {
+        toast(e && e.message ? e.message : "Couldn't set up notifications", "danger");
+      }
+      render();
+    });
+    const test = slot.querySelector("#push-test");
+    if (test) test.addEventListener("click", async () => {
+      try {
+        const sent = await sendTestPush();
+        toast(sent ? `Sent to ${sent} device${sent === 1 ? "" : "s"} — check your notifications` : "No registered devices found yet — sync may still be running", sent ? "success" : "");
+      } catch (e) {
+        toast(e && e.message ? e.message : "Test failed", "danger");
+      }
+    });
+  };
+  render();
 }
 
 // External calendar feeds (Apple/Outlook/Google via .ics subscription).

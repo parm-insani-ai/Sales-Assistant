@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "entoa-v82";
+const CACHE = "entoa-v83";
 const ASSETS = [
   "./",
   "./index.html",
@@ -57,7 +57,37 @@ const ASSETS = [
   "./js/views/coach.js",
   "./js/views/pay.js",
   "./js/paystub.js",
+  "./js/push.js",
+  "./js/plays.js",
 ];
+
+// ---- Push: the agent's heartbeat. The Supabase function sends
+// {title, body, url?, tag?}; tapping the notification opens (or focuses)
+// the app at the given hash.
+self.addEventListener("push", (e) => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch { data = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(data.title || "entoa", {
+    body: data.body || "",
+    tag: data.tag || "entoa",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png",
+    data: { url: data.url || "./#/" },
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "./#/";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) { c.navigate(url).catch(() => {}); return c.focus(); }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

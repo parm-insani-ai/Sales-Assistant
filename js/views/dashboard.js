@@ -9,6 +9,7 @@ import { monthSummary, apptFunnel } from "./goals.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
+import { getPlays } from "../plays.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -76,6 +77,8 @@ export function renderDashboard(view) {
 
     ${goalCard(mtd, s)}
 
+    <div class="plays-slot"></div>
+
     <div class="section-title">Follow up today ${dueFollowUps.length ? `<span class="muted">· ${dueFollowUps.length}</span>` : ""}</div>
     <div class="due-list"></div>
 
@@ -90,6 +93,39 @@ export function renderDashboard(view) {
     ${activeDeliveries.length ? `<div class="section-title">Deliveries in prep</div><div class="deliv-list"></div>` : ""}
   `;
   view.appendChild(el);
+
+  // Today's plays — the agent's ranked "do this next" queue.
+  const playsSlot = el.querySelector(".plays-slot");
+  const plays = getPlays(6);
+  if (plays.length) {
+    playsSlot.innerHTML = `<div class="section-title">Today's plays <span class="muted">· ${plays.length}</span></div>`;
+    const box = document.createElement("div");
+    box.className = "card";
+    plays.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.style.cssText = "align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)";
+      row.innerHTML = `
+        <span style="color:var(--brand);display:inline-flex;flex:none">${icon(p.icon)}</span>
+        <div class="row-main" style="min-width:0">
+          <div class="strong" style="font-size:0.92rem">${esc(p.title)}</div>
+          <div class="small muted">${esc(p.sub)}</div>
+        </div>
+        ${p.href
+          ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${p.kind === "followup" && /^tel:/.test(p.href) ? "Call" : /^tel:/.test(p.href) ? "Call" : "Text"}</a>`
+          : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}`;
+      const act = row.querySelector("a");
+      if (act) act.addEventListener("click", () => {
+        store.logActivity("touch");
+        row.style.opacity = "0.45";
+      });
+      const go = row.querySelector("[data-play-go]");
+      if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
+      box.appendChild(row);
+    });
+    if (box.lastChild) box.lastChild.style.borderBottom = "none";
+    playsSlot.appendChild(box);
+  }
 
   // Due follow-ups
   const dueList = el.querySelector(".due-list");
