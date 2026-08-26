@@ -69,6 +69,7 @@ const DEFAULT_STATE = {
   specials: [],
   emails: [], // logged emails per lead: { leadId, direction: "in"|"out", subject, body, via }
   links: [], // short-link payloads live in the cloud; rows land here on pull and are otherwise unused
+  paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -292,7 +293,7 @@ export function restore(name, item) {
 }
 
 // Every syncable collection (everything except settings/outbox metadata).
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "paychecks"];
 
 // --- Activity tracking (prospecting touches) ---
 // A "touch" is any outreach (call/text/logged contact). Used for the daily

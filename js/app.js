@@ -23,6 +23,7 @@ import { renderCompare } from "./views/compare.js";
 import { renderComms } from "./views/comms.js";
 import { renderSoldLog, openDealForm } from "./views/soldlog.js";
 import { renderCoach } from "./views/coach.js";
+import { renderPay } from "./views/pay.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
@@ -49,6 +50,7 @@ const PAGES = {
   "/comms": { title: "Communication", render: renderComms },
   "/soldlog": { title: "Sold Tracker", render: renderSoldLog },
   "/coach": { title: "Sales Coach", render: renderCoach },
+  "/pay": { title: "Paycheck", render: renderPay },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
 };
@@ -102,6 +104,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
     { icon: "checkline", label: "Sold Tracker", fn: () => navigate("/soldlog") },
     { icon: "phone", label: "Prospecting", fn: () => navigate("/prospecting") },
     { icon: "dollar", label: "Goals", fn: () => navigate("/goals") },
+    { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
     { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },
     { icon: "tag", label: "Specials", fn: () => navigate("/specials") },
     { icon: "search", label: "Inventory", fn: () => openDealerSearch() },
