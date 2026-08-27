@@ -124,18 +124,22 @@ async function pushSubs(uid: string): Promise<any[]> {
 // Send {title, body, url, tag} to every device the user registered.
 // Dead subscriptions (404/410 from the push service) are tombstoned so we
 // stop trying them. Returns how many devices accepted.
-async function sendPush(uid: string, payload: Record<string, unknown>): Promise<number> {
-  if (!ensureVapid()) return 0;
+async function sendPush(uid: string, payload: Record<string, unknown>, errs?: string[]): Promise<number> {
+  if (!ensureVapid()) { errs?.push("VAPID keys not configured"); return 0; }
   const rows = await pushSubs(uid);
+  if (!rows.length) errs?.push("no subscription rows for this user");
   let sent = 0;
   for (const row of rows) {
     const sub = row.data?.sub;
-    if (!sub?.endpoint) continue;
+    if (!sub?.endpoint) { errs?.push(`row ${row.id}: no endpoint in stored subscription`); continue; }
     try {
       await webpush.sendNotification(sub, JSON.stringify(payload));
       sent++;
     } catch (e: any) {
       const code = e?.statusCode || 0;
+      const detail = `push failed (${code || "no status"}): ${String(e?.body || e?.message || e).slice(0, 300)}`;
+      console.error(detail);
+      errs?.push(detail);
       if (code === 404 || code === 410) {
         fetch(sbUrl(`/records?id=eq.${encodeURIComponent(row.id)}&collection=eq.push`), {
           method: "PATCH", headers: sbHeaders(),
@@ -364,13 +368,14 @@ Deno.serve(async (req: Request) => {
     const uid = String(body.testpush.u || "");
     if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
     if (!ensureVapid()) return json({ error: "VAPID keys not set — add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to the function's secrets" }, 500);
+    const errs: string[] = [];
     const sent = await sendPush(uid, {
       title: "entoa is live 🎉",
       body: "This is what a play will look like. The agent can reach you now.",
       tag: "test",
       url: "./#/",
-    });
-    return json({ sent });
+    }, errs);
+    return json({ sent, errors: errs });
   }
 
   // --- Optional email sending (Resend) ---

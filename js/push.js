@@ -109,5 +109,7 @@ export async function sendTestPush() {
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j.error || `Test failed (${res.status})`);
+  // Surface the real send failure instead of a vague zero.
+  if (!j.sent && Array.isArray(j.errors) && j.errors.length) throw new Error(j.errors[0]);
   return j.sent || 0;
 }
