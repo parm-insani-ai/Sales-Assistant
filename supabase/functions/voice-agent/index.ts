@@ -115,10 +115,17 @@ function ensureVapid(): boolean {
   return true;
 }
 
-async function pushSubs(uid: string): Promise<any[]> {
+async function pushSubs(uid: string, errs?: string[]): Promise<any[]> {
   const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.push&deleted=eq.false&select=id,data`;
   const res = await fetch(sbUrl(q), { headers: sbHeaders() });
-  return res.ok ? res.json() : [];
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    const detail = `subscription lookup failed (${res.status}): ${body.slice(0, 200)}`;
+    console.error(detail);
+    errs?.push(detail);
+    return [];
+  }
+  return res.json();
 }
 
 // Send {title, body, url, tag} to every device the user registered.
@@ -126,8 +133,8 @@ async function pushSubs(uid: string): Promise<any[]> {
 // stop trying them. Returns how many devices accepted.
 async function sendPush(uid: string, payload: Record<string, unknown>, errs?: string[]): Promise<number> {
   if (!ensureVapid()) { errs?.push("VAPID keys not configured"); return 0; }
-  const rows = await pushSubs(uid);
-  if (!rows.length) errs?.push("no subscription rows for this user");
+  const rows = await pushSubs(uid, errs);
+  if (!rows.length && !errs?.length) errs?.push(`no subscription rows for user ${uid.slice(0, 8)}`);
   let sent = 0;
   for (const row of rows) {
     const sub = row.data?.sub;
