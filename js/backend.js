@@ -10,7 +10,11 @@ const AUTH_KEY = "entoa:auth"; // { access_token, refresh_token, expires_at, use
 
 function cfg() {
   const s = store.getSettings();
-  const url = (s.supabaseUrl || "").trim().replace(/\/+$/, "");
+  // Heal a common paste mistake: the function URL (or any API path) in the
+  // project-URL field. Auth/REST calls need the bare project origin.
+  const url = (s.supabaseUrl || "").trim()
+    .replace(/\/(functions|rest|auth|storage|realtime)\/.*$/, "")
+    .replace(/\/+$/, "");
   const anonKey = (s.supabaseAnonKey || "").trim();
   return { url, anonKey };
 }
