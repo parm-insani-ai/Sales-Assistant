@@ -30,21 +30,35 @@ const VEHICLE_TARGETS = [
 ];
 
 const LEAD_TARGETS = [
-  { field: "name", label: "Name", aliases: ["name", "customer", "customer name", "full name", "contact"] },
+  // Decoy first: AutoAlert exports carry the PROPOSED deal alongside the
+  // customer's current one. These columns must be claimed and dropped so the
+  // fuzzy matcher can't feed "New Payment" into the current-payment field —
+  // that would poison the Deal Radar. (hidden: never shown in the mapping UI.)
+  { field: "_skipProposed", label: "(ignored)", hidden: true, aliases: ["new payment", "new pmt", "new monthly payment", "proposed payment", "upgrade payment", "new rate", "new apr", "new term", "new vehicle", "new year", "new make", "new model", "sale price", "delta payment", "payment difference"] },
+  { field: "name", label: "Name", aliases: ["name", "customer", "customer name", "full name", "contact", "owner", "owner name", "client", "client name", "buyer", "buyer name"] },
   { field: "firstName", label: "First name", aliases: ["first name", "firstname", "first"] },
   { field: "lastName", label: "Last name", aliases: ["last name", "lastname", "last", "surname"] },
-  { field: "phone", label: "Phone", aliases: ["phone", "phone number", "mobile", "cell", "cell phone", "primary phone"] },
+  { field: "phone", label: "Phone", aliases: ["phone", "phone number", "mobile", "cell", "cell phone", "primary phone", "mobile phone", "best phone", "contact phone", "phone 1"] },
+  { field: "phone2", label: "Phone (backup)", aliases: ["home phone", "work phone", "phone 2", "secondary phone", "alt phone", "other phone", "evening phone", "day phone"] },
   { field: "email", label: "Email", aliases: ["email", "e-mail", "email address"] },
-  { field: "vehicleInterest", label: "Vehicle of interest / owned", aliases: ["vehicle", "vehicle of interest", "interest", "desired vehicle", "trade", "current vehicle", "vehicle owned", "purchased vehicle", "year make model"] },
-  { field: "purchaseDate", label: "Purchase / sale date", aliases: ["purchase date", "sale date", "sold date", "delivery date", "date sold", "deal date", "contract date", "purchased", "closing date", "date of sale"] },
-  { field: "leaseEnd", label: "Lease end date", aliases: ["lease end", "lease maturity", "maturity date", "lease end date", "term end", "lease expiration", "lease exp"] },
-  { field: "dob", label: "Birthday", aliases: ["birthday", "birth date", "date of birth", "dob"] },
+  { field: "vehicleInterest", label: "Vehicle (one column)", aliases: ["vehicle", "vehicle of interest", "interest", "desired vehicle", "trade", "current vehicle", "vehicle owned", "purchased vehicle", "year make model", "vehicle description"] },
+  // AutoAlert-style exports split the owned vehicle across columns — these
+  // recombine into one vehicle string at import time.
+  { field: "vehYear", label: "Vehicle year", aliases: ["year", "model year", "yr", "vehicle year", "curr year", "current year"], type: "number" },
+  { field: "vehMake", label: "Vehicle make", aliases: ["make", "vehicle make", "curr make", "current make"] },
+  { field: "vehModel", label: "Vehicle model", aliases: ["model", "vehicle model", "curr model", "current model"] },
+  { field: "vehTrim", label: "Vehicle trim", aliases: ["trim", "series", "vehicle trim"] },
+  { field: "purchaseDate", label: "Purchase / sale date", aliases: ["purchase date", "sale date", "sold date", "delivery date", "date sold", "deal date", "contract date", "purchased", "closing date", "date of sale", "date delivered", "delivered date", "orig purchase date"] },
+  { field: "leaseEnd", label: "Lease end date", aliases: ["lease end", "lease maturity", "maturity date", "lease end date", "term end", "lease expiration", "lease exp", "maturity", "contract end date", "term end date"] },
+  { field: "dob", label: "Birthday", aliases: ["birthday", "birth date", "date of birth", "dob", "customer birthday"] },
   // Financial fields (e.g. from an AutoAlert equity export) power the Deal Builder.
-  { field: "currentPayment", label: "Current payment / mo", aliases: ["payment", "current payment", "monthly payment", "current pmt", "pmt", "monthly pmt", "current monthly payment"] },
-  { field: "payoff", label: "Loan payoff / balance", aliases: ["payoff", "payoff amount", "balance", "loan balance", "current payoff", "amount owed", "remaining balance", "buyout"] },
-  { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value"] },
-  { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity"] },
-  { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate"] },
+  { field: "currentPayment", label: "Current payment / mo", aliases: ["payment", "current payment", "monthly payment", "current pmt", "pmt", "monthly pmt", "current monthly payment", "curr payment", "est payment", "estimated payment"] },
+  { field: "payoff", label: "Loan payoff / balance", aliases: ["payoff", "payoff amount", "balance", "loan balance", "current payoff", "amount owed", "remaining balance", "buyout", "est payoff", "estimated payoff", "payoff amt", "current balance"] },
+  { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value", "est value", "est trade value", "estimated trade value", "trade in value", "black book", "cbb", "cash value", "vehicle value"] },
+  { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity", "est equity", "estimated equity"] },
+  { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate", "int rate", "current int rate", "customer rate"] },
+  { field: "alertType", label: "Alert / opportunity", aliases: ["alert", "alerts", "alert type", "alert types", "opportunity", "opportunity type", "flex alert", "flex alerts", "upgrade alert", "service alert"] },
+  { field: "dealType", label: "Deal type (lease/retail)", aliases: ["deal type", "sale type", "contract type", "finance type", "purchase type"] },
   { field: "source", label: "Source", aliases: ["source", "lead source", "origin"] },
   { field: "notes", label: "Notes", aliases: ["notes", "comments", "remarks"] },
 ];
@@ -130,7 +144,7 @@ function showMapping(stage, type, parsed, opts = {}) {
   `;
 
   const mapRows = stage.querySelector(".map-rows");
-  targets.forEach((t) => {
+  targets.filter((t) => !t.hidden).forEach((t) => {
     const row = document.createElement("div");
     row.className = "field";
     row.innerHTML = `
@@ -206,9 +220,29 @@ function buildRecord(type, row, mapping) {
       status: "available",
     };
   }
-  // leads: combine first/last if a single name isn't provided.
+  // leads: combine first/last if a single name isn't provided; flip
+  // "Shokar, Parm" (the AutoAlert/DMS convention) to "Parm Shokar".
   let name = val("name");
   if (!name) name = [val("firstName"), val("lastName")].filter(Boolean).join(" ");
+  const flip = /^([^,\d]+),\s*(.+)$/.exec(name);
+  if (flip) name = `${flip[2].trim()} ${flip[1].trim()}`;
+
+  // Phones: Excel loves turning them into scientific notation; and when the
+  // primary column is blank for a row, fall back to the home/work column.
+  const cleanPhone = (v) => {
+    let s = String(v || "").trim();
+    if (/e\+?\d+/i.test(s) || /^\d+\.\d+$/.test(s)) {
+      const n = Number(s);
+      if (isFinite(n)) s = String(Math.round(n));
+    }
+    return s;
+  };
+  const phone = cleanPhone(val("phone")) || cleanPhone(val("phone2"));
+
+  // Vehicle: one combined column, or recombined from year/make/model/trim.
+  const vehicle = val("vehicleInterest") ||
+    [parseNumber(val("vehYear")), val("vehMake"), val("vehModel"), val("vehTrim")].filter(Boolean).join(" ");
+
   const purchaseDate = parseDateLoose(val("purchaseDate"));
   const currentPayment = parseNumber(val("currentPayment"));
   const payoff = parseNumber(val("payoff"));
@@ -216,14 +250,22 @@ function buildRecord(type, row, mapping) {
   let currentValue = parseNumber(val("currentValue"));
   // If value isn't given but equity is, derive it (value = payoff + equity).
   if (currentValue == null && equity != null && payoff != null) currentValue = payoff + equity;
+
+  // Alert/deal context lands in notes so the "why call them" travels with
+  // the profile ("AutoAlert: Lease Maturity · Deal type: Lease").
+  const alertType = val("alertType");
+  const dealType = val("dealType");
+  const context = [alertType && `AutoAlert: ${alertType}`, dealType && `Deal type: ${dealType}`].filter(Boolean).join(" · ");
+  const notes = [context, val("notes")].filter(Boolean).join("\n");
+
   const isCustomer = !!(purchaseDate || currentPayment != null);
   return {
     name,
-    phone: val("phone"),
+    phone,
     email: val("email"),
-    vehicleInterest: val("vehicleInterest"),
-    source: val("source") || "Import",
-    notes: val("notes"),
+    vehicleInterest: vehicle,
+    source: val("source") || (alertType ? "AutoAlert" : "Import"),
+    notes,
     purchaseDate,
     leaseEnd: parseDateLoose(val("leaseEnd")),
     dob: parseDateLoose(val("dob")),
