@@ -285,7 +285,7 @@ export async function execTool(name, p = {}) {
     case "deal_options": case "match_deals": {
       const lead = findLead(p.customer || p.name);
       if (!lead) return { result: "not found", note: "" };
-      const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method }));
+      const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method, special: r.special || null, inStock: !r.vehicle.lineup }));
       return { result: { customer: lead.name, currentPayment: lead.currentPayment ?? null, options: rows }, note: "" };
     }
     case "get_plays": {

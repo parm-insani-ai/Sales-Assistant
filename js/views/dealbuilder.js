@@ -11,6 +11,7 @@ import { openAppointmentForm } from "./calendar.js";
 import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
 import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday } from "../utils.js";
+import { SPEC_LIBRARY } from "../specs.js";
 
 function num(v) { return Number(v) || 0; }
 
@@ -53,19 +54,93 @@ function availableVehicles() {
   return store.all("vehicles").filter((v) => (v.status || "available") === "available" && v.price != null);
 }
 
-// Both financing and leasing options for one vehicle, honoring the method filter.
+// ---- Incentives: the Monthly Specials feed the deal math ----
+const todayISO = () => new Date().toISOString().slice(0, 10);
+function activeSpecials() {
+  return store.all("specials").filter((sp) => !sp.expiry || sp.expiry >= todayISO());
+}
+
+// The active special that applies to a vehicle, matched by model keyword.
+export function specialFor(v) {
+  const model = String(v.model || v.label || "").toLowerCase().trim();
+  if (!model) return null;
+  return activeSpecials().find((sp) => {
+    const m = String(sp.model || "").toLowerCase().trim();
+    return m && (model.includes(m) || m.includes(model));
+  }) || null;
+}
+
+function specialLabel(sp, method) {
+  if (method === "finance") {
+    const bits = [];
+    if (sp.financeApr != null && sp.financeApr !== "") bits.push(`${sp.financeApr}% APR${sp.financeTerm ? ` / ${sp.financeTerm} mo` : ""}`);
+    if (Number(sp.cash)) bits.push(`${currency(Number(sp.cash))} cash`);
+    return bits.join(" + ") || null;
+  }
+  return `advertised lease${sp.leaseTerm ? ` ${sp.leaseTerm} mo` : ""}${Number(sp.leaseDown) ? `, ${currency(Number(sp.leaseDown))} down` : ""}`;
+}
+
+// New Nissans from the built-in lineup become deal candidates when an active
+// special applies to that model and nothing matching is physically in stock —
+// a 0% Rogue program is pitchable even before the unit lands on the lot.
+function lineupCandidates() {
+  const specials = activeSpecials();
+  if (!specials.length) return [];
+  const inv = availableVehicles();
+  const out = [];
+  SPEC_LIBRARY.filter((x) => x.make === "Nissan").forEach((x) => {
+    const model = String(x.label).replace(/^\d{4}\s+/, "").replace(/^Nissan\s+/i, "").trim();
+    const ml = model.toLowerCase();
+    const hasSpecial = specials.some((sp) => {
+      const m = String(sp.model || "").toLowerCase().trim();
+      return m && (ml.includes(m) || m.includes(ml));
+    });
+    if (!hasSpecial) return;
+    const inStock = inv.some((v) => {
+      const vm = String(v.model || "").toLowerCase().trim();
+      return vm && (vm.includes(ml) || ml.includes(vm));
+    });
+    if (inStock) return; // a real unit always beats a catalogue entry
+    out.push({
+      year: Number(String(x.label).slice(0, 4)) || 2026,
+      make: "Nissan", model, price: x.msrp, lineup: true, status: "available",
+    });
+  });
+  return out;
+}
+
+function candidateVehicles() {
+  return [...availableVehicles(), ...lineupCandidates()];
+}
+
+// Both financing and leasing options for one vehicle, honoring the method
+// filter. An active special reshapes the math: its APR/term/cash replace the
+// defaults for financing, and an advertised lease program is used as-is.
 function optionsForVehicle(lead, v, opts = {}) {
   const s = store.getSettings();
   const method = opts.method || s.dealMethod || "both";
   const base = financeBase(lead, opts.down);
+  const sp = specialFor(v);
   const out = [];
   if (method !== "lease") {
-    const f = computeDeal({ ...base, term: s.defaultTerm, price: v.price });
-    out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced });
+    const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
+    const apr = hasApr ? Number(sp.financeApr) : base.apr;
+    const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
+    const price = Math.max(0, v.price - (sp && Number(sp.cash) ? Number(sp.cash) : 0));
+    const f = computeDeal({ ...base, apr, term, price });
+    const label = sp ? specialLabel(sp, "finance") : null;
+    out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, special: label });
   }
   if (method !== "finance") {
-    const l = computeLease({ ...base, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price });
-    out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual });
+    if (sp && Number(sp.leasePayment)) {
+      out.push({
+        vehicle: v, method: "lease", monthly: Number(sp.leasePayment), advertised: true,
+        leaseDown: Number(sp.leaseDown) || 0, special: specialLabel(sp, "lease"),
+      });
+    } else {
+      const l = computeLease({ ...base, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price });
+      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, special: null });
+    }
   }
   return out;
 }
@@ -74,7 +149,7 @@ function optionsForVehicle(lead, v, opts = {}) {
 export function dealsForLead(lead, opts = {}) {
   const cur = lead.currentPayment != null ? lead.currentPayment : null;
   const rows = [];
-  availableVehicles().forEach((v) => {
+  candidateVehicles().forEach((v) => {
     optionsForVehicle(lead, v, opts).forEach((o) => rows.push({ ...o, delta: cur != null ? o.monthly - cur : null }));
   });
   rows.sort((a, b) => (cur != null ? Math.abs(a.delta) - Math.abs(b.delta) : a.monthly - b.monthly));
@@ -134,6 +209,9 @@ export function scoreOpportunity(lead, best) {
     score += 12; reasons.push(`Rate ${lead.currentApr}% → ~${s.defaultApr}%`);
   }
 
+  // The incentive is pitch material — keep it ahead of the reason cap.
+  if (best && best.special) { score += 10; reasons.splice(Math.min(1, reasons.length), 0, `🏷 ${best.special}`); }
+
   return { score: Math.min(100, Math.round(score)), reasons: reasons.slice(0, 3) };
 }
 
@@ -149,7 +227,7 @@ export function topOpportunities(limit = 50) {
   const s = store.getSettings();
   const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
   const method = s.dealMethod || "both";
-  if (!availableVehicles().length) return [];
+  if (!candidateVehicles().length) return [];
   const out = [];
   store.all("leads").forEach((l) => {
     const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
@@ -182,7 +260,8 @@ export function offerText(lead, match) {
     : "";
   const trade = lead.vehicleInterest ? ` out of your ${lead.vehicleInterest}` : "";
   const how = match.method === "lease" ? " on a lease" : "";
-  return `${intro} Good news — I can likely get you into a new ${v} for about $${pmt}/mo${how},${curLine}${trade ? "," + trade : ""}. Worth a quick look? What's your schedule like this week?`;
+  const spBit = match.special ? ` — Nissan's running ${match.special} on it right now` : "";
+  return `${intro} Good news — I can likely get you into a new ${v} for about $${pmt}/mo${how},${curLine}${trade ? "," + trade : ""}${spBit}. Worth a quick look? What's your schedule like this week?`;
 }
 
 // ---------- Per-customer Deal Builder sheet ----------
@@ -213,7 +292,7 @@ export function openDealBuilder(lead) {
 
         <div class="section-title" style="margin-top:6px">${cur != null ? "Closest matches" : "Lowest payments"}</div>
         <div class="db-list"></div>
-        <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(s.docFee)} fees, ${lead.currentApr || s.defaultApr}% APR, ${s.defaultTerm} mo, their car as trade. Confirm with your desk.</div>
+        <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(s.docFee)} fees, ${lead.currentApr || s.defaultApr}% APR, ${s.defaultTerm} mo, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}. Confirm with your desk.</div>
       `;
 
       const list = wrap.querySelector(".db-list");
@@ -243,7 +322,8 @@ function dealRow(lead, m) {
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(vehName(v))}</div>
-        <div class="row-sub"><span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}" style="margin-right:6px">${m.method === "lease" ? "Lease" : "Finance"}</span>${v.price != null ? currency(v.price) : ""}${v.stock ? " · #" + esc(v.stock) : ""}</div>
+        <div class="row-sub"><span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}" style="margin-right:6px">${m.method === "lease" ? "Lease" : "Finance"}</span>${v.price != null ? currency(v.price) : ""}${v.stock ? " · #" + esc(v.stock) : ""}${v.lineup ? " · new — order/allocate" : ""}${m.advertised && m.leaseDown ? ` · ${currency(m.leaseDown)} down` : ""}
+        ${m.special ? `<div style="margin-top:3px"><span class="badge badge-sold">🏷 ${esc(m.special)}</span></div>` : ""}</div>
       </div>
       <div class="row-meta">
         <div class="strong mono" style="font-size:1.05rem">${currency2(m.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>
