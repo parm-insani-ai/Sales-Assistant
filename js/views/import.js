@@ -36,8 +36,10 @@ const LEAD_TARGETS = [
   // that would poison the Deal Radar. (hidden: never shown in the mapping UI.)
   { field: "_skipProposed", label: "(ignored)", hidden: true, aliases: ["new payment", "new pmt", "new monthly payment", "proposed payment", "upgrade payment", "new rate", "new apr", "new term", "new vehicle", "new year", "new make", "new model", "sale price", "delta payment", "payment difference"] },
   { field: "name", label: "Name", aliases: ["name", "customer", "customer name", "full name", "contact", "owner", "owner name", "client", "client name", "buyer", "buyer name"] },
-  { field: "firstName", label: "First name", aliases: ["first name", "firstname", "first"] },
-  { field: "lastName", label: "Last name", aliases: ["last name", "lastname", "last", "surname"] },
+  // (no bare "first"/"last" aliases — they fuzzy-matched service columns
+  // like "Last RO" and corrupted names)
+  { field: "firstName", label: "First name", aliases: ["first name", "firstname"] },
+  { field: "lastName", label: "Last name", aliases: ["last name", "lastname", "surname"] },
   { field: "phone", label: "Phone", aliases: ["phone", "phone number", "mobile", "cell", "cell phone", "primary phone", "mobile phone", "best phone", "contact phone", "phone 1"] },
   { field: "phone2", label: "Phone (backup)", aliases: ["home phone", "work phone", "phone 2", "secondary phone", "alt phone", "other phone", "evening phone", "day phone"] },
   { field: "email", label: "Email", aliases: ["email", "e-mail", "email address"] },
@@ -57,8 +59,13 @@ const LEAD_TARGETS = [
   { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value", "est value", "est trade value", "estimated trade value", "trade in value", "black book", "cbb", "cash value", "vehicle value"] },
   { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity", "est equity", "estimated equity"] },
   { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate", "int rate", "current int rate", "customer rate"] },
-  { field: "alertType", label: "Alert / opportunity", aliases: ["alert", "alerts", "alert type", "alert types", "opportunity", "opportunity type", "flex alert", "flex alerts", "upgrade alert", "service alert"] },
+  { field: "alertType", label: "Alert / opportunity", aliases: ["alert", "alerts", "alert type", "alert types", "opportunity", "opportunity type", "flex alert", "flex alerts", "upgrade alert", "service alert", "categories", "category"] },
+  { field: "priority", label: "Priority", aliases: ["priority", "alert priority", "rank", "score"] },
   { field: "dealType", label: "Deal type (lease/retail)", aliases: ["deal type", "sale type", "contract type", "finance type", "purchase type"] },
+  // Service-drive columns (AutoAlert priority lists): an upcoming RO
+  // appointment becomes a follow-up — meet them in the service drive.
+  { field: "serviceAppt", label: "Service appointment", aliases: ["ro appt", "ro appointment", "service appt", "service appointment", "appt date", "next service", "next appt", "upcoming appt"] },
+  { field: "lastService", label: "Last service visit", aliases: ["last ro", "last ro date", "last service", "last service date", "last visit", "last repair order"] },
   { field: "source", label: "Source", aliases: ["source", "lead source", "origin"] },
   { field: "notes", label: "Notes", aliases: ["notes", "comments", "remarks"] },
 ];
@@ -251,11 +258,20 @@ function buildRecord(type, row, mapping) {
   // If value isn't given but equity is, derive it (value = payoff + equity).
   if (currentValue == null && equity != null && payoff != null) currentValue = payoff + equity;
 
-  // Alert/deal context lands in notes so the "why call them" travels with
-  // the profile ("AutoAlert: Lease Maturity · Deal type: Lease").
+  // Alert/deal/service context lands in notes so the "why call them" travels
+  // with the profile ("AutoAlert: Lease Maturity · Priority: Ultra High").
   const alertType = val("alertType");
   const dealType = val("dealType");
-  const context = [alertType && `AutoAlert: ${alertType}`, dealType && `Deal type: ${dealType}`].filter(Boolean).join(" · ");
+  const priority = val("priority");
+  const serviceAppt = parseDateLoose(val("serviceAppt"));
+  const lastService = parseDateLoose(val("lastService"));
+  const context = [
+    alertType && `AutoAlert: ${alertType}`,
+    priority && `Priority: ${priority}`,
+    dealType && `Deal type: ${dealType}`,
+    serviceAppt && `Service appt ${serviceAppt} — meet them in the drive`,
+    lastService && `Last service ${lastService}`,
+  ].filter(Boolean).join(" · ");
   const notes = [context, val("notes")].filter(Boolean).join("\n");
 
   const isCustomer = !!(purchaseDate || currentPayment != null);
@@ -264,7 +280,7 @@ function buildRecord(type, row, mapping) {
     phone,
     email: val("email"),
     vehicleInterest: vehicle,
-    source: val("source") || (alertType ? "AutoAlert" : "Import"),
+    source: val("source") || (alertType || priority ? "AutoAlert" : "Import"),
     notes,
     purchaseDate,
     leaseEnd: parseDateLoose(val("leaseEnd")),
@@ -273,6 +289,9 @@ function buildRecord(type, row, mapping) {
     payoff,
     currentValue,
     currentApr: parseNumber(val("currentApr")),
+    // A booked service visit is a date with the customer — surface it as a
+    // follow-up so they show on the dashboard that day.
+    followUp: serviceAppt || null,
     // Rows with a purchase date or current payment are existing customers (feed
     // the equity call list + Deal Builder), not new pipeline leads.
     stage: isCustomer ? "delivered" : "new",
@@ -293,11 +312,18 @@ function mergeLead(existing, incoming) {
   const patch = {};
   const empty = (v) => v === "" || v == null;
 
-  ["phone", "email", "dob", "source", "vehicleInterest", "purchaseDate", "leaseEnd"].forEach((k) => {
+  ["phone", "email", "dob", "source", "vehicleInterest", "purchaseDate", "leaseEnd", "followUp"].forEach((k) => {
     if (!empty(incoming[k]) && empty(existing[k])) patch[k] = incoming[k];
   });
   if (!empty(incoming.name) && String(incoming.name).length > String(existing.name || "").length) {
     patch.name = incoming.name;
+  }
+  // Upgrade a partial vehicle ("2019") to the fuller version ("2019 Rogue")
+  // when the existing value is clearly a fragment of the incoming one.
+  if (!empty(incoming.vehicleInterest) && !empty(existing.vehicleInterest) &&
+      incoming.vehicleInterest.length > existing.vehicleInterest.length &&
+      incoming.vehicleInterest.toLowerCase().includes(existing.vehicleInterest.toLowerCase())) {
+    patch.vehicleInterest = incoming.vehicleInterest;
   }
   ["currentPayment", "payoff", "currentValue", "currentApr"].forEach((k) => {
     if (!empty(incoming[k])) patch[k] = incoming[k];
@@ -334,14 +360,17 @@ function runImport(type, rows, mapping) {
       }
     });
   } else {
-    // Index existing customers by phone and email so each row folds into the
-    // right profile. Newly created records are added to the index too, so
-    // duplicates *within the same file* also merge instead of piling up.
+    // Index existing customers by phone and email — and by name as a last
+    // resort, because some exports (AutoAlert service/priority lists) carry
+    // no contact columns at all and would otherwise duplicate on re-import.
     const byPhone = new Map();
     const byEmail = new Map();
+    const byName = new Map();
+    const nameKey = (n) => String(n || "").toLowerCase().replace(/[^a-z]/g, "");
     store.all("leads").forEach((l) => {
       if (l.phone) byPhone.set(digits(l.phone), l);
       if (l.email) byEmail.set(l.email.toLowerCase(), l);
+      if (l.name) byName.set(nameKey(l.name), l);
     });
 
     rows.forEach((row) => {
@@ -349,7 +378,7 @@ function runImport(type, rows, mapping) {
       if (!rec.name) { skipped++; return; }
       const ph = digits(rec.phone);
       const em = rec.email ? rec.email.toLowerCase() : "";
-      const match = (ph && byPhone.get(ph)) || (em && byEmail.get(em)) || null;
+      const match = (ph && byPhone.get(ph)) || (em && byEmail.get(em)) || byName.get(nameKey(rec.name)) || null;
 
       if (match) {
         const patch = mergeLead(match, rec);
@@ -363,12 +392,14 @@ function runImport(type, rows, mapping) {
         // A newly-learned phone/email lets later rows match this same person.
         if (match.phone) byPhone.set(digits(match.phone), match);
         if (match.email) byEmail.set(match.email.toLowerCase(), match);
+        if (match.name) byName.set(nameKey(match.name), match);
       } else {
         const created = store.create("leads", rec);
         addedIds.push(created.id);
         added++;
         if (ph) byPhone.set(ph, created);
         if (em) byEmail.set(em, created);
+        byName.set(nameKey(created.name), created);
       }
     });
   }
