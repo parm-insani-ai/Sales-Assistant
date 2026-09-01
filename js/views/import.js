@@ -201,6 +201,9 @@ function showMapping(stage, type, parsed, opts = {}) {
     if (result.skipped) parts.push(`${result.skipped} skipped`);
     const extra = outreach ? ` · outreach started for ${outreach}` : "";
     toast(`Import complete — ${parts.join(", ")}${extra}`, "success");
+    // Land on a filter that actually shows what was just imported — past
+    // customers come in at "delivered", which the default Active filter hides.
+    if (type === "leads") { try { sessionStorage.setItem("leads-filter", "all"); } catch {} }
     navigate(type === "vehicles" ? "/inventory" : "/leads");
   });
 }
