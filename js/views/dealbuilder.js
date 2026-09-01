@@ -202,7 +202,12 @@ function financeBase(lead, down) {
     tradePayoff: inp.payoff.v || 0,
     fees: s.docFee,
     taxRate: s.taxRate,
-    apr: inp.apr.v || s.defaultApr,
+    // NEW money is priced at the store's standard rate (a program rate from the
+    // bulletin overrides it per vehicle). Never at the customer's existing
+    // contract rate — someone carrying 14.9% from an old subprime deal would
+    // get every new car quoted at 14.9%, which buries the payment and kills
+    // the rate-reduction pitch. Their rate belongs on their side of the deal.
+    apr: num(s.defaultApr),
   };
 }
 
@@ -462,6 +467,18 @@ function optionsForVehicle(lead, v, opts = {}) {
   return out;
 }
 
+// How this payment compares to what they pay now. Always states the direction
+// AND the amount: "≈ same payment" hid whether a deal was cheaper or dearer,
+// which is the first thing a customer asks. `long` gives the sentence form.
+export function paymentDelta(delta, opts = {}) {
+  if (delta == null || delta === "") return null;
+  const d = Math.round(Number(delta));
+  const tail = opts.long ? " than they pay now" : "";
+  if (d === 0) return { text: opts.long ? "exactly their current payment" : "same payment", color: "var(--success)", dir: "same" };
+  if (d < 0) return { text: `${currency(-d)}/mo less${tail}`, color: "var(--success)", dir: "less" };
+  return { text: `${currency(d)}/mo more${tail}`, color: "var(--warning)", dir: "more" };
+}
+
 // Every finance/lease option across available inventory, closest payment first.
 export function dealsForLead(lead, opts = {}) {
   const cur = lead.currentPayment != null ? lead.currentPayment : null;
@@ -613,10 +630,7 @@ export function openDealDetail(lead, m) {
   openModal(vehName(v), (close) => {
     const wrap = document.createElement("div");
     const delta = m.delta != null ? Math.round(m.delta) : (cur != null ? Math.round(m.monthly - cur) : null);
-    const band = s.dealMatchBand || 50;
-    const deltaTxt = delta == null ? "" :
-      Math.abs(delta) <= band ? "≈ same as their current payment" :
-      delta < 0 ? `${currency(-delta)}/mo less than they pay now` : `+${currency(delta)}/mo over their current payment`;
+    const dl = paymentDelta(delta, { long: true });
 
     const add = newAddons(v);
     const addonRows = add ? [
@@ -631,7 +645,7 @@ export function openDealDetail(lead, m) {
       // fall back to the model-level cash for options minted before it existed.
       const cash = m.cash != null ? Number(m.cash) || 0 : (sp && Number(sp.cash) ? Number(sp.cash) : 0);
       const hasAprSp = m.special != null && /%/.test(String(m.special || ""));
-      const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr));
+      const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : num(s.defaultApr));
       const term = m.term || s.defaultTerm;
       // New units: plate registration rides untaxed (the taxable add-ons are in
   // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
@@ -666,7 +680,7 @@ export function openDealDetail(lead, m) {
       const isProgram = m.apr != null && m.resPct != null;
       const term = m.term || s.leaseTerm || 36;
       const resPct = isProgram ? m.resPct : (s.leaseResidualPct || 58);
-      const apr = isProgram ? m.apr : (lead.currentApr || s.defaultApr);
+      const apr = isProgram ? m.apr : num(s.defaultApr);
       const lcash = Number(m.leaseCash) || 0;
       const l = m.residual != null ? { residual: m.residual }
         : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
@@ -678,6 +692,7 @@ export function openDealDetail(lead, m) {
         kv("Trade-in value", currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
+        add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fee", "+ " + currency(s.docFee)),
         kv("Term", `${term} mo`),
         kv(`Residual (${resPct}%${isProgram ? " 🏷" : ""})`, currency(Math.round(l.residual))),
         kv("Rate used", `${apr}%${isProgram ? " 🏷" : ""}`),
@@ -697,7 +712,7 @@ export function openDealDetail(lead, m) {
     wrap.innerHTML = `
       <div class="card" style="margin-bottom:14px;text-align:center">
         <div style="font-size:2rem;font-weight:800" class="mono">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.9rem">/mo</span></div>
-        ${deltaTxt ? `<div class="small strong" style="margin-top:2px;color:${delta != null && delta <= band ? "var(--success)" : "var(--muted)"}">${deltaTxt}</div>` : ""}
+        ${dl ? `<div class="small strong" style="margin-top:2px;color:${dl.color}">${dl.text}</div>` : ""}
         <div class="small muted" style="margin-top:6px">
           <span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}">${m.method === "lease" ? "Lease" : "Finance"}</span>
           ${m.special ? ` <span class="badge badge-sold">🏷 ${esc(m.special)}</span>` : ""}
@@ -742,7 +757,7 @@ export function openDealDetail(lead, m) {
       sessionStorage.setItem("calc-prefill", JSON.stringify({
         price: v.price, label: `${vehName(v)} — ${lead.name}`,
         tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0,
-        apr: lead.currentApr || null,
+        apr: null,
       }));
       close();
       navigate("/calculator");
@@ -818,7 +833,7 @@ export function openDealBuilder(lead) {
 
         <div class="section-title" style="margin-top:6px">${pick ? "Their offer on this vehicle" : cur != null ? "Closest matches" : "Lowest payments"}</div>
         <div class="db-list"></div>
-        <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(s.docFee)} fees, ${lead.currentApr || s.defaultApr}% APR, ${s.defaultTerm} mo, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}. Confirm with your desk.</div>
+        <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(s.docFee)} fees, ${s.defaultApr}% standard APR (program rates override), ${s.defaultTerm} mo, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}. Confirm with your desk.</div>
       `;
 
       const list = wrap.querySelector(".db-list");
@@ -850,9 +865,7 @@ function dealRow(lead, m) {
   el.className = "card card-tap";
   el.addEventListener("click", () => openDealDetail(lead, m));
   const v = m.vehicle;
-  const near = m.delta != null && Math.abs(m.delta) <= (store.getSettings().dealMatchBand || 50);
-  const deltaLabel = m.delta == null ? "" :
-    m.delta <= 0 ? `${currency(Math.abs(Math.round(m.delta)))}/mo less` : `+${currency(Math.round(m.delta))}/mo`;
+  const dl = paymentDelta(m.delta);
   el.innerHTML = `
     <div class="row">
       <div class="row-main">
@@ -862,7 +875,7 @@ function dealRow(lead, m) {
       </div>
       <div class="row-meta">
         <div class="strong mono" style="font-size:1.05rem">${currency2(m.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>
-        ${m.delta != null ? `<div class="small ${near ? "" : "muted"}" style="${near ? "color:var(--success);font-weight:700" : ""}">${near ? "≈ same payment" : deltaLabel}</div>` : ""}
+        ${dl ? `<div class="small" style="color:${dl.color};font-weight:700">${dl.text}</div>` : ""}
       </div>
     </div>
     <div class="btn-row" style="margin-top:12px">
@@ -972,7 +985,7 @@ function opportunityCard({ lead, best, score, reasons }) {
     <div class="card" style="margin:12px 0 0;background:var(--surface-2);border:none">
       <div class="row">
         <div class="row-main"><div class="small muted">Put them in · ${best.method === "lease" ? "Lease" : "Finance"}</div><div class="strong">${esc(vehName(v))}</div></div>
-        <div class="row-meta"><div class="strong mono" style="font-size:1.05rem">${currency2(best.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>${best.delta != null ? `<div class="small ${best.delta <= (store.getSettings().dealMatchBand || 50) ? "" : "muted"}" style="${best.delta <= (store.getSettings().dealMatchBand || 50) ? "color:var(--success);font-weight:700" : ""}">${best.delta <= 0 ? currency(Math.abs(Math.round(best.delta))) + "/mo less" : best.delta <= (store.getSettings().dealMatchBand || 50) ? "≈ same" : "+" + currency(Math.round(best.delta)) + "/mo"}</div>` : ""}</div>
+        <div class="row-meta"><div class="strong mono" style="font-size:1.05rem">${currency2(best.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>${(() => { const dl = paymentDelta(best.delta); return dl ? `<div class="small" style="color:${dl.color};font-weight:700">${dl.text}</div>` : ""; })()}</div>
       </div>
     </div>
     ${reasons.length ? `<div class="btn-row" style="gap:6px;margin-top:10px">${reasons.map((r) => `<span class="badge badge-working">${esc(r)}</span>`).join("")}</div>` : ""}

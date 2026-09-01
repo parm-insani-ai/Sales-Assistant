@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity, dealInputs, estimateTradeDetail } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity, dealInputs, estimateTradeDetail, paymentDelta } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -487,12 +487,9 @@ function renderLeadDetail(view, id) {
     const rows = dealsForLead(l).slice(0, 3);
     if (!rows.length) return;
     const best = rows[0];
-    const band = store.getSettings().dealMatchBand || 50;
-    const deltaLine = (m) => m.delta == null ? "" :
-      Math.abs(m.delta) <= band ? "≈ same payment" :
-      m.delta < 0 ? `${currency(Math.round(-m.delta))}/mo less` : `+${currency(Math.round(m.delta))}/mo`;
+    const deltaLine = (m) => (paymentDelta(m.delta) || { text: "" }).text;
     const vname = (v) => [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
-    const deltaColor = (m) => m.delta != null && m.delta <= band ? "var(--success)" : "var(--muted)";
+    const deltaColor = (m) => (paymentDelta(m.delta) || { color: "var(--muted)" }).color;
 
     slot.innerHTML = `
       <div class="section-title">The deal</div>
