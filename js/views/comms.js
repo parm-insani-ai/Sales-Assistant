@@ -3,12 +3,13 @@
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
-import { openModal, buildForm, toast } from "../components.js";
+import { openModal, buildForm, toast, undoToast } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, initials, formatDate, relativeDay, daysFromToday, telHref, smsHref, mailtoHref } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured } from "../email.js";
 import { getOccasions, markOccasion } from "../occasions.js";
+import { isDismissedToday, dismissToday } from "../plays.js";
 
 // A customer without a phone or email: collect it on the spot, then go
 // straight into picking a message — no detour through the lead page.
@@ -137,14 +138,20 @@ export function renderComms(view) {
           ? `Opened ${opens}×${lk.lastOpenAt ? ` · last ${esc(timeAgo(lk.lastOpenAt))}` : ""}`
           : `Not opened yet${lk.createdAt ? ` · sent ${esc(timeAgo(lk.createdAt))}` : ""}`}</div>
       </div>
-      ${opens ? `<div class="row-meta strong mono">${opens}×</div>` : ""}`;
+      ${opens ? `<div class="row-meta strong mono">${opens}×</div>` : ""}
+      <button class="modal-close" data-link-x aria-label="Delete link" style="font-size:1.1rem;flex:none;margin-left:8px">&times;</button>`;
+    row.querySelector("[data-link-x]").addEventListener("click", () => {
+      store.remove("links", lk.id);
+      row.remove();
+      if (!linkBox.children.length) linkBox.innerHTML = `<div class="muted small">No links tracked.</div>`;
+    });
     linkBox.appendChild(row);
   });
 
   // --- Confirmations & reminders: one-tap prefilled text; sending marks the
   // appointment confirmed and logs the touch.
   const remindBox = el.querySelector("#c-remind");
-  if (remindBox) upcoming.slice(0, 10).forEach((a) => {
+  if (remindBox) upcoming.filter((a) => !isDismissedToday(`cf:${a.id}`)).slice(0, 10).forEach((a) => {
     const lead = a.leadId ? leadById(a.leadId) : null;
     const phone = a.phone || (lead && lead.phone) || "";
     const isToday = a.when.startsWith(todayK);
@@ -161,7 +168,13 @@ export function renderComms(view) {
       ${phone
         ? `<a class="btn ${a.confirmed ? "btn-ghost" : "btn-primary"} btn-sm" href="${smsHref(phone, msg)}" style="flex:none">${icon("message")} ${a.confirmed ? "Remind" : "Confirm"}</a>`
         : `<button class="btn btn-ghost btn-sm" data-open style="flex:none">Open</button>`}
+      <button class="modal-close" data-remind-x aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>
     `;
+    row.querySelector("[data-remind-x]").addEventListener("click", () => {
+      dismissToday(`cf:${a.id}`);
+      row.remove();
+      if (!remindBox.children.length) remindBox.innerHTML = `<div class="muted small">All caught up.</div>`;
+    });
     row.querySelector("span").addEventListener("click", () => navigate(`/calendar/${a.id}`));
     const openB = row.querySelector("[data-open]");
     if (openB) openB.addEventListener("click", () => navigate(`/calendar/${a.id}`));
@@ -231,7 +244,14 @@ export function renderComms(view) {
       ${usable
         ? `<a class="btn btn-primary btn-sm" href="${href}" style="flex:none">${icon(m.icon)} ${m.label}</a>`
         : `<button class="btn btn-ghost btn-sm" data-open style="flex:none">Open</button>`}
+      <button class="modal-close" data-due-x aria-label="Delete follow-up" style="font-size:1.1rem;flex:none">&times;</button>
     `;
+    row.querySelector("[data-due-x]").addEventListener("click", () => {
+      const snapshot = { ...t };
+      store.remove("tasks", t.id);
+      row.remove();
+      undoToast("Follow-up deleted", () => store.restore("tasks", snapshot));
+    });
     row.querySelector("span").addEventListener("click", () => l && navigate(`/leads/${l.id}`));
     const openBtn = row.querySelector("[data-open]");
     if (openBtn) openBtn.addEventListener("click", () => l && navigate(`/leads/${l.id}`));
@@ -290,7 +310,13 @@ export function renderComms(view) {
       <span class="v" style="text-align:left;flex:1;font-weight:550">${esc(e.subject || "(no subject)")}
         <div class="small muted" style="font-weight:450">${esc(l ? l.name : "Customer")} · ${esc(formatDate(e.receivedAt || e.createdAt))}${e.via === "auto" ? " · automatic" : e.via === "outlook" ? " · Outlook" : ""}</div>
       </span>
+      <button class="modal-close" data-em-x aria-label="Delete" style="font-size:1.1rem;flex:none">&times;</button>
     `;
+    row.querySelector("[data-em-x]").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      store.remove("emails", e.id);
+      row.remove();
+    });
     row.addEventListener("click", () => l && navigate(`/leads/${l.id}`));
     emailBox.appendChild(row);
   });

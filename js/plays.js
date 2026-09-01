@@ -6,11 +6,36 @@
 
 import * as store from "./store.js";
 import { smsHref, telHref, daysFromToday } from "./utils.js";
-import { getOccasions } from "./occasions.js";
+import { getOccasions, markOccasion } from "./occasions.js";
 import { topOpportunities } from "./views/dealbuilder.js";
 
 const HOT_MS = 24 * 3600 * 1000;
 const first = (name) => String(name || "").trim().split(/\s+/)[0];
+
+// ---- Dismissals ----
+// A dismissed play stays gone for the rest of the day (per device); tomorrow
+// is a new sheet. Occasions are the exception — dismissing one marks it on
+// the lead permanently, same as the ✕ in Comms. Comms shares these keys, so
+// dismissing an appointment reminder there hides the matching play here too.
+const DKEY = "entoa:playdismiss";
+const dToday = () => new Date().toISOString().slice(0, 10);
+function dmap() {
+  try { return JSON.parse(localStorage.getItem(DKEY) || "{}"); } catch { return {}; }
+}
+export function isDismissedToday(key) {
+  return dmap()[key] === dToday();
+}
+export function dismissToday(key) {
+  const today = dToday();
+  const m = dmap();
+  Object.keys(m).forEach((k) => { if (m[k] !== today) delete m[k]; }); // prune old days
+  m[key] = today;
+  try { localStorage.setItem(DKEY, JSON.stringify(m)); } catch {}
+}
+export function dismissPlay(p) {
+  if (p.kind === "occasion" && p.leadId && p.occKey) markOccasion(p.leadId, p.occKey);
+  else if (p.key) dismissToday(p.key);
+}
 
 // Returns [{rank, icon, title, sub, kind, href?, route?}] best first.
 // href = one-tap send/dial; route = screen to open instead.
@@ -33,6 +58,7 @@ export function getPlays(limit = 6) {
     .forEach((lk) => {
       const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "your booking link" : "a comparison");
       plays.push({
+        key: `hl:${lk.id}:${lk.opens || 0}`,
         rank: 100, icon: "sparkles", kind: "hotlink",
         title: `${label} was just opened`,
         sub: `Opened ${lk.opens || 1}× — they're engaging. Strike while it's warm.`,
@@ -50,6 +76,7 @@ export function getPlays(limit = 6) {
       const time = String(a.when).slice(11, 16);
       const fn = first(a.customerName);
       plays.push({
+        key: `cf:${a.id}`,
         rank: 90, icon: "calendar", kind: "confirm",
         title: `Confirm ${a.customerName || "today's appointment"} — ${time}`,
         sub: phone ? "One tap sends the confirmation text." : "No phone on file — open the appointment.",
@@ -69,6 +96,7 @@ export function getPlays(limit = 6) {
       const phone = a.phone || (lead && lead.phone) || "";
       const fn = first(a.customerName);
       plays.push({
+        key: `ns:${a.id}`,
         rank: 80, icon: "alert", kind: "noshow",
         title: `Rebook ${a.customerName || "yesterday's no-show"}`,
         sub: "Missed yesterday — a friendly rebook text recovers most of these.",
@@ -86,6 +114,7 @@ export function getPlays(limit = 6) {
       const lead = leadById(t.leadId);
       const phone = lead && lead.phone;
       plays.push({
+        key: `fu:${t.id}`,
         rank: 70, icon: t.channel === "call" ? "phone" : "message", kind: "followup",
         title: t.title,
         sub: daysFromToday(t.due) < 0 ? "Overdue — clear it today." : "Due today.",
@@ -97,6 +126,7 @@ export function getPlays(limit = 6) {
   // 5. Top occasion (birthday / lease maturity / anniversary).
   getOccasions().slice(0, 2).forEach((o) => {
     plays.push({
+      key: `oc:${o.lead.id}:${o.key}`, leadId: o.lead.id, occKey: o.key,
       rank: 60, icon: "sparkles", kind: "occasion",
       title: `${o.lead.name}: ${o.label}`,
       sub: "A ready-to-send message is loaded.",
@@ -109,6 +139,7 @@ export function getPlays(limit = 6) {
   if (plays.length < limit) {
     topOpportunities(2).forEach((o) => {
       plays.push({
+        key: `rd:${o.lead.id}`,
         rank: 40, icon: "target", kind: "radar",
         title: `${o.lead.name} could trade up`,
         sub: o.reasons && o.reasons.length ? o.reasons[0] : "Payment-matched vehicle in stock.",
@@ -117,5 +148,5 @@ export function getPlays(limit = 6) {
     });
   }
 
-  return plays.sort((a, b) => b.rank - a.rank).slice(0, limit);
+  return plays.filter((p) => !isDismissedToday(p.key)).sort((a, b) => b.rank - a.rank).slice(0, limit);
 }

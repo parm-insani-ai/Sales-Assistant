@@ -9,7 +9,7 @@ import { monthSummary, apptFunnel } from "./goals.js";
 import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
-import { getPlays } from "../plays.js";
+import { getPlays, dismissPlay } from "../plays.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -113,7 +113,8 @@ export function renderDashboard(view) {
         </div>
         ${p.href
           ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${p.kind === "followup" && /^tel:/.test(p.href) ? "Call" : /^tel:/.test(p.href) ? "Call" : "Text"}</a>`
-          : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}`;
+          : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}
+        <button class="modal-close" data-play-x aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>`;
       const act = row.querySelector("a");
       if (act) act.addEventListener("click", () => {
         store.logActivity("touch");
@@ -121,6 +122,11 @@ export function renderDashboard(view) {
       });
       const go = row.querySelector("[data-play-go]");
       if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
+      row.querySelector("[data-play-x]").addEventListener("click", () => {
+        dismissPlay(p);
+        row.remove();
+        if (!box.querySelector(".row")) playsSlot.innerHTML = "";
+      });
       box.appendChild(row);
     });
     if (box.lastChild) box.lastChild.style.borderBottom = "none";
