@@ -81,6 +81,7 @@ const DEFAULT_STATE = {
 
     taxRate: 6.5, // %
     docFee: 499,
+    freightPdi: 2105, // freight & PDI added to MSRP for new lineup pricing (Nissan Canada)
     defaultTerm: 72,
     defaultApr: 7.9,
     deliveryChecklist: DEFAULT_DELIVERY_CHECKLIST,

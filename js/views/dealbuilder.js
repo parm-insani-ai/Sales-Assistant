@@ -92,6 +92,7 @@ function specialLabel(sp, method) {
 // active special rides along automatically via specialFor().
 function lineupCandidates() {
   const inv = availableVehicles();
+  const freight = Number(store.getSettings().freightPdi ?? 2105) || 0;
   const out = [];
   SPEC_LIBRARY.filter((x) => x.make === "Nissan").forEach((x) => {
     const model = String(x.label).replace(/^\d{4}\s+/, "").replace(/^Nissan\s+/i, "").trim();
@@ -101,10 +102,15 @@ function lineupCandidates() {
       return vm && (vm.includes(ml) || ml.includes(vm));
     });
     if (inStock) return; // a real unit always beats a catalogue entry
-    out.push({
-      year: Number(String(x.label).slice(0, 4)) || 2026,
-      make: "Nissan", model, price: x.msrp, lineup: true, status: "available",
+    const year = Number(String(x.label).slice(0, 4)) || 2026;
+    // Every trim is its own candidate, priced at its real MSRP + freight/PDI —
+    // an SV AWD and a Platinum are very different payments.
+    const push1 = (trim, msrp) => out.push({
+      year, make: "Nissan", model, trim: trim || "", price: msrp + freight,
+      lineup: true, status: "available",
     });
+    if (Array.isArray(x.trims) && x.trims.length) x.trims.forEach((t) => push1(t.name, t.msrp));
+    else push1("", x.msrp);
   });
   return out;
 }
@@ -132,7 +138,11 @@ function optionsForVehicle(lead, v, opts = {}) {
     out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, special: label });
   }
   if (method !== "finance") {
-    if (sp && Number(sp.leasePayment)) {
+    // An advertised lease is trim-specific — apply it only to the trim the ad
+    // names (sp.leaseTrim); other trims get the computed lease instead.
+    const advOk = sp && Number(sp.leasePayment) &&
+      (!sp.leaseTrim || String(v.trim || "").toLowerCase().includes(String(sp.leaseTrim).toLowerCase()));
+    if (advOk) {
       out.push({
         vehicle: v, method: "lease", monthly: Number(sp.leasePayment), advertised: true,
         leaseDown: Number(sp.leaseDown) || 0, special: specialLabel(sp, "lease"),

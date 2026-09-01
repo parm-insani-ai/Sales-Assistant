@@ -61,6 +61,8 @@ export function renderSettings(view) {
         <div class="field"><label>Default APR %</label><input id="s-apr" type="number" step="0.01" inputmode="decimal" value="${esc(s.defaultApr)}"></div>
         <div class="field"><label>Default term</label><input id="s-term" type="number" inputmode="numeric" value="${esc(s.defaultTerm)}"></div>
       </div>
+      <div class="field"><label>Freight &amp; PDI (new vehicles)</label><input id="s-freight" type="number" inputmode="decimal" value="${esc(s.freightPdi ?? 2105)}">
+        <div class="hint" style="margin-top:4px">Added on top of MSRP when the deal engine prices a new lineup vehicle (not applied to in-stock units, which carry your real price).</div></div>
       <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>
     </div>
 
@@ -177,6 +179,7 @@ export function renderSettings(view) {
     store.updateSettings({
       taxRate: Number(el.querySelector("#s-tax").value) || 0,
       docFee: Number(el.querySelector("#s-doc").value) || 0,
+      freightPdi: Number(el.querySelector("#s-freight").value) || 0,
       defaultApr: Number(el.querySelector("#s-apr").value) || 0,
       defaultTerm: Number(el.querySelector("#s-term").value) || 0,
     });

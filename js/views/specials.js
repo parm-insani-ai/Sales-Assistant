@@ -11,14 +11,22 @@ import { icon } from "../icons.js";
 // Nissan Canada national representative offers (captured Aug 2026). These are a
 // starting point — always confirm live numbers; regional/Atlantic offers vary.
 const NISSAN_SEED = {
-  label: "Nissan Canada · August 2026",
-  expiry: "2026-08-31",
+  label: "Nissan Canada · September 2026",
+  expiry: "2026-09-30",
   items: [
-    { model: "Rogue", financeApr: 0, financeTerm: 60, cash: 0, notes: "0% APR up to 60 mo (rep. $630/mo, $0 down). Incl. 0.5% rate reduction." },
-    { model: "Rogue Plug-in Hybrid", financeApr: 0, financeTerm: 60, cash: 10000, notes: "$10,000 finance/lease cash (Aug 1–31)." },
-    { model: "Kicks", leasePayment: 319, leaseTerm: 36, leaseDown: 4019, financeApr: 2.4, financeTerm: 60, notes: "Lease $319/mo · 36 mo, $4,019 down. Or from $157 bi-weekly @ 2.4% / 60 mo, $1,499 down." },
-    { model: "Sentra", financeApr: 0, financeTerm: 36, leasePayment: 269, leaseTerm: 36, leaseDown: 3139, notes: "0% APR · 36 mo. Lease $269/mo · 36 mo, $3,139 down." },
-    { model: "Pathfinder", leasePayment: 379, leaseTerm: 36, leaseDown: 4659, notes: "Lease $379/mo · 36 mo, $4,659 down." },
+    { model: "Rogue", financeApr: 0, financeTerm: 60, cash: 0,
+      leasePayment: 598, leaseTerm: 36, leaseDown: 0, leaseTrim: "Rock Creek",
+      notes: "0% APR on select in-stock 2026 Rogue. Advertised leases: Rock Creek $598/36 mo $0 down; Platinum $661 @1.4%/36 $0 down. Verify term/region at the desk." },
+    { model: "Rogue Plug-in Hybrid", cash: 10000,
+      notes: "Up to $12,500 purchase bonus ($10,000 + $2,500 federal EVAP if eligible)." },
+    { model: "Kicks", financeApr: 0, financeTerm: 60,
+      leasePayment: 413, leaseTerm: 36, leaseTrim: "SV",
+      notes: "0% APR on select in-stock 2026 Kicks. Rep. lease SV Intelligent $413/mo — confirm down payment." },
+    { model: "Sentra", financeApr: 0, financeTerm: 60,
+      leasePayment: 347, leaseTerm: 36, leaseTrim: "SV",
+      notes: "0% APR on select in-stock 2026 Sentra. Rep. lease SV $347/mo — confirm down payment." },
+    { model: "Pathfinder", leasePayment: 484, leaseTerm: 36, leaseTrim: "SV",
+      notes: "Rep. lease SV $484/mo — Canadian trim lineup starts at SL; confirm program at the desk." },
   ],
 };
 
@@ -112,6 +120,7 @@ export function openSpecialForm(existing) {
         { name: "leasePayment", label: "Lease $/mo", value: sp.leasePayment, type: "number", inputmode: "decimal", half: true, placeholder: "319" },
         { name: "leaseTerm", label: "Lease term (mo)", value: sp.leaseTerm, type: "number", inputmode: "numeric", half: true, placeholder: "36" },
         { name: "leaseDown", label: "Lease down $", value: sp.leaseDown, type: "number", inputmode: "decimal", half: true, placeholder: "4019" },
+        { name: "leaseTrim", label: "Lease trim (advertised)", value: sp.leaseTrim, half: true, placeholder: "SV", hint: "The advertised lease applies only to this trim; other trims get a computed lease." },
         { name: "cash", label: "Cash / bonus $", value: sp.cash, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
         { name: "expiry", label: "Expires", value: sp.expiry || "", type: "date" },
         { name: "notes", label: "Details / fine print", value: sp.notes, type: "textarea", placeholder: "Stackable, down payment, conditions…" },
