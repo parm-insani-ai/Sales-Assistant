@@ -66,14 +66,20 @@ function activeSpecials() {
   return store.all("specials").filter((sp) => !sp.expiry || sp.expiry >= todayISO());
 }
 
-// The active special that applies to a vehicle, matched by model keyword.
+// The active special that applies to a vehicle. The special's model keyword
+// must be contained in the vehicle's model, and the most specific match wins —
+// so "Rogue Plug-in Hybrid" takes its own program while a plain Rogue never
+// inherits the PHEV's cash.
 export function specialFor(v) {
   const model = String(v.model || v.label || "").toLowerCase().trim();
   if (!model) return null;
-  return activeSpecials().find((sp) => {
+  let best = null;
+  activeSpecials().forEach((sp) => {
     const m = String(sp.model || "").toLowerCase().trim();
-    return m && (model.includes(m) || m.includes(model));
-  }) || null;
+    if (!m || !model.includes(m)) return;
+    if (!best || m.length > String(best.model).length) best = sp;
+  });
+  return best;
 }
 
 function specialLabel(sp, method) {
@@ -151,19 +157,47 @@ function optionsForVehicle(lead, v, opts = {}) {
   const addTaxable = add ? add.taxable : 0;
   const out = [];
   if (method !== "lease") {
-    const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
-    const apr = hasApr ? Number(sp.financeApr) : base.apr;
-    const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
-    const price = Math.max(0, v.price - (sp && Number(sp.cash) ? Number(sp.cash) : 0)) + addTaxable;
-    const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
-    const label = sp ? specialLabel(sp, "finance") : null;
-    out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, special: label });
+    const cash = sp && Number(sp.cash) ? Number(sp.cash) : 0;
+    const price = Math.max(0, v.price - cash) + addTaxable;
+    const table = sp && sp.aprByTerm && typeof sp.aprByTerm === "object" ? sp.aprByTerm : null;
+    if (table) {
+      // Program sheets publish a rate PER TERM (e.g. 0% to 60, 2.9% at 72/84).
+      // Do what the desk does: run every term and keep the one whose payment
+      // lands closest to what the customer pays now (lowest payment if their
+      // payment is unknown).
+      const cur = lead.currentPayment;
+      let bestT = null;
+      Object.entries(table).forEach(([t, a]) => {
+        const term = Number(t), apr = Number(a);
+        if (!term || isNaN(apr)) return;
+        const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
+        const score = cur != null ? Math.abs(f.monthly - cur) : f.monthly;
+        if (!bestT || score < bestT.score) bestT = { term, apr, f, score };
+      });
+      if (bestT) {
+        const label = `${bestT.apr}% APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
+        out.push({ vehicle: v, method: "finance", monthly: bestT.f.monthly, financed: bestT.f.amountFinanced, term: bestT.term, apr: bestT.apr, special: label });
+      }
+    } else {
+      const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
+      const apr = hasApr ? Number(sp.financeApr) : base.apr;
+      const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
+      const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
+      const label = sp ? specialLabel(sp, "finance") : null;
+      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, apr, special: label });
+    }
   }
   if (method !== "finance") {
     // An advertised lease is trim-specific — apply it only to the trim the ad
     // names (sp.leaseTrim); other trims get the computed lease instead.
-    const advOk = sp && Number(sp.leasePayment) &&
-      (!sp.leaseTrim || String(v.trim || "").toLowerCase().includes(String(sp.leaseTrim).toLowerCase()));
+    // Whole-word trim match, so leaseTrim "S" hits "S FWD" but not "SV FWD".
+    const trimMatches = () => {
+      if (!sp.leaseTrim) return true;
+      const want = String(sp.leaseTrim).toLowerCase().split(/\s+/).filter(Boolean);
+      const have = String(v.trim || "").toLowerCase().split(/\s+/);
+      return want.every((w) => have.includes(w));
+    };
+    const advOk = sp && Number(sp.leasePayment) && trimMatches();
     if (advOk) {
       out.push({
         vehicle: v, method: "lease", monthly: Number(sp.leasePayment), advertised: true,
@@ -331,8 +365,8 @@ export function openDealDetail(lead, m) {
     let breakdown = "";
     if (m.method === "finance") {
       const cash = sp && Number(sp.cash) ? Number(sp.cash) : 0;
-      const hasAprSp = sp && sp.financeApr != null && sp.financeApr !== "";
-      const apr = hasAprSp ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr);
+      const hasAprSp = m.special != null && /%/.test(String(m.special || ""));
+      const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr));
       const term = m.term || s.defaultTerm;
       const feeFor = add ? add.nonTaxable : s.docFee;
       const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, fees: feeFor, taxRate: s.taxRate, apr, term });
