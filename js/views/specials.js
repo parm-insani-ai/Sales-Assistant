@@ -251,10 +251,9 @@ function specialCard(sp) {
         if (byTerm[t] == null || apr < byTerm[t]) byTerm[t] = apr;
       });
     });
-    const varies = sp.leaseRates.length > 1;
     leaseSegs = Object.keys(byTerm).map(Number).sort((a, b) => a - b).map((t) => `
       <div class="sp-seg">
-        <b>${varies ? "from " : ""}${esc(String(byTerm[t]))}%</b><span>${t} mo</span>
+        <b>${esc(String(byTerm[t]))}%</b><span>${t} mo</span>
       </div>`).join("");
   }
 
@@ -286,15 +285,8 @@ function specialCard(sp) {
         <div class="sp-segs">${leaseSegs}</div>
       </div>` : ""}
     ${trimRows ? `<div class="sp-trims">${trimRows}</div>` : ""}
-    ${sp.notes ? `
-      <details class="sp-fine" data-stop>
-        <summary>Fine print</summary>
-        <div class="small muted">${esc(sp.notes)}</div>
-      </details>` : ""}
+    ${sp.notes ? `<div class="sp-fine small muted">${esc(sp.notes)}</div>` : ""}
   `;
-  // The fine-print toggle shouldn't fling the card into edit mode.
-  const fine = el.querySelector(".sp-fine");
-  if (fine) fine.addEventListener("click", (e) => e.stopPropagation());
   el.addEventListener("click", () => openSpecialForm(sp));
   return el;
 }

@@ -819,6 +819,4 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .sp-trim-row { display: flex; gap: 8px; font-size: 0.82rem; line-height: 1.35; }
 .sp-trim-row b { flex: 0 0 auto; max-width: 42%; color: var(--text); }
 .sp-trim-row span { color: var(--text-2); }
-.sp-fine { margin-top: 9px; }
-.sp-fine summary { font-size: 0.76rem; color: var(--muted); cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.sp-fine .small { margin-top: 5px; white-space: pre-wrap; }
+.sp-fine { margin-top: 9px; white-space: pre-wrap; line-height: 1.45; }
