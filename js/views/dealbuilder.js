@@ -160,6 +160,17 @@ export function inferApr(lead) {
   return apr >= 0.5 && apr <= 25 ? apr : null;
 }
 
+// No payoff column? Calculate what they still have to pay: current payment ×
+// payments left to maturity. (Deliberately simple per the desk's preference —
+// it includes remaining interest, so it runs a touch conservative on equity.)
+export function inferPayoff(lead) {
+  if (lead.payoff != null && lead.payoff !== "") return null; // already known
+  const pmt = num(lead.currentPayment);
+  const n = monthsRemaining(lead);
+  if (!pmt || !n) return null;
+  return Math.round((pmt * n) / 10) * 10;
+}
+
 // Every input the deal math uses, with where it came from:
 // "known" (on file) · "calc" (solved) · "book" (estimated) · "wash" (assumed
 // trade = payoff) · "default" (store setting) · "missing".
@@ -167,12 +178,15 @@ export function dealInputs(lead) {
   const s = store.getSettings();
   const est = lead.currentValue == null ? estimateTradeValue(lead) : null;
   const calcApr = inferApr(lead);
+  const calcPayoff = inferPayoff(lead);
+  const payoff = lead.payoff != null ? { v: lead.payoff, src: "known" }
+    : calcPayoff != null ? { v: calcPayoff, src: "calc" } : { src: "missing" };
   return {
     payment: lead.currentPayment != null ? { v: lead.currentPayment, src: "known" } : { src: "missing" },
-    payoff: lead.payoff != null ? { v: lead.payoff, src: "known" } : { src: "missing" },
+    payoff,
     value: lead.currentValue != null ? { v: lead.currentValue, src: "known" }
       : est != null ? { v: est, src: "book" }
-      : lead.payoff != null ? { v: lead.payoff, src: "wash" } : { src: "missing" },
+      : payoff.v != null ? { v: payoff.v, src: "wash" } : { src: "missing" },
     apr: lead.currentApr != null && lead.currentApr !== "" ? { v: Number(lead.currentApr), src: "known" }
       : calcApr != null ? { v: calcApr, src: "calc" } : { v: s.defaultApr, src: "default" },
     maturity: monthsRemaining(lead) != null ? { v: monthsRemaining(lead), src: "known" } : { src: "missing" },
@@ -185,7 +199,7 @@ function financeBase(lead, down) {
   return {
     down: down != null ? down : 0,
     tradeAllowance: inp.value.v || 0,
-    tradePayoff: lead.payoff || 0,
+    tradePayoff: inp.payoff.v || 0,
     fees: s.docFee,
     taxRate: s.taxRate,
     apr: inp.apr.v || s.defaultApr,
@@ -556,6 +570,8 @@ export function openDealDetail(lead, m) {
   const inp = dealInputs(lead);
   const valueKnown = inp.value.src === "known";
   const tradeVal = inp.value.v || 0;
+  const payoffVal = inp.payoff.v || 0;
+  const payoffTag = inp.payoff.src === "calc" ? " (≈ payment × months left)" : "";
   const estD = inp.value.src === "book" ? estimateTradeDetail(lead) : null;
   const tradeTag = inp.value.src === "book" ? (estD && estD.basis === "market" ? " (market est.)" : " (book est.)") : inp.value.src === "wash" ? " (assumed = payoff)" : "";
   const kv = (k, val, strong) => `<div class="kv"><span class="k">${k}</span><span class="v mono${strong ? " strong" : ""}" style="text-align:right">${val}</span></div>`;
@@ -584,14 +600,14 @@ export function openDealDetail(lead, m) {
       const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr));
       const term = m.term || s.defaultTerm;
       const feeFor = add ? add.nonTaxable : s.docFee;
-      const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, fees: feeFor, taxRate: s.taxRate, apr, term });
+      const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: 0, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
         cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
         kv("Trade-in value", currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
-        lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
+        payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
         add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fees", "+ " + currency(s.docFee)),
         kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
@@ -603,7 +619,7 @@ export function openDealDetail(lead, m) {
         kv("Program", `Advertised lease 🏷`),
         kv("Term", `${Number(sp?.leaseTerm) || "—"} mo`),
         Number(sp?.leaseDown) ? kv("Down payment", currency(Number(sp.leaseDown))) : "",
-        (valueKnown || lead.payoff) ? kv("Their trade", `${currency(tradeVal)}${esc(tradeTag)} — equity can cover the down`) : "",
+        (valueKnown || payoffVal) ? kv("Their trade", `${currency(tradeVal)}${esc(tradeTag)} — equity can cover the down`) : "",
         sp?.notes ? kv("Fine print", esc(sp.notes)) : "",
       ].join("");
     } else {
@@ -615,14 +631,14 @@ export function openDealDetail(lead, m) {
       const apr = isProgram ? m.apr : (lead.currentApr || s.defaultApr);
       const lcash = Number(m.leaseCash) || 0;
       const l = m.residual != null ? { residual: m.residual }
-        : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
+        : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
         lcash ? kv("Nissan lease cash 🏷", "− " + currency(lcash)) : "",
         kv("Trade-in value", currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
-        lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
+        payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
         kv("Term", `${term} mo`),
         kv(`Residual (${resPct}%${isProgram ? " 🏷" : ""})`, currency(Math.round(l.residual))),
         kv("Rate used", `${apr}%${isProgram ? " 🏷" : ""}`),
@@ -658,7 +674,7 @@ export function openDealDetail(lead, m) {
       <div class="card">
         ${lead.vehicleInterest ? kv("Driving now", esc(lead.vehicleInterest)) : ""}
         ${cur != null ? kv("Paying now", currency(cur) + "/mo") : ""}
-        ${lead.payoff != null || valueKnown ? kv("Est. equity", currency(Math.round(tradeVal - (lead.payoff || 0))) + (valueKnown ? "" : esc(tradeTag))) : ""}
+        ${payoffVal || valueKnown ? kv("Est. equity", currency(Math.round(tradeVal - payoffVal)) + (valueKnown ? "" : esc(tradeTag))) : ""}
         ${inp.apr.src === "known" ? kv("Their rate", inp.apr.v + "%") : inp.apr.src === "calc" ? kv("Their rate", "≈ " + inp.apr.v + "% (calculated)") : ""}
       </div>` : ""}
 

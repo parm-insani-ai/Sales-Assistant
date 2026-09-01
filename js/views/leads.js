@@ -235,7 +235,7 @@ export function openMoneyForm(l) {
     const { element } = buildForm(
       [
         { name: "currentPayment", label: "Current payment $/mo", value: l.currentPayment, type: "number", inputmode: "decimal", half: true, placeholder: "532" },
-        { name: "payoff", label: "Payoff / buyout $", value: l.payoff, type: "number", inputmode: "decimal", half: true, placeholder: "19455" },
+        { name: "payoff", label: "Payoff / buyout $", value: l.payoff, type: "number", inputmode: "decimal", half: true, placeholder: "19455", hint: "Blank = current payment × payments left to maturity." },
         { name: "currentValue", label: "Trade value $ (appraised)", value: l.currentValue, type: "number", inputmode: "decimal", half: true, placeholder: "21500", hint: estD ? `Blank = estimate ≈ ${currency(estD.value)} (${estD.lines.join(" · ")})` : "Leave blank to use a book estimate." },
         { name: "currentApr", label: "Their rate %", value: l.currentApr, type: "number", inputmode: "decimal", half: true, placeholder: "8.9", hint: "Blank = solved from payment, payoff & maturity when possible." },
         { name: "leaseEnd", label: "Contract maturity date", value: l.leaseEnd || "", type: "date", half: true },

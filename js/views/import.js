@@ -55,7 +55,7 @@ const LEAD_TARGETS = [
   { field: "dob", label: "Birthday", aliases: ["birthday", "birth date", "date of birth", "dob", "customer birthday"] },
   // Financial fields (e.g. from an AutoAlert equity export) power the Deal Builder.
   { field: "currentPayment", label: "Current payment / mo", aliases: ["payment", "current payment", "monthly payment", "current pmt", "pmt", "monthly pmt", "current monthly payment", "curr payment", "est payment", "estimated payment"] },
-  { field: "payoff", label: "Loan payoff / balance", aliases: ["payoff", "payoff amount", "balance", "loan balance", "current payoff", "amount owed", "remaining balance", "buyout", "est payoff", "estimated payoff", "payoff amt", "current balance"] },
+  { field: "payoff", label: "Loan payoff / balance", aliases: ["payoff", "payoff amount", "paid off", "payoff balance", "balance", "loan balance", "current payoff", "amount owed", "remaining balance", "buyout", "est payoff", "estimated payoff", "payoff amt", "current balance"] },
   { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value", "est value", "est trade value", "estimated trade value", "trade in value", "black book", "cbb", "cash value", "vehicle value"] },
   { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity", "est equity", "estimated equity"] },
   { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate", "int rate", "current int rate", "customer rate"] },
