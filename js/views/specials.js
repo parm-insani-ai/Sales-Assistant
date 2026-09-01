@@ -17,47 +17,81 @@ const NISSAN_SEED = {
     { model: "Rogue",
       aprByTerm: { 24: 0, 36: 0, 48: 0, 60: 0, 72: 2.9, 84: 2.9 },
       leasePayment: 429, leaseTerm: 36, leaseDown: 0, leaseTrim: "S",
-      notes: "Special finance 0% up to 60 mo (2.9% at 72/84). Advertised: Rogue S lease $99 WEEKLY @ 0%/36 ULOW (16k km), $0 down, incl. $1,200 Clear-out bonus (lease only). SV+ trims: $5,000 non-stackable cash alt on std-rate/cash deals. 0.5% loyalty rate reduction (1.0% for returning Qashqai)." },
+      trimOffers: [
+        { trim: "S", offer: "Advertised lease $99/wk @ 0% · 36 mo · $0 down, incl. $1,200 Clear-out bonus (lease only)" },
+        { trim: "SV & up", offer: "$5,000 non-stackable cash alt on std-rate/cash deals" },
+      ],
+      notes: "0.5% loyalty rate reduction (1.0% for returning Qashqai)." },
     { model: "Rogue Plug-in Hybrid", cash: 10000,
-      notes: "$10,000 std-rate/cash-buyer cash. Std rates apply (7.24%+). Not EVAP-eligible." },
+      notes: "$10,000 on std-rate/cash-buyer deals only. Std rates apply (7.24%+). Not EVAP-eligible." },
     { model: "Kicks", cash: 500,
       aprByTerm: { 24: 0, 36: 0, 48: 3.4, 60: 3.4, 72: 4.4, 84: 4.4 },
-      notes: "0% up to 36 mo + $500 finance cash + $1,000 Welcome/Conquest bonus. Lease 2.9% (36-60) w/ $1,000 lease cash. Non-stackable alt: $2,000-$3,000 on SV/SR trims. 0.5% loyalty (1.0% returning Kicks/Qashqai)." },
+      trimOffers: [
+        { trim: "SV / SR", offer: "$2,000–$3,000 non-stackable cash alt" },
+      ],
+      notes: "$1,000 Welcome/Conquest bonus. Lease 2.9% (36–60 mo) w/ $1,000 lease cash. 0.5% loyalty (1.0% returning Kicks/Qashqai)." },
     { model: "Sentra", cash: 750,
       aprByTerm: { 24: 0, 36: 0, 48: 3.9, 60: 4.9, 72: 4.9, 84: 4.9 },
       leasePayment: 320, leaseTerm: 36, leaseDown: 699, leaseTrim: "SV",
-      notes: "0% up to 36 mo + $750 finance cash (OR up to $2,750 bonus cash on SR trims, non-stackable). Advertised: SV lease $320/mo · 36 mo ULOW, $699 down, incl. loyalty reduction. 0.5-1.0% loyalty for returning Sentra." },
+      trimOffers: [
+        { trim: "SR", offer: "Up to $2,750 bonus cash (non-stackable with finance cash)" },
+      ],
+      notes: "Advertised SV lease includes loyalty reduction. 0.5–1.0% loyalty for returning Sentra." },
     { model: "Pathfinder",
       aprByTerm: { 24: 5.4, 36: 5.4, 48: 5.9, 60: 5.9, 72: 6.4, 84: 6.4 },
-      notes: "Special finance 5.4-6.4%. Lease: SL/PRO-4X/Platinum 4.9% w/ $5,000 lease cash." },
+      trimOffers: [
+        { trim: "SL / PRO-4X / Platinum", offer: "Lease 4.9% w/ $5,000 lease cash" },
+      ] },
     { model: "Murano",
       aprByTerm: { 24: 4.9, 36: 4.9, 48: 5.4, 60: 5.4, 72: 5.9, 84: 5.9 },
-      notes: "MY26 special finance 4.9-5.9%. $2,000 non-stackable cash alt. MY27: 1.0% loyalty for returning Murano owners." },
+      notes: "MY26 rates. $2,000 non-stackable cash alt. MY27: 1.0% loyalty for returning Murano owners." },
     { model: "Frontier",
-      aprByTerm: { 24: 5.4, 36: 5.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 },
-      notes: "Special finance 5.4-6.9%." },
+      aprByTerm: { 24: 5.4, 36: 5.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 } },
     { model: "Armada", cash: 5000,
       aprByTerm: { 24: 4.9, 36: 4.9, 48: 4.9, 60: 4.9, 72: 4.9, 84: 4.9 },
-      notes: "4.9% + $5,000 on special finance, OR $7,500 non-stackable/cash-purchase bonus." },
+      notes: "4.9% + $5,000 on special finance, OR $7,500 non-stackable / cash-purchase bonus instead." },
     { model: "Leaf", cash: 1000,
       aprByTerm: { 24: 0, 36: 0, 48: 0, 60: 0, 72: 1.4, 84: 1.9 },
-      notes: "S+/SV+: 0% up to 60 + $1,000. Platinum+: $5,000 @ 3.9%. EVAP-eligible (all 2026 trims). Lease S+/SV+ 0%." },
+      trimOffers: [
+        { trim: "S+, SV+", offer: "$1,000 + 0% up to 60 mo (rate table above) · lease 0%" },
+        { trim: "Platinum+", offer: "$5,000 @ 3.9% flat" },
+      ],
+      notes: "EVAP-eligible (all 2026 trims)." },
     { model: "Ariya", cash: 6000,
       aprByTerm: { 24: 6.4, 36: 6.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 },
-      notes: "Cash/rates vary by trim: SV FWD & SL e-4ORCE $6,000 @6.4%; SL+ FWD $7,000 @7.4%; SL+/Platinum+ e-4ORCE $5,000 @3.4%. EVAP: SV FWD, SL e-4ORCE, SL+ FWD. Verify trim at desk." },
+      trimOffers: [
+        { trim: "SV FWD, SL e-4ORCE", offer: "$6,000 @ 6.4% (rate table above)" },
+        { trim: "SL+ FWD", offer: "$7,000 @ 7.4%" },
+        { trim: "SL+ / Platinum+ e-4ORCE", offer: "$5,000 @ 3.4%" },
+      ],
+      notes: "EVAP: SV FWD, SL e-4ORCE, SL+ FWD. Verify trim at desk." },
   ],
 };
 
-function offerLines(o) {
-  const lines = [];
-  if (o.financeApr != null && o.financeApr !== "") {
-    lines.push(`${o.financeApr}% APR${o.financeTerm ? ` · ${o.financeTerm} mo` : ""}`);
+// Collapse a {term: apr} table into ranges of equal APR — {24:0,36:0,48:0,
+// 60:0,72:2.9,84:2.9} reads as "0% for 24–60 mo · 2.9% for 72–84 mo".
+function rateSegments(sp) {
+  const t = sp.aprByTerm;
+  if (t && Object.keys(t).length) {
+    const segs = [];
+    Object.keys(t).map(Number).filter((n) => !isNaN(n)).sort((a, b) => a - b).forEach((term) => {
+      const apr = Number(t[term]);
+      const last = segs[segs.length - 1];
+      if (last && last.apr === apr) last.to = term;
+      else segs.push({ apr, from: term, to: term });
+    });
+    return segs;
   }
-  if (o.leasePayment != null && o.leasePayment !== "") {
-    lines.push(`Lease ${currency(o.leasePayment)}/mo${o.leaseTerm ? ` · ${o.leaseTerm} mo` : ""}${o.leaseDown ? ` · ${currency(o.leaseDown)} down` : ""}`);
+  if (sp.financeApr != null && sp.financeApr !== "") {
+    const term = Number(sp.financeTerm) || null;
+    return [{ apr: Number(sp.financeApr), from: term, to: term }];
   }
-  if (o.cash) lines.push(`${currency(o.cash)} cash`);
-  return lines;
+  return [];
+}
+
+function segLabel(seg) {
+  if (!seg.from) return "any term";
+  return seg.from === seg.to ? `${seg.to} mo` : `${seg.from}–${seg.to} mo`;
 }
 
 export function renderSpecials(view) {
@@ -95,35 +129,113 @@ export function renderSpecials(view) {
 }
 
 function specialCard(sp) {
-  const lines = offerLines(sp);
   const expired = sp.expiry && sp.expiry < todayISO();
+  const segs = rateSegments(sp);
+  const aprs = segs.map((s) => s.apr);
+  const best = aprs.length ? Math.min(...aprs) : null;
+  // Highlight the cheapest money only when it stands out — an all-4.9% table
+  // lit up end to end reads as noise, a 0% opener reads as the hook it is.
+  const highlight = segs.length > 1 || best === 0;
+
+  const finSegs = segs.map((s) => `
+    <div class="sp-seg${highlight && s.apr === best ? " sp-seg-hot" : ""}">
+      <b>${esc(String(s.apr))}%</b><span>${esc(segLabel(s))}</span>
+    </div>`).join("");
+  const cashSeg = sp.cash ? `
+    <div class="sp-seg sp-seg-cash">
+      <b>+${esc(currency(sp.cash))}</b><span>${segs.length ? "finance cash" : "cash / bonus"}</span>
+    </div>` : "";
+
+  const leaseBits = [];
+  if (sp.leasePayment != null && sp.leasePayment !== "") {
+    leaseBits.push(`<b>${esc(currency(sp.leasePayment))}/mo</b>`);
+    if (sp.leaseTerm) leaseBits.push(`${esc(String(sp.leaseTerm))} mo`);
+    leaseBits.push(Number(sp.leaseDown) ? `${esc(currency(sp.leaseDown))} down` : "$0 down");
+  }
+
+  const trimRows = (Array.isArray(sp.trimOffers) ? sp.trimOffers : [])
+    .filter((t) => t && (t.trim || t.offer))
+    .map((t) => `<div class="sp-trim-row"><b>${esc(t.trim || "All trims")}</b><span>${esc(t.offer || "")}</span></div>`)
+    .join("");
+
   const el = document.createElement("div");
   el.className = "card card-tap";
   el.innerHTML = `
     <div class="row">
-      <div class="row-main">
-        <div class="row-title">${icon("tag")} ${esc(sp.model || "Model")}</div>
-        <div class="row-sub">${lines.length ? lines.map(esc).join(" · ") : "No offer details"}</div>
-      </div>
+      <div class="row-main"><div class="row-title">${icon("tag")} ${esc(sp.model || "Model")}</div></div>
       ${sp.expiry ? `<div class="row-meta"><div class="small ${expired ? "" : "muted"}" style="${expired ? "color:var(--danger)" : ""}">${expired ? "Expired" : "ends " + esc(formatDate(sp.expiry))}</div></div>` : ""}
     </div>
-    ${sp.notes ? `<div class="small muted" style="margin-top:8px;white-space:pre-wrap">${esc(sp.notes)}</div>` : ""}
+    ${finSegs || cashSeg ? `
+      <div class="sp-block">
+        <div class="sp-lab">${segs.length ? "Finance" : "Cash"}</div>
+        <div class="sp-segs">${finSegs}${cashSeg}</div>
+      </div>` : `<div class="small muted" style="margin-top:6px">No offer details — tap to edit</div>`}
+    ${leaseBits.length ? `
+      <div class="sp-block">
+        <div class="sp-lab">Lease</div>
+        <div class="sp-leaseline">${leaseBits.join(" · ")}${sp.leaseTrim ? ` <span class="badge badge-working">${esc(sp.leaseTrim)} trim only</span>` : ""}</div>
+      </div>` : ""}
+    ${trimRows ? `<div class="sp-trims">${trimRows}</div>` : ""}
+    ${sp.notes ? `
+      <details class="sp-fine" data-stop>
+        <summary>Fine print</summary>
+        <div class="small muted">${esc(sp.notes)}</div>
+      </details>` : ""}
   `;
+  // The fine-print toggle shouldn't fling the card into edit mode.
+  const fine = el.querySelector(".sp-fine");
+  if (fine) fine.addEventListener("click", (e) => e.stopPropagation());
   el.addEventListener("click", () => openSpecialForm(sp));
   return el;
 }
 
 function seedNissan() {
   const existing = store.all("specials");
-  const has = (model) => existing.some((s) => String(s.model).toLowerCase() === model.toLowerCase());
-  let added = 0;
+  let added = 0, updated = 0;
   NISSAN_SEED.items.forEach((it) => {
-    if (has(it.model)) return;
+    const dupes = existing.filter((s) => String(s.model).toLowerCase() === it.model.toLowerCase());
+    // Hand-entered specials (no seed source) are the desk's own numbers — never
+    // clobber those. Stale seed-loaded ones get replaced with this month's data.
+    if (dupes.some((s) => !s.source)) return;
+    dupes.forEach((s) => store.remove("specials", s.id));
     store.create("specials", { ...it, expiry: it.expiry || NISSAN_SEED.expiry, source: NISSAN_SEED.label });
-    added++;
+    if (dupes.length) updated++; else added++;
   });
-  toast(added ? `Loaded ${added} Nissan offer${added === 1 ? "" : "s"}` : "Those offers are already loaded", added ? "success" : "");
+  const bits = [];
+  if (added) bits.push(`${added} new`);
+  if (updated) bits.push(`${updated} updated`);
+  toast(bits.length ? `Nissan offers loaded (${bits.join(", ")})` : "Nothing to load — your hand-entered specials were kept", bits.length ? "success" : "");
   window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
+// "24:0, 36:0, 48:3.4" → {24:0, 36:0, 48:3.4}; blank/garbage → null.
+function parseAprTable(text) {
+  const out = {};
+  String(text || "").split(/[,;\s]+/).forEach((pair) => {
+    const m = pair.match(/^(\d{2,3})\s*[:=@]\s*(\d+(?:\.\d+)?)%?$/);
+    if (m) out[Number(m[1])] = Number(m[2]);
+  });
+  return Object.keys(out).length ? out : null;
+}
+
+function aprTableText(t) {
+  if (!t || !Object.keys(t).length) return "";
+  return Object.keys(t).map(Number).sort((a, b) => a - b).map((k) => `${k}:${t[k]}`).join(", ");
+}
+
+// One per line, "trim | offer". A line with no pipe is an all-trims note.
+function parseTrimOffers(text) {
+  const rows = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const i = l.indexOf("|");
+    if (i < 0) return { trim: "", offer: l };
+    return { trim: l.slice(0, i).trim(), offer: l.slice(i + 1).trim() };
+  }).filter((r) => r.trim || r.offer);
+  return rows.length ? rows : null;
+}
+
+function trimOffersText(rows) {
+  if (!Array.isArray(rows) || !rows.length) return "";
+  return rows.map((r) => (r.trim ? `${r.trim} | ${r.offer || ""}` : r.offer || "")).join("\n");
 }
 
 export function openSpecialForm(existing) {
@@ -133,7 +245,8 @@ export function openSpecialForm(existing) {
     const { element } = buildForm(
       [
         { name: "model", label: "Model", value: sp.model, required: true, placeholder: "Rogue" },
-        { name: "financeApr", label: "Finance APR %", value: sp.financeApr, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
+        { name: "aprTable", label: "Finance rate table (term:APR)", value: aprTableText(sp.aprByTerm), placeholder: "24:0, 36:0, 48:3.4, 60:3.4, 72:4.4, 84:4.4", hint: "Term:APR pairs from the program bulletin. The deal engine tries every term and picks the payment closest to the customer's. Leave blank to use the single APR below." },
+        { name: "financeApr", label: "Single APR %", value: sp.financeApr, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
         { name: "financeTerm", label: "Finance term (mo)", value: sp.financeTerm, type: "number", inputmode: "numeric", half: true, placeholder: "60" },
         { name: "leasePayment", label: "Lease $/mo", value: sp.leasePayment, type: "number", inputmode: "decimal", half: true, placeholder: "319" },
         { name: "leaseTerm", label: "Lease term (mo)", value: sp.leaseTerm, type: "number", inputmode: "numeric", half: true, placeholder: "36" },
@@ -141,11 +254,16 @@ export function openSpecialForm(existing) {
         { name: "leaseTrim", label: "Lease trim (advertised)", value: sp.leaseTrim, half: true, placeholder: "SV", hint: "The advertised lease applies only to this trim; other trims get a computed lease." },
         { name: "cash", label: "Cash / bonus $", value: sp.cash, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
         { name: "expiry", label: "Expires", value: sp.expiry || "", type: "date" },
-        { name: "notes", label: "Details / fine print", value: sp.notes, type: "textarea", placeholder: "Stackable, down payment, conditions…" },
+        { name: "trimOffersText", label: "Trim-specific offers", value: trimOffersText(sp.trimOffers), type: "textarea", placeholder: "SR | Up to $2,750 bonus cash\nSL / Platinum | Lease 4.9% w/ $5,000 lease cash", hint: "One per line: trim | offer. Shown as rows on the card." },
+        { name: "notes", label: "Fine print", value: sp.notes, type: "textarea", placeholder: "Stackable, loyalty, conditions…" },
       ],
       {
         submitLabel: isEdit ? "Save" : "Add special",
         onSubmit: (data) => {
+          data.aprByTerm = parseAprTable(data.aprTable);
+          delete data.aprTable;
+          data.trimOffers = parseTrimOffers(data.trimOffersText);
+          delete data.trimOffersText;
           if (isEdit) { store.update("specials", existing.id, data); toast("Special updated", "success"); }
           else { store.create("specials", data); toast("Special added", "success"); }
           close();

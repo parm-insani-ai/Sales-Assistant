@@ -799,3 +799,26 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .funnel-grid .stat { padding: 12px 6px; }
 .funnel-grid .stat-value { font-size: 1.35rem; }
 .funnel-grid .stat-label { font-size: 0.68rem; }
+
+/* --- Monthly specials cards --- */
+.sp-block { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; }
+.sp-lab { flex: 0 0 54px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); padding-top: 8px; }
+.sp-segs { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-seg { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; text-align: center; min-width: 62px; }
+.sp-seg b { display: block; font-size: 0.95rem; font-weight: 750; letter-spacing: -0.01em; line-height: 1.2; }
+.sp-seg span { display: block; font-size: 0.66rem; color: var(--muted); margin-top: 1px; white-space: nowrap; }
+.sp-seg-hot { background: var(--brand-tint); border-color: color-mix(in srgb, var(--brand) 32%, transparent); }
+.sp-seg-hot b { color: var(--brand); }
+.sp-seg-cash { background: color-mix(in srgb, #8b5cf6 13%, transparent); border-color: color-mix(in srgb, #8b5cf6 26%, transparent); }
+.sp-seg-cash b { color: #7c3aed; }
+@media (prefers-color-scheme: dark) { .sp-seg-cash b { color: #b8a1fa; } }
+.sp-leaseline { flex: 1; font-size: 0.9rem; color: var(--text-2); padding-top: 6px; }
+.sp-leaseline b { color: var(--text); font-weight: 750; }
+.sp-leaseline .badge { margin-left: 4px; vertical-align: 1px; }
+.sp-trims { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 9px; display: grid; gap: 6px; }
+.sp-trim-row { display: flex; gap: 8px; font-size: 0.82rem; line-height: 1.35; }
+.sp-trim-row b { flex: 0 0 auto; max-width: 42%; color: var(--text); }
+.sp-trim-row span { color: var(--text-2); }
+.sp-fine { margin-top: 9px; }
+.sp-fine summary { font-size: 0.76rem; color: var(--muted); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sp-fine .small { margin-top: 5px; white-space: pre-wrap; }
