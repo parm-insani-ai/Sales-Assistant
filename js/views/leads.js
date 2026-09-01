@@ -370,8 +370,10 @@ function renderLeadDetail(view, id) {
   // alternates under it, the offer text one tap away. No button hunting.
   (function buildDealSection() {
     const slot = el.querySelector("#deal-slot");
+    if (l.stage === "lost") return;
     const hasMoney = l.currentPayment != null || l.currentValue != null || l.payoff != null;
-    if (!hasMoney || ["lost"].includes(l.stage)) return;
+    // No payment on file? Still pre-make the deal — lowest payments first,
+    // labeled as such. Every customer of a Nissan store has a next car.
     const rows = dealsForLead(l).slice(0, 3);
     if (!rows.length) return;
     const best = rows[0];
@@ -412,7 +414,8 @@ function renderLeadDetail(view, id) {
               <div class="small mono" style="width:92px;text-align:right;color:${deltaColor(m)}">${deltaLine(m)}</div>
             </div>`).join("")}
         </div>` : ""}
-        ${equity(l) == null && l.payoff != null ? `<div class="fab-note" style="margin-top:8px;text-align:left">Assumes their trade washes the ${currency(l.payoff)} payoff — appraise the trade to tighten these numbers.</div>` : ""}
+        ${!hasMoney ? `<div class="fab-note" style="margin-top:8px;text-align:left">No payment on file — these are the lowest payments. Add their current payment (tap Edit) and this becomes a payment-matched deal.</div>`
+          : equity(l) == null && l.payoff != null ? `<div class="fab-note" style="margin-top:8px;text-align:left">Assumes their trade washes the ${currency(l.payoff)} payoff — appraise the trade to tighten these numbers.</div>` : ""}
       </div>`;
 
     const offer = slot.querySelector('[data-act="deal-offer"]');
