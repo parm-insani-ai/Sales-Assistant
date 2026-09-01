@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, dealsForLead, offerText, equity } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -451,13 +451,14 @@ function renderLeadDetail(view, id) {
     slot.innerHTML = `
       <div class="section-title">The deal</div>
       <div class="card">
-        <div class="row">
+        <div class="row" data-deal-open="0" style="cursor:pointer">
           <div class="row-main">
             <div class="row-title">${esc(vname(best.vehicle))}</div>
             <div class="row-sub">
               <span class="badge ${best.method === "lease" ? "badge-appt" : "badge-working"}">${best.method === "lease" ? "Lease" : "Finance"}</span>
               ${best.vehicle.price != null ? " " + currency(best.vehicle.price) : ""}${best.vehicle.lineup ? " · new — order/allocate" : best.vehicle.stock ? " · #" + esc(best.vehicle.stock) : ""}
               ${best.special ? `<div style="margin-top:3px"><span class="badge badge-sold">🏷 ${esc(best.special)}</span></div>` : ""}
+              <div class="small muted" style="margin-top:3px">Tap for the full breakdown ›</div>
             </div>
           </div>
           <div class="row-meta">
@@ -471,9 +472,9 @@ function renderLeadDetail(view, id) {
         </div>
         ${rows.length > 1 ? `
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-          ${rows.slice(1).map((m) => `
-            <div class="row" style="padding:5px 0">
-              <div class="small" style="flex:1">${esc(vname(m.vehicle))} <span class="muted">· ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷" : ""}</span></div>
+          ${rows.slice(1).map((m, i) => `
+            <div class="row" data-deal-open="${i + 1}" style="padding:5px 0;cursor:pointer">
+              <div class="small" style="flex:1">${esc(vname(m.vehicle))} <span class="muted">· ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷" : ""} ›</span></div>
               <div class="small mono strong">${currency(Math.round(m.monthly))}/mo</div>
               <div class="small mono" style="width:92px;text-align:right;color:${deltaColor(m)}">${deltaLine(m)}</div>
             </div>`).join("")}
@@ -483,10 +484,13 @@ function renderLeadDetail(view, id) {
       </div>`;
 
     const offer = slot.querySelector('[data-act="deal-offer"]');
-    if (offer) offer.addEventListener("click", () => {
+    if (offer) offer.addEventListener("click", (ev) => {
+      ev.stopPropagation();
       store.logActivity("touch");
       store.update("leads", l.id, { lastContacted: new Date().toISOString() });
     });
+    slot.querySelectorAll("[data-deal-open]").forEach((n) =>
+      n.addEventListener("click", () => openDealDetail(l, rows[Number(n.dataset.dealOpen)])));
     slot.querySelector('[data-act="deal-more"]').addEventListener("click", () => openDealBuilder(l));
     const addPhone = slot.querySelector('[data-edit="phone"]');
     if (addPhone) addPhone.addEventListener("click", () => openLeadForm(l, { focus: "phone" }));

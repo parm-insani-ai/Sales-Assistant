@@ -12,6 +12,7 @@ import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
 import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday } from "../utils.js";
 import { SPEC_LIBRARY } from "../specs.js";
+import { findSpec, queueCompare } from "./compare.js";
 
 function num(v) { return Number(v) || 0; }
 
@@ -266,6 +267,135 @@ export function offerText(lead, match) {
   return `${intro} Good news — I can likely get you into a new ${v} for about $${pmt}/mo${how},${curLine}${trade ? "," + trade : ""}${spBit}. Worth a quick look? What's your schedule like this week?`;
 }
 
+// ---------- Full worked deal for one option ----------
+// Tap any match anywhere (profile card, deal sheet) and get the whole money
+// story: every line from sticker to monthly, plainly labeled, plus the
+// actions — text the offer, compare against their current car, open the
+// calculator with everything prefilled.
+export function openDealDetail(lead, m) {
+  const v = m.vehicle;
+  const s = store.getSettings();
+  const sp = specialFor(v);
+  const cur = lead.currentPayment;
+  const valueKnown = lead.currentValue != null;
+  const tradeVal = valueKnown ? lead.currentValue : (lead.payoff || 0);
+  const kv = (k, val, strong) => `<div class="kv"><span class="k">${k}</span><span class="v mono${strong ? " strong" : ""}" style="text-align:right">${val}</span></div>`;
+
+  openModal(vehName(v), (close) => {
+    const wrap = document.createElement("div");
+    const delta = m.delta != null ? Math.round(m.delta) : (cur != null ? Math.round(m.monthly - cur) : null);
+    const band = s.dealMatchBand || 50;
+    const deltaTxt = delta == null ? "" :
+      Math.abs(delta) <= band ? "≈ same as their current payment" :
+      delta < 0 ? `${currency(-delta)}/mo less than they pay now` : `+${currency(delta)}/mo over their current payment`;
+
+    let breakdown = "";
+    if (m.method === "finance") {
+      const cash = sp && Number(sp.cash) ? Number(sp.cash) : 0;
+      const hasAprSp = sp && sp.financeApr != null && sp.financeApr !== "";
+      const apr = hasAprSp ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr);
+      const term = m.term || s.defaultTerm;
+      const d = computeDeal({ price: v.price - cash, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, fees: s.docFee, taxRate: s.taxRate, apr, term });
+      breakdown = [
+        kv("Vehicle price", currency(v.price)),
+        cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
+        kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
+        lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
+        kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
+        kv("Doc fees", "+ " + currency(s.docFee)),
+        kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
+        kv("Rate · term", `${apr}%${hasAprSp ? " 🏷" : ""} · ${term} mo`),
+        kv("Total interest over term", currency(Math.round(d.totalInterest))),
+      ].join("");
+    } else if (m.advertised) {
+      breakdown = [
+        kv("Program", `Advertised lease 🏷`),
+        kv("Term", `${Number(sp?.leaseTerm) || "—"} mo`),
+        Number(sp?.leaseDown) ? kv("Down payment", currency(Number(sp.leaseDown))) : "",
+        (valueKnown || lead.payoff) ? kv("Their trade", `${currency(tradeVal)}${valueKnown ? "" : " (est.)"} — equity can cover the down`) : "",
+        sp?.notes ? kv("Fine print", esc(sp.notes)) : "",
+      ].join("");
+    } else {
+      const term = s.leaseTerm || 36;
+      const resPct = s.leaseResidualPct || 58;
+      const l = computeLease({ price: v.price, fees: s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, term, residualPct: resPct, taxRate: s.taxRate, apr: lead.currentApr || s.defaultApr });
+      breakdown = [
+        kv("Vehicle price", currency(v.price)),
+        kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
+        lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
+        kv("Term", `${term} mo`),
+        kv(`Residual (${resPct}%)`, currency(Math.round(l.residual))),
+        kv("Rate used", `${lead.currentApr || s.defaultApr}%`),
+        kv(`Tax (${s.taxRate}%)`, "included in payment"),
+      ].join("");
+    }
+
+    // Compare their current car against this one, feature by feature.
+    let canCompare = false, mineSpec = null, newSpec = null;
+    try {
+      const owned = String(lead.vehicleInterest || "").replace(/^\d{4}\s*/, "");
+      mineSpec = owned ? findSpec(owned) : null;
+      newSpec = findSpec(String(v.model || v.label || ""));
+      canCompare = !!(mineSpec && newSpec && mineSpec.id !== newSpec.id);
+    } catch {}
+
+    wrap.innerHTML = `
+      <div class="card" style="margin-bottom:14px;text-align:center">
+        <div style="font-size:2rem;font-weight:800" class="mono">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.9rem">/mo</span></div>
+        ${deltaTxt ? `<div class="small strong" style="margin-top:2px;color:${delta != null && delta <= band ? "var(--success)" : "var(--muted)"}">${deltaTxt}</div>` : ""}
+        <div class="small muted" style="margin-top:6px">
+          <span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}">${m.method === "lease" ? "Lease" : "Finance"}</span>
+          ${m.special ? ` <span class="badge badge-sold">🏷 ${esc(m.special)}</span>` : ""}
+          ${v.lineup ? ` <span class="badge">new — order/allocate</span>` : v.stock ? ` <span class="badge">#${esc(v.stock)}</span>` : ""}
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:0">How it's built</div>
+      <div class="card">${breakdown}</div>
+
+      ${cur != null || lead.vehicleInterest ? `
+      <div class="section-title">Their side</div>
+      <div class="card">
+        ${lead.vehicleInterest ? kv("Driving now", esc(lead.vehicleInterest)) : ""}
+        ${cur != null ? kv("Paying now", currency(cur) + "/mo") : ""}
+        ${valueKnown ? kv("Est. equity", currency(lead.currentValue - (lead.payoff || 0))) : lead.payoff != null ? kv("Payoff", currency(lead.payoff) + " · value not appraised") : ""}
+        ${lead.currentApr != null ? kv("Their rate", lead.currentApr + "%") : ""}
+      </div>` : ""}
+
+      <div class="btn-row" style="margin-top:4px">
+        ${lead.phone ? `<a class="btn btn-primary btn-block" data-act="dd-offer" href="${smsHref(lead.phone, offerText(lead, m))}">${icon("message")} Text this offer</a>` : ""}
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        ${canCompare ? `<button class="btn btn-ghost btn-sm" data-act="dd-compare" style="flex:1">${icon("compare")} Compare vs theirs</button>` : ""}
+        <button class="btn btn-ghost btn-sm" data-act="dd-quote" style="flex:1">${icon("calculator")} Calculator</button>
+      </div>
+      <div class="fab-note">Estimates — taxes, fees and program details get confirmed with your desk.</div>
+    `;
+
+    const offer = wrap.querySelector('[data-act="dd-offer"]');
+    if (offer) offer.addEventListener("click", () => {
+      store.logActivity("touch");
+      store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
+    });
+    const cmp = wrap.querySelector('[data-act="dd-compare"]');
+    if (cmp) cmp.addEventListener("click", () => {
+      queueCompare([mineSpec, newSpec]);
+      close();
+      navigate("/compare");
+    });
+    wrap.querySelector('[data-act="dd-quote"]').addEventListener("click", () => {
+      sessionStorage.setItem("calc-prefill", JSON.stringify({
+        price: v.price, label: `${vehName(v)} — ${lead.name}`,
+        tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0,
+        apr: lead.currentApr || null,
+      }));
+      close();
+      navigate("/calculator");
+    });
+    return wrap;
+  });
+}
+
 // ---------- Per-customer Deal Builder sheet ----------
 export function openDealBuilder(lead) {
   openModal(`Deals for ${(lead.name || "customer").split(" ")[0]}`, (close) => {
@@ -317,7 +447,8 @@ export function openDealBuilder(lead) {
 
 function dealRow(lead, m) {
   const el = document.createElement("div");
-  el.className = "card";
+  el.className = "card card-tap";
+  el.addEventListener("click", () => openDealDetail(lead, m));
   const v = m.vehicle;
   const near = m.delta != null && Math.abs(m.delta) <= (store.getSettings().dealMatchBand || 50);
   const deltaLabel = m.delta == null ? "" :
@@ -340,11 +471,13 @@ function dealRow(lead, m) {
     </div>
   `;
   const offerBtn = el.querySelector('[data-act="offer"]');
-  if (offerBtn) offerBtn.addEventListener("click", () => {
+  if (offerBtn) offerBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
     store.logActivity("touch");
     store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
   });
-  el.querySelector('[data-act="quote"]').addEventListener("click", () => {
+  el.querySelector('[data-act="quote"]').addEventListener("click", (ev) => {
+    ev.stopPropagation();
     sessionStorage.setItem("calc-prefill", JSON.stringify({
       price: v.price, label: `${vehName(v)} — ${lead.name}`,
       tradeAllowance: lead.currentValue || 0, tradePayoff: lead.payoff || 0,
