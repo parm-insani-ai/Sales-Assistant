@@ -341,6 +341,9 @@ export function newAddons(v) {
 function optionsForVehicle(lead, v, opts = {}) {
   const s = store.getSettings();
   const method = opts.method || s.dealMethod || "both";
+  // "No cash down entered" is not the same as "$0 down": the first shows an
+  // advertised lease as advertised, the second reprices it to zero down.
+  const downGiven = opts.down != null && opts.down !== "";
   const base = financeBase(lead, opts.down);
   const sp = specialFor(v);
   // New units carry the taxable add-ons (AVP, freight, air tax, tire levy) in
@@ -366,18 +369,26 @@ function optionsForVehicle(lead, v, opts = {}) {
       // Do what the desk does: run every term and keep the one whose payment
       // lands closest to what the customer pays now (lowest payment if their
       // payment is unknown).
+      //
+      // The term is chosen from the NO-CASH-DOWN scenario and then held. Scoring
+      // with the cash down folded in would re-pick a shorter term every time
+      // more money went down — so the payment would jump around (or rise) as
+      // the salesperson dials cash up, instead of falling the way it should.
       const cur = lead.currentPayment;
+      const scoreBase = { ...base, down: 0 };
       let bestT = null;
       Object.entries(table).forEach(([t, a]) => {
         const term = Number(t), apr = Number(a);
         if (!term || isNaN(apr)) return;
-        const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
+        const f = computeDeal({ ...scoreBase, fees: feeFor, apr, term, price });
         const score = cur != null ? Math.abs(f.monthly - cur) : f.monthly;
-        if (!bestT || score < bestT.score) bestT = { term, apr, f, score };
+        if (!bestT || score < bestT.score) bestT = { term, apr, score };
       });
       if (bestT) {
+        // Term settled; now price it with whatever cash is actually down.
+        const f = computeDeal({ ...base, fees: feeFor, apr: bestT.apr, term: bestT.term, price });
         const label = `${bestT.apr}% APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
-        out.push({ vehicle: v, method: "finance", monthly: bestT.f.monthly, financed: bestT.f.amountFinanced, term: bestT.term, apr: bestT.apr, cash, special: label });
+        out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term: bestT.term, apr: bestT.apr, cash, down: num(base.down), special: label });
       }
     } else {
       const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
@@ -385,7 +396,7 @@ function optionsForVehicle(lead, v, opts = {}) {
       const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
       const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
       const label = sp ? specialLabel(sp, "finance") : null;
-      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, apr, cash, special: label });
+      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, apr, cash, down: num(base.down), special: label });
     }
   }
   if (method !== "finance") {
@@ -404,9 +415,22 @@ function optionsForVehicle(lead, v, opts = {}) {
     const advOk = sp && Number(sp.leasePayment) && trimMatches();
     const lr = sp ? trimProgram(sp.leaseRates, v) : null;
     if (advOk) {
+      // The ad is quoted at ITS OWN down payment (sp.leaseDown). Cash down
+      // beyond that is extra cap-cost reduction: it drops the payment by the
+      // extra spread over the term, plus the rent it no longer carries, plus
+      // tax (NS taxes the lease payment). Less down than the ad raises it.
+      const adTerm = Number(sp.leaseTerm) || s.leaseTerm || 36;
+      const adDown = Number(sp.leaseDown) || 0;
+      // Only reprice once cash down is actually specified. With nothing
+      // entered, the ad shows exactly as advertised — at its own down payment.
+      const extra = downGiven ? num(base.down) - adDown : 0;
+      const lrApr = lr && lr.byTerm && lr.byTerm[adTerm] ? Number(lr.byTerm[adTerm].apr) : null;
+      const mf = (lrApr != null && !isNaN(lrApr) ? lrApr : 0) / 2400;
+      const adj = extra ? (extra / adTerm + extra * mf) * (1 + num(s.taxRate) / 100) : 0;
       out.push({
-        vehicle: v, method: "lease", monthly: Number(sp.leasePayment), advertised: true,
-        leaseDown: Number(sp.leaseDown) || 0, special: specialLabel(sp, "lease"),
+        vehicle: v, method: "lease", monthly: Math.max(0, Number(sp.leasePayment) - adj), advertised: true,
+        term: adTerm, leaseDown: extra ? num(base.down) : adDown, adDown, adAdjusted: !!extra,
+        special: specialLabel(sp, "lease"),
       });
     } else if (lr && lr.byTerm && typeof lr.byTerm === "object") {
       // The bulletin's lease program for this exact trim: a rate AND residual
@@ -414,21 +438,25 @@ function optionsForVehicle(lead, v, opts = {}) {
       // lands closest to what they pay now.
       const lcash = Number(lr.cash) || 0;
       const cur = lead.currentPayment;
+      const leasePrice = Math.max(0, v.price - lcash) + addTaxable;
+      // Term picked from the no-cash-down scenario, then held — same reason as
+      // finance: cash down must move the payment, not reshuffle the term.
       let bestL = null;
       Object.entries(lr.byTerm).forEach(([t, row]) => {
         const term = Number(t), apr = Number(row && row.apr), res = Number(row && row.res);
         if (!term || isNaN(apr) || !res) return;
-        const l = computeLease({ ...base, fees: leaseFee, term, residualPct: res, apr, msrp: v.price, price: Math.max(0, v.price - lcash) + addTaxable });
+        const l = computeLease({ ...base, down: 0, fees: leaseFee, term, residualPct: res, apr, msrp: v.price, price: leasePrice });
         const score = cur != null ? Math.abs(l.monthly - cur) : l.monthly;
-        if (!bestL || score < bestL.score) bestL = { term, apr, res, l, score };
+        if (!bestL || score < bestL.score) bestL = { term, apr, res, score };
       });
       if (bestL) {
+        const l = computeLease({ ...base, fees: leaseFee, term: bestL.term, residualPct: bestL.res, apr: bestL.apr, msrp: v.price, price: leasePrice });
         const label = `${bestL.apr}% lease / ${bestL.term} mo${lcash ? ` + ${currency(lcash)} lease cash` : ""}`;
-        out.push({ vehicle: v, method: "lease", monthly: bestL.l.monthly, residual: bestL.l.residual, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, special: label });
+        out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, down: num(base.down), special: label });
       }
     } else {
       const l = computeLease({ ...base, fees: leaseFee, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
-      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, special: null });
+      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, down: num(base.down), special: null });
     }
   }
   return out;
@@ -575,6 +603,7 @@ export function openDealDetail(lead, m) {
   const inp = dealInputs(lead);
   const valueKnown = inp.value.src === "known";
   const tradeVal = inp.value.v || 0;
+  const mDown = num(m.down);
   const payoffVal = inp.payoff.v || 0;
   const payoffTag = inp.payoff.src === "calc" ? " (≈ payment × months left)" : "";
   const estD = inp.value.src === "book" ? estimateTradeDetail(lead) : null;
@@ -607,7 +636,7 @@ export function openDealDetail(lead, m) {
       // New units: plate registration rides untaxed (the taxable add-ons are in
   // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
   const feeFor = add ? add.nonTaxable : num(s.docFee) * (1 + num(s.taxRate) / 100);
-      const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: 0, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
+      const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
@@ -615,6 +644,7 @@ export function openDealDetail(lead, m) {
         kv("Trade-in value", currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
+        mDown ? kv("Cash down", "− " + currency(mDown)) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
         add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fee + tax", "+ " + currency(Math.round(num(s.docFee) * (1 + num(s.taxRate) / 100)))),
         kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
@@ -624,8 +654,9 @@ export function openDealDetail(lead, m) {
     } else if (m.advertised) {
       breakdown = [
         kv("Program", `Advertised lease 🏷`),
-        kv("Term", `${Number(sp?.leaseTerm) || "—"} mo`),
-        Number(sp?.leaseDown) ? kv("Down payment", currency(Number(sp.leaseDown))) : "",
+        kv("Term", `${m.term || Number(sp?.leaseTerm) || "—"} mo`),
+        kv("Down payment", currency(num(m.leaseDown != null ? m.leaseDown : sp?.leaseDown))
+          + (m.adAdjusted ? ` <span class="muted">(ad quotes ${currency(num(m.adDown))} — payment adjusted)</span>` : "")),
         (valueKnown || payoffVal) ? kv("Their trade", `${currency(tradeVal)}${esc(tradeTag)} — equity can cover the down`) : "",
         sp?.notes ? kv("Fine print", esc(sp.notes)) : "",
       ].join("");
@@ -638,11 +669,12 @@ export function openDealDetail(lead, m) {
       const apr = isProgram ? m.apr : (lead.currentApr || s.defaultApr);
       const lcash = Number(m.leaseCash) || 0;
       const l = m.residual != null ? { residual: m.residual }
-        : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
+        : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
         lcash ? kv("Nissan lease cash 🏷", "− " + currency(lcash)) : "",
+        mDown ? kv("Cash down", "− " + currency(mDown)) : "",
         kv("Trade-in value", currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
@@ -726,7 +758,15 @@ export function openDealBuilder(lead) {
     const s = store.getSettings();
 
     function draw(down) {
-      const rows = dealsForLead(lead, { down, method: "both" });
+      // The vehicle lineup is fixed by the baseline (no cash down) ranking, then
+      // re-priced as cash changes. Re-ranking live would swap a pricier car into
+      // the top row every time cash went up — so the payment would look frozen
+      // near their current one while the vehicle silently changed underneath.
+      const baseRows = dealsForLead(lead, { method: "both" });
+      const key = (m) => [m.vehicle.id || "", m.vehicle.model, m.vehicle.trim, m.method].join("|");
+      const priced = down == null ? baseRows : dealsForLead(lead, { down, method: "both" });
+      const byKey = new Map(priced.map((m) => [key(m), m]));
+      const rows = baseRows.map((m) => byKey.get(key(m)) || m);
       const eq = equity(lead);
       const cur = lead.currentPayment;
       const top = rows.slice(0, 6);
@@ -742,7 +782,8 @@ export function openDealBuilder(lead) {
 
         <div class="field">
           <label>Cash down (tweak to hit their payment)</label>
-          <input id="db-down" type="number" inputmode="decimal" value="${down}" />
+          <input id="db-down" type="number" inputmode="decimal" placeholder="0" value="${down == null ? "" : down}" />
+          <div class="hint">Leave blank to show advertised leases exactly as advertised. Enter an amount and every payment re-prices — the term stays put.</div>
         </div>
 
         ${cur == null ? `<div class="hint" style="margin-bottom:10px">No current payment on file for this customer — showing lowest payments. Add their payment/payoff/value to match.</div>` : ""}
@@ -760,10 +801,13 @@ export function openDealBuilder(lead) {
       }
 
       const downEl = wrap.querySelector("#db-down");
-      downEl.addEventListener("change", () => draw(Number(downEl.value) || 0));
+      downEl.addEventListener("change", () => {
+        const raw = downEl.value.trim();
+        draw(raw === "" ? null : Number(raw) || 0);
+      });
     }
 
-    draw(0);
+    draw(null);
     return wrap;
   });
 }
