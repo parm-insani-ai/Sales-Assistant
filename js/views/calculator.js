@@ -16,7 +16,8 @@ export function computeDeal(input) {
   const apr = num(input.apr) / 100;
   const term = Math.max(0, Math.round(num(input.term)));
 
-  // Common US rule: sales tax applies to price minus trade allowance.
+  // Trading in at a dealer, tax applies to price minus the trade allowance
+  // (NS: 14% HST on the difference) — the trade-in tax credit.
   const taxableBase = Math.max(0, price - tradeAllowance);
   const tax = taxableBase * taxRate;
 

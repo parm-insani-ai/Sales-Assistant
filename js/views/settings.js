@@ -54,7 +54,7 @@ export function renderSettings(view) {
     <div class="section-title">Deal defaults</div>
     <div class="card">
       <div class="field-inline">
-        <div class="field"><label>Sales tax %</label><input id="s-tax" type="number" step="0.01" inputmode="decimal" value="${esc(s.taxRate)}"></div>
+        <div class="field"><label>Sales tax % (HST)</label><input id="s-tax" type="number" step="0.01" inputmode="decimal" value="${esc(s.taxRate)}"></div>
         <div class="field"><label>Doc fee</label><input id="s-doc" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
       </div>
       <div class="field-inline">

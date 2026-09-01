@@ -79,7 +79,7 @@ const DEFAULT_STATE = {
     contactEmail: "",
     reviewLink: "", // Google review URL — folded into the day-after delivery text
 
-    taxRate: 6.5, // %
+    taxRate: 14, // % — Nova Scotia HST on a vehicle deal
     docFee: 499,
     // New-vehicle fees (O'Regan's). AVP/freight/air tax/tire levy are taxable
     // add-ons; plate registration is a government fee (no tax). Used vehicles
@@ -181,11 +181,19 @@ function load() {
     if (!raw) return structuredClone(DEFAULT_STATE);
     const parsed = JSON.parse(raw);
     // Merge so new default fields appear for existing users.
-    return {
+    const merged = {
       ...structuredClone(DEFAULT_STATE),
       ...parsed,
       settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
     };
+    // One-time correction: early builds shipped a 6.5% tax default. Nova Scotia
+    // HST on a vehicle deal is 14%. Runs once (taxRateFixed), so a rate the
+    // user sets deliberately afterwards is never overwritten.
+    if (!merged.settings.taxRateFixed) {
+      if (Number(merged.settings.taxRate) === 6.5) merged.settings.taxRate = 14;
+      merged.settings.taxRateFixed = true;
+    }
+    return merged;
   } catch (e) {
     console.warn("Failed to load state, starting fresh.", e);
     return structuredClone(DEFAULT_STATE);
