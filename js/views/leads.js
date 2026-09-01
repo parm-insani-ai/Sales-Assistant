@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity, dealInputs } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -225,6 +225,44 @@ function leadCard(l) {
 
 // --- Add / edit form ---
 // opts.focus: field name to focus once open (tap-to-edit from the detail page).
+// The 60-second money form: everything the deal engine runs on, in one sheet.
+// Fill it from a call ("what are you paying? what's the buyout?") and the
+// pre-made deal recomputes on the spot.
+export function openMoneyForm(l) {
+  openModal("Their numbers", (close) => {
+    const numOrNull = (v) => (v === "" || v == null ? null : Number(v));
+    const { element } = buildForm(
+      [
+        { name: "currentPayment", label: "Current payment $/mo", value: l.currentPayment, type: "number", inputmode: "decimal", half: true, placeholder: "532" },
+        { name: "payoff", label: "Payoff / buyout $", value: l.payoff, type: "number", inputmode: "decimal", half: true, placeholder: "19455" },
+        { name: "currentValue", label: "Trade value $ (appraised)", value: l.currentValue, type: "number", inputmode: "decimal", half: true, placeholder: "21500", hint: "Leave blank to use a book estimate." },
+        { name: "currentApr", label: "Their rate %", value: l.currentApr, type: "number", inputmode: "decimal", half: true, placeholder: "8.9", hint: "Blank = solved from payment, payoff & maturity when possible." },
+        { name: "leaseEnd", label: "Contract maturity date", value: l.leaseEnd || "", type: "date", half: true },
+        { name: "currentTerm", label: "Original term (mo)", value: l.currentTerm, type: "number", inputmode: "numeric", half: true, placeholder: "72" },
+        { name: "odometer", label: "Odometer (km)", value: l.odometer, type: "number", inputmode: "numeric", placeholder: "48000" },
+      ],
+      {
+        submitLabel: "Save & rebuild deal",
+        onSubmit: (data) => {
+          store.update("leads", l.id, {
+            currentPayment: numOrNull(data.currentPayment),
+            payoff: numOrNull(data.payoff),
+            currentValue: numOrNull(data.currentValue),
+            currentApr: numOrNull(data.currentApr),
+            leaseEnd: data.leaseEnd || null,
+            currentTerm: numOrNull(data.currentTerm),
+            odometer: numOrNull(data.odometer),
+          });
+          toast("Deal inputs updated", "success");
+          close();
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+        },
+      }
+    );
+    return element;
+  });
+}
+
 export function openLeadForm(existing, opts = {}) {
   const isEdit = !!existing;
   const l = existing || {};
@@ -479,8 +517,32 @@ function renderLeadDetail(view, id) {
               <div class="small mono" style="width:92px;text-align:right;color:${deltaColor(m)}">${deltaLine(m)}</div>
             </div>`).join("")}
         </div>` : ""}
-        ${!hasMoney ? `<div class="fab-note" style="margin-top:8px;text-align:left">No payment on file — these are the lowest payments. Add their current payment (tap Edit) and this becomes a payment-matched deal.</div>`
-          : equity(l) == null && l.payoff != null ? `<div class="fab-note" style="margin-top:8px;text-align:left">Assumes their trade washes the ${currency(l.payoff)} payoff — appraise the trade to tighten these numbers.</div>` : ""}
+        ${(() => {
+          // What this deal stands on — every input with its provenance, and a
+          // one-tap way to replace an estimate with the real number.
+          const inp = dealInputs(l);
+          const chip = (label, x, fmt) => {
+            const cls = x.src === "known" ? "di-known" : (x.src === "missing" || x.src === "default") ? "di-miss" : "di-est";
+            const mark = x.src === "known" ? "✓" : x.src === "missing" ? "+" : "≈";
+            const tag = x.src === "book" ? " est" : x.src === "calc" ? " calc" : x.src === "wash" ? " assumed" : x.src === "default" ? " assumed" : "";
+            return `<span class="di-chip ${cls}">${mark} ${label} ${x.v != null ? fmt(x.v) : "add"}${tag}</span>`;
+          };
+          const strip = [
+            chip("pmt", inp.payment, (v) => currency(Math.round(v))),
+            chip("payoff", inp.payoff, (v) => currency(Math.round(v))),
+            chip("trade", inp.value, (v) => currency(Math.round(v))),
+            chip("rate", inp.apr, (v) => v + "%"),
+            inp.maturity.v != null ? chip("mat.", inp.maturity, (v) => v + " mo") : "",
+          ].join("");
+          const note = inp.payment.src === "missing"
+            ? "No payment on file — these are the lowest payments. Add it and this becomes a payment-matched deal."
+            : inp.value.src === "wash" ? `Assumes their trade washes the ${currency(l.payoff)} payoff — appraise or add a value to tighten this.`
+            : inp.value.src === "book" ? "Trade value is a book estimate from year/model — appraise to firm it up."
+            : "";
+          return `
+            <div class="di-strip" data-act="deal-numbers" title="Update their numbers">${strip}<span class="di-chip di-edit">edit</span></div>
+            ${note ? `<div class="fab-note" style="margin-top:6px;text-align:left">${note}</div>` : ""}`;
+        })()}
       </div>`;
 
     const offer = slot.querySelector('[data-act="deal-offer"]');
@@ -492,6 +554,8 @@ function renderLeadDetail(view, id) {
     slot.querySelectorAll("[data-deal-open]").forEach((n) =>
       n.addEventListener("click", () => openDealDetail(l, rows[Number(n.dataset.dealOpen)])));
     slot.querySelector('[data-act="deal-more"]').addEventListener("click", () => openDealBuilder(l));
+    const nums = slot.querySelector('[data-act="deal-numbers"]');
+    if (nums) nums.addEventListener("click", (ev) => { ev.stopPropagation(); openMoneyForm(l); });
     const addPhone = slot.querySelector('[data-edit="phone"]');
     if (addPhone) addPhone.addEventListener("click", () => openLeadForm(l, { focus: "phone" }));
   })();

@@ -41,20 +41,86 @@ export function computeLease(input) {
   return { monthly: base + tax, residual, term };
 }
 
+// ---- The accuracy ladder: known → calculated → book estimate → assumption ----
+// AutoAlert exports rarely carry everything the math needs. Instead of silently
+// assuming, each input is resolved with a provenance tag so every deal can say
+// exactly what it stands on — and the profile can ask for the missing piece.
+
+// Conservative trade-in (wholesale-side) estimate from the spec library:
+// -25% in year one, -13%/yr after, floored at 10% of MSRP, rounded to $100.
+export function estimateTradeValue(lead) {
+  const vi = String(lead.vehicleInterest || "");
+  const year = Number((vi.match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
+  if (!year) return null;
+  let spec = null;
+  try { spec = findSpec(vi.replace(/^\d{4}\s*/, "")); } catch { spec = null; }
+  if (!spec || !spec.msrp) return null;
+  const age = Math.max(0, new Date().getFullYear() - year);
+  const raw = age === 0 ? spec.msrp * 0.85 : spec.msrp * 0.75 * Math.pow(0.87, age - 1);
+  return Math.max(Math.round(raw / 100) * 100, Math.round(spec.msrp * 0.1));
+}
+
+// Months left on their contract — from the maturity date, or purchase date +
+// term when that's all we have.
+export function monthsRemaining(lead) {
+  let end = lead.leaseEnd ? new Date(lead.leaseEnd) : null;
+  if ((!end || isNaN(end)) && lead.purchaseDate && Number(lead.currentTerm)) {
+    const p = new Date(lead.purchaseDate);
+    if (!isNaN(p)) end = new Date(p.getFullYear(), p.getMonth() + Number(lead.currentTerm), p.getDate());
+  }
+  if (!end || isNaN(end)) return null;
+  const m = Math.round((end - new Date()) / (30.44 * 86400000));
+  return m > 0 ? m : null;
+}
+
+// Their actual APR, solved from what we do know: the payoff is the present
+// value of the remaining payments, so payment + payoff + months remaining
+// pins the rate. Bisection on the annuity formula.
+export function inferApr(lead) {
+  if (lead.currentApr != null && lead.currentApr !== "") return null; // already known
+  const pmt = num(lead.currentPayment), pv = num(lead.payoff);
+  const n = monthsRemaining(lead);
+  if (!pmt || !pv || !n || n < 3) return null;
+  if (pmt * n <= pv) return null; // payments don't cover principal — bad data
+  let lo = 0, hi = 30;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2, r = mid / 1200;
+    const pvAt = r ? (pmt * (1 - Math.pow(1 + r, -n))) / r : pmt * n;
+    if (pvAt > pv) lo = mid; else hi = mid;
+  }
+  const apr = Math.round(((lo + hi) / 2) * 10) / 10;
+  return apr >= 0.5 && apr <= 25 ? apr : null;
+}
+
+// Every input the deal math uses, with where it came from:
+// "known" (on file) · "calc" (solved) · "book" (estimated) · "wash" (assumed
+// trade = payoff) · "default" (store setting) · "missing".
+export function dealInputs(lead) {
+  const s = store.getSettings();
+  const est = lead.currentValue == null ? estimateTradeValue(lead) : null;
+  const calcApr = inferApr(lead);
+  return {
+    payment: lead.currentPayment != null ? { v: lead.currentPayment, src: "known" } : { src: "missing" },
+    payoff: lead.payoff != null ? { v: lead.payoff, src: "known" } : { src: "missing" },
+    value: lead.currentValue != null ? { v: lead.currentValue, src: "known" }
+      : est != null ? { v: est, src: "book" }
+      : lead.payoff != null ? { v: lead.payoff, src: "wash" } : { src: "missing" },
+    apr: lead.currentApr != null && lead.currentApr !== "" ? { v: Number(lead.currentApr), src: "known" }
+      : calcApr != null ? { v: calcApr, src: "calc" } : { v: s.defaultApr, src: "default" },
+    maturity: monthsRemaining(lead) != null ? { v: monthsRemaining(lead), src: "known" } : { src: "missing" },
+  };
+}
+
 function financeBase(lead, down) {
   const s = store.getSettings();
-  // When we know their payoff but not the trade's value (common in AutoAlert
-  // exports), assume the trade washes the payoff — neutral equity — instead of
-  // rolling the full payoff into the new deal, which buries every payment.
-  const value = lead.currentValue != null ? lead.currentValue
-    : lead.payoff != null ? lead.payoff : 0;
+  const inp = dealInputs(lead);
   return {
     down: down != null ? down : 0,
-    tradeAllowance: value,
+    tradeAllowance: inp.value.v || 0,
     tradePayoff: lead.payoff || 0,
     fees: s.docFee,
     taxRate: s.taxRate,
-    apr: lead.currentApr || s.defaultApr,
+    apr: inp.apr.v || s.defaultApr,
   };
 }
 
@@ -344,8 +410,14 @@ export function scoreOpportunity(lead, best) {
     else if (d != null && d > 90 && d <= 180) { score += 12; reasons.push("Lease ending soon"); }
   }
 
-  if (lead.currentApr != null && lead.currentApr > (s.defaultApr || 0) + 1) {
-    score += 12; reasons.push(`Rate ${lead.currentApr}% → ~${s.defaultApr}%`);
+  // Rate story: their rate (on file, or solved from payment + payoff +
+  // maturity) vs the actual program rate on the matched deal.
+  const theirs = lead.currentApr != null && lead.currentApr !== "" ? Number(lead.currentApr) : inferApr(lead);
+  const progApr = best && best.apr != null ? best.apr : null;
+  if (theirs != null && progApr != null && theirs - progApr >= 1.5) {
+    score += 14; reasons.push(`~${theirs}% now → ${progApr}% program`);
+  } else if (theirs != null && theirs > (s.defaultApr || 0) + 1) {
+    score += 12; reasons.push(`Rate ${theirs}% → ~${s.defaultApr}%`);
   }
 
   // The incentive is pitch material — keep it ahead of the reason cap.
@@ -413,8 +485,10 @@ export function openDealDetail(lead, m) {
   const s = store.getSettings();
   const sp = specialFor(v);
   const cur = lead.currentPayment;
-  const valueKnown = lead.currentValue != null;
-  const tradeVal = valueKnown ? lead.currentValue : (lead.payoff || 0);
+  const inp = dealInputs(lead);
+  const valueKnown = inp.value.src === "known";
+  const tradeVal = inp.value.v || 0;
+  const tradeTag = inp.value.src === "book" ? " (book est.)" : inp.value.src === "wash" ? " (assumed = payoff)" : "";
   const kv = (k, val, strong) => `<div class="kv"><span class="k">${k}</span><span class="v mono${strong ? " strong" : ""}" style="text-align:right">${val}</span></div>`;
 
   openModal(vehName(v), (close) => {
@@ -446,7 +520,7 @@ export function openDealDetail(lead, m) {
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
         cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
-        kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
+        kv("Trade-in value", currency(tradeVal) + tradeTag),
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
         add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fees", "+ " + currency(s.docFee)),
@@ -459,7 +533,7 @@ export function openDealDetail(lead, m) {
         kv("Program", `Advertised lease 🏷`),
         kv("Term", `${Number(sp?.leaseTerm) || "—"} mo`),
         Number(sp?.leaseDown) ? kv("Down payment", currency(Number(sp.leaseDown))) : "",
-        (valueKnown || lead.payoff) ? kv("Their trade", `${currency(tradeVal)}${valueKnown ? "" : " (est.)"} — equity can cover the down`) : "",
+        (valueKnown || lead.payoff) ? kv("Their trade", `${currency(tradeVal)}${esc(tradeTag)} — equity can cover the down`) : "",
         sp?.notes ? kv("Fine print", esc(sp.notes)) : "",
       ].join("");
     } else {
@@ -476,7 +550,7 @@ export function openDealDetail(lead, m) {
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
         lcash ? kv("Nissan lease cash 🏷", "− " + currency(lcash)) : "",
-        kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
+        kv("Trade-in value", currency(tradeVal) + tradeTag),
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv("Term", `${term} mo`),
         kv(`Residual (${resPct}%${isProgram ? " 🏷" : ""})`, currency(Math.round(l.residual))),
@@ -513,8 +587,8 @@ export function openDealDetail(lead, m) {
       <div class="card">
         ${lead.vehicleInterest ? kv("Driving now", esc(lead.vehicleInterest)) : ""}
         ${cur != null ? kv("Paying now", currency(cur) + "/mo") : ""}
-        ${valueKnown ? kv("Est. equity", currency(lead.currentValue - (lead.payoff || 0))) : lead.payoff != null ? kv("Payoff", currency(lead.payoff) + " · value not appraised") : ""}
-        ${lead.currentApr != null ? kv("Their rate", lead.currentApr + "%") : ""}
+        ${lead.payoff != null || valueKnown ? kv("Est. equity", currency(Math.round(tradeVal - (lead.payoff || 0))) + (valueKnown ? "" : esc(tradeTag))) : ""}
+        ${inp.apr.src === "known" ? kv("Their rate", inp.apr.v + "%") : inp.apr.src === "calc" ? kv("Their rate", "≈ " + inp.apr.v + "% (calculated)") : ""}
       </div>` : ""}
 
       <div class="btn-row" style="margin-top:4px">

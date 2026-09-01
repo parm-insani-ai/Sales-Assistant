@@ -59,6 +59,8 @@ const LEAD_TARGETS = [
   { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value", "est value", "est trade value", "estimated trade value", "trade in value", "black book", "cbb", "cash value", "vehicle value"] },
   { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity", "est equity", "estimated equity"] },
   { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate", "int rate", "current int rate", "customer rate"] },
+  { field: "currentTerm", label: "Contract term (months)", aliases: ["term", "loan term", "original term", "contract term", "term months", "term (months)", "finance term", "current term", "amortization"], type: "number" },
+  { field: "odometer", label: "Odometer (km)", aliases: ["odometer", "mileage", "km", "kms", "kilometers", "kilometres", "miles", "current mileage", "odometer reading", "est mileage", "estimated mileage"], type: "number" },
   { field: "alertType", label: "Alert / opportunity", aliases: ["alert", "alerts", "alert type", "alert types", "opportunity", "opportunity type", "flex alert", "flex alerts", "upgrade alert", "service alert", "categories", "category"] },
   { field: "priority", label: "Priority", aliases: ["priority", "alert priority", "rank", "score"] },
   { field: "dealType", label: "Deal type (lease/retail)", aliases: ["deal type", "sale type", "contract type", "finance type", "purchase type"] },
@@ -292,6 +294,8 @@ function buildRecord(type, row, mapping) {
     payoff,
     currentValue,
     currentApr: parseNumber(val("currentApr")),
+    currentTerm: parseNumber(val("currentTerm")),
+    odometer: parseNumber(val("odometer")),
     // A booked service visit is a date with the customer — surface it as a
     // follow-up so they show on the dashboard that day.
     followUp: serviceAppt || null,
@@ -328,7 +332,7 @@ function mergeLead(existing, incoming) {
       incoming.vehicleInterest.toLowerCase().includes(existing.vehicleInterest.toLowerCase())) {
     patch.vehicleInterest = incoming.vehicleInterest;
   }
-  ["currentPayment", "payoff", "currentValue", "currentApr"].forEach((k) => {
+  ["currentPayment", "payoff", "currentValue", "currentApr", "currentTerm", "odometer"].forEach((k) => {
     if (!empty(incoming[k])) patch[k] = incoming[k];
   });
   if (!empty(incoming.notes)) {

@@ -820,3 +820,11 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .sp-trim-row b { flex: 0 0 auto; max-width: 42%; color: var(--text); }
 .sp-trim-row span { color: var(--text-2); }
 .sp-fine { margin-top: 9px; white-space: pre-wrap; line-height: 1.45; }
+
+/* --- Deal input provenance chips (what the deal stands on) --- */
+.di-strip { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); cursor: pointer; }
+.di-chip { font-size: 0.7rem; font-weight: 650; padding: 3px 8px; border-radius: var(--radius-pill); background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; }
+.di-known { color: var(--brand); background: var(--brand-tint); border-color: color-mix(in srgb, var(--brand) 25%, transparent); }
+.di-est { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); border-color: color-mix(in srgb, var(--warning) 25%, transparent); }
+.di-miss { color: var(--muted); border-style: dashed; }
+.di-edit { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
