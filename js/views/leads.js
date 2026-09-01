@@ -27,6 +27,9 @@ export function renderLeads(view, { param }) {
   // active | due | all | <stage>. A stat card can preset the filter (one-shot).
   let filter = sessionStorage.getItem("leads-filter") || "active";
   sessionStorage.removeItem("leads-filter");
+  // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
+  let selecting = false;
+  const selected = new Set();
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -38,7 +41,7 @@ export function renderLeads(view, { param }) {
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
-      [l.name, l.phone, l.vehicleInterest, l.notes].join(" ").toLowerCase().includes(q));
+      [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase().includes(q));
 
     // Sort: overdue follow-ups first, then by follow-up date, then newest.
     list = list.slice().sort((a, b) => {
@@ -64,8 +67,18 @@ export function renderLeads(view, { param }) {
       <div class="btn-row" style="overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; margin-bottom:12px;">
         ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
       </div>
-      <button class="btn btn-primary btn-block" data-act="add-lead" style="margin-bottom:10px">${icon("plus")} Add customer</button>
-      <button class="btn btn-ghost btn-block" data-act="call-list" style="margin-bottom:12px">${icon("target")} Today's call list${callSub}</button>
+      ${selecting ? `
+      <div class="btn-row" style="margin-bottom:12px">
+        <button class="btn btn-ghost btn-sm" data-act="sel-all" style="flex:0 0 auto">Select all shown</button>
+        <button class="btn btn-danger btn-sm" data-act="sel-del" style="flex:1">${icon("trash")} Delete (<span id="sel-count">${selected.size}</span>)</button>
+        <button class="btn btn-ghost btn-sm" data-act="sel-done" style="flex:0 0 auto">Done</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px">Tap leads to select. The filter chips and search narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : `
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn btn-primary btn-block" data-act="add-lead">${icon("plus")} Add customer</button>
+        <button class="btn btn-ghost btn-sm" data-act="select" style="flex:0 0 auto">Select</button>
+      </div>
+      <button class="btn btn-ghost btn-block" data-act="call-list" style="margin-bottom:12px">${icon("target")} Today's call list${callSub}</button>`}
       <div class="lead-list"></div>
     `;
 
@@ -73,7 +86,7 @@ export function renderLeads(view, { param }) {
     if (!list.length) {
       listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
     } else {
-      list.forEach((l) => listEl.appendChild(leadCard(l)));
+      list.forEach((l) => listEl.appendChild(selecting ? selectCard(l) : leadCard(l)));
     }
 
     wrap.querySelector('input[type="search"]').addEventListener("input", (e) => {
@@ -95,8 +108,59 @@ export function renderLeads(view, { param }) {
         renderList();
       }));
 
-    wrap.querySelector('[data-act="add-lead"]').addEventListener("click", () => openLeadForm());
-    wrap.querySelector('[data-act="call-list"]').addEventListener("click", () => navigate("/prospecting"));
+    const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
+    on('[data-act="add-lead"]', () => openLeadForm());
+    on('[data-act="call-list"]', () => navigate("/prospecting"));
+    on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
+    on('[data-act="sel-done"]', () => { selecting = false; selected.clear(); draw(); });
+    on('[data-act="sel-all"]', () => {
+      applyFilter().forEach((l) => selected.add(l.id));
+      renderList(); updateSelCount();
+    });
+    on('[data-act="sel-del"]', async () => {
+      const ids = [...selected];
+      if (!ids.length) { toast("Tap some leads first"); return; }
+      const ok = await confirmDialog(
+        `Delete ${ids.length} lead${ids.length === 1 ? "" : "s"}? Their open follow-up tasks are removed too. This can't be undone (it deletes from the cloud as well).`);
+      if (!ok) return;
+      ids.forEach((id) => store.remove("leads", id));
+      store.all("tasks")
+        .filter((t) => t.leadId && selected.has(t.leadId) && !t.done)
+        .forEach((t) => store.remove("tasks", t.id));
+      selected.clear();
+      selecting = false;
+      toast(`Deleted ${ids.length} lead${ids.length === 1 ? "" : "s"}`, "success");
+      draw();
+    });
+  }
+
+  function updateSelCount() {
+    const n = wrap.querySelector("#sel-count");
+    if (n) n.textContent = selected.size;
+  }
+
+  // Selection-mode row: whole card toggles; no swipe/navigation in this mode.
+  function selectCard(l) {
+    const el = document.createElement("div");
+    el.className = "card";
+    const drawState = () => {
+      const isSel = selected.has(l.id);
+      el.style.outline = isSel ? "2px solid var(--brand)" : "none";
+      el.innerHTML = `
+        <div class="row" style="align-items:center;gap:12px">
+          <span style="flex:none;display:inline-flex;width:24px;height:24px;border-radius:50%;border:2px solid ${isSel ? "var(--brand)" : "var(--border)"};background:${isSel ? "var(--brand)" : "transparent"};color:#fff;align-items:center;justify-content:center">${isSel ? "✓" : ""}</span>
+          <div class="row-main" style="min-width:0">
+            <div class="row-title">${esc(l.name || "Customer")}</div>
+            <div class="row-sub">${esc([l.vehicleInterest, l.source].filter(Boolean).join(" · ") || stageMeta(l.stage).label)}</div>
+          </div>
+        </div>`;
+    };
+    drawState();
+    el.addEventListener("click", () => {
+      if (selected.has(l.id)) selected.delete(l.id); else selected.add(l.id);
+      drawState(); updateSelCount();
+    });
+    return el;
   }
 
   function renderList() {
@@ -105,7 +169,7 @@ export function renderLeads(view, { param }) {
     const filtered = applyFilter();
     el.innerHTML = "";
     if (!filtered.length) el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
-    else filtered.forEach((x) => el.appendChild(leadCard(x)));
+    else filtered.forEach((x) => el.appendChild(selecting ? selectCard(x) : leadCard(x)));
   }
 
   function applyFilter() {
@@ -115,7 +179,7 @@ export function renderLeads(view, { param }) {
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
-      [l.name, l.phone, l.vehicleInterest, l.notes].join(" ").toLowerCase().includes(q));
+      [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase().includes(q));
     return list.slice().sort((a, b) => {
       const da = a.followUp ? daysFromToday(a.followUp) : Infinity;
       const db = b.followUp ? daysFromToday(b.followUp) : Infinity;
