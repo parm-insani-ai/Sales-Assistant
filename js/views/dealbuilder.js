@@ -30,7 +30,9 @@ export function computeLease(input) {
 
   const capCost = price + fees;
   const adjCap = capCost - down - netTradeEquity;
-  const residual = price * residualPct;
+  // Program residuals are a % of MSRP — pass msrp when the cap cost already
+  // has lease cash or add-ons folded in, so the residual isn't distorted.
+  const residual = num(input.msrp || input.price) * residualPct;
   const depreciation = (adjCap - residual) / term;
   const rent = (adjCap + residual) * mf;
   let base = depreciation + rent;
@@ -73,11 +75,52 @@ function activeSpecials() {
 export function specialFor(v) {
   const model = String(v.model || v.label || "").toLowerCase().trim();
   if (!model) return null;
-  let best = null;
+  const vy = Number(v.year) || null;
+  // Rank: most specific model match first, then exact model-year match, then
+  // yearless programs, then the oldest program year (the mainstream MY).
+  const rank = (sp, m) => {
+    const sy = Number(sp.year) || null;
+    return [m.length, sy && vy && sy === vy ? 2 : sy ? 0 : 1, sy ? -sy : 0];
+  };
+  let best = null, bestR = null;
   activeSpecials().forEach((sp) => {
     const m = String(sp.model || "").toLowerCase().trim();
     if (!m || !model.includes(m)) return;
-    if (!best || m.length > String(best.model).length) best = sp;
+    const sy = Number(sp.year) || null;
+    // A program scoped to a model year never applies to a different year —
+    // a used 2022 Rogue doesn't get the 2026 program.
+    if (sy && vy && sy !== vy) return;
+    const r = rank(sp, m);
+    if (!bestR || r[0] > bestR[0] || (r[0] === bestR[0] && (r[1] > bestR[1] || (r[1] === bestR[1] && r[2] > bestR[2])))) {
+      best = sp; bestR = r;
+    }
+  });
+  return best;
+}
+
+// ---- Trim-scoped program rows (finance trimRates / lease leaseRates) ----
+// A row names bulletin trims; the vehicle's trim is matched token-by-token
+// (first token must hit, most matching tokens wins) so "SR AWD" finds the SR
+// row and "SL+ e-4ORCE" never falls into plain SL.
+function trimTokens(s) { return String(s || "").toLowerCase().split(/[\s/,]+/).filter(Boolean); }
+function trimRowScore(row, vTrim) {
+  const have = trimTokens(vTrim);
+  if (!have.length) return 0;
+  let best = 0;
+  (Array.isArray(row.trims) ? row.trims : [row.trims]).forEach((name) => {
+    const want = trimTokens(name);
+    if (!want.length || !have.includes(want[0])) return;
+    const hits = want.filter((w) => have.includes(w)).length;
+    if (hits + 1 > best) best = hits + 1;
+  });
+  return best;
+}
+export function trimProgram(rows, v) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  let best = null, bs = 0;
+  rows.forEach((r) => {
+    const sc = trimRowScore(r, v.trim);
+    if (sc > bs) { bs = sc; best = r; }
   });
   return best;
 }
@@ -102,7 +145,10 @@ function lineupCandidates() {
   SPEC_LIBRARY.filter((x) => x.make === "Nissan").forEach((x) => {
     const model = String(x.label).replace(/^\d{4}\s+/, "").replace(/^Nissan\s+/i, "").trim();
     const ml = model.toLowerCase();
+    // Only a NEW unit on the lot replaces the catalogue entry — a used
+    // trade-in Rogue in inventory shouldn't stop us pitching a new Rogue.
     const inStock = inv.some((v) => {
+      if (/used|trade|pre-?owned/i.test(String(v.condition || ""))) return false;
       const vm = String(v.model || "").toLowerCase().trim();
       return vm && (vm.includes(ml) || ml.includes(vm));
     });
@@ -157,9 +203,14 @@ function optionsForVehicle(lead, v, opts = {}) {
   const addTaxable = add ? add.taxable : 0;
   const out = [];
   if (method !== "lease") {
-    const cash = sp && Number(sp.cash) ? Number(sp.cash) : 0;
+    // A trim-scoped rate row (Ariya SL+, LEAF Platinum+…) overrides the
+    // model-level table and cash from the same bulletin.
+    const ft = sp ? trimProgram(sp.trimRates, v) : null;
+    const cash = ft && ft.cash != null ? Number(ft.cash) || 0
+      : sp && Number(sp.cash) ? Number(sp.cash) : 0;
     const price = Math.max(0, v.price - cash) + addTaxable;
-    const table = sp && sp.aprByTerm && typeof sp.aprByTerm === "object" ? sp.aprByTerm : null;
+    const table = ft && ft.aprByTerm && typeof ft.aprByTerm === "object" ? ft.aprByTerm
+      : sp && sp.aprByTerm && typeof sp.aprByTerm === "object" ? sp.aprByTerm : null;
     if (table) {
       // Program sheets publish a rate PER TERM (e.g. 0% to 60, 2.9% at 72/84).
       // Do what the desk does: run every term and keep the one whose payment
@@ -176,7 +227,7 @@ function optionsForVehicle(lead, v, opts = {}) {
       });
       if (bestT) {
         const label = `${bestT.apr}% APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
-        out.push({ vehicle: v, method: "finance", monthly: bestT.f.monthly, financed: bestT.f.amountFinanced, term: bestT.term, apr: bestT.apr, special: label });
+        out.push({ vehicle: v, method: "finance", monthly: bestT.f.monthly, financed: bestT.f.amountFinanced, term: bestT.term, apr: bestT.apr, cash, special: label });
       }
     } else {
       const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
@@ -184,7 +235,7 @@ function optionsForVehicle(lead, v, opts = {}) {
       const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
       const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
       const label = sp ? specialLabel(sp, "finance") : null;
-      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, apr, special: label });
+      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, apr, cash, special: label });
     }
   }
   if (method !== "finance") {
@@ -198,11 +249,30 @@ function optionsForVehicle(lead, v, opts = {}) {
       return want.every((w) => have.includes(w));
     };
     const advOk = sp && Number(sp.leasePayment) && trimMatches();
+    const lr = sp ? trimProgram(sp.leaseRates, v) : null;
     if (advOk) {
       out.push({
         vehicle: v, method: "lease", monthly: Number(sp.leasePayment), advertised: true,
         leaseDown: Number(sp.leaseDown) || 0, special: specialLabel(sp, "lease"),
       });
+    } else if (lr && lr.byTerm && typeof lr.byTerm === "object") {
+      // The bulletin's lease program for this exact trim: a rate AND residual
+      // per term. Same play as finance — run every term, keep the payment that
+      // lands closest to what they pay now.
+      const lcash = Number(lr.cash) || 0;
+      const cur = lead.currentPayment;
+      let bestL = null;
+      Object.entries(lr.byTerm).forEach(([t, row]) => {
+        const term = Number(t), apr = Number(row && row.apr), res = Number(row && row.res);
+        if (!term || isNaN(apr) || !res) return;
+        const l = computeLease({ ...base, fees: feeFor, term, residualPct: res, apr, msrp: v.price, price: Math.max(0, v.price - lcash) + addTaxable });
+        const score = cur != null ? Math.abs(l.monthly - cur) : l.monthly;
+        if (!bestL || score < bestL.score) bestL = { term, apr, res, l, score };
+      });
+      if (bestL) {
+        const label = `${bestL.apr}% lease / ${bestL.term} mo${lcash ? ` + ${currency(lcash)} lease cash` : ""}`;
+        out.push({ vehicle: v, method: "lease", monthly: bestL.l.monthly, residual: bestL.l.residual, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, special: label });
+      }
     } else {
       const l = computeLease({ ...base, fees: feeFor, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
       out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, special: null });
@@ -364,7 +434,9 @@ export function openDealDetail(lead, m) {
     ].join("") : "";
     let breakdown = "";
     if (m.method === "finance") {
-      const cash = sp && Number(sp.cash) ? Number(sp.cash) : 0;
+      // m.cash is the trim-resolved program cash the option was built with;
+      // fall back to the model-level cash for options minted before it existed.
+      const cash = m.cash != null ? Number(m.cash) || 0 : (sp && Number(sp.cash) ? Number(sp.cash) : 0);
       const hasAprSp = m.special != null && /%/.test(String(m.special || ""));
       const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr));
       const term = m.term || s.defaultTerm;
@@ -391,17 +463,24 @@ export function openDealDetail(lead, m) {
         sp?.notes ? kv("Fine print", esc(sp.notes)) : "",
       ].join("");
     } else {
-      const term = s.leaseTerm || 36;
-      const resPct = s.leaseResidualPct || 58;
-      const l = computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, term, residualPct: resPct, taxRate: s.taxRate, apr: lead.currentApr || s.defaultApr });
+      // A bulletin lease program carries its own rate/residual/cash on the
+      // option (m.apr/m.resPct/m.leaseCash); otherwise fall back to defaults.
+      const isProgram = m.apr != null && m.resPct != null;
+      const term = m.term || s.leaseTerm || 36;
+      const resPct = isProgram ? m.resPct : (s.leaseResidualPct || 58);
+      const apr = isProgram ? m.apr : (lead.currentApr || s.defaultApr);
+      const lcash = Number(m.leaseCash) || 0;
+      const l = m.residual != null ? { residual: m.residual }
+        : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
+        lcash ? kv("Nissan lease cash 🏷", "− " + currency(lcash)) : "",
         kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv("Term", `${term} mo`),
-        kv(`Residual (${resPct}%)`, currency(Math.round(l.residual))),
-        kv("Rate used", `${lead.currentApr || s.defaultApr}%`),
+        kv(`Residual (${resPct}%${isProgram ? " 🏷" : ""})`, currency(Math.round(l.residual))),
+        kv("Rate used", `${apr}%${isProgram ? " 🏷" : ""}`),
         kv(`Tax (${s.taxRate}%)`, "included in payment"),
       ].join("");
     }

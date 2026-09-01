@@ -14,57 +14,144 @@ const NISSAN_SEED = {
   label: "Nissan Canada · September 2026 (SB2609-ATL, Atlantic)",
   expiry: "2026-09-30",
   items: [
-    { model: "Rogue",
+    // ---- 2026 models (SB2609-ATL pages 7-10) ----
+    { model: "Rogue", year: 2026,
       aprByTerm: { 24: 0, 36: 0, 48: 0, 60: 0, 72: 2.9, 84: 2.9 },
-      leasePayment: 429, leaseTerm: 36, leaseDown: 0, leaseTrim: "S",
+      leasePayment: 429, leaseTerm: 36, leaseDown: 0, leaseTrim: "S FWD",
+      leaseRates: [
+        { trims: ["S"], cash: 900, byTerm: { 24: { apr: 6.9, res: 63 }, 36: { apr: 0, res: 54 }, 48: { apr: 1.9, res: 42 }, 60: { apr: 2.4, res: 30 } } },
+        { trims: ["SV Moonroof", "SV"], byTerm: { 24: { apr: 6.9, res: 65 }, 36: { apr: 0.9, res: 56 }, 48: { apr: 1.9, res: 43 }, 60: { apr: 2.4, res: 31 } } },
+        { trims: ["Dark Armor"], byTerm: { 24: { apr: 6.9, res: 67 }, 36: { apr: 1.4, res: 55 }, 48: { apr: 1.9, res: 45 }, 60: { apr: 2.4, res: 32 } } },
+        { trims: ["Rock Creek"], byTerm: { 24: { apr: 6.9, res: 65 }, 36: { apr: 1.4, res: 53 }, 48: { apr: 1.9, res: 44 }, 60: { apr: 2.4, res: 31 } } },
+        { trims: ["Platinum"], byTerm: { 24: { apr: 6.9, res: 65 }, 36: { apr: 1.9, res: 54 }, 48: { apr: 1.9, res: 45 }, 60: { apr: 2.4, res: 33 } } },
+      ],
       trimOffers: [
         { trim: "S", offer: "Advertised lease $99/wk @ 0% · 36 mo · $0 down, incl. $1,200 Clear-out bonus (lease only)" },
         { trim: "SV & up", offer: "$5,000 non-stackable cash alt on std-rate/cash deals" },
       ],
       notes: "0.5% loyalty rate reduction (1.0% for returning Qashqai)." },
-    { model: "Rogue Plug-in Hybrid", cash: 10000,
+    { model: "Rogue Plug-in Hybrid", year: 2026, cash: 10000,
       notes: "$10,000 on std-rate/cash-buyer deals only. Std rates apply (7.24%+). Not EVAP-eligible." },
-    { model: "Kicks", cash: 500,
+    { model: "Kicks", year: 2026, cash: 500,
       aprByTerm: { 24: 0, 36: 0, 48: 3.4, 60: 3.4, 72: 4.4, 84: 4.4 },
+      leaseRates: [
+        { trims: ["S FWD", "SV FWD"], cash: 500, byTerm: { 24: { apr: 6.9, res: 66 }, 36: { apr: 2.9, res: 55 }, 48: { apr: 2.9, res: 42 }, 60: { apr: 2.9, res: 30 } } },
+        { trims: ["S AWD"], cash: 500, byTerm: { 24: { apr: 6.9, res: 67 }, 36: { apr: 2.9, res: 58 }, 48: { apr: 2.9, res: 43 }, 60: { apr: 2.9, res: 32 } } },
+        { trims: ["SV AWD"], cash: 500, byTerm: { 24: { apr: 6.9, res: 68 }, 36: { apr: 2.9, res: 57 }, 48: { apr: 2.9, res: 44 }, 60: { apr: 2.9, res: 31 } } },
+        { trims: ["SR"], cash: 500, byTerm: { 24: { apr: 6.9, res: 71 }, 36: { apr: 2.9, res: 59 }, 48: { apr: 2.9, res: 46 }, 60: { apr: 2.9, res: 33 } } },
+      ],
       trimOffers: [
         { trim: "SV / SR", offer: "$2,000–$3,000 non-stackable cash alt" },
       ],
-      notes: "$1,000 Welcome/Conquest bonus. Lease 2.9% (36–60 mo) w/ $1,000 lease cash. 0.5% loyalty (1.0% returning Kicks/Qashqai)." },
-    { model: "Sentra", cash: 750,
+      notes: "$1,000 Welcome/Conquest bonus. $500 lease cash on all trims. 0.5% loyalty (1.0% returning Kicks/Qashqai)." },
+    { model: "Sentra", year: 2026, cash: 750,
       aprByTerm: { 24: 0, 36: 0, 48: 3.9, 60: 4.9, 72: 4.9, 84: 4.9 },
       leasePayment: 320, leaseTerm: 36, leaseDown: 699, leaseTrim: "SV",
+      leaseRates: [
+        { trims: ["S"], byTerm: { 36: { apr: 1.9, res: 61 }, 48: { apr: 2.9, res: 48 }, 60: { apr: 3.9, res: 37 } } },
+        { trims: ["SV"], byTerm: { 36: { apr: 1.9, res: 61 }, 48: { apr: 2.9, res: 49 }, 60: { apr: 3.9, res: 36 } } },
+        { trims: ["SR"], byTerm: { 36: { apr: 1.9, res: 58 }, 48: { apr: 2.9, res: 46 }, 60: { apr: 3.9, res: 35 } } },
+      ],
       trimOffers: [
         { trim: "SR", offer: "Up to $2,750 bonus cash (non-stackable with finance cash)" },
       ],
       notes: "Advertised SV lease includes loyalty reduction. 0.5–1.0% loyalty for returning Sentra." },
-    { model: "Pathfinder",
+    { model: "Pathfinder", year: 2026,
       aprByTerm: { 24: 5.4, 36: 5.4, 48: 5.9, 60: 5.9, 72: 6.4, 84: 6.4 },
-      trimOffers: [
-        { trim: "SL / PRO-4X / Platinum", offer: "Lease 4.9% w/ $5,000 lease cash" },
+      leaseRates: [
+        { trims: ["Rock Creek"], byTerm: { 36: { apr: 5.9, res: 60 }, 48: { apr: 5.9, res: 46 }, 60: { apr: 5.9, res: 33 } } },
+        { trims: ["Platinum"], byTerm: { 36: { apr: 5.9, res: 60 }, 48: { apr: 5.9, res: 47 }, 60: { apr: 5.9, res: 34 } } },
       ] },
-    { model: "Murano",
+    { model: "Murano", year: 2026,
       aprByTerm: { 24: 4.9, 36: 4.9, 48: 5.4, 60: 5.4, 72: 5.9, 84: 5.9 },
-      notes: "MY26 rates. $2,000 non-stackable cash alt. MY27: 1.0% loyalty for returning Murano owners." },
-    { model: "Frontier",
-      aprByTerm: { 24: 5.4, 36: 5.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 } },
-    { model: "Armada", cash: 5000,
+      leaseRates: [
+        { trims: ["Platinum"], byTerm: { 36: { apr: 5.9, res: 51 }, 48: { apr: 5.9, res: 39 }, 60: { apr: 5.9, res: 30 } } },
+      ],
+      notes: "$2,000 non-stackable cash alt." },
+    { model: "Frontier", year: 2026,
+      aprByTerm: { 24: 5.4, 36: 5.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 },
+      leaseRates: [
+        { trims: ["PRO-4X"], byTerm: { 36: { apr: 6.4, res: 56 }, 48: { apr: 6.4, res: 46 }, 60: { apr: 6.4, res: 34 } } },
+      ] },
+    { model: "Armada", year: 2026, cash: 5000,
       aprByTerm: { 24: 4.9, 36: 4.9, 48: 4.9, 60: 4.9, 72: 4.9, 84: 4.9 },
-      notes: "4.9% + $5,000 on special finance, OR $7,500 non-stackable / cash-purchase bonus instead." },
-    { model: "Leaf", cash: 1000,
+      leaseRates: [
+        { trims: ["SL"], cash: 5000, byTerm: { 36: { apr: 4.9, res: 51 }, 48: { apr: 4.9, res: 42 }, 60: { apr: 4.9, res: 32 } } },
+        { trims: ["PRO-4X"], cash: 5000, byTerm: { 36: { apr: 4.9, res: 50 }, 48: { apr: 4.9, res: 40 }, 60: { apr: 4.9, res: 31 } } },
+        { trims: ["Platinum"], cash: 5000, byTerm: { 36: { apr: 4.9, res: 48 }, 48: { apr: 4.9, res: 39 }, 60: { apr: 4.9, res: 30 } } },
+        { trims: ["NISMO"], cash: 5000, byTerm: { 36: { apr: 4.9, res: 49 }, 48: { apr: 4.9, res: 38 }, 60: { apr: 4.9, res: 31 } } },
+      ],
+      notes: "4.9% + $5,000 on special finance/lease, OR $7,500 non-stackable / cash-purchase bonus instead." },
+    { model: "Leaf", year: 2026, cash: 1000,
       aprByTerm: { 24: 0, 36: 0, 48: 0, 60: 0, 72: 1.4, 84: 1.9 },
+      trimRates: [
+        { trims: ["Platinum+"], cash: 5000, aprByTerm: { 24: 3.9, 36: 3.9, 48: 3.9, 60: 3.9, 72: 3.9, 84: 3.9 } },
+      ],
+      leaseRates: [
+        { trims: ["S+"], byTerm: { 36: { apr: 0, res: 55 }, 48: { apr: 0, res: 43 }, 60: { apr: 0, res: 33 } } },
+        { trims: ["SV+"], byTerm: { 36: { apr: 0, res: 55 }, 48: { apr: 0, res: 42 }, 60: { apr: 0, res: 32 } } },
+        { trims: ["Platinum+"], cash: 5000, byTerm: { 36: { apr: 0, res: 48 }, 48: { apr: 1.4, res: 36 }, 60: { apr: 2.4, res: 30 } } },
+      ],
       trimOffers: [
-        { trim: "S+, SV+", offer: "$1,000 + 0% up to 60 mo (rate table above) · lease 0%" },
+        { trim: "S+, SV+", offer: "$1,000 + 0% up to 60 mo · lease 0%" },
         { trim: "Platinum+", offer: "$5,000 @ 3.9% flat" },
       ],
-      notes: "EVAP-eligible (all 2026 trims)." },
-    { model: "Ariya", cash: 6000,
+      notes: "EVAP-eligible (all 2026 trims). Cash-buyer alt: SV+/Platinum+ $7,000 non-stackable." },
+    { model: "Ariya", year: 2026, cash: 6000,
       aprByTerm: { 24: 6.4, 36: 6.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 },
+      trimRates: [
+        { trims: ["SL+ FWD"], cash: 7000, aprByTerm: { 24: 7.4, 36: 7.4, 48: 7.4, 60: 7.4, 72: 7.9, 84: 7.9 } },
+        { trims: ["SL+ e-4ORCE", "Platinum+ e-4ORCE"], cash: 5000, aprByTerm: { 24: 3.4, 36: 3.4, 48: 3.4, 60: 3.4, 72: 3.4, 84: 3.9 } },
+      ],
+      leaseRates: [
+        { trims: ["SV FWD"], cash: 6000, byTerm: { 36: { apr: 3.4, res: 44 }, 48: { apr: 3.4, res: 36 }, 60: { apr: 3.4, res: 30 } } },
+        { trims: ["SL e-4ORCE"], cash: 6000, byTerm: { 36: { apr: 5.4, res: 46 }, 48: { apr: 5.4, res: 37 }, 60: { apr: 5.4, res: 31 } } },
+        { trims: ["SL+ FWD"], cash: 7000, byTerm: { 36: { apr: 6.4, res: 47 }, 48: { apr: 6.4, res: 36 }, 60: { apr: 6.4, res: 33 } } },
+        { trims: ["SL+ e-4ORCE"], cash: 5000, byTerm: { 36: { apr: 3.9, res: 48 }, 48: { apr: 3.9, res: 37 }, 60: { apr: 3.9, res: 30 } } },
+        { trims: ["Platinum+ e-4ORCE"], cash: 5000, byTerm: { 36: { apr: 3.9, res: 47 }, 48: { apr: 3.9, res: 36 }, 60: { apr: 3.9, res: 30 } } },
+      ],
       trimOffers: [
-        { trim: "SV FWD, SL e-4ORCE", offer: "$6,000 @ 6.4% (rate table above)" },
+        { trim: "SV FWD, SL e-4ORCE", offer: "$6,000 @ 6.4%" },
         { trim: "SL+ FWD", offer: "$7,000 @ 7.4%" },
         { trim: "SL+ / Platinum+ e-4ORCE", offer: "$5,000 @ 3.4%" },
       ],
       notes: "EVAP: SV FWD, SL e-4ORCE, SL+ FWD. Verify trim at desk." },
+    // ---- 2027 models (different program — a 2027 unit must not get 2026 rates) ----
+    { model: "Kicks", year: 2027,
+      aprByTerm: { 24: 3.9, 36: 3.9, 48: 4.4, 60: 4.4, 72: 5.4, 84: 5.4 },
+      leaseRates: [
+        { trims: ["S FWD"], byTerm: { 24: { apr: 6.9, res: 67 }, 36: { apr: 5.9, res: 61 }, 48: { apr: 5.9, res: 48 }, 60: { apr: 5.9, res: 36 } } },
+        { trims: ["SV FWD"], byTerm: { 24: { apr: 6.9, res: 69 }, 36: { apr: 5.9, res: 61 }, 48: { apr: 5.9, res: 48 }, 60: { apr: 5.9, res: 36 } } },
+        { trims: ["S AWD"], byTerm: { 24: { apr: 6.9, res: 68 }, 36: { apr: 5.9, res: 62 }, 48: { apr: 5.9, res: 48 }, 60: { apr: 5.9, res: 36 } } },
+        { trims: ["SV AWD"], byTerm: { 24: { apr: 6.9, res: 70 }, 36: { apr: 5.9, res: 63 }, 48: { apr: 5.9, res: 49 }, 60: { apr: 5.9, res: 37 } } },
+        { trims: ["SR"], byTerm: { 24: { apr: 6.9, res: 73 }, 36: { apr: 5.9, res: 65 }, 48: { apr: 5.9, res: 52 }, 60: { apr: 5.9, res: 39 } } },
+      ],
+      notes: "2027 program — no finance cash. 0.5% loyalty." },
+    { model: "Murano", year: 2027,
+      aprByTerm: { 24: 5.4, 36: 5.4, 48: 5.9, 60: 5.9, 72: 6.4, 84: 6.4 },
+      leaseRates: [
+        { trims: ["Dark Armor"], byTerm: { 36: { apr: 5.9, res: 54 }, 48: { apr: 5.9, res: 44 }, 60: { apr: 5.9, res: 34 } } },
+        { trims: ["Platinum"], byTerm: { 36: { apr: 5.9, res: 54 }, 48: { apr: 5.9, res: 44 }, 60: { apr: 5.9, res: 33 } } },
+      ],
+      notes: "2027 program. 1.0% loyalty for returning Murano." },
+    { model: "Frontier", year: 2027,
+      aprByTerm: { 24: 5.4, 36: 5.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 },
+      leaseRates: [
+        { trims: ["PRO-4X"], byTerm: { 36: { apr: 6.4, res: 60 }, 48: { apr: 6.4, res: 49 }, 60: { apr: 6.4, res: 37 } } },
+      ],
+      notes: "2027 program." },
+    { model: "Ariya", year: 2027, cash: 3000,
+      aprByTerm: { 24: 6.9, 36: 6.9, 48: 6.9, 60: 6.9, 72: 6.9, 84: 6.9 },
+      trimRates: [
+        { trims: ["SV+ e-4ORCE"], cash: 4000, aprByTerm: { 24: 6.9, 36: 6.9, 48: 6.9, 60: 6.9, 72: 6.9, 84: 6.9 } },
+        { trims: ["Platinum+ e-4ORCE"], cash: 5000, aprByTerm: { 24: 4.9, 36: 4.9, 48: 4.9, 60: 4.9, 72: 4.9, 84: 4.9 } },
+      ],
+      leaseRates: [
+        { trims: ["SV FWD"], cash: 3000, byTerm: { 36: { apr: 5.9, res: 51 }, 48: { apr: 5.9, res: 38 }, 60: { apr: 5.9, res: 30 } } },
+        { trims: ["SV+ e-4ORCE"], cash: 4000, byTerm: { 36: { apr: 5.9, res: 55 }, 48: { apr: 6.9, res: 41 }, 60: { apr: 6.9, res: 30 } } },
+        { trims: ["Platinum+ e-4ORCE"], cash: 5000, byTerm: { 36: { apr: 5.9, res: 55 }, 48: { apr: 6.9, res: 42 }, 60: { apr: 6.9, res: 30 } } },
+      ],
+      notes: "2027 program — cash/rates vary by trim." },
   ],
 };
 
@@ -153,6 +240,24 @@ function specialCard(sp) {
     leaseBits.push(Number(sp.leaseDown) ? `${esc(currency(sp.leaseDown))} down` : "$0 down");
   }
 
+  // Per-trim lease programs summarize as the best rate per term across trims.
+  let leaseSegs = "";
+  if (Array.isArray(sp.leaseRates) && sp.leaseRates.length) {
+    const byTerm = {};
+    sp.leaseRates.forEach((r) => {
+      Object.entries(r.byTerm || {}).forEach(([t, row]) => {
+        const apr = Number(row && row.apr);
+        if (isNaN(apr)) return;
+        if (byTerm[t] == null || apr < byTerm[t]) byTerm[t] = apr;
+      });
+    });
+    const varies = sp.leaseRates.length > 1;
+    leaseSegs = Object.keys(byTerm).map(Number).sort((a, b) => a - b).map((t) => `
+      <div class="sp-seg">
+        <b>${varies ? "from " : ""}${esc(String(byTerm[t]))}%</b><span>${t} mo</span>
+      </div>`).join("");
+  }
+
   const trimRows = (Array.isArray(sp.trimOffers) ? sp.trimOffers : [])
     .filter((t) => t && (t.trim || t.offer))
     .map((t) => `<div class="sp-trim-row"><b>${esc(t.trim || "All trims")}</b><span>${esc(t.offer || "")}</span></div>`)
@@ -162,7 +267,7 @@ function specialCard(sp) {
   el.className = "card card-tap";
   el.innerHTML = `
     <div class="row">
-      <div class="row-main"><div class="row-title">${icon("tag")} ${esc(sp.model || "Model")}</div></div>
+      <div class="row-main"><div class="row-title">${icon("tag")} ${esc(sp.model || "Model")}${sp.year ? ` <span class="badge">${esc(String(sp.year))}</span>` : ""}</div></div>
       ${sp.expiry ? `<div class="row-meta"><div class="small ${expired ? "" : "muted"}" style="${expired ? "color:var(--danger)" : ""}">${expired ? "Expired" : "ends " + esc(formatDate(sp.expiry))}</div></div>` : ""}
     </div>
     ${finSegs || cashSeg ? `
@@ -174,6 +279,11 @@ function specialCard(sp) {
       <div class="sp-block">
         <div class="sp-lab">Lease</div>
         <div class="sp-leaseline">${leaseBits.join(" · ")}${sp.leaseTrim ? ` <span class="badge badge-working">${esc(sp.leaseTrim)} trim only</span>` : ""}</div>
+      </div>` : ""}
+    ${leaseSegs ? `
+      <div class="sp-block">
+        <div class="sp-lab">Lease rates</div>
+        <div class="sp-segs">${leaseSegs}</div>
       </div>` : ""}
     ${trimRows ? `<div class="sp-trims">${trimRows}</div>` : ""}
     ${sp.notes ? `
@@ -193,7 +303,10 @@ function seedNissan() {
   const existing = store.all("specials");
   let added = 0, updated = 0;
   NISSAN_SEED.items.forEach((it) => {
-    const dupes = existing.filter((s) => String(s.model).toLowerCase() === it.model.toLowerCase());
+    // Same model AND same year is a duplicate; a yearless stored special for
+    // the model is a stale pre-year-scoping entry and gets replaced too.
+    const dupes = existing.filter((s) => String(s.model).toLowerCase() === it.model.toLowerCase()
+      && (!s.year || !it.year || Number(s.year) === Number(it.year)));
     // Hand-entered specials (no seed source) are the desk's own numbers — never
     // clobber those. Stale seed-loaded ones get replaced with this month's data.
     if (dupes.some((s) => !s.source)) return;
@@ -244,7 +357,8 @@ export function openSpecialForm(existing) {
   openModal(isEdit ? "Edit special" : "New special", (close) => {
     const { element } = buildForm(
       [
-        { name: "model", label: "Model", value: sp.model, required: true, placeholder: "Rogue" },
+        { name: "model", label: "Model", value: sp.model, required: true, half: true, placeholder: "Rogue" },
+        { name: "year", label: "Model year (optional)", value: sp.year, type: "number", inputmode: "numeric", half: true, placeholder: "2026", hint: "Programs differ by model year — a special with a year only applies to vehicles of that year." },
         { name: "aprTable", label: "Finance rate table (term:APR)", value: aprTableText(sp.aprByTerm), placeholder: "24:0, 36:0, 48:3.4, 60:3.4, 72:4.4, 84:4.4", hint: "Term:APR pairs from the program bulletin. The deal engine tries every term and picks the payment closest to the customer's. Leave blank to use the single APR below." },
         { name: "financeApr", label: "Single APR %", value: sp.financeApr, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
         { name: "financeTerm", label: "Finance term (mo)", value: sp.financeTerm, type: "number", inputmode: "numeric", half: true, placeholder: "60" },
