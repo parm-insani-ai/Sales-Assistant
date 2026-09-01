@@ -347,7 +347,9 @@ function optionsForVehicle(lead, v, opts = {}) {
   // the price and plate registration as the untaxed fee; used units keep the
   // doc fee.
   const add = newAddons(v);
-  const feeFor = add ? add.nonTaxable : s.docFee;
+  // New units: plate registration rides untaxed (the taxable add-ons are in
+  // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
+  const feeFor = add ? add.nonTaxable : num(s.docFee) * (1 + num(s.taxRate) / 100);
   const addTaxable = add ? add.taxable : 0;
   const out = [];
   if (method !== "lease") {
@@ -387,6 +389,9 @@ function optionsForVehicle(lead, v, opts = {}) {
     }
   }
   if (method !== "finance") {
+    // computeLease taxes the payment, so hand it the raw fee — the taxed
+    // feeFor would double-tax the doc fee on a used-unit lease.
+    const leaseFee = add ? add.nonTaxable : num(s.docFee);
     // An advertised lease is trim-specific — apply it only to the trim the ad
     // names (sp.leaseTrim); other trims get the computed lease instead.
     // Whole-word trim match, so leaseTrim "S" hits "S FWD" but not "SV FWD".
@@ -413,7 +418,7 @@ function optionsForVehicle(lead, v, opts = {}) {
       Object.entries(lr.byTerm).forEach(([t, row]) => {
         const term = Number(t), apr = Number(row && row.apr), res = Number(row && row.res);
         if (!term || isNaN(apr) || !res) return;
-        const l = computeLease({ ...base, fees: feeFor, term, residualPct: res, apr, msrp: v.price, price: Math.max(0, v.price - lcash) + addTaxable });
+        const l = computeLease({ ...base, fees: leaseFee, term, residualPct: res, apr, msrp: v.price, price: Math.max(0, v.price - lcash) + addTaxable });
         const score = cur != null ? Math.abs(l.monthly - cur) : l.monthly;
         if (!bestL || score < bestL.score) bestL = { term, apr, res, l, score };
       });
@@ -422,7 +427,7 @@ function optionsForVehicle(lead, v, opts = {}) {
         out.push({ vehicle: v, method: "lease", monthly: bestL.l.monthly, residual: bestL.l.residual, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, special: label });
       }
     } else {
-      const l = computeLease({ ...base, fees: feeFor, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
+      const l = computeLease({ ...base, fees: leaseFee, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
       out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, special: null });
     }
   }
@@ -599,7 +604,9 @@ export function openDealDetail(lead, m) {
       const hasAprSp = m.special != null && /%/.test(String(m.special || ""));
       const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr));
       const term = m.term || s.defaultTerm;
-      const feeFor = add ? add.nonTaxable : s.docFee;
+      // New units: plate registration rides untaxed (the taxable add-ons are in
+  // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
+  const feeFor = add ? add.nonTaxable : num(s.docFee) * (1 + num(s.taxRate) / 100);
       const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: 0, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
@@ -609,7 +616,7 @@ export function openDealDetail(lead, m) {
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
-        add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fees", "+ " + currency(s.docFee)),
+        add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fee + tax", "+ " + currency(Math.round(num(s.docFee) * (1 + num(s.taxRate) / 100)))),
         kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
         kv("Rate · term", `${apr}%${hasAprSp ? " 🏷" : ""} · ${term} mo`),
         kv("Total interest over term", currency(Math.round(d.totalInterest))),
