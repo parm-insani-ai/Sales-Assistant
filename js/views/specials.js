@@ -116,42 +116,6 @@ const NISSAN_SEED = {
         { trim: "SL+ / Platinum+ e-4ORCE", offer: "$5,000 @ 3.4%" },
       ],
       notes: "EVAP: SV FWD, SL e-4ORCE, SL+ FWD. Verify trim at desk." },
-    // ---- 2027 models (different program — a 2027 unit must not get 2026 rates) ----
-    { model: "Kicks", year: 2027,
-      aprByTerm: { 24: 3.9, 36: 3.9, 48: 4.4, 60: 4.4, 72: 5.4, 84: 5.4 },
-      leaseRates: [
-        { trims: ["S FWD"], byTerm: { 24: { apr: 6.9, res: 67 }, 36: { apr: 5.9, res: 61 }, 48: { apr: 5.9, res: 48 }, 60: { apr: 5.9, res: 36 } } },
-        { trims: ["SV FWD"], byTerm: { 24: { apr: 6.9, res: 69 }, 36: { apr: 5.9, res: 61 }, 48: { apr: 5.9, res: 48 }, 60: { apr: 5.9, res: 36 } } },
-        { trims: ["S AWD"], byTerm: { 24: { apr: 6.9, res: 68 }, 36: { apr: 5.9, res: 62 }, 48: { apr: 5.9, res: 48 }, 60: { apr: 5.9, res: 36 } } },
-        { trims: ["SV AWD"], byTerm: { 24: { apr: 6.9, res: 70 }, 36: { apr: 5.9, res: 63 }, 48: { apr: 5.9, res: 49 }, 60: { apr: 5.9, res: 37 } } },
-        { trims: ["SR"], byTerm: { 24: { apr: 6.9, res: 73 }, 36: { apr: 5.9, res: 65 }, 48: { apr: 5.9, res: 52 }, 60: { apr: 5.9, res: 39 } } },
-      ],
-      notes: "2027 program — no finance cash. 0.5% loyalty." },
-    { model: "Murano", year: 2027,
-      aprByTerm: { 24: 5.4, 36: 5.4, 48: 5.9, 60: 5.9, 72: 6.4, 84: 6.4 },
-      leaseRates: [
-        { trims: ["Dark Armor"], byTerm: { 36: { apr: 5.9, res: 54 }, 48: { apr: 5.9, res: 44 }, 60: { apr: 5.9, res: 34 } } },
-        { trims: ["Platinum"], byTerm: { 36: { apr: 5.9, res: 54 }, 48: { apr: 5.9, res: 44 }, 60: { apr: 5.9, res: 33 } } },
-      ],
-      notes: "2027 program. 1.0% loyalty for returning Murano." },
-    { model: "Frontier", year: 2027,
-      aprByTerm: { 24: 5.4, 36: 5.4, 48: 6.4, 60: 6.4, 72: 6.9, 84: 6.9 },
-      leaseRates: [
-        { trims: ["PRO-4X"], byTerm: { 36: { apr: 6.4, res: 60 }, 48: { apr: 6.4, res: 49 }, 60: { apr: 6.4, res: 37 } } },
-      ],
-      notes: "2027 program." },
-    { model: "Ariya", year: 2027, cash: 3000,
-      aprByTerm: { 24: 6.9, 36: 6.9, 48: 6.9, 60: 6.9, 72: 6.9, 84: 6.9 },
-      trimRates: [
-        { trims: ["SV+ e-4ORCE"], cash: 4000, aprByTerm: { 24: 6.9, 36: 6.9, 48: 6.9, 60: 6.9, 72: 6.9, 84: 6.9 } },
-        { trims: ["Platinum+ e-4ORCE"], cash: 5000, aprByTerm: { 24: 4.9, 36: 4.9, 48: 4.9, 60: 4.9, 72: 4.9, 84: 4.9 } },
-      ],
-      leaseRates: [
-        { trims: ["SV FWD"], cash: 3000, byTerm: { 36: { apr: 5.9, res: 51 }, 48: { apr: 5.9, res: 38 }, 60: { apr: 5.9, res: 30 } } },
-        { trims: ["SV+ e-4ORCE"], cash: 4000, byTerm: { 36: { apr: 5.9, res: 55 }, 48: { apr: 6.9, res: 41 }, 60: { apr: 6.9, res: 30 } } },
-        { trims: ["Platinum+ e-4ORCE"], cash: 5000, byTerm: { 36: { apr: 5.9, res: 55 }, 48: { apr: 6.9, res: 42 }, 60: { apr: 6.9, res: 30 } } },
-      ],
-      notes: "2027 program — cash/rates vary by trim." },
   ],
 };
 
@@ -293,7 +257,14 @@ function specialCard(sp) {
 
 function seedNissan() {
   const existing = store.all("specials");
-  let added = 0, updated = 0;
+  let added = 0, updated = 0, pruned = 0;
+  // Seed-loaded specials that dropped out of the current seed (e.g. a program
+  // we no longer carry) get removed on reload; hand-entered ones are kept.
+  existing.filter((s) => s.source).forEach((s) => {
+    const still = NISSAN_SEED.items.some((it) => String(it.model).toLowerCase() === String(s.model).toLowerCase()
+      && (!s.year || !it.year || Number(s.year) === Number(it.year)));
+    if (!still) { store.remove("specials", s.id); pruned++; }
+  });
   NISSAN_SEED.items.forEach((it) => {
     // Same model AND same year is a duplicate; a yearless stored special for
     // the model is a stale pre-year-scoping entry and gets replaced too.
@@ -309,6 +280,7 @@ function seedNissan() {
   const bits = [];
   if (added) bits.push(`${added} new`);
   if (updated) bits.push(`${updated} updated`);
+  if (pruned) bits.push(`${pruned} removed`);
   toast(bits.length ? `Nissan offers loaded (${bits.join(", ")})` : "Nothing to load — your hand-entered specials were kept", bits.length ? "success" : "");
   window.dispatchEvent(new HashChangeEvent("hashchange"));
 }
