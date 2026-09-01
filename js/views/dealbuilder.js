@@ -826,6 +826,38 @@ export function openDealBuilder(lead) {
       const eq = eqD.v;
       const cur = lead.currentPayment;
 
+      // The fee headline reflects what these rows actually carry: new units
+      // take the Atlantic Value Package (a Rogue's is higher), used take the
+      // doc fee. Showing one flat "doc fee" was wrong for every new Nissan.
+      const anyNew = rows.slice(0, 12).some((m) => !!newAddons(m.vehicle));
+      const feeShown = anyNew
+        ? (rows.slice(0, 12).some((m) => newAddons(m.vehicle) && /rogue/i.test(String(m.vehicle.model || "")))
+            ? num(s.avpRogue ?? 699) : num(s.avpOther ?? 599))
+        : num(s.docFee);
+
+      // What actually got applied to the deals on screen — programs, the trade
+      // and payoff with their basis, and any cash down. This is the line that
+      // survives the "where did that number come from?" question at the desk.
+      const appliedNote = (() => {
+        const inp = dealInputs(lead);
+        const shown = pick ? rows.filter((m) => [m.vehicle.id || "", m.vehicle.model, m.vehicle.trim].join("|") === pick) : rows.slice(0, 6);
+        const bits = [];
+        const progs = [...new Set(shown.map((m) => m.special).filter(Boolean))];
+        if (progs.length) bits.push(progs.slice(0, 3).join(" · ") + (progs.length > 3 ? ` · +${progs.length - 3} more` : ""));
+        else if (activeSpecials().length) bits.push("no Monthly Special matched these models — standard rates");
+        if (anyNew) {
+          const avp = feeShown;
+          bits.push(`new-vehicle fees: ${currency(avp)} AVP + ${currency(num(s.feeFreight ?? 2100))} freight + ${currency(num(s.feeAirTax ?? 100))} air tax + ${currency2(num(s.feeTireLevy ?? 22.5))} tire levy + ${currency2(num(s.feePlateReg ?? 13.2))} plate`);
+        }
+        if (inp.value.v != null) {
+          bits.push(`trade ${currency(inp.value.v)}${inp.value.src === "known" ? " (appraised)" : inp.value.src === "book" ? " (book est.)" : " (assumed = payoff)"}`);
+        }
+        if (inp.payoff.v != null) bits.push(`payoff ${currency(inp.payoff.v)}${inp.payoff.src === "calc" ? " (payment × months left)" : ""}`);
+        if (inp.apr.src === "known") bits.push(`their rate ${inp.apr.v}%`);
+        if (down != null && down > 0) bits.push(`${currency(down)} cash down`);
+        return bits.join(" · ");
+      })();
+
       // Every car we can quote, for the picker: real stock first, then the
       // lineup by trim.
       const vKey = (v) => [v.id || "", v.model, v.trim].join("|");
@@ -867,7 +899,9 @@ export function openDealBuilder(lead) {
 
         <div class="section-title" style="margin-top:6px">${pick ? "Their offer on this vehicle" : cur != null ? "Closest matches" : "Lowest payments"}</div>
         <div class="db-list"></div>
-        <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(s.docFee)} fees, ${s.defaultApr}% standard APR (program rates override), ${s.defaultTerm} mo, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}. Confirm with your desk.</div>
+        <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(feeShown)} fees, ${s.defaultApr}% standard APR (program rates override), options for term, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}.
+          ${appliedNote ? `<div style="margin-top:6px"><b>Applied here:</b> ${esc(appliedNote)}</div>` : ""}
+          <div style="margin-top:6px">Confirm with your desk.</div></div>
       `;
 
       const list = wrap.querySelector(".db-list");
