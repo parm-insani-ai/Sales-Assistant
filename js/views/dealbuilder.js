@@ -36,9 +36,13 @@ export function computeLease(input) {
   const depreciation = (adjCap - residual) / term;
   const rent = (adjCap + residual) * mf;
   let base = depreciation + rent;
-  if (base < 0) base = 0;
+  // Equity bigger than the lease needs drives the payment negative. A "$0/mo"
+  // row isn't a quotable offer — cap it at zero and report the surplus, which
+  // is the real pitch: the trade covers the lease and hands money back.
+  let surplus = 0;
+  if (base < 0) { surplus = Math.round(-base * term); base = 0; }
   const tax = base * taxRate;
-  return { monthly: base + tax, residual, term };
+  return { monthly: base + tax, residual, term, surplus };
 }
 
 // ---- The accuracy ladder: known → calculated → book estimate → assumption ----
@@ -343,6 +347,15 @@ export function newAddons(v) {
 // Both financing and leasing options for one vehicle, honoring the method
 // filter. An active special reshapes the math: its APR/term/cash replace the
 // defaults for financing, and an advertised lease program is used as-is.
+// Money left over when the trade covers the whole deal (taxed price + fees
+// minus equity and cash down goes below zero) — that surplus is cash back.
+function cashBack(base, price, feeFor, s) {
+  const taxable = Math.max(0, price - num(base.tradeAllowance));
+  const total = price + taxable * (num(s.taxRate) / 100) + num(feeFor)
+    - num(base.down) - (num(base.tradeAllowance) - num(base.tradePayoff));
+  return total < 0 ? Math.round(-total) : 0;
+}
+
 function optionsForVehicle(lead, v, opts = {}) {
   const s = store.getSettings();
   const method = opts.method || s.dealMethod || "both";
@@ -392,16 +405,18 @@ function optionsForVehicle(lead, v, opts = {}) {
       if (bestT) {
         // Term settled; now price it with whatever cash is actually down.
         const f = computeDeal({ ...base, fees: feeFor, apr: bestT.apr, term: bestT.term, price });
+        f.surplus = cashBack(base, price, feeFor, s);
         const label = `${bestT.apr}% APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
-        out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term: bestT.term, apr: bestT.apr, cash, down: num(base.down), special: label });
+        out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, surplus: f.surplus, term: bestT.term, apr: bestT.apr, cash, down: num(base.down), special: label });
       }
     } else {
       const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
       const apr = hasApr ? Number(sp.financeApr) : base.apr;
       const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
       const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
+      f.surplus = cashBack(base, price, feeFor, s);
       const label = sp ? specialLabel(sp, "finance") : null;
-      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, apr, cash, down: num(base.down), special: label });
+      out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, surplus: f.surplus, term, apr, cash, down: num(base.down), special: label });
     }
   }
   if (method !== "finance") {
@@ -457,11 +472,11 @@ function optionsForVehicle(lead, v, opts = {}) {
       if (bestL) {
         const l = computeLease({ ...base, fees: leaseFee, term: bestL.term, residualPct: bestL.res, apr: bestL.apr, msrp: v.price, price: leasePrice });
         const label = `${bestL.apr}% lease / ${bestL.term} mo${lcash ? ` + ${currency(lcash)} lease cash` : ""}`;
-        out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, down: num(base.down), special: label });
+        out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, down: num(base.down), special: label });
       }
     } else {
       const l = computeLease({ ...base, fees: leaseFee, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
-      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, down: num(base.down), special: null });
+      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, down: num(base.down), special: null });
     }
   }
   return out;
@@ -730,6 +745,7 @@ export function openDealDetail(lead, m) {
       <div class="card" style="margin-bottom:14px;text-align:center">
         <div style="font-size:2rem;font-weight:800" class="mono">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.9rem">/mo</span></div>
         ${dl ? `<div class="small strong" style="margin-top:2px;color:${dl.color}">${dl.text}</div>` : ""}
+        ${num(m.surplus) ? `<div class="small strong" style="margin-top:2px;color:var(--success)">Their equity covers it — about ${currency(m.surplus)} back to them</div>` : ""}
         <div class="small muted" style="margin-top:6px">
           <span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}">${m.method === "lease" ? "Lease" : "Finance"}</span>
           ${m.special ? ` <span class="badge badge-sold">🏷 ${esc(m.special)}</span>` : ""}
@@ -893,6 +909,7 @@ function dealRow(lead, m) {
       </div>
       <div class="row-meta">
         <div class="strong mono" style="font-size:1.05rem">${currency2(m.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>
+        ${num(m.surplus) ? `<div class="small strong" style="color:var(--success)">+ ${currency(m.surplus)} back</div>` : ""}
         ${dl ? `<div class="small" style="color:${dl.color};font-weight:700">${dl.text}</div>` : ""}
       </div>
     </div>
