@@ -75,6 +75,16 @@ export function renderSettings(view) {
         <div class="field"><label>AVP — all others</label><input id="s-avp-other" type="number" inputmode="decimal" value="${esc(s.avpOther ?? 599)}"></div>
       </div>
       <div class="hint" style="margin-bottom:10px">Applied to every brand-new Nissan the engine prices (lineup and in-stock units marked New). AVP, freight, air tax and tire levy are taxed; plate registration isn't. Used vehicles use the doc fee instead.</div>
+      <div class="small strong" style="margin:4px 0 8px">Trade estimate (when no appraisal is on file)</div>
+      <div class="field-inline">
+        <div class="field"><label>Expected km / year</label><input id="s-tr-kmyr" type="number" inputmode="numeric" value="${esc(s.tradeKmPerYear ?? 20000)}"></div>
+        <div class="field"><label>$ per km over/under</label><input id="s-tr-kmrate" type="number" step="0.01" inputmode="decimal" value="${esc(s.tradeKmRate ?? 0.05)}"></div>
+      </div>
+      <div class="field-inline">
+        <div class="field"><label>Recon budget $</label><input id="s-tr-recon" type="number" inputmode="decimal" value="${esc(s.tradeRecon ?? 1500)}"></div>
+        <div class="field"><label>Wholesale margin %</label><input id="s-tr-margin" type="number" step="0.1" inputmode="decimal" value="${esc(s.tradeMarginPct ?? 9)}"></div>
+      </div>
+      <div class="hint" style="margin-bottom:10px">The book estimate works like an appraisal: trim MSRP on an age curve, adjusted for km and condition, sanity-checked against comparable used units on your own lot (retail − margin − recon). Tune these to match how your desk actually appraises.</div>
       <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>
     </div>
 
@@ -199,6 +209,10 @@ export function renderSettings(view) {
       avpOther: Number(el.querySelector("#s-avp-other").value) || 0,
       defaultApr: Number(el.querySelector("#s-apr").value) || 0,
       defaultTerm: Number(el.querySelector("#s-term").value) || 0,
+      tradeKmPerYear: Number(el.querySelector("#s-tr-kmyr").value) || 20000,
+      tradeKmRate: Number(el.querySelector("#s-tr-kmrate").value) || 0.05,
+      tradeRecon: Number(el.querySelector("#s-tr-recon").value) || 0,
+      tradeMarginPct: Number(el.querySelector("#s-tr-margin").value) || 0,
     });
     toast("Defaults saved", "success");
   });

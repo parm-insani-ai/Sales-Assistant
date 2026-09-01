@@ -46,18 +46,86 @@ export function computeLease(input) {
 // assuming, each input is resolved with a provenance tag so every deal can say
 // exactly what it stands on — and the profile can ask for the missing piece.
 
-// Conservative trade-in (wholesale-side) estimate from the spec library:
-// -25% in year one, -13%/yr after, floored at 10% of MSRP, rounded to $100.
-export function estimateTradeValue(lead) {
+// Trade-in estimate built the way an appraisal actually works:
+//   1. guide base    — the TRIM's MSRP (not the model base) on an age curve
+//                      (-25% year one, -13%/yr after: wholesale side)
+//   2. km adjustment — over/under expected km (settings: km/yr, $/km),
+//                      capped at ±20% of the base so bad data can't run away
+//   3. condition     — clean +5% / average 0 / rough −15% (graded on the lead)
+//   4. market check  — a comparable used unit on OUR lot is a real local
+//                      price: retail − margin% − recon ≈ wholesale; blend 50/50
+// Floored at 10% of MSRP, rounded to $100. Returns the number plus the lines
+// of the workup so the deal can show exactly how it got there.
+export function estimateTradeDetail(lead) {
+  const s = store.getSettings();
   const vi = String(lead.vehicleInterest || "");
   const year = Number((vi.match(/\b(19|20)\d{2}\b/) || [])[0]) || null;
   if (!year) return null;
+  // "2023 Nissan Rogue SV" — findSpec needs every token to hit, so drop
+  // trailing words (the trim) until the model matches.
   let spec = null;
-  try { spec = findSpec(vi.replace(/^\d{4}\s*/, "")); } catch { spec = null; }
+  const qWords = vi.replace(/^\d{4}\s*/, "").trim().split(/\s+/).filter(Boolean);
+  for (let k = qWords.length; k >= 1 && !spec; k--) {
+    try { spec = findSpec(qWords.slice(0, k).join(" ")); } catch { spec = null; }
+  }
   if (!spec || !spec.msrp) return null;
+  const lines = [];
+
+  // Trim-aware base: if their vehicle string names a trim we know, price THAT.
+  let msrp = spec.msrp, trimName = "";
+  if (Array.isArray(spec.trims)) {
+    const viLow = " " + vi.toLowerCase() + " ";
+    let best = null;
+    spec.trims.forEach((t) => {
+      const first = String(t.name).toLowerCase().split(/[\s/]+/)[0];
+      if (first && viLow.includes(" " + first + " ") && (!best || first.length > best.first.length)) best = { t, first };
+    });
+    if (best && best.t.msrp) { msrp = best.t.msrp; trimName = best.t.name; }
+  }
   const age = Math.max(0, new Date().getFullYear() - year);
-  const raw = age === 0 ? spec.msrp * 0.85 : spec.msrp * 0.75 * Math.pow(0.87, age - 1);
-  return Math.max(Math.round(raw / 100) * 100, Math.round(spec.msrp * 0.1));
+  const curve = age === 0 ? 0.85 : 0.75 * Math.pow(0.87, age - 1);
+  let value = msrp * curve;
+  lines.push(`${trimName ? trimName + " " : ""}base ${currency(msrp)} × ${Math.round(curve * 100)}% (${age} yr)`);
+
+  if (lead.odometer != null && lead.odometer !== "") {
+    const expected = (Number(s.tradeKmPerYear) || 20000) * Math.max(age, 0.5);
+    const delta = Number(lead.odometer) - expected;
+    let adj = -delta * (Number(s.tradeKmRate) || 0.05);
+    const cap = value * 0.2;
+    adj = Math.max(-cap, Math.min(cap, adj));
+    if (Math.abs(adj) >= 100) {
+      value += adj;
+      lines.push(`${delta > 0 ? "high" : "low"} km (${Math.round(Number(lead.odometer) / 1000)}k vs ~${Math.round(expected / 1000)}k) ${adj > 0 ? "+" : "−"}${currency(Math.abs(Math.round(adj)))}`);
+    }
+  }
+
+  const cond = String(lead.tradeCondition || "").toLowerCase();
+  if (cond === "clean") { value *= 1.05; lines.push("clean condition +5%"); }
+  else if (cond === "rough") { value *= 0.85; lines.push("rough condition −15%"); }
+
+  // Market check against our own used inventory (vAuto-style retail-minus).
+  let basis = "book";
+  const ml = String(spec.label).toLowerCase();
+  const comp = store.all("vehicles").find((v) =>
+    v.price != null && /used/i.test(String(v.condition || "")) &&
+    String(v.model || "").trim() && ml.includes(String(v.model).toLowerCase().trim()) &&
+    Number(v.year) && Math.abs(Number(v.year) - year) <= 1);
+  if (comp) {
+    const wholesale = comp.price * (1 - (Number(s.tradeMarginPct) || 9) / 100) - (Number(s.tradeRecon) || 1500);
+    if (wholesale > 0) {
+      value = (value + wholesale) / 2;
+      basis = "market";
+      lines.push(`market check: ${comp.year} ${comp.model} on lot at ${currency(comp.price)} → wholesale ≈ ${currency(Math.round(wholesale))}`);
+    }
+  }
+
+  value = Math.max(Math.round(value / 100) * 100, Math.round(spec.msrp * 0.1));
+  return { value, basis, lines };
+}
+
+export function estimateTradeValue(lead) {
+  const d = estimateTradeDetail(lead);
+  return d ? d.value : null;
 }
 
 // Months left on their contract — from the maturity date, or purchase date +
@@ -488,7 +556,8 @@ export function openDealDetail(lead, m) {
   const inp = dealInputs(lead);
   const valueKnown = inp.value.src === "known";
   const tradeVal = inp.value.v || 0;
-  const tradeTag = inp.value.src === "book" ? " (book est.)" : inp.value.src === "wash" ? " (assumed = payoff)" : "";
+  const estD = inp.value.src === "book" ? estimateTradeDetail(lead) : null;
+  const tradeTag = inp.value.src === "book" ? (estD && estD.basis === "market" ? " (market est.)" : " (book est.)") : inp.value.src === "wash" ? " (assumed = payoff)" : "";
   const kv = (k, val, strong) => `<div class="kv"><span class="k">${k}</span><span class="v mono${strong ? " strong" : ""}" style="text-align:right">${val}</span></div>`;
 
   openModal(vehName(v), (close) => {
@@ -521,6 +590,7 @@ export function openDealDetail(lead, m) {
         addonRows,
         cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
         kv("Trade-in value", currency(tradeVal) + tradeTag),
+        estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
         add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fees", "+ " + currency(s.docFee)),
@@ -551,6 +621,7 @@ export function openDealDetail(lead, m) {
         addonRows,
         lcash ? kv("Nissan lease cash 🏷", "− " + currency(lcash)) : "",
         kv("Trade-in value", currency(tradeVal) + tradeTag),
+        estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv("Term", `${term} mo`),
         kv(`Residual (${resPct}%${isProgram ? " 🏷" : ""})`, currency(Math.round(l.residual))),

@@ -90,6 +90,13 @@ const DEFAULT_STATE = {
     feeTireLevy: 22.50,
     avpRogue: 699, // Atlantic Value Package on new Rogues
     avpOther: 599, // Atlantic Value Package on every other new Nissan
+    // Trade-value estimate knobs — the same levers a real appraisal uses:
+    // expected km/yr, a per-km adjustment, the recon budget, and the margin
+    // taken off a retail comp to get back to a wholesale number.
+    tradeKmPerYear: 20000,
+    tradeKmRate: 0.05,
+    tradeRecon: 1500,
+    tradeMarginPct: 9,
     defaultTerm: 72,
     defaultApr: 7.9,
     deliveryChecklist: DEFAULT_DELIVERY_CHECKLIST,

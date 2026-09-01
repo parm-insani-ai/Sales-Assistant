@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity, dealInputs } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity, dealInputs, estimateTradeDetail } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -231,15 +231,22 @@ function leadCard(l) {
 export function openMoneyForm(l) {
   openModal("Their numbers", (close) => {
     const numOrNull = (v) => (v === "" || v == null ? null : Number(v));
+    const estD = l.currentValue == null ? estimateTradeDetail(l) : null;
     const { element } = buildForm(
       [
         { name: "currentPayment", label: "Current payment $/mo", value: l.currentPayment, type: "number", inputmode: "decimal", half: true, placeholder: "532" },
         { name: "payoff", label: "Payoff / buyout $", value: l.payoff, type: "number", inputmode: "decimal", half: true, placeholder: "19455" },
-        { name: "currentValue", label: "Trade value $ (appraised)", value: l.currentValue, type: "number", inputmode: "decimal", half: true, placeholder: "21500", hint: "Leave blank to use a book estimate." },
+        { name: "currentValue", label: "Trade value $ (appraised)", value: l.currentValue, type: "number", inputmode: "decimal", half: true, placeholder: "21500", hint: estD ? `Blank = estimate ≈ ${currency(estD.value)} (${estD.lines.join(" · ")})` : "Leave blank to use a book estimate." },
         { name: "currentApr", label: "Their rate %", value: l.currentApr, type: "number", inputmode: "decimal", half: true, placeholder: "8.9", hint: "Blank = solved from payment, payoff & maturity when possible." },
         { name: "leaseEnd", label: "Contract maturity date", value: l.leaseEnd || "", type: "date", half: true },
         { name: "currentTerm", label: "Original term (mo)", value: l.currentTerm, type: "number", inputmode: "numeric", half: true, placeholder: "72" },
-        { name: "odometer", label: "Odometer (km)", value: l.odometer, type: "number", inputmode: "numeric", placeholder: "48000" },
+        { name: "odometer", label: "Odometer (km)", value: l.odometer, type: "number", inputmode: "numeric", half: true, placeholder: "48000", hint: "Feeds the km adjustment on the estimate." },
+        { name: "tradeCondition", label: "Trade condition", value: l.tradeCondition || "", type: "select", half: true, options: [
+          { value: "", label: "Not graded" },
+          { value: "clean", label: "Clean (+5%)" },
+          { value: "average", label: "Average" },
+          { value: "rough", label: "Rough (−15%)" },
+        ] },
       ],
       {
         submitLabel: "Save & rebuild deal",
@@ -252,6 +259,7 @@ export function openMoneyForm(l) {
             leaseEnd: data.leaseEnd || null,
             currentTerm: numOrNull(data.currentTerm),
             odometer: numOrNull(data.odometer),
+            tradeCondition: data.tradeCondition || null,
           });
           toast("Deal inputs updated", "success");
           close();
