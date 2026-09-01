@@ -92,7 +92,6 @@ function specialLabel(sp, method) {
 // active special rides along automatically via specialFor().
 function lineupCandidates() {
   const inv = availableVehicles();
-  const freight = Number(store.getSettings().freightPdi ?? 2105) || 0;
   const out = [];
   SPEC_LIBRARY.filter((x) => x.make === "Nissan").forEach((x) => {
     const model = String(x.label).replace(/^\d{4}\s+/, "").replace(/^Nissan\s+/i, "").trim();
@@ -106,7 +105,7 @@ function lineupCandidates() {
     // Every trim is its own candidate, priced at its real MSRP + freight/PDI —
     // an SV AWD and a Platinum are very different payments.
     const push1 = (trim, msrp) => out.push({
-      year, make: "Nissan", model, trim: trim || "", price: msrp + freight,
+      year, make: "Nissan", model, trim: trim || "", price: msrp,
       lineup: true, status: "available",
     });
     if (Array.isArray(x.trims) && x.trims.length) x.trims.forEach((t) => push1(t.name, t.msrp));
@@ -119,6 +118,23 @@ function candidateVehicles() {
   return [...availableVehicles(), ...lineupCandidates()];
 }
 
+// New-vehicle add-ons, exactly as the store charges them: Atlantic Value
+// Package + freight + air tax + tire levy are taxable; plate registration is
+// a government fee with no tax. Used vehicles use the doc fee instead.
+function isNewUnit(v) {
+  return !!v.lineup || /new/i.test(String(v.condition || ""));
+}
+export function newAddons(v) {
+  if (!isNewUnit(v)) return null;
+  const s = store.getSettings();
+  const avp = /rogue/i.test(String(v.model || "")) ? Number(s.avpRogue ?? 699) : Number(s.avpOther ?? 599);
+  const freight = Number(s.feeFreight ?? 2100);
+  const air = Number(s.feeAirTax ?? 100);
+  const tire = Number(s.feeTireLevy ?? 22.5);
+  const plate = Number(s.feePlateReg ?? 13.2);
+  return { avp, freight, air, tire, plate, taxable: avp + freight + air + tire, nonTaxable: plate };
+}
+
 // Both financing and leasing options for one vehicle, honoring the method
 // filter. An active special reshapes the math: its APR/term/cash replace the
 // defaults for financing, and an advertised lease program is used as-is.
@@ -127,13 +143,19 @@ function optionsForVehicle(lead, v, opts = {}) {
   const method = opts.method || s.dealMethod || "both";
   const base = financeBase(lead, opts.down);
   const sp = specialFor(v);
+  // New units carry the taxable add-ons (AVP, freight, air tax, tire levy) in
+  // the price and plate registration as the untaxed fee; used units keep the
+  // doc fee.
+  const add = newAddons(v);
+  const feeFor = add ? add.nonTaxable : s.docFee;
+  const addTaxable = add ? add.taxable : 0;
   const out = [];
   if (method !== "lease") {
     const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
     const apr = hasApr ? Number(sp.financeApr) : base.apr;
     const term = sp && Number(sp.financeTerm) ? Number(sp.financeTerm) : s.defaultTerm;
-    const price = Math.max(0, v.price - (sp && Number(sp.cash) ? Number(sp.cash) : 0));
-    const f = computeDeal({ ...base, apr, term, price });
+    const price = Math.max(0, v.price - (sp && Number(sp.cash) ? Number(sp.cash) : 0)) + addTaxable;
+    const f = computeDeal({ ...base, fees: feeFor, apr, term, price });
     const label = sp ? specialLabel(sp, "finance") : null;
     out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, term, special: label });
   }
@@ -148,7 +170,7 @@ function optionsForVehicle(lead, v, opts = {}) {
         leaseDown: Number(sp.leaseDown) || 0, special: specialLabel(sp, "lease"),
       });
     } else {
-      const l = computeLease({ ...base, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price });
+      const l = computeLease({ ...base, fees: feeFor, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
       out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, special: null });
     }
   }
@@ -299,20 +321,29 @@ export function openDealDetail(lead, m) {
       Math.abs(delta) <= band ? "≈ same as their current payment" :
       delta < 0 ? `${currency(-delta)}/mo less than they pay now` : `+${currency(delta)}/mo over their current payment`;
 
+    const add = newAddons(v);
+    const addonRows = add ? [
+      kv("Atlantic Value Package", "+ " + currency(add.avp)),
+      kv("Freight", "+ " + currency(add.freight)),
+      kv("Air tax", "+ " + currency(add.air)),
+      kv("Tire levy", "+ " + currency2(add.tire)),
+    ].join("") : "";
     let breakdown = "";
     if (m.method === "finance") {
       const cash = sp && Number(sp.cash) ? Number(sp.cash) : 0;
       const hasAprSp = sp && sp.financeApr != null && sp.financeApr !== "";
       const apr = hasAprSp ? Number(sp.financeApr) : (lead.currentApr || s.defaultApr);
       const term = m.term || s.defaultTerm;
-      const d = computeDeal({ price: v.price - cash, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, fees: s.docFee, taxRate: s.taxRate, apr, term });
+      const feeFor = add ? add.nonTaxable : s.docFee;
+      const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
-        kv("Vehicle price", currency(v.price)),
+        kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
+        addonRows,
         cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
         kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
-        kv("Doc fees", "+ " + currency(s.docFee)),
+        add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fees", "+ " + currency(s.docFee)),
         kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
         kv("Rate · term", `${apr}%${hasAprSp ? " 🏷" : ""} · ${term} mo`),
         kv("Total interest over term", currency(Math.round(d.totalInterest))),
@@ -328,9 +359,10 @@ export function openDealDetail(lead, m) {
     } else {
       const term = s.leaseTerm || 36;
       const resPct = s.leaseResidualPct || 58;
-      const l = computeLease({ price: v.price, fees: s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, term, residualPct: resPct, taxRate: s.taxRate, apr: lead.currentApr || s.defaultApr });
+      const l = computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: 0, tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0, term, residualPct: resPct, taxRate: s.taxRate, apr: lead.currentApr || s.defaultApr });
       breakdown = [
-        kv("Vehicle price", currency(v.price)),
+        kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
+        addonRows,
         kv("Trade-in value", currency(tradeVal) + (valueKnown ? "" : " (est.)")),
         lead.payoff ? kv("Trade payoff", "− " + currency(lead.payoff)) : "",
         kv("Term", `${term} mo`),

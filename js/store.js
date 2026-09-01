@@ -81,7 +81,15 @@ const DEFAULT_STATE = {
 
     taxRate: 6.5, // %
     docFee: 499,
-    freightPdi: 2105, // freight & PDI added to MSRP for new lineup pricing (Nissan Canada)
+    // New-vehicle fees (O'Regan's). AVP/freight/air tax/tire levy are taxable
+    // add-ons; plate registration is a government fee (no tax). Used vehicles
+    // use docFee instead.
+    feeFreight: 2100,
+    feeAirTax: 100,
+    feePlateReg: 13.20,
+    feeTireLevy: 22.50,
+    avpRogue: 699, // Atlantic Value Package on new Rogues
+    avpOther: 599, // Atlantic Value Package on every other new Nissan
     defaultTerm: 72,
     defaultApr: 7.9,
     deliveryChecklist: DEFAULT_DELIVERY_CHECKLIST,

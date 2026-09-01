@@ -61,8 +61,20 @@ export function renderSettings(view) {
         <div class="field"><label>Default APR %</label><input id="s-apr" type="number" step="0.01" inputmode="decimal" value="${esc(s.defaultApr)}"></div>
         <div class="field"><label>Default term</label><input id="s-term" type="number" inputmode="numeric" value="${esc(s.defaultTerm)}"></div>
       </div>
-      <div class="field"><label>Freight &amp; PDI (new vehicles)</label><input id="s-freight" type="number" inputmode="decimal" value="${esc(s.freightPdi ?? 2105)}">
-        <div class="hint" style="margin-top:4px">Added on top of MSRP when the deal engine prices a new lineup vehicle (not applied to in-stock units, which carry your real price).</div></div>
+      <div class="small strong" style="margin:4px 0 8px">New-vehicle fees</div>
+      <div class="field-inline">
+        <div class="field"><label>Freight</label><input id="s-freight" type="number" inputmode="decimal" value="${esc(s.feeFreight ?? 2100)}"></div>
+        <div class="field"><label>Air tax</label><input id="s-airtax" type="number" inputmode="decimal" value="${esc(s.feeAirTax ?? 100)}"></div>
+      </div>
+      <div class="field-inline">
+        <div class="field"><label>Plate registration</label><input id="s-plate" type="number" step="0.01" inputmode="decimal" value="${esc(s.feePlateReg ?? 13.20)}"></div>
+        <div class="field"><label>Tire levy</label><input id="s-tire" type="number" step="0.01" inputmode="decimal" value="${esc(s.feeTireLevy ?? 22.50)}"></div>
+      </div>
+      <div class="field-inline">
+        <div class="field"><label>AVP — Rogue</label><input id="s-avp-rogue" type="number" inputmode="decimal" value="${esc(s.avpRogue ?? 699)}"></div>
+        <div class="field"><label>AVP — all others</label><input id="s-avp-other" type="number" inputmode="decimal" value="${esc(s.avpOther ?? 599)}"></div>
+      </div>
+      <div class="hint" style="margin-bottom:10px">Applied to every brand-new Nissan the engine prices (lineup and in-stock units marked New). AVP, freight, air tax and tire levy are taxed; plate registration isn't. Used vehicles use the doc fee instead.</div>
       <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>
     </div>
 
@@ -179,7 +191,12 @@ export function renderSettings(view) {
     store.updateSettings({
       taxRate: Number(el.querySelector("#s-tax").value) || 0,
       docFee: Number(el.querySelector("#s-doc").value) || 0,
-      freightPdi: Number(el.querySelector("#s-freight").value) || 0,
+      feeFreight: Number(el.querySelector("#s-freight").value) || 0,
+      feeAirTax: Number(el.querySelector("#s-airtax").value) || 0,
+      feePlateReg: Number(el.querySelector("#s-plate").value) || 0,
+      feeTireLevy: Number(el.querySelector("#s-tire").value) || 0,
+      avpRogue: Number(el.querySelector("#s-avp-rogue").value) || 0,
+      avpOther: Number(el.querySelector("#s-avp-other").value) || 0,
       defaultApr: Number(el.querySelector("#s-apr").value) || 0,
       defaultTerm: Number(el.querySelector("#s-term").value) || 0,
     });
