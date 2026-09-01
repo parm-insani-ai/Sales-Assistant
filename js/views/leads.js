@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder } from "./dealbuilder.js";
+import { openDealBuilder, dealsForLead, offerText, equity } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -255,6 +255,8 @@ function renderLeadDetail(view, id) {
       <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
     </div>
 
+    <div id="deal-slot"></div>
+
     ${l.notes ? `<div class="section-title">Notes</div><div class="card" data-edit="notes" style="cursor:pointer"><div style="white-space:pre-wrap">${esc(l.notes)}</div></div>` : ""}
 
     <div class="section-title">Email history</div>
@@ -266,7 +268,6 @@ function renderLeadDetail(view, id) {
     <div class="section-title">Actions</div>
     <div class="card">
       <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
-      ${(l.currentPayment != null || l.currentValue != null || l.payoff != null) ? `<button class="btn btn-success btn-block" data-act="dealbuild" style="margin-bottom:10px">${icon("dollar")} Build a payment-match deal</button>` : ""}
       <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:10px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
       <button class="btn btn-ghost btn-block" data-act="referral" style="margin-bottom:14px">${icon("users")} Ask for a referral</button>
       <div class="field">
@@ -365,8 +366,64 @@ function renderLeadDetail(view, id) {
 
   el.querySelector('[data-act="referral"]').addEventListener("click", () => openReferralCapture(l.name, l.id));
 
-  const dealBtn = el.querySelector('[data-act="dealbuild"]');
-  if (dealBtn) dealBtn.addEventListener("click", () => openDealBuilder(l));
+  // The deal is pre-made: best payment-matched option front and center, two
+  // alternates under it, the offer text one tap away. No button hunting.
+  (function buildDealSection() {
+    const slot = el.querySelector("#deal-slot");
+    const hasMoney = l.currentPayment != null || l.currentValue != null || l.payoff != null;
+    if (!hasMoney || ["lost"].includes(l.stage)) return;
+    const rows = dealsForLead(l).slice(0, 3);
+    if (!rows.length) return;
+    const best = rows[0];
+    const band = store.getSettings().dealMatchBand || 50;
+    const deltaLine = (m) => m.delta == null ? "" :
+      Math.abs(m.delta) <= band ? "≈ same payment" :
+      m.delta < 0 ? `${currency(Math.round(-m.delta))}/mo less` : `+${currency(Math.round(m.delta))}/mo`;
+    const vname = (v) => [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
+    const deltaColor = (m) => m.delta != null && m.delta <= band ? "var(--success)" : "var(--muted)";
+
+    slot.innerHTML = `
+      <div class="section-title">The deal</div>
+      <div class="card">
+        <div class="row">
+          <div class="row-main">
+            <div class="row-title">${esc(vname(best.vehicle))}</div>
+            <div class="row-sub">
+              <span class="badge ${best.method === "lease" ? "badge-appt" : "badge-working"}">${best.method === "lease" ? "Lease" : "Finance"}</span>
+              ${best.vehicle.price != null ? " " + currency(best.vehicle.price) : ""}${best.vehicle.lineup ? " · new — order/allocate" : best.vehicle.stock ? " · #" + esc(best.vehicle.stock) : ""}
+              ${best.special ? `<div style="margin-top:3px"><span class="badge badge-sold">🏷 ${esc(best.special)}</span></div>` : ""}
+            </div>
+          </div>
+          <div class="row-meta">
+            <div class="strong mono" style="font-size:1.2rem">${currency(Math.round(best.monthly))}<span class="muted" style="font-size:0.75rem">/mo</span></div>
+            <div class="small strong" style="color:${deltaColor(best)}">${deltaLine(best)}</div>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:12px">
+          ${l.phone ? `<a class="btn btn-primary btn-sm" data-act="deal-offer" style="flex:1.4" href="${smsHref(l.phone, offerText(l, best))}">${icon("message")} Text this offer</a>` : `<button class="btn btn-ghost btn-sm" data-edit="phone" style="flex:1.4">Add phone to text it</button>`}
+          <button class="btn btn-ghost btn-sm" data-act="deal-more" style="flex:1">All options</button>
+        </div>
+        ${rows.length > 1 ? `
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+          ${rows.slice(1).map((m) => `
+            <div class="row" style="padding:5px 0">
+              <div class="small" style="flex:1">${esc(vname(m.vehicle))} <span class="muted">· ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷" : ""}</span></div>
+              <div class="small mono strong">${currency(Math.round(m.monthly))}/mo</div>
+              <div class="small mono" style="width:92px;text-align:right;color:${deltaColor(m)}">${deltaLine(m)}</div>
+            </div>`).join("")}
+        </div>` : ""}
+        ${equity(l) == null && l.payoff != null ? `<div class="fab-note" style="margin-top:8px;text-align:left">Assumes their trade washes the ${currency(l.payoff)} payoff — appraise the trade to tighten these numbers.</div>` : ""}
+      </div>`;
+
+    const offer = slot.querySelector('[data-act="deal-offer"]');
+    if (offer) offer.addEventListener("click", () => {
+      store.logActivity("touch");
+      store.update("leads", l.id, { lastContacted: new Date().toISOString() });
+    });
+    slot.querySelector('[data-act="deal-more"]').addEventListener("click", () => openDealBuilder(l));
+    const addPhone = slot.querySelector('[data-edit="phone"]');
+    if (addPhone) addPhone.addEventListener("click", () => openLeadForm(l, { focus: "phone" }));
+  })();
 
   el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
     openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));
