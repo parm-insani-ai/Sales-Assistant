@@ -40,9 +40,14 @@ export function computeLease(input) {
 
 function financeBase(lead, down) {
   const s = store.getSettings();
+  // When we know their payoff but not the trade's value (common in AutoAlert
+  // exports), assume the trade washes the payoff — neutral equity — instead of
+  // rolling the full payoff into the new deal, which buries every payment.
+  const value = lead.currentValue != null ? lead.currentValue
+    : lead.payoff != null ? lead.payoff : 0;
   return {
     down: down != null ? down : 0,
-    tradeAllowance: lead.currentValue || 0,
+    tradeAllowance: value,
     tradePayoff: lead.payoff || 0,
     fees: s.docFee,
     taxRate: s.taxRate,
@@ -80,22 +85,16 @@ function specialLabel(sp, method) {
   return `advertised lease${sp.leaseTerm ? ` ${sp.leaseTerm} mo` : ""}${Number(sp.leaseDown) ? `, ${currency(Number(sp.leaseDown))} down` : ""}`;
 }
 
-// New Nissans from the built-in lineup become deal candidates when an active
-// special applies to that model and nothing matching is physically in stock —
-// a 0% Rogue program is pitchable even before the unit lands on the lot.
+// The new Nissan lineup is always in the candidate pool — a Nissan store can
+// pitch a new Rogue whether or not one is on the lot right now. A model drops
+// out only when a matching real unit is in stock (the real unit wins), and an
+// active special rides along automatically via specialFor().
 function lineupCandidates() {
-  const specials = activeSpecials();
-  if (!specials.length) return [];
   const inv = availableVehicles();
   const out = [];
   SPEC_LIBRARY.filter((x) => x.make === "Nissan").forEach((x) => {
     const model = String(x.label).replace(/^\d{4}\s+/, "").replace(/^Nissan\s+/i, "").trim();
     const ml = model.toLowerCase();
-    const hasSpecial = specials.some((sp) => {
-      const m = String(sp.model || "").toLowerCase().trim();
-      return m && (ml.includes(m) || m.includes(ml));
-    });
-    if (!hasSpecial) return;
     const inStock = inv.some((v) => {
       const vm = String(v.model || "").toLowerCase().trim();
       return vm && (vm.includes(ml) || ml.includes(vm));
@@ -162,8 +161,11 @@ export function bestDealForLead(lead, opts = {}) {
   return rows.length ? rows[0] : null;
 }
 
+// Known equity, or null when the trade's value hasn't been appraised yet —
+// a missing value must read as "unknown", never as negative-the-payoff.
 export function equity(lead) {
-  return (lead.currentValue || 0) - (lead.payoff || 0);
+  if (lead.currentValue == null) return null;
+  return lead.currentValue - (lead.payoff || 0);
 }
 
 function yearsOwned(iso) {
@@ -280,7 +282,9 @@ export function openDealBuilder(lead) {
         <div class="card" style="margin-bottom:14px">
           <div class="row"><span class="k muted">Currently pays</span><span class="v strong mono">${cur != null ? currency(cur) + "/mo" : "unknown"}</span></div>
           <div class="row" style="margin-top:6px"><span class="k muted">On</span><span class="v">${esc(lead.vehicleInterest || "—")}</span></div>
-          <div class="row" style="margin-top:6px"><span class="k muted">Est. equity</span><span class="v strong mono" style="color:${eq >= 0 ? "var(--success)" : "var(--danger)"}">${currency(eq)}</span></div>
+          <div class="row" style="margin-top:6px"><span class="k muted">Est. equity</span>${eq != null
+            ? `<span class="v strong mono" style="color:${eq >= 0 ? "var(--success)" : "var(--danger)"}">${currency(eq)}</span>`
+            : `<span class="v small muted">unknown — payoff ${lead.payoff != null ? currency(lead.payoff) : "?"}, trade assumed to wash it</span>`}</div>
         </div>
 
         <div class="field">

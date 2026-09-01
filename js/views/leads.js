@@ -250,7 +250,8 @@ function renderLeadDetail(view, id) {
       <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
       ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
-      ${(l.currentValue != null || l.payoff != null) ? `<div class="kv"><span class="k">Est. equity</span><span class="v mono" style="color:${((l.currentValue||0)-(l.payoff||0))>=0?"var(--success)":"var(--danger)"}">${currency((l.currentValue||0)-(l.payoff||0))}</span></div>` : ""}
+      ${l.currentValue != null ? `<div class="kv"><span class="k">Est. equity</span><span class="v mono" style="color:${(l.currentValue-(l.payoff||0))>=0?"var(--success)":"var(--danger)"}">${currency(l.currentValue-(l.payoff||0))}</span></div>`
+        : l.payoff != null ? `<div class="kv"><span class="k">Payoff</span><span class="v mono">${currency(l.payoff)} <span class="muted small">· trade value not appraised</span></span></div>` : ""}
       <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
     </div>
 
