@@ -757,7 +757,14 @@ export function openDealBuilder(lead) {
     const wrap = document.createElement("div");
     const s = store.getSettings();
 
-    function draw(down) {
+    // Sheet state: cash down (null = none entered) and an optional pinned
+    // vehicle, so the salesperson can quote a specific car and trim instead of
+    // whatever the payment-match ranking surfaced.
+    let downState = null;
+    let pick = "";
+
+    function draw() {
+      const down = downState;
       // The vehicle lineup is fixed by the baseline (no cash down) ranking, then
       // re-priced as cash changes. Re-ranking live would swap a pricier car into
       // the top row every time cash went up — so the payment would look frozen
@@ -769,7 +776,19 @@ export function openDealBuilder(lead) {
       const rows = baseRows.map((m) => byKey.get(key(m)) || m);
       const eq = equity(lead);
       const cur = lead.currentPayment;
-      const top = rows.slice(0, 6);
+
+      // Every car we can quote, for the picker: real stock first, then the
+      // lineup by trim.
+      const vKey = (v) => [v.id || "", v.model, v.trim].join("|");
+      const cands = candidateVehicles();
+      const inStock = cands.filter((v) => !v.lineup);
+      const lineup = cands.filter((v) => v.lineup);
+      const optFor = (v) => `<option value="${esc(vKey(v))}"${vKey(v) === pick ? " selected" : ""}>${esc(vehName(v))}${v.stock ? ` · #${esc(v.stock)}` : ""}${v.price != null ? ` — ${currency(v.price)}` : ""}</option>`;
+
+      // A pinned vehicle shows ITS finance and lease offer; otherwise the
+      // payment-matched shortlist.
+      const picked = pick ? rows.filter((m) => vKey(m.vehicle) === pick) : [];
+      const top = pick ? picked : rows.slice(0, 6);
 
       wrap.innerHTML = `
         <div class="card" style="margin-bottom:14px">
@@ -786,16 +805,27 @@ export function openDealBuilder(lead) {
           <div class="hint">Leave blank to show advertised leases exactly as advertised. Enter an amount and every payment re-prices — the term stays put.</div>
         </div>
 
+        <div class="field">
+          <label>Quote a specific vehicle</label>
+          <select id="db-veh">
+            <option value="">${cur != null ? "Closest matches to their payment" : "Lowest payments"}</option>
+            ${inStock.length ? `<optgroup label="In stock">${inStock.map(optFor).join("")}</optgroup>` : ""}
+            ${lineup.length ? `<optgroup label="New lineup — every trim">${lineup.map(optFor).join("")}</optgroup>` : ""}
+          </select>
+        </div>
+
         ${cur == null ? `<div class="hint" style="margin-bottom:10px">No current payment on file for this customer — showing lowest payments. Add their payment/payoff/value to match.</div>` : ""}
 
-        <div class="section-title" style="margin-top:6px">${cur != null ? "Closest matches" : "Lowest payments"}</div>
+        <div class="section-title" style="margin-top:6px">${pick ? "Their offer on this vehicle" : cur != null ? "Closest matches" : "Lowest payments"}</div>
         <div class="db-list"></div>
         <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(s.docFee)} fees, ${lead.currentApr || s.defaultApr}% APR, ${s.defaultTerm} mo, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}. Confirm with your desk.</div>
       `;
 
       const list = wrap.querySelector(".db-list");
       if (!top.length) {
-        list.innerHTML = `<div class="muted small">No available inventory with pricing. Add vehicles or import your inventory first.</div>`;
+        list.innerHTML = pick
+          ? `<div class="muted small">No offer could be priced for that vehicle.</div>`
+          : `<div class="muted small">No available inventory with pricing. Add vehicles or import your inventory first.</div>`;
       } else {
         top.forEach((m) => list.appendChild(dealRow(lead, m)));
       }
@@ -803,11 +833,14 @@ export function openDealBuilder(lead) {
       const downEl = wrap.querySelector("#db-down");
       downEl.addEventListener("change", () => {
         const raw = downEl.value.trim();
-        draw(raw === "" ? null : Number(raw) || 0);
+        downState = raw === "" ? null : Number(raw) || 0;
+        draw();
       });
+      const vehEl = wrap.querySelector("#db-veh");
+      vehEl.addEventListener("change", () => { pick = vehEl.value; draw(); });
     }
 
-    draw(null);
+    draw();
     return wrap;
   });
 }
