@@ -11,7 +11,7 @@ import { navigate } from "./router.js";
 import { maybeStartCadence, startCadence } from "./cadence.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
-import { topOpportunities, dealsForLead } from "./views/dealbuilder.js";
+import { topOpportunities, dealsForLead, equityDetail } from "./views/dealbuilder.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
 import { afterSale, afterAppointmentBooked, afterDeliveryComplete, closeFollowUps } from "./connections.js";
 import { getOccasions } from "./occasions.js";
@@ -185,7 +185,9 @@ function findAppt(customer) {
   return appts[0];
 }
 const num = (v) => (v == null || v === "" ? null : Number(String(v).replace(/[^0-9.\-]/g, "")) || null);
-const equityOf = (l) => (l.currentValue != null || l.payoff != null) ? (l.currentValue || 0) - (l.payoff || 0) : null;
+// Equity via the shared resolver: a customer whose trade simply hasn't been
+// appraised must read as unknown, never as "negative the entire payoff".
+const equityOf = (l) => equityDetail(l).v;
 
 const ROUTES = {
   home: "/", dashboard: "/", leads: "/leads", customers: "/leads", inventory: "/inventory",

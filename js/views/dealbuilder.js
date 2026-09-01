@@ -503,6 +503,20 @@ export function equity(lead) {
   return lead.currentValue - (lead.payoff || 0);
 }
 
+// Equity the way the deal math sees it: resolved trade value − resolved payoff,
+// negative when they're upside down. `src` says how solid it is —
+//   "known"  both numbers on file
+//   "est"    the trade is a book/market estimate, or the payoff was calculated
+//   null     no defensible trade value (only the wash assumption), so unknown
+// A missing trade value must never read as "negative the whole payoff".
+export function equityDetail(lead) {
+  const inp = dealInputs(lead);
+  if (inp.value.v == null || inp.value.src === "wash") return { v: null, src: null };
+  if (inp.payoff.v == null) return { v: null, src: null };
+  const solid = inp.value.src === "known" && inp.payoff.src === "known";
+  return { v: Math.round(inp.value.v - inp.payoff.v), src: solid ? "known" : "est" };
+}
+
 function yearsOwned(iso) {
   const d = parseDate(iso);
   if (!d) return null;
@@ -528,9 +542,12 @@ export function scoreOpportunity(lead, best) {
     score += 10; // can still pitch a fresh vehicle even without their payment
   }
 
-  const eq = equity(lead);
-  if (eq >= 3000) { score += 20; reasons.push(`${currency(Math.round(eq))} equity`); }
-  else if (eq > 0) { score += 10; reasons.push("Positive equity"); }
+  const eqD = equityDetail(lead);
+  const eq = eqD.v;
+  const eqTag = eqD.src === "est" ? "~" : "";
+  if (eq != null && eq >= 3000) { score += 20; reasons.push(`${eqTag}${currency(eq)} equity`); }
+  else if (eq != null && eq > 0) { score += 10; reasons.push("Positive equity"); }
+  else if (eq != null && eq < -2000) { reasons.push(`${eqTag}${currency(-eq)} upside down`); }
 
   const yrs = yearsOwned(lead.purchaseDate);
   if (yrs != null && yrs >= 3) { score += 15; reasons.push(`Owned ${Math.floor(yrs)} yrs`); }
@@ -789,7 +806,8 @@ export function openDealBuilder(lead) {
       const priced = down == null ? baseRows : dealsForLead(lead, { down, method: "both" });
       const byKey = new Map(priced.map((m) => [key(m), m]));
       const rows = baseRows.map((m) => byKey.get(key(m)) || m);
-      const eq = equity(lead);
+      const eqD = equityDetail(lead);
+      const eq = eqD.v;
       const cur = lead.currentPayment;
 
       // Every car we can quote, for the picker: real stock first, then the
@@ -809,9 +827,9 @@ export function openDealBuilder(lead) {
         <div class="card" style="margin-bottom:14px">
           <div class="row"><span class="k muted">Currently pays</span><span class="v strong mono">${cur != null ? currency(cur) + "/mo" : "unknown"}</span></div>
           <div class="row" style="margin-top:6px"><span class="k muted">On</span><span class="v">${esc(lead.vehicleInterest || "—")}</span></div>
-          <div class="row" style="margin-top:6px"><span class="k muted">Est. equity</span>${eq != null
-            ? `<span class="v strong mono" style="color:${eq >= 0 ? "var(--success)" : "var(--danger)"}">${currency(eq)}</span>`
-            : `<span class="v small muted">unknown — payoff ${lead.payoff != null ? currency(lead.payoff) : "?"}, trade assumed to wash it</span>`}</div>
+          <div class="row" style="margin-top:6px"><span class="k muted">${eq != null && eq < 0 ? "Negative equity" : "Equity"}</span>${eq != null
+            ? `<span class="v strong mono" style="color:${eq >= 0 ? "var(--success)" : "var(--danger)"}">${eq < 0 ? "− " + currency(-eq) : currency(eq)}${eqD.src === "est" ? ` <span class="muted small">est.</span>` : ""}</span>`
+            : `<span class="v small muted">unknown — payoff ${lead.payoff != null ? currency(lead.payoff) : "?"}, trade not appraised</span>`}</div>
         </div>
 
         <div class="field">

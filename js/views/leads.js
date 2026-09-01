@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equity, dealInputs, estimateTradeDetail, paymentDelta } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -360,8 +360,12 @@ function renderLeadDetail(view, id) {
       <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
       ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
-      ${l.currentValue != null ? `<div class="kv"><span class="k">Est. equity</span><span class="v mono" style="color:${(l.currentValue-(l.payoff||0))>=0?"var(--success)":"var(--danger)"}">${currency(l.currentValue-(l.payoff||0))}</span></div>`
-        : l.payoff != null ? `<div class="kv"><span class="k">Payoff</span><span class="v mono">${currency(l.payoff)} <span class="muted small">· trade value not appraised</span></span></div>` : ""}
+      ${(() => {
+        const e = equityDetail(l);
+        if (e.v == null) return l.payoff != null
+          ? `<div class="kv"><span class="k">Payoff</span><span class="v mono">${currency(l.payoff)} <span class="muted small">· trade not appraised</span></span></div>` : "";
+        return `<div class="kv"><span class="k">${e.v < 0 ? "Negative equity" : "Equity"}</span><span class="v mono" style="color:${e.v >= 0 ? "var(--success)" : "var(--danger)"}">${e.v < 0 ? "− " + currency(-e.v) : currency(e.v)}${e.src === "est" ? ` <span class="muted small">est.</span>` : ""}</span></div>`;
+      })()}
       <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
     </div>
 
