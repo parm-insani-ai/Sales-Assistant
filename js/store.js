@@ -24,18 +24,18 @@ const DEFAULT_DELIVERY_CHECKLIST = [
 const DEFAULT_TEMPLATES = [
   // --- Owner outreach: the customer already has a car. Never say "thanks for
   // your interest in {vehicle}" here — {vehicle} is what they're DRIVING.
-  // These are built to earn a reply: identify yourself (they don't have your
-  // number), lead with a concrete fact about their own vehicle, give one
-  // specific outcome, then ask one easy question. Two SMS segments, no
-  // pressure words, ends on a question mark.
-  { id: "tpl_equity", name: "Trade-up (owner)", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is worth about {tradeValue} right now — more than most people expect. With this month's Nissan rates that's enough to put you in a new one for close to {payment}. Want me to send you the exact numbers?" },
-  { id: "tpl_paidoff", name: "Paid off — cash in it", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and still worth about {tradeValue} — that's real money sitting in the driveway, and it's quietly dropping every month. Want me to show you what it could put you into with nothing out of pocket?" },
+  // The offer is information about THEIR vehicle, not a pitch for ours: no
+  // urgency, no "more than you'd expect", no assumption they want to buy.
+  // Staying put is named as a real option, so the worst case for the customer
+  // is that they end up knowing their own car a little better.
+  { id: "tpl_equity", name: "Where they stand (owner)", channel: "sms", subject: "",
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. I ran the current numbers on your {theirCar} — it's sitting around {tradeValue} today. Figured that's worth knowing either way. If it helps I can lay out your options from here, staying put included. Want me to send it over?" },
+  { id: "tpl_paidoff", name: "Paid off — where they stand", channel: "sms", subject: "",
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and currently worth about {tradeValue} — just a useful thing to know about your own vehicle. If you're ever curious what that opens up, I'm happy to walk through it, keeping it included. Want the details?" },
   { id: "tpl_leaseend", name: "Lease coming due", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} is coming due, so you've got a decision to make. I've pulled two options that keep you at or under {payment}. Want me to text them over, or would a quick call be easier?" },
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon, and you've got three choices: buy it, hand it back, or start something new. Happy to walk through what each one actually costs so you can decide properly. Want me to send a summary?" },
   { id: "tpl_first", name: "First contact (inbound)", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. I've got one here I think you'd like. Are you free to see it this week, or are evenings and weekends better for you?" },
+    body: "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. Happy to answer anything, and if it turns out not to be the right fit I'll tell you. What would be most useful to know first?" },
   { id: "tpl_appt", name: "Appointment reminder", channel: "sms", subject: "",
     body: "Hi {firstName}, just confirming our appointment for the {vehicle}. Looking forward to seeing you! Text me if anything changes. - {salesperson}" },
   { id: "tpl_check", name: "Still interested?", channel: "sms", subject: "",
@@ -217,15 +217,25 @@ function load() {
     // already drive, so it read as nonsense. Templates live in settings, so a
     // new default never reaches an existing install: swap the stale body out
     // once, and only if it is still untouched.
-    if (!merged.settings.firstTouchFixed) {
-      const stale = "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?";
-      const fresh = DEFAULT_TEMPLATES.find((t) => t.id === "tpl_first");
+    if (Number(merged.settings.firstTouchFixed || 0) < 2) {
+      const superseded = [
+        // The original: thanked an owner for their interest in their own trade.
+        "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?",
+        // The first rewrite: accurate, but it read like a pitch.
+        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is worth about {tradeValue} right now — more than most people expect. With this month's Nissan rates that's enough to put you in a new one for close to {payment}. Want me to send you the exact numbers?",
+        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and still worth about {tradeValue} — that's real money sitting in the driveway, and it's quietly dropping every month. Want me to show you what it could put you into with nothing out of pocket?",
+        "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} is coming due, so you've got a decision to make. I've pulled two options that keep you at or under {payment}. Want me to text them over, or would a quick call be easier?",
+        "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. I've got one here I think you'd like. Are you free to see it this week, or are evenings and weekends better for you?",
+      ];
       const list = merged.settings.messageTemplates;
-      if (Array.isArray(list) && fresh) {
-        const i = list.findIndex((t) => t.id === "tpl_first");
-        if (i >= 0 && String(list[i].body).trim() === stale) list[i] = { ...fresh };
+      if (Array.isArray(list)) {
+        list.forEach((t, i) => {
+          if (!superseded.includes(String(t.body).trim())) return; // hand-edited: leave it
+          const fresh = DEFAULT_TEMPLATES.find((d) => d.id === t.id);
+          if (fresh) list[i] = { ...fresh };
+        });
       }
-      merged.settings.firstTouchFixed = true;
+      merged.settings.firstTouchFixed = 2;
     }
     return merged;
   } catch (e) {
