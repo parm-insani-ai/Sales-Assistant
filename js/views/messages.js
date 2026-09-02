@@ -12,10 +12,21 @@ export function fillTemplate(text, lead) {
   const s = store.getSettings();
   const name = (lead && lead.name) || "there";
   const firstName = String(name).trim().split(/\s+/)[0] || "there";
+  // {vehicle} is whatever vehicle the record is about. For an inbound lead
+  // that's what they asked for; for an imported owner it's what they DRIVE —
+  // which is why owner templates say {theirCar} and never "your interest in".
+  const car = (lead && lead.vehicleInterest) || "";
+  const money = (n) => "$" + Math.round(Number(n)).toLocaleString("en-CA");
+  const val = lead && lead.currentValue != null ? Number(lead.currentValue) : null;
+  const payoff = lead && lead.payoff != null ? Number(lead.payoff) : null;
   const map = {
     name,
     firstName,
-    vehicle: (lead && lead.vehicleInterest) || "vehicle",
+    vehicle: car || "vehicle",
+    theirCar: car || "your vehicle",
+    tradeValue: val != null ? money(val) : "more than you'd think",
+    equity: val != null ? money(Math.max(0, val - (payoff || 0))) : "real money",
+    payment: lead && lead.currentPayment != null ? money(lead.currentPayment) + "/mo" : "what you pay now",
     salesperson: s.salesperson || "your salesperson",
     dealership: s.dealership || "the dealership",
   };
@@ -30,6 +41,20 @@ export function allTemplates() {
   return saved.concat(DEFAULT_TEMPLATES.filter((d) => !saved.some((s) => s.id === d.id)));
 }
 
+// Which opening earns the best chance of a reply for THIS customer. An owner
+// with equity gets the trade-up angle, a paid-off car gets the cash angle, a
+// maturing lease gets the deadline, and a genuine inbound enquiry gets the
+// inbound note. Anything else falls through to first contact.
+export function recommendTemplate(lead) {
+  if (!lead) return "tpl_first";
+  const days = lead.leaseEnd ? Math.round((new Date(lead.leaseEnd) - Date.now()) / 86400000) : null;
+  if (days != null && !isNaN(days) && days <= 120) return "tpl_leaseend";
+  const owner = !!lead.vehicleInterest && (lead.stage === "delivered" || lead.currentValue != null || lead.payoff != null || lead.purchaseDate);
+  if (!owner) return "tpl_first";
+  const paidOff = lead.currentPayment == null && (lead.payoff == null || Number(lead.payoff) === 0);
+  return paidOff ? "tpl_paidoff" : "tpl_equity";
+}
+
 // Open the template picker for a given lead.
 export function openTemplatePicker(lead) {
   const templates = allTemplates();
@@ -39,8 +64,11 @@ export function openTemplatePicker(lead) {
       wrap.innerHTML = `<div class="muted small">Add a phone number or email to this lead first.</div>`;
       return wrap;
     }
-    wrap.innerHTML = `<div class="small muted" style="margin-bottom:12px">Pick a template — it'll fill in ${esc((lead.name || "the customer").split(" ")[0])}'s name and vehicle automatically.</div>`;
-    templates.forEach((t) => {
+    wrap.innerHTML = `<div class="small muted" style="margin-bottom:12px">Pick a template — it'll fill in ${esc((lead.name || "the customer").split(" ")[0])}'s name, vehicle and numbers automatically.</div>`;
+    // Best fit first, so the right opening is the one under your thumb.
+    const pick = recommendTemplate(lead);
+    const ordered = templates.slice().sort((x, y) => (y.id === pick) - (x.id === pick));
+    ordered.forEach((t) => {
       const canUse = t.channel === "email" ? !!lead.email : !!lead.phone;
       const btn = document.createElement("button");
       btn.className = "btn btn-ghost btn-block";
@@ -48,7 +76,7 @@ export function openTemplatePicker(lead) {
       btn.disabled = !canUse;
       if (!canUse) btn.style.opacity = "0.45";
       btn.innerHTML = `<div style="width:100%">
-        <div class="strong">${icon(t.channel === "email" ? "mail" : "message")} ${esc(t.name)}</div>
+        <div class="strong">${icon(t.channel === "email" ? "mail" : "message")} ${esc(t.name)}${t.id === pick ? ` <span class="badge badge-sold">best fit</span>` : ""}</div>
         <div class="small muted" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(fillTemplate(t.body, lead).replace(/\n/g, " "))}</div>
       </div>`;
       if (canUse) btn.addEventListener("click", () => { close(); openComposer(t, lead); });

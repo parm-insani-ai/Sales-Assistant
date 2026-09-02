@@ -22,8 +22,20 @@ const DEFAULT_DELIVERY_CHECKLIST = [
 
 // Message templates. Placeholders: {name} {firstName} {vehicle} {salesperson} {dealership}
 const DEFAULT_TEMPLATES = [
-  { id: "tpl_first", name: "First contact", channel: "sms", subject: "",
-    body: "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?" },
+  // --- Owner outreach: the customer already has a car. Never say "thanks for
+  // your interest in {vehicle}" here — {vehicle} is what they're DRIVING.
+  // These are built to earn a reply: identify yourself (they don't have your
+  // number), lead with a concrete fact about their own vehicle, give one
+  // specific outcome, then ask one easy question. Two SMS segments, no
+  // pressure words, ends on a question mark.
+  { id: "tpl_equity", name: "Trade-up (owner)", channel: "sms", subject: "",
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is worth about {tradeValue} right now — more than most people expect. With this month's Nissan rates that's enough to put you in a new one for close to {payment}. Want me to send you the exact numbers?" },
+  { id: "tpl_paidoff", name: "Paid off — cash in it", channel: "sms", subject: "",
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and still worth about {tradeValue} — that's real money sitting in the driveway, and it's quietly dropping every month. Want me to show you what it could put you into with nothing out of pocket?" },
+  { id: "tpl_leaseend", name: "Lease coming due", channel: "sms", subject: "",
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} is coming due, so you've got a decision to make. I've pulled two options that keep you at or under {payment}. Want me to text them over, or would a quick call be easier?" },
+  { id: "tpl_first", name: "First contact (inbound)", channel: "sms", subject: "",
+    body: "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. I've got one here I think you'd like. Are you free to see it this week, or are evenings and weekends better for you?" },
   { id: "tpl_appt", name: "Appointment reminder", channel: "sms", subject: "",
     body: "Hi {firstName}, just confirming our appointment for the {vehicle}. Looking forward to seeing you! Text me if anything changes. - {salesperson}" },
   { id: "tpl_check", name: "Still interested?", channel: "sms", subject: "",
@@ -199,6 +211,21 @@ function load() {
     if (!merged.settings.docFeeFixed) {
       if (Number(merged.settings.docFee) === 499) merged.settings.docFee = 699;
       merged.settings.docFeeFixed = true;
+    }
+    // The old "First contact" template thanked the customer for their interest
+    // in {vehicle} — but for an imported owner {vehicle} is the car they
+    // already drive, so it read as nonsense. Templates live in settings, so a
+    // new default never reaches an existing install: swap the stale body out
+    // once, and only if it is still untouched.
+    if (!merged.settings.firstTouchFixed) {
+      const stale = "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?";
+      const fresh = DEFAULT_TEMPLATES.find((t) => t.id === "tpl_first");
+      const list = merged.settings.messageTemplates;
+      if (Array.isArray(list) && fresh) {
+        const i = list.findIndex((t) => t.id === "tpl_first");
+        if (i >= 0 && String(list[i].body).trim() === stale) list[i] = { ...fresh };
+      }
+      merged.settings.firstTouchFixed = true;
     }
     return merged;
   } catch (e) {
