@@ -124,3 +124,15 @@ export function debounce(fn, ms = 200) {
     t = setTimeout(() => fn(...args), ms);
   };
 }
+
+// How this payment compares to what they pay now. Always states the direction
+// AND the amount: "≈ same payment" hid whether a deal was cheaper or dearer,
+// which is the first thing a customer asks. `long` gives the sentence form.
+export function paymentDelta(delta, opts = {}) {
+  if (delta == null || delta === "") return null;
+  const d = Math.round(Number(delta));
+  const tail = opts.long ? " than they pay now" : "";
+  if (d === 0) return { text: opts.long ? "exactly their current payment" : "same payment", color: "var(--success)", dir: "same" };
+  if (d < 0) return { text: `${currency(-d)}/mo less${tail}`, color: "var(--success)", dir: "less" };
+  return { text: `${currency(d)}/mo more${tail}`, color: "var(--warning)", dir: "more" };
+}

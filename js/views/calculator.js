@@ -2,7 +2,7 @@
 // down, fees, tax, APR and term.
 
 import * as store from "../store.js";
-import { currency, currency2, esc } from "../utils.js";
+import { currency, currency2, esc, paymentDelta } from "../utils.js";
 import { toast } from "../components.js";
 
 // Core deal math, exported so it can be unit-tested / reused.
@@ -96,6 +96,12 @@ export function renderCalculator(view) {
   // Carried from a quote but not shown: plate registration (a flat untaxed
   // government fee) and the MSRP a program residual is calculated from. Neither
   // is worth a field on a phone; both still count in the math.
+  // What they pay today (carried from a quote), the payment this page opened
+  // with, and the payment before the most recent keystroke — so every change
+  // can say what it just did.
+  const theirPayment = pf && pf.currentPayment != null ? num(pf.currentPayment) : null;
+  let baseline = null;
+  let previous = null;
   const plateFee = pf && pf.fees != null ? num(pf.fees) : 0;
   const residualBase = pf && pf.msrp != null ? num(pf.msrp) : null;
   const rateFor = (t) => {
@@ -151,6 +157,19 @@ export function renderCalculator(view) {
     const get = (k) => el.querySelector(`#c-${k}`);
     const result = el.querySelector("#c-result");
 
+    // Three readings, all optional: against what they pay today, against the
+    // payment this page started from, and what the last edit just did.
+    const line = (label, dl) => dl
+      ? `<div class="kv"><span class="k">${label}</span><span class="v strong" style="color:${dl.color}">${dl.text}</span></div>` : "";
+    function comparisons(monthly) {
+      const rows = [
+        theirPayment != null ? line("vs their payment", paymentDelta(monthly - theirPayment)) : "",
+        baseline != null && Math.abs(monthly - baseline) >= 0.5 ? line("vs starting quote", paymentDelta(monthly - baseline)) : "",
+        previous != null && Math.abs(monthly - previous) >= 0.5 ? line("your last change", paymentDelta(monthly - previous)) : "",
+      ].filter(Boolean).join("");
+      return rows ? `<hr class="divider" />${rows}` : "";
+    }
+
     function recompute() {
       const common = {
         price: get("price").value,
@@ -167,6 +186,7 @@ export function renderCalculator(view) {
         const l = computeLease({ ...common, residualPct: get("res").value, msrp: residualBase || common.price });
         result.innerHTML = `
           <div class="kv kv-total"><span class="k strong">Est. lease payment</span><span class="v mono">${currency2(l.monthly)}<span class="muted small">/mo</span></span></div>
+          ${comparisons(l.monthly)}
           ${l.surplus ? `<div class="kv"><span class="k">Equity beyond the lease</span><span class="v mono" style="color:var(--success)">${currency(l.surplus)} back</span></div>` : ""}
           <hr class="divider" />
           <div class="kv"><span class="k">Residual value</span><span class="v mono">${currency(l.residual)}</span></div>
@@ -178,6 +198,7 @@ export function renderCalculator(view) {
         const d = computeDeal(common);
         result.innerHTML = `
           <div class="kv kv-total"><span class="k strong">Est. monthly</span><span class="v mono">${currency2(d.monthly)}<span class="muted small">/mo</span></span></div>
+          ${comparisons(d.monthly)}
           <hr class="divider" />
           <div class="kv"><span class="k">Price + fees</span><span class="v mono">${currency(d.price + d.feesTaxable)}</span></div>
           <div class="kv"><span class="k">Less trade allowance</span><span class="v mono">− ${currency(d.price + d.feesTaxable - d.taxableBase)}</span></div>
@@ -191,14 +212,24 @@ export function renderCalculator(view) {
       }
     }
 
+    // recompute() renders using the previous values, then we advance them.
+    const track = () => {
+      const el2 = result.querySelector(".kv-total .mono");
+      const now = el2 ? Number(el2.textContent.replace(/[^0-9.]/g, "")) : null;
+      if (now == null || isNaN(now)) return;
+      if (baseline == null) baseline = now;
+      previous = now;
+    };
+    const rerender = () => { recompute(); track(); };
+
     ["price", "down", "trade", "payoff", "feestax", "tax", "apr", "term", "res"]
-      .forEach((k) => { const n = get(k); if (n) n.addEventListener("input", recompute); });
+      .forEach((k) => { const n = get(k); if (n) n.addEventListener("input", rerender); });
     const applyTerm = (t) => {
       get("term").value = t;
       const r = rateFor(t);
       if (r && !isNaN(r.apr)) get("apr").value = r.apr;
       if (r && r.res && get("res")) get("res").value = r.res;
-      recompute();
+      rerender();
     };
     el.querySelectorAll("[data-term]").forEach((b) =>
       b.addEventListener("click", () => applyTerm(Number(b.dataset.term))));
@@ -218,7 +249,7 @@ export function renderCalculator(view) {
         el.querySelector("#c-result") && el.querySelectorAll("[data-term]").length && el.querySelector("#c-price").dispatchEvent(new Event("input"));
       }));
 
-    recompute();
+    rerender();
   };
 
   view.appendChild(el);

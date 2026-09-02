@@ -12,7 +12,8 @@ import { navigate } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
-import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday } from "../utils.js";
+import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday, paymentDelta } from "../utils.js";
+export { paymentDelta };
 import { SPEC_LIBRARY } from "../specs.js";
 import { findSpec, queueCompare } from "./compare.js";
 
@@ -453,18 +454,6 @@ function optionsForVehicle(lead, v, opts = {}) {
     }
   }
   return out;
-}
-
-// How this payment compares to what they pay now. Always states the direction
-// AND the amount: "≈ same payment" hid whether a deal was cheaper or dearer,
-// which is the first thing a customer asks. `long` gives the sentence form.
-export function paymentDelta(delta, opts = {}) {
-  if (delta == null || delta === "") return null;
-  const d = Math.round(Number(delta));
-  const tail = opts.long ? " than they pay now" : "";
-  if (d === 0) return { text: opts.long ? "exactly their current payment" : "same payment", color: "var(--success)", dir: "same" };
-  if (d < 0) return { text: `${currency(-d)}/mo less${tail}`, color: "var(--success)", dir: "less" };
-  return { text: `${currency(d)}/mo more${tail}`, color: "var(--warning)", dir: "more" };
 }
 
 // Every finance/lease option across available inventory, closest payment first.
@@ -913,6 +902,7 @@ function calcPrefill(lead, m, inp) {
     feesTaxable: add.taxable,
     fees: add.nonTaxable,
     label: `${vehName(v)} — ${lead.name}`,
+    currentPayment: lead.currentPayment != null ? lead.currentPayment : null,
     tradeAllowance: inp.value.v || 0,
     tradePayoff: inp.payoff.v || 0,
     apr: m.apr != null ? m.apr : null,
