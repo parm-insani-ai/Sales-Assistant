@@ -28,10 +28,15 @@ const DEFAULT_TEMPLATES = [
   // urgency, no "more than you'd expect", no assumption they want to buy.
   // Staying put is named as a real option, so the worst case for the customer
   // is that they end up knowing their own car a little better.
+  // The figure itself is deliberately withheld — it is the reason to reply, and
+  // sending it up front spends that. The messages never claim the value is high
+  // (the app cannot know, and it would be a lie to anyone upside down); they
+  // only offer to share what was pulled. {tradeValue} stays available for
+  // custom templates.
   { id: "tpl_equity", name: "Where they stand (owner)", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. I ran the current numbers on your {theirCar} — it's sitting around {tradeValue} today. Figured that's worth knowing either way. If it helps I can lay out your options from here, staying put included. Want me to send it over?" },
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. I pulled what your {theirCar} is worth today — want me to send you the number? No agenda either way, it's just useful to know where you stand, staying put included." },
   { id: "tpl_paidoff", name: "Paid off — where they stand", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and currently worth about {tradeValue} — just a useful thing to know about your own vehicle. If you're ever curious what that opens up, I'm happy to walk through it, keeping it included. Want the details?" },
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off, and I just pulled what it's worth today. Want me to send you the number? Worth knowing what you're sitting on, even if you keep it." },
   { id: "tpl_leaseend", name: "Lease coming due", channel: "sms", subject: "",
     body: "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon, and you've got three choices: buy it, hand it back, or start something new. Happy to walk through what each one actually costs so you can decide properly. Want me to send a summary?" },
   { id: "tpl_first", name: "First contact (inbound)", channel: "sms", subject: "",
@@ -217,7 +222,7 @@ function load() {
     // already drive, so it read as nonsense. Templates live in settings, so a
     // new default never reaches an existing install: swap the stale body out
     // once, and only if it is still untouched.
-    if (Number(merged.settings.firstTouchFixed || 0) < 2) {
+    if (Number(merged.settings.firstTouchFixed || 0) < 3) {
       const superseded = [
         // The original: thanked an owner for their interest in their own trade.
         "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?",
@@ -226,6 +231,9 @@ function load() {
         "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and still worth about {tradeValue} — that's real money sitting in the driveway, and it's quietly dropping every month. Want me to show you what it could put you into with nothing out of pocket?",
         "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} is coming due, so you've got a decision to make. I've pulled two options that keep you at or under {payment}. Want me to text them over, or would a quick call be easier?",
         "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. I've got one here I think you'd like. Are you free to see it this week, or are evenings and weekends better for you?",
+        // v124: honest and unpushy, but it handed over the number for free.
+        "Hi {firstName}, it's {salesperson} at {dealership}. I ran the current numbers on your {theirCar} — it's sitting around {tradeValue} today. Figured that's worth knowing either way. If it helps I can lay out your options from here, staying put included. Want me to send it over?",
+        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and currently worth about {tradeValue} — just a useful thing to know about your own vehicle. If you're ever curious what that opens up, I'm happy to walk through it, keeping it included. Want the details?",
       ];
       const list = merged.settings.messageTemplates;
       if (Array.isArray(list)) {
@@ -235,7 +243,7 @@ function load() {
           if (fresh) list[i] = { ...fresh };
         });
       }
-      merged.settings.firstTouchFixed = 2;
+      merged.settings.firstTouchFixed = 3;
     }
     return merged;
   } catch (e) {
