@@ -7,6 +7,14 @@ const toastRoot = () => document.getElementById("toast-root");
 
 // Open a bottom-sheet modal. `render(close)` returns an HTMLElement or HTML string.
 // Returns a close() function.
+// Every open sheet's close fn, so a view can dismiss the whole stack before
+// navigating. Leaving a sheet up over the new page makes the tap look dead.
+const openSheets = new Set();
+export function closeAllModals() {
+  [...openSheets].forEach((fn) => fn());
+  openSheets.clear();
+}
+
 export function openModal(title, render, { onClose } = {}) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
@@ -19,8 +27,10 @@ export function openModal(title, render, { onClose } = {}) {
   const close = () => {
     backdrop.remove();
     document.removeEventListener("keydown", onKey);
+    openSheets.delete(close);
     if (onClose) onClose();
   };
+  openSheets.add(close);
   const onKey = (e) => { if (e.key === "Escape") close(); };
 
   modal.innerHTML = `

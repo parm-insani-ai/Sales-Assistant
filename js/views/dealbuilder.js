@@ -5,7 +5,7 @@
 
 import * as store from "../store.js";
 import { computeDeal } from "./calculator.js";
-import { openModal, toast } from "../components.js";
+import { openModal, toast, closeAllModals } from "../components.js";
 import { navigate } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { icon } from "../icons.js";
@@ -783,16 +783,12 @@ export function openDealDetail(lead, m) {
     const cmp = wrap.querySelector('[data-act="dd-compare"]');
     if (cmp) cmp.addEventListener("click", () => {
       queueCompare([mineSpec, newSpec]);
-      close();
+      closeAllModals();
       navigate("/compare");
     });
     wrap.querySelector('[data-act="dd-quote"]').addEventListener("click", () => {
-      sessionStorage.setItem("calc-prefill", JSON.stringify({
-        price: v.price, label: `${vehName(v)} — ${lead.name}`,
-        tradeAllowance: tradeVal, tradePayoff: lead.payoff || 0,
-        apr: null,
-      }));
-      close();
+      sessionStorage.setItem("calc-prefill", JSON.stringify(calcPrefill(lead, m, inp)));
+      closeAllModals();
       navigate("/calculator");
     });
     return wrap;
@@ -928,6 +924,27 @@ export function openDealBuilder(lead) {
   });
 }
 
+// The calculator prices one all-in number, so give it the taxable price the
+// deal actually used (MSRP + AVP/freight/air/tire on a new unit) and the fee
+// that goes with it — plate on new, doc fee on used. Seeding bare MSRP and a
+// flat doc fee made the calculator disagree with the row by ~$37/mo.
+function calcPrefill(lead, m, inp) {
+  const s = store.getSettings();
+  const v = m.vehicle;
+  const add = newAddons(v);
+  const cash = num(m.cash);
+  return {
+    price: Math.max(0, v.price - cash) + (add ? add.taxable : 0),
+    fees: add ? add.nonTaxable : num(s.docFee),
+    label: `${vehName(v)} — ${lead.name}${m.method === "lease" ? " (finance equivalent)" : ""}`,
+    tradeAllowance: inp.value.v || 0,
+    tradePayoff: inp.payoff.v || 0,
+    apr: m.apr != null ? m.apr : null,
+    term: m.term || null,
+    down: num(m.down) || null,
+  };
+}
+
 function dealRow(lead, m) {
   const el = document.createElement("div");
   el.className = "card card-tap";
@@ -960,11 +977,12 @@ function dealRow(lead, m) {
   });
   el.querySelector('[data-act="quote"]').addEventListener("click", (ev) => {
     ev.stopPropagation();
-    sessionStorage.setItem("calc-prefill", JSON.stringify({
-      price: v.price, label: `${vehName(v)} — ${lead.name}`,
-      tradeAllowance: lead.currentValue || 0, tradePayoff: lead.payoff || 0,
-      apr: lead.currentApr || null,
-    }));
+    const inp = dealInputs(lead);
+    sessionStorage.setItem("calc-prefill", JSON.stringify(calcPrefill(lead, m, inp)));
+    // This row lives inside the Deal Builder sheet — navigating without
+    // dismissing it loads the calculator behind the sheet, so the tap looks
+    // like it did nothing.
+    closeAllModals();
     navigate("/calculator");
   });
   return el;
@@ -973,7 +991,9 @@ function dealRow(lead, m) {
 // ---------- /deals page: the proactive, ranked Deal Radar ----------
 export function renderDeals(view) {
   const leadsWithData = store.all("leads").some((l) => l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate);
-  const haveInventory = availableVehicles().length > 0;
+  // The radar can quote the full Nissan lineup whether or not a unit is on the
+  // lot, so it only stalls when there is nothing at all to price against.
+  const haveInventory = candidateVehicles().length > 0;
 
   const el = document.createElement("div");
   el.innerHTML = `
@@ -995,7 +1015,7 @@ export function renderDeals(view) {
     return;
   }
   if (!haveInventory) {
-    list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("car", "ico-xl")}</div><div class="strong">No inventory to match against</div><div class="small">Add vehicles or import your inventory, then the radar builds deals.</div><button class="btn btn-primary btn-block" data-act="inv" style="margin-top:16px">${icon("file")} Import inventory</button></div>`;
+    list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("car", "ico-xl")}</div><div class="strong">Nothing to price against</div><div class="small">Import your inventory so the radar can match real stock numbers as well as the new lineup.</div><button class="btn btn-primary btn-block" data-act="inv" style="margin-top:16px">${icon("file")} Import inventory</button></div>`;
     list.querySelector('[data-act="inv"]').addEventListener("click", () => navigate("/import"));
     return;
   }

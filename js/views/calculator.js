@@ -58,19 +58,19 @@ export function renderCalculator(view) {
     <div class="card">
       <div class="field-inline">
         <div class="field"><label>Sale price</label><input id="c-price" type="number" inputmode="decimal" placeholder="0" value="${esc(prefillPrice)}"></div>
-        <div class="field"><label>Cash down</label><input id="c-down" type="number" inputmode="decimal" placeholder="0"></div>
+        <div class="field"><label>Cash down</label><input id="c-down" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("down", ""))}"></div>
       </div>
       <div class="field-inline">
         <div class="field"><label>Trade allowance</label><input id="c-trade" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradeAllowance", ""))}"></div>
         <div class="field"><label>Trade payoff</label><input id="c-payoff" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradePayoff", ""))}"></div>
       </div>
       <div class="field-inline">
-        <div class="field"><label>Doc / fees</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
+        <div class="field"><label>Doc / fees</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(pfVal("fees", s.docFee))}"></div>
         <div class="field"><label>Tax rate %</label><input id="c-tax" type="number" inputmode="decimal" step="0.01" value="${esc(s.taxRate)}"></div>
       </div>
       <div class="field-inline">
         <div class="field"><label>APR %</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
-        <div class="field"><label>Term (months)</label><input id="c-term" type="number" inputmode="numeric" value="${esc(s.defaultTerm)}"></div>
+        <div class="field"><label>Term (months)</label><input id="c-term" type="number" inputmode="numeric" value="${esc(pfVal("term", s.defaultTerm))}"></div>
       </div>
       <div class="btn-row" style="margin-top:4px">
         ${[48, 60, 72, 84].map((t) => `<button class="btn btn-sm btn-ghost" data-term="${t}" style="flex:1">${t}</button>`).join("")}
