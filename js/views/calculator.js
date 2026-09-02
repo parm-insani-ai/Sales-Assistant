@@ -93,6 +93,11 @@ export function renderCalculator(view) {
   // also carry a residual per term). When a quote brings one along, changing
   // the term re-rates instead of leaving a stale APR behind.
   const rateTable = (pf && pf.rateTable && typeof pf.rateTable === "object") ? pf.rateTable : null;
+  // Carried from a quote but not shown: plate registration (a flat untaxed
+  // government fee) and the MSRP a program residual is calculated from. Neither
+  // is worth a field on a phone; both still count in the math.
+  const plateFee = pf && pf.fees != null ? num(pf.fees) : 0;
+  const residualBase = pf && pf.msrp != null ? num(pf.msrp) : null;
   const rateFor = (t) => {
     if (!rateTable) return null;
     const row = rateTable[String(t)] != null ? rateTable[String(t)] : rateTable[t];
@@ -114,7 +119,7 @@ export function renderCalculator(view) {
       <div class="card">
         <div class="field-inline">
           <div class="field"><label>${isLease ? "MSRP / cap cost" : "Sale price"}</label><input id="c-price" type="number" inputmode="decimal" placeholder="0" value="${esc(prefillPrice)}"></div>
-          <div class="field"><label>${isLease ? "Cash down (cap reduction)" : "Cash down"}</label><input id="c-down" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("down", ""))}"></div>
+          <div class="field"><label>Cash down</label><input id="c-down" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("down", ""))}"></div>
         </div>
         <div class="field-inline">
           <div class="field"><label>Trade allowance</label><input id="c-trade" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradeAllowance", ""))}"></div>
@@ -122,23 +127,17 @@ export function renderCalculator(view) {
         </div>
         <div class="field-inline">
           <div class="field"><label>Fees (before tax)</label><input id="c-feestax" type="number" inputmode="decimal" value="${esc(pfVal("feesTaxable", s.docFee))}"></div>
-          <div class="field"><label>Plate (no tax)</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(pfVal("fees", 0))}"></div>
-        </div>
-        <div class="hint" style="margin-bottom:6px">Added to the price to make the subtotal, then the whole subtotal is taxed once (less the trade). ${currency(num(s.docFee))} doc fee${pf && pf.feesBreakdown ? " + " + esc(pf.feesBreakdown) : " (+ AVP, freight, air tax and tire levy on a new vehicle)"}. Plate registration is never taxed.</div>
-        <div class="field-inline">
           <div class="field"><label>Tax rate %</label><input id="c-tax" type="number" inputmode="decimal" step="0.01" value="${esc(s.taxRate)}"></div>
-          <div class="field"><label>${isLease ? "Lease rate %" : "APR %"}</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
         </div>
+        <div class="hint" style="margin-bottom:6px">Added to the price to make the subtotal, then the whole subtotal is taxed once (less the trade). ${currency(num(s.docFee))} doc fee${pf && pf.feesBreakdown ? " + " + esc(pf.feesBreakdown) : " (+ AVP, freight, air tax and tire levy on a new vehicle)"}.</div>
         <div class="field-inline">
+          <div class="field"><label>${isLease ? "Lease rate %" : "APR %"}</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
           <div class="field"><label>Term (months)</label><input id="c-term" type="number" inputmode="numeric" value="${esc(pfVal("term", isLease ? (s.leaseTerm || 36) : s.defaultTerm))}"></div>
-          <div class="field"><label></label><div class="hint" style="margin:0">${rateTable ? "Rate follows the program for each term." : "Rate stays as typed."}</div></div>
         </div>
         ${isLease ? `
-        <div class="field-inline">
-          <div class="field"><label>Residual % of MSRP</label><input id="c-res" type="number" inputmode="decimal" step="0.1" value="${esc(pfVal("resPct", s.leaseResidualPct || 58))}"></div>
-          <div class="field"><label>MSRP (residual base)</label><input id="c-msrp" type="number" inputmode="decimal" placeholder="same as cap cost" value="${esc(pfVal("msrp", ""))}"></div>
-        </div>
-        <div class="hint" style="margin-bottom:6px">Residual comes off MSRP, not the cap cost — that's why lease cash and fees lower the payment without shrinking the buyout. Rate and residual are on the program sheet for this trim and term.</div>` : ""}
+        <div class="field"><label>Residual %</label><input id="c-res" type="number" inputmode="decimal" step="0.1" value="${esc(pfVal("resPct", s.leaseResidualPct || 58))}"></div>
+        <div class="hint" style="margin-bottom:6px">Rate and residual come off the program sheet for this trim and term.</div>` : ""}
+        ${rateTable ? `<div class="hint" style="margin-bottom:6px">Rate follows the program as you change the term.</div>` : ""}
         <div class="btn-row" style="margin-top:4px">
           ${(isLease ? [24, 36, 48, 60] : [24, 36, 48, 60, 72, 84]).map((t) => `<button class="btn btn-sm btn-ghost" data-term="${t}" style="flex:1">${t}</button>`).join("")}
         </div>
@@ -158,14 +157,14 @@ export function renderCalculator(view) {
         down: get("down").value,
         tradeAllowance: get("trade").value,
         tradePayoff: get("payoff").value,
-        fees: get("fees").value,
+        fees: plateFee,
         feesTaxable: get("feestax").value,
         taxRate: get("tax").value,
         apr: get("apr").value,
         term: get("term").value,
       };
       if (isLease) {
-        const l = computeLease({ ...common, residualPct: get("res").value, msrp: get("msrp").value || common.price });
+        const l = computeLease({ ...common, residualPct: get("res").value, msrp: residualBase || common.price });
         result.innerHTML = `
           <div class="kv kv-total"><span class="k strong">Est. lease payment</span><span class="v mono">${currency2(l.monthly)}<span class="muted small">/mo</span></span></div>
           ${l.surplus ? `<div class="kv"><span class="k">Equity beyond the lease</span><span class="v mono" style="color:var(--success)">${currency(l.surplus)} back</span></div>` : ""}
@@ -192,7 +191,7 @@ export function renderCalculator(view) {
       }
     }
 
-    ["price", "down", "trade", "payoff", "fees", "feestax", "tax", "apr", "term", "res", "msrp"]
+    ["price", "down", "trade", "payoff", "feestax", "tax", "apr", "term", "res"]
       .forEach((k) => { const n = get(k); if (n) n.addEventListener("input", recompute); });
     const applyTerm = (t) => {
       get("term").value = t;
@@ -209,13 +208,13 @@ export function renderCalculator(view) {
       b.addEventListener("click", () => {
         if (b.dataset.method === method) return;
         const keep = {};
-        ["price", "down", "trade", "payoff", "fees", "feestax", "tax"].forEach((k) => { keep[k] = get(k).value; });
+        ["price", "down", "trade", "payoff", "feestax", "tax"].forEach((k) => { keep[k] = get(k).value; });
         method = b.dataset.method;
         sessionStorage.setItem("calc-method", method);
         pf = null; // typed values win over a stale prefill
         prefillPrice = keep.price;
         draw();
-        ["down", "trade", "payoff", "fees", "feestax", "tax"].forEach((k) => { const n = el.querySelector(`#c-${k}`); if (n) n.value = keep[k]; });
+        ["down", "trade", "payoff", "feestax", "tax"].forEach((k) => { const n = el.querySelector(`#c-${k}`); if (n) n.value = keep[k]; });
         el.querySelector("#c-result") && el.querySelectorAll("[data-term]").length && el.querySelector("#c-price").dispatchEvent(new Event("input"));
       }));
 
