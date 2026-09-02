@@ -653,20 +653,21 @@ export function openDealDetail(lead, m) {
       const hasAprSp = m.special != null && /%/.test(String(m.special || ""));
       const apr = m.apr != null ? m.apr : (sp && sp.financeApr != null && sp.financeApr !== "" ? Number(sp.financeApr) : num(s.defaultApr));
       const term = m.term || s.defaultTerm;
-      // New units: plate registration rides untaxed (the taxable add-ons are in
-  // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
-  const feeFor = add.nonTaxable;
+      // Plate registration sits outside the taxed subtotal; every other fee is
+      // already inside add.taxable, which joins the price before tax.
+      const feeFor = add.nonTaxable;
       const d = computeDeal({ price: v.price - cash + add.taxable, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
         cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
-        kv("Trade-in value", currency(tradeVal) + tradeTag),
+        kv("Trade-in value", "− " + currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
-        payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
-        mDown ? kv("Cash down", "− " + currency(mDown)) : "",
+        kv("Taxable subtotal", currency(Math.round(d.taxableBase)), true),
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
         add.plate != null ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : "",
+        payoffVal ? kv("Trade payoff", "+ " + currency(payoffVal) + payoffTag) : "",
+        mDown ? kv("Cash down", "− " + currency(mDown)) : "",
         kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
         kv("Rate · term", `${apr}%${hasAprSp ? " 🏷" : ""} · ${term} mo`),
         kv("Total interest over term", currency(Math.round(d.totalInterest))),

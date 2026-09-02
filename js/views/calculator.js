@@ -12,8 +12,9 @@ export function computeDeal(input) {
   const tradeAllowance = num(input.tradeAllowance);
   const tradePayoff = num(input.tradePayoff);
   const fees = num(input.fees);
-  // Dealer-installed and delivery charges (AVP, freight, air tax, tire levy)
-  // are taxable; plate registration and doc fees are not.
+  // Doc fee, AVP, freight, air tax and tire levy are added to the price to make
+  // the pre-tax subtotal — they are not taxed as separate line items. Plate
+  // registration (`fees`) sits outside the subtotal and is never taxed.
   const feesTaxable = num(input.feesTaxable);
   const taxRate = num(input.taxRate) / 100;
   const apr = num(input.apr) / 100;
@@ -120,10 +121,10 @@ export function renderCalculator(view) {
           <div class="field"><label>Trade payoff</label><input id="c-payoff" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradePayoff", ""))}"></div>
         </div>
         <div class="field-inline">
-          <div class="field"><label>Fees (taxed)</label><input id="c-feestax" type="number" inputmode="decimal" value="${esc(pfVal("feesTaxable", s.docFee))}"></div>
+          <div class="field"><label>Fees (before tax)</label><input id="c-feestax" type="number" inputmode="decimal" value="${esc(pfVal("feesTaxable", s.docFee))}"></div>
           <div class="field"><label>Plate (no tax)</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(pfVal("fees", 0))}"></div>
         </div>
-        <div class="hint" style="margin-bottom:6px">Taxed fees = ${currency(num(s.docFee))} doc fee${pf && pf.feesBreakdown ? " + " + esc(pf.feesBreakdown) : " (+ AVP, freight, air tax and tire levy on a new vehicle)"}.</div>
+        <div class="hint" style="margin-bottom:6px">Added to the price to make the subtotal, then the whole subtotal is taxed once (less the trade). ${currency(num(s.docFee))} doc fee${pf && pf.feesBreakdown ? " + " + esc(pf.feesBreakdown) : " (+ AVP, freight, air tax and tire levy on a new vehicle)"}. Plate registration is never taxed.</div>
         <div class="field-inline">
           <div class="field"><label>Tax rate %</label><input id="c-tax" type="number" inputmode="decimal" step="0.01" value="${esc(s.taxRate)}"></div>
           <div class="field"><label>${isLease ? "Lease rate %" : "APR %"}</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
@@ -179,8 +180,9 @@ export function renderCalculator(view) {
         result.innerHTML = `
           <div class="kv kv-total"><span class="k strong">Est. monthly</span><span class="v mono">${currency2(d.monthly)}<span class="muted small">/mo</span></span></div>
           <hr class="divider" />
-          <div class="kv"><span class="k">Taxable base</span><span class="v mono">${currency(d.taxableBase)}</span></div>
-          <div class="kv"><span class="k">Fees (taxed)</span><span class="v mono">${currency(d.feesTaxable)}</span></div>
+          <div class="kv"><span class="k">Price + fees</span><span class="v mono">${currency(d.price + d.feesTaxable)}</span></div>
+          <div class="kv"><span class="k">Less trade allowance</span><span class="v mono">− ${currency(d.price + d.feesTaxable - d.taxableBase)}</span></div>
+          <div class="kv"><span class="k">Taxable subtotal</span><span class="v mono">${currency(d.taxableBase)}</span></div>
           <div class="kv"><span class="k">Sales tax</span><span class="v mono">${currency(d.tax)}</span></div>
           <div class="kv"><span class="k">Net trade equity</span><span class="v mono">${currency(d.netTradeEquity)}</span></div>
           <div class="kv"><span class="k">Amount financed</span><span class="v mono">${currency(d.amountFinanced)}</span></div>
