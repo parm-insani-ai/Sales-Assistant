@@ -4,7 +4,9 @@
 // for close to what they pay now. Turns equity data into ready-to-pitch offers.
 
 import * as store from "../store.js";
-import { computeDeal } from "./calculator.js";
+import { computeDeal, computeLease } from "./calculator.js";
+// Re-exported so callers keep importing the deal math from one place.
+export { computeLease };
 import { openModal, toast, closeAllModals } from "../components.js";
 import { navigate } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
@@ -15,35 +17,6 @@ import { SPEC_LIBRARY } from "../specs.js";
 import { findSpec, queueCompare } from "./compare.js";
 
 function num(v) { return Number(v) || 0; }
-
-// Estimate a monthly LEASE payment. Depreciation + rent (money-factor) on the
-// adjusted cap cost, with tax applied to the payment (common in CA/NS/HST).
-export function computeLease(input) {
-  const price = num(input.price);
-  const fees = num(input.fees);
-  const down = num(input.down);
-  const netTradeEquity = num(input.tradeAllowance) - num(input.tradePayoff);
-  const term = Math.max(1, Math.round(num(input.term)));
-  const residualPct = num(input.residualPct) / 100;
-  const taxRate = num(input.taxRate) / 100;
-  const mf = num(input.apr) / 2400; // APR% → money factor
-
-  const capCost = price + fees;
-  const adjCap = capCost - down - netTradeEquity;
-  // Program residuals are a % of MSRP — pass msrp when the cap cost already
-  // has lease cash or add-ons folded in, so the residual isn't distorted.
-  const residual = num(input.msrp || input.price) * residualPct;
-  const depreciation = (adjCap - residual) / term;
-  const rent = (adjCap + residual) * mf;
-  let base = depreciation + rent;
-  // Equity bigger than the lease needs drives the payment negative. A "$0/mo"
-  // row isn't a quotable offer — cap it at zero and report the surplus, which
-  // is the real pitch: the trade covers the lease and hands money back.
-  let surplus = 0;
-  if (base < 0) { surplus = Math.round(-base * term); base = 0; }
-  const tax = base * taxRate;
-  return { monthly: base + tax, residual, term, surplus };
-}
 
 // ---- The accuracy ladder: known → calculated → book estimate → assumption ----
 // AutoAlert exports rarely carry everything the math needs. Instead of silently
@@ -932,15 +905,21 @@ function calcPrefill(lead, m, inp) {
   const s = store.getSettings();
   const v = m.vehicle;
   const add = newAddons(v);
-  const cash = num(m.cash);
+  const isLease = m.method === "lease";
+  // A lease is priced off MSRP with lease cash off the cap; a finance deal has
+  // the program's finance cash off the price.
+  const off = isLease ? num(m.leaseCash) : num(m.cash);
   return {
-    price: Math.max(0, v.price - cash) + (add ? add.taxable : 0),
+    method: isLease ? "lease" : "finance",
+    price: Math.max(0, v.price - off) + (add ? add.taxable : 0),
     fees: add ? add.nonTaxable : num(s.docFee),
-    label: `${vehName(v)} — ${lead.name}${m.method === "lease" ? " (finance equivalent)" : ""}`,
+    label: `${vehName(v)} — ${lead.name}`,
     tradeAllowance: inp.value.v || 0,
     tradePayoff: inp.payoff.v || 0,
     apr: m.apr != null ? m.apr : null,
     term: m.term || null,
+    resPct: m.resPct != null ? m.resPct : null,
+    msrp: isLease ? v.price : null,
     down: num(m.down) || null,
   };
 }
