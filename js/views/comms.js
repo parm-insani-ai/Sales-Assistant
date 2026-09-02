@@ -86,17 +86,22 @@ export function renderComms(view) {
     return `${Math.round(min / 1440)}d ago`;
   };
 
+  // Everything that needs chasing is one list, on Home. Point at it rather
+  // than re-ranking the same signals here.
+  const queued = due.length + occasions.length;
+
   const el = document.createElement("div");
   el.innerHTML = `
+    ${queued ? `<div class="card card-tap" data-goto="/" style="margin-bottom:12px">
+      <div class="row"><div class="row-main">
+        <div class="row-title">${icon("target")} ${queued} to reach today</div>
+        <div class="row-sub">Follow-ups, reminders and reasons to call all live in Today's queue.</div>
+      </div><div class="row-meta strong">›</div></div>
+    </div>` : ""}
     ${links.length ? `<div class="section-title">Link activity</div>
     <div class="card" id="c-links"></div>` : ""}
     ${upcoming.length ? `<div class="section-title">Confirmations &amp; reminders</div>
     <div class="card" id="c-remind"></div>` : ""}
-    ${occasions.length ? `<div class="section-title">Reasons to reach out</div>
-    <div class="card" id="c-occ"></div>` : ""}
-    <div class="section-title">Outreach due</div>
-    <div class="card" id="c-due">${due.length ? "" : `<div class="muted small">Nothing due — every follow-up is on schedule. 🎉</div>`}</div>
-
     <div class="section-title">Send a message</div>
     <div class="card">
       <div class="searchbar" style="margin-bottom:10px"><input type="search" id="c-search" placeholder="Find a customer…"></div>
@@ -224,9 +229,13 @@ export function renderComms(view) {
     occBox.appendChild(row);
   });
 
-  // --- Outreach due: one-tap act (marks the step done + logs the touch). ---
+  el.querySelectorAll("[data-goto]").forEach((n) =>
+    n.addEventListener("click", () => navigate(n.dataset.goto)));
+
+  // --- Outreach due lives in Today's queue now; this only runs if the section
+  // is ever brought back. ---
   const dueBox = el.querySelector("#c-due");
-  due.slice(0, 12).forEach((t) => {
+  if (dueBox) due.slice(0, 12).forEach((t) => {
     const l = leadById(t.leadId);
     const m = chMeta(t.channel);
     const overdue = daysFromToday(t.due) < 0;

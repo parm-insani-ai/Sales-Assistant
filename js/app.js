@@ -15,8 +15,8 @@ import { renderGoals, openSaleForm } from "./views/goals.js";
 import { renderImport } from "./views/import.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { renderProspecting } from "./views/prospecting.js";
+import { renderTools, TOOL_LINKS, toolGrid } from "./views/tools.js";
 import { openReferralCapture } from "./views/referrals.js";
-import { renderDeals } from "./views/dealbuilder.js";
 import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
 import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
@@ -42,8 +42,15 @@ const PAGES = {
   "/deliveries": { title: "Deliveries", render: renderDeliveries },
   "/calendar": { title: "Calendar", render: renderCalendar },
   "/goals": { title: "Goals & Commission", render: renderGoals },
-  "/prospecting": { title: "Prospecting", render: renderProspecting },
-  "/deals": { title: "Deal Radar", render: renderDeals },
+  "/tools": { title: "Tools", render: renderTools },
+  // Retired surfaces. The daily call list is the Home queue now, and the Deal
+  // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
+  // old notifications, voice commands and bookmarks still land somewhere sane.
+  "/prospecting": { title: "Prospecting", render: () => navigate("/") },
+  "/deals": { title: "Deal Radar", render: () => {
+    sessionStorage.setItem("leads-filter", "opportunity");
+    navigate("/leads");
+  } },
   "/spiffs": { title: "SPIF Organizer", render: renderSpiffs },
   "/specials": { title: "Monthly Specials", render: renderSpecials },
   "/compare": { title: "Compare Vehicles", render: renderCompare },
@@ -96,22 +103,6 @@ document.getElementById("quick-add").addEventListener("click", () => {
     delivery: { icon: "box", label: "Delivery", fn: () => openDeliveryForm() },
     spif: { icon: "award", label: "Spif", fn: () => openSpifForm() },
   };
-  const TOOL_LINKS = [
-    { icon: "calculator", label: "Calculator", fn: () => navigate("/calculator") },
-    { icon: "target", label: "Deal Radar", fn: () => navigate("/deals") },
-    { icon: "compare", label: "Compare", fn: () => navigate("/compare") },
-    { icon: "sparkles", label: "Sales Coach", fn: () => navigate("/coach") },
-    { icon: "checkline", label: "Sold Tracker", fn: () => navigate("/soldlog") },
-    { icon: "phone", label: "Prospecting", fn: () => navigate("/prospecting") },
-    { icon: "dollar", label: "Goals", fn: () => navigate("/goals") },
-    { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
-    { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },
-    { icon: "tag", label: "Specials", fn: () => navigate("/specials") },
-    { icon: "search", label: "Inventory", fn: () => openDealerSearch() },
-    { icon: "calendar", label: "Calendar", fn: () => navigate("/calendar") },
-    { icon: "file", label: "Import", fn: () => navigate("/import") },
-    { icon: "settings", label: "Settings", fn: () => navigate("/settings") },
-  ];
   // The most relevant add-action for the current tab goes first.
   const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/goals": "sale", "/soldlog": "soldlog", "/spiffs": "spif" };
   const order = ["lead", "referral", "task", "appt", "sale", "soldlog", "vehicle", "delivery", "spif"];
@@ -127,17 +118,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
       else title.style.marginTop = "0";
       title.textContent = label;
       wrap.appendChild(title);
-      const grid = document.createElement("div");
-      grid.className = "qa-grid";
-      items.forEach((a) => {
-        const tile = document.createElement("button");
-        tile.type = "button";
-        tile.className = "qa-tile";
-        tile.innerHTML = `<span class="qa-ico">${icon(a.icon)}</span><span class="qa-label">${a.label}</span>`;
-        tile.addEventListener("click", () => { close(); a.fn(); });
-        grid.appendChild(tile);
-      });
-      wrap.appendChild(grid);
+      wrap.appendChild(toolGrid(items, close));
     };
     section("Add new", keys.map((k) => byKey[k]));
     section("Tools", TOOL_LINKS);

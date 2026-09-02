@@ -1005,7 +1005,10 @@ function dealRow(lead, m) {
 }
 
 // ---------- /deals page: the proactive, ranked Deal Radar ----------
-export function renderDeals(view) {
+// The opportunity view: customers ranked by how ready they are to trade, each
+// with a pitchable deal. This is the Leads list sorted differently, so it
+// renders inside the Leads page rather than owning a tab of its own.
+export function renderDeals(view, { embedded = false } = {}) {
   const leadsWithData = store.all("leads").some((l) => l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate);
   // The radar can quote the full Nissan lineup whether or not a unit is on the
   // lot, so it only stalls when there is nothing at all to price against.
@@ -1013,10 +1016,10 @@ export function renderDeals(view) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <div class="hero">
+    ${embedded ? "" : `<div class="hero">
       <div class="hero-greeting">Deal Radar</div>
       <div class="hero-title">Deals ready to pitch</div>
-    </div>
+    </div>`}
     <div class="fab-note" style="margin:0 2px 14px;text-align:left">Customers who can move into a new vehicle — financing or leasing — for close to what they pay now. Set your tolerance below.</div>
     <div id="deals-controls"></div>
     <div class="deals-list"></div>

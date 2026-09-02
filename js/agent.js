@@ -59,7 +59,7 @@ const TOOLS = [
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
-  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "prospecting", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
+  { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "tools", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
   { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
   { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
@@ -192,7 +192,7 @@ const equityOf = (l) => equityDetail(l).v;
 const ROUTES = {
   home: "/", dashboard: "/", leads: "/leads", customers: "/leads", inventory: "/inventory",
   calculator: "/calculator", deliveries: "/deliveries", calendar: "/calendar", schedule: "/calendar",
-  goals: "/goals", radar: "/deals", deals: "/deals", prospecting: "/prospecting",
+  goals: "/goals", radar: "/deals", deals: "/deals", prospecting: "/", tools: "/tools",
   comms: "/comms", communication: "/comms", messages: "/comms",
   soldlog: "/soldlog", sold: "/soldlog", tracker: "/soldlog",
   coach: "/coach",

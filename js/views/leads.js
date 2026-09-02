@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
 import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
@@ -54,20 +54,24 @@ export function renderLeads(view, { param }) {
     const chips = [
       { id: "active", label: "Active" },
       { id: "due", label: "Due follow-ups" },
+      // The old Deal Radar tab: the same customers, ranked by how ready they
+      // are to trade, with a pitchable deal on each.
+      { id: "opportunity", label: "By opportunity" },
       { id: "all", label: "All" },
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: s.label })),
     ];
 
     const ps = prospectSummary();
     const callSub = ps.hot ? ` · ${ps.hot} new` : ps.total ? ` · ${ps.total}` : "";
+    const opp = filter === "opportunity";
     wrap.innerHTML = `
-      <div class="searchbar">
+      ${opp ? "" : `<div class="searchbar">
         <input type="search" placeholder="Search leads…" value="${esc(search)}" />
-      </div>
+      </div>`}
       <div class="btn-row" style="overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; margin-bottom:12px;">
         ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
       </div>
-      ${selecting ? `
+      ${opp ? "" : selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" data-act="sel-all" style="flex:0 0 auto">Select all shown</button>
         <button class="btn btn-danger btn-sm" data-act="sel-del" style="flex:1">${icon("trash")} Delete (<span id="sel-count">${selected.size}</span>)</button>
@@ -78,39 +82,52 @@ export function renderLeads(view, { param }) {
         <button class="btn btn-primary btn-block" data-act="add-lead">${icon("plus")} Add customer</button>
         <button class="btn btn-ghost btn-sm" data-act="select" style="flex:0 0 auto">Select</button>
       </div>
-      <button class="btn btn-ghost btn-block" data-act="call-list" style="margin-bottom:12px">${icon("target")} Today's call list${callSub}</button>`}
+      <button class="btn btn-ghost btn-block" data-act="call-list" style="margin-bottom:12px">${icon("target")} Today's queue${callSub}</button>`}
       <div class="lead-list"></div>
     `;
 
     const listEl = wrap.querySelector(".lead-list");
+    if (filter === "opportunity") {
+      renderDeals(listEl, { embedded: true });
+      wireChips();
+      return;
+    }
     if (!list.length) {
       listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
     } else {
       list.forEach((l) => listEl.appendChild(selecting ? selectCard(l) : leadCard(l)));
     }
 
-    wrap.querySelector('input[type="search"]').addEventListener("input", (e) => {
+    const sb = wrap.querySelector('input[type="search"]');
+    if (sb) sb.addEventListener("input", (e) => {
       search = e.target.value;
       renderList(); // re-render only the list for smoother typing
     });
 
     // Switching filters re-renders only the list and updates the active chip in
     // place — rebuilding the whole view would snap the scrollable filter row
-    // (and the page) back to the top.
-    wrap.querySelectorAll("[data-filter]").forEach((b) =>
-      b.addEventListener("click", () => {
-        filter = b.dataset.filter;
-        wrap.querySelectorAll("[data-filter]").forEach((x) => {
-          const active = x === b;
-          x.classList.toggle("btn-primary", active);
-          x.classList.toggle("btn-ghost", !active);
-        });
-        renderList();
-      }));
+    // (and the page) back to the top. The opportunity view needs a full redraw
+    // because it swaps in its own controls.
+    function wireChips() {
+      wrap.querySelectorAll("[data-filter]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const was = filter;
+          filter = b.dataset.filter;
+          if (was === "opportunity" || filter === "opportunity") { draw(); return; }
+          wrap.querySelectorAll("[data-filter]").forEach((x) => {
+            const active = x === b;
+            x.classList.toggle("btn-primary", active);
+            x.classList.toggle("btn-ghost", !active);
+          });
+          renderList();
+        }));
+    }
+
+    wireChips();
 
     const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="add-lead"]', () => openLeadForm());
-    on('[data-act="call-list"]', () => navigate("/prospecting"));
+    on('[data-act="call-list"]', () => navigate("/"));
     on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
     on('[data-act="sel-done"]', () => { selecting = false; selected.clear(); draw(); });
     on('[data-act="sel-all"]', () => {

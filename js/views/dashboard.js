@@ -79,9 +79,6 @@ export function renderDashboard(view) {
 
     <div class="plays-slot"></div>
 
-    <div class="section-title">Follow up today ${dueFollowUps.length ? `<span class="muted">· ${dueFollowUps.length}</span>` : ""}</div>
-    <div class="due-list"></div>
-
     ${upcomingFollowUps.length ? `<div class="section-title">Coming up</div><div class="upcoming-list"></div>` : ""}
 
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -94,11 +91,16 @@ export function renderDashboard(view) {
   `;
   view.appendChild(el);
 
-  // Today's plays — the agent's ranked "do this next" queue.
+  // The work queue — every reason to contact someone today, ranked, each with
+  // its own one-tap action. This is the single list; Comms and the old call
+  // list used to render their own versions of the same signals.
   const playsSlot = el.querySelector(".plays-slot");
-  const plays = getPlays(6);
-  if (plays.length) {
-    playsSlot.innerHTML = `<div class="section-title">Today's plays <span class="muted">· ${plays.length}</span></div>`;
+  const plays = getPlays(40);
+  if (!plays.length) {
+    playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
+      <div class="card"><div class="muted small" style="text-align:center">All caught up — nothing to chase right now.</div></div>`;
+  } else {
+    playsSlot.innerHTML = `<div class="section-title">Today's queue <span class="muted">· ${plays.length}</span></div>`;
     const box = document.createElement("div");
     box.className = "card";
     plays.forEach((p) => {
@@ -125,20 +127,20 @@ export function renderDashboard(view) {
       row.querySelector("[data-play-x]").addEventListener("click", () => {
         dismissPlay(p);
         row.remove();
-        if (!box.querySelector(".row")) playsSlot.innerHTML = "";
+        box.dispatchEvent(new CustomEvent("entoa:played"));
       });
       box.appendChild(row);
     });
     if (box.lastChild) box.lastChild.style.borderBottom = "none";
     playsSlot.appendChild(box);
-  }
-
-  // Due follow-ups
-  const dueList = el.querySelector(".due-list");
-  if (!dueFollowUps.length) {
-    dueList.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">All caught up — no follow-ups due.</div></div>`;
-  } else {
-    dueFollowUps.forEach((l) => dueList.appendChild(followUpCard(l)));
+    // Emptying the queue by dismissal should read as "done", not as a blank.
+    const done = () => {
+      if (!box.querySelector(".row")) {
+        playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
+          <div class="card"><div class="muted small" style="text-align:center">Queue cleared — nice work.</div></div>`;
+      }
+    };
+    box.addEventListener("entoa:played", done);
   }
 
   // Upcoming

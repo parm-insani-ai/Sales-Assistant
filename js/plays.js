@@ -38,7 +38,8 @@ export function dismissPlay(p) {
 }
 
 // Returns [{rank, icon, title, sub, kind, href?, route?}] best first.
-// href = one-tap send/dial; route = screen to open instead.
+// href = one-tap send/dial; route = screen to open instead. Callers choose the
+// depth: the Home queue asks for everything, the morning push for a handful.
 export function getPlays(limit = 6) {
   const plays = [];
   const now = Date.now();
@@ -54,7 +55,7 @@ export function getPlays(limit = 6) {
   store.all("links")
     .filter((lk) => lk.lastOpenAt && now - new Date(lk.lastOpenAt).getTime() < HOT_MS)
     .sort((a, b) => (b.lastOpenAt || "").localeCompare(a.lastOpenAt || ""))
-    .slice(0, 2)
+    .slice(0, 4)
     .forEach((lk) => {
       const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "your booking link" : "a comparison");
       plays.push({
@@ -69,7 +70,7 @@ export function getPlays(limit = 6) {
   // 2. Today's unconfirmed appointments — the no-show killers.
   store.all("appointments")
     .filter((a) => a.status === "scheduled" && !a.confirmed && !a.outcome && String(a.when).slice(0, 10) === todayK)
-    .slice(0, 3)
+    .slice(0, 10)
     .forEach((a) => {
       const lead = a.leadId ? leadById(a.leadId) : null;
       const phone = a.phone || (lead && lead.phone) || "";
@@ -90,7 +91,7 @@ export function getPlays(limit = 6) {
   const yestK = `${yest.getFullYear()}-${pad(yest.getMonth() + 1)}-${pad(yest.getDate())}`;
   store.all("appointments")
     .filter((a) => a.outcome === "no_show" && String(a.when).slice(0, 10) === yestK)
-    .slice(0, 2)
+    .slice(0, 6)
     .forEach((a) => {
       const lead = a.leadId ? leadById(a.leadId) : null;
       const phone = a.phone || (lead && lead.phone) || "";
@@ -109,7 +110,7 @@ export function getPlays(limit = 6) {
   store.all("tasks")
     .filter((t) => !t.done && t.leadId && t.channel && t.due && t.due <= todayK)
     .sort((a, b) => (a.due || "").localeCompare(b.due || ""))
-    .slice(0, 3)
+    .slice(0, 25)
     .forEach((t) => {
       const lead = leadById(t.leadId);
       const phone = lead && lead.phone;
@@ -124,7 +125,7 @@ export function getPlays(limit = 6) {
     });
 
   // 5. Top occasion (birthday / lease maturity / anniversary).
-  getOccasions().slice(0, 2).forEach((o) => {
+  getOccasions().slice(0, 8).forEach((o) => {
     plays.push({
       key: `oc:${o.lead.id}:${o.key}`, leadId: o.lead.id, occKey: o.key,
       rank: 60, icon: "sparkles", kind: "occasion",
@@ -137,13 +138,13 @@ export function getPlays(limit = 6) {
 
   // 6. If the sheet is still light, pull from the Deal Radar.
   if (plays.length < limit) {
-    topOpportunities(2).forEach((o) => {
+    topOpportunities(Math.max(2, limit - plays.length)).forEach((o) => {
       plays.push({
         key: `rd:${o.lead.id}`,
         rank: 40, icon: "target", kind: "radar",
         title: `${o.lead.name} could trade up`,
         sub: o.reasons && o.reasons.length ? o.reasons[0] : "Payment-matched vehicle in stock.",
-        route: "/deals",
+        route: `/leads/${o.lead.id}`,
       });
     });
   }
