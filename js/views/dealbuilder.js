@@ -558,28 +558,72 @@ function strength(score) {
   return { label: "Worth a call", badge: "badge-soon" };
 }
 
+// What to actually pitch this customer. With a current payment we match it.
+// Without one (a paid-off car), "closest payment" degenerates into the cheapest
+// vehicle on the lot — pitching a $0/mo Kicks to a Frontier owner with $22k of
+// equity. Replace what they drive instead, and fall back to cheapest only when
+// we can't tell what that is.
+function bestPitch(lead, method) {
+  const rows = dealsForLead(lead, { method });
+  if (!rows.length) return null;
+  if (lead.currentPayment != null) return rows[0];
+  const owned = String(lead.vehicleInterest || "").toLowerCase();
+  if (owned) {
+    // Same model — the natural repeat sale.
+    const same = rows.filter((r) => {
+      const m = String(r.vehicle.model || "").toLowerCase().trim();
+      return m && owned.includes(m);
+    });
+    if (same.length) return same[0];
+    // Another brand: pitch the Nissan in the same class, using what their car
+    // cost new as the yardstick. Beats defaulting a Ridgeline owner into the
+    // cheapest Kicks on the lot.
+    let spec = null;
+    const words = owned.replace(/^\d{4}\s*/, "").trim().split(/\s+/).filter(Boolean);
+    for (let k = words.length; k >= 1 && !spec; k--) {
+      try { spec = findSpec(words.slice(0, k).join(" ")); } catch { spec = null; }
+    }
+    if (spec && spec.msrp) {
+      let near = null, gap = Infinity;
+      rows.forEach((r) => {
+        const d = Math.abs(num(r.vehicle.price) - spec.msrp);
+        if (d < gap) { gap = d; near = r; }
+      });
+      if (near) return near;
+    }
+  }
+  return rows[0];
+}
+
 // The proactive radar: every customer who can move into a new vehicle within the
 // current payment-tolerance band, via financing or leasing, scored and ranked.
-export function topOpportunities(limit = 50) {
+export function topOpportunities(limit = 50, opts = {}) {
   const s = store.getSettings();
   const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
+  // A ceiling on the monthly payment itself. The band compares against what
+  // they pay today, so it can't filter anyone whose payment we don't know —
+  // a paid-off customer has no baseline. The cap applies to everyone.
+  const cap = Number(s.dealMaxPayment) || 0;
   const method = s.dealMethod || "both";
-  if (!candidateVehicles().length) return [];
+  if (!candidateVehicles().length) return opts.withCounts ? { rows: [], overBand: 0, overCap: 0, noBaseline: 0 } : [];
   const out = [];
+  let overBand = 0, overCap = 0, noBaseline = 0;
   store.all("leads").forEach((l) => {
     const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
     if (!hasData) return;
-    const best = bestDealForLead(l, { method });
+    const best = bestPitch(l, method);
     if (!best) return;
-    // Only surface customers whose new payment stays within their tolerance
-    // (or whose current payment is unknown — still a fresh-vehicle pitch).
-    if (best.delta != null && best.delta > band) return;
+    if (cap && best.monthly > cap) { overCap++; return; }
+    // Only surface customers whose new payment stays within their tolerance.
+    if (best.delta != null && best.delta > band) { overBand++; return; }
+    if (best.delta == null) noBaseline++;
     const { score, reasons } = scoreOpportunity(l, best);
     if (score <= 0) return;
     out.push({ lead: l, best, score, reasons });
   });
   out.sort((a, b) => b.score - a.score);
-  return out.slice(0, limit);
+  const rows = out.slice(0, limit);
+  return opts.withCounts ? { rows, overBand, overCap, noBaseline } : rows;
 }
 
 function vehName(v) {
@@ -1003,16 +1047,30 @@ export function renderDeals(view) {
         <input id="band-slider" type="range" min="0" max="200" step="10" value="${s.dealMatchBand}" style="width:100%;margin-top:6px" />
         <div class="row small muted"><span>Same payment</span><span>+$200/mo</span></div>
       </div>
+      <div style="margin-top:14px">
+        <div class="row"><label class="small strong">Payment ceiling</label><span class="small mono strong" id="cap-val" style="color:var(--brand)">${Number(s.dealMaxPayment) ? currency(s.dealMaxPayment) + "/mo" : "off"}</span></div>
+        <input id="cap-slider" type="range" min="0" max="1200" step="25" value="${Number(s.dealMaxPayment) || 0}" style="width:100%;margin-top:6px" />
+        <div class="row small muted"><span>Off</span><span>$1,200/mo</span></div>
+      </div>
+      <div class="small muted" id="band-count" style="margin-top:12px"></div>
     </div>`;
 
+  const countEl = controls.querySelector("#band-count");
   const redraw = () => {
-    const opps = topOpportunities(50);
+    const { rows, overBand, overCap, noBaseline } = topOpportunities(50, { withCounts: true });
     list.innerHTML = "";
-    if (!opps.length) {
-      list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">No customers within +${currency(store.getSettings().dealMatchBand)}/mo right now. Widen the tolerance above, switch Finance/Lease, or add inventory.</div>`;
+    // Always say what the controls are doing — otherwise a slider that filters
+    // nobody (because no one has a current payment on file) looks broken.
+    const bits = [`${rows.length} shown`];
+    if (overBand) bits.push(`${overBand} over the +${currency(store.getSettings().dealMatchBand)}/mo band`);
+    if (overCap) bits.push(`${overCap} over the ceiling`);
+    if (noBaseline) bits.push(`${noBaseline} with no current payment on file — the band can't filter these, use the ceiling`);
+    countEl.textContent = bits.join(" · ");
+    if (!rows.length) {
+      list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">Nothing matches these settings. Widen the tolerance, raise the ceiling, switch Finance/Lease, or add inventory.</div>`;
       return;
     }
-    opps.forEach((o) => list.appendChild(opportunityCard(o)));
+    rows.forEach((o) => list.appendChild(opportunityCard(o)));
   };
 
   controls.querySelectorAll("[data-method]").forEach((b) =>
@@ -1025,6 +1083,11 @@ export function renderDeals(view) {
   const bandVal = controls.querySelector("#band-val");
   slider.addEventListener("input", () => { bandVal.textContent = `+${currency(Number(slider.value))}/mo`; });
   slider.addEventListener("change", () => { store.updateSettings({ dealMatchBand: Number(slider.value) }); redraw(); });
+  const capSlider = controls.querySelector("#cap-slider");
+  const capVal = controls.querySelector("#cap-val");
+  const capText = (v) => (v ? currency(v) + "/mo" : "off");
+  capSlider.addEventListener("input", () => { capVal.textContent = capText(Number(capSlider.value)); });
+  capSlider.addEventListener("change", () => { store.updateSettings({ dealMaxPayment: Number(capSlider.value) }); redraw(); });
 
   redraw();
 }

@@ -133,6 +133,7 @@ const DEFAULT_STATE = {
     dailyTouchGoal: 20,
     dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
     dealMethod: "both", // "both" | "finance" | "lease"
+    dealMaxPayment: 0, // $/mo ceiling on the radar; 0 = no cap
     leaseTerm: 36, // months
     leaseResidualPct: 58, // % of price retained at lease end (estimate)
     // Dealer inventory websites for the one-tap search launcher. The network
