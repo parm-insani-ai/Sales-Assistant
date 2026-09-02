@@ -177,7 +177,7 @@ function financeBase(lead, down) {
     down: down != null ? down : 0,
     tradeAllowance: inp.value.v || 0,
     tradePayoff: inp.payoff.v || 0,
-    fees: s.docFee,
+    fees: 0,
     taxRate: s.taxRate,
     // NEW money is priced at the store's standard rate (a program rate from the
     // bulletin overrides it per vehicle). Never at the customer's existing
@@ -307,14 +307,16 @@ function isNewUnit(v) {
   return !!v.lineup || /new/i.test(String(v.condition || ""));
 }
 export function newAddons(v) {
-  if (!isNewUnit(v)) return null;
   const s = store.getSettings();
+  const doc = Number(s.docFee ?? 699); // charged on every car sold, new or used
+  if (!isNewUnit(v)) return { doc, taxable: doc, nonTaxable: 0, used: true };
   const avp = /rogue/i.test(String(v.model || "")) ? Number(s.avpRogue ?? 699) : Number(s.avpOther ?? 599);
   const freight = Number(s.feeFreight ?? 2100);
   const air = Number(s.feeAirTax ?? 100);
   const tire = Number(s.feeTireLevy ?? 22.5);
   const plate = Number(s.feePlateReg ?? 13.2);
-  return { avp, freight, air, tire, plate, taxable: avp + freight + air + tire, nonTaxable: plate };
+  return { avp, freight, air, tire, plate, doc,
+           taxable: avp + freight + air + tire + doc, nonTaxable: plate };
 }
 
 // Both financing and leasing options for one vehicle, honoring the method
@@ -343,8 +345,8 @@ function optionsForVehicle(lead, v, opts = {}) {
   const add = newAddons(v);
   // New units: plate registration rides untaxed (the taxable add-ons are in
   // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
-  const feeFor = add ? add.nonTaxable : num(s.docFee) * (1 + num(s.taxRate) / 100);
-  const addTaxable = add ? add.taxable : 0;
+  const feeFor = add.nonTaxable;
+  const addTaxable = add.taxable;
   const out = [];
   if (method !== "lease") {
     // A trim-scoped rate row (Ariya SL+, LEAF Platinum+…) overrides the
@@ -380,7 +382,7 @@ function optionsForVehicle(lead, v, opts = {}) {
         const f = computeDeal({ ...base, fees: feeFor, apr: bestT.apr, term: bestT.term, price });
         f.surplus = cashBack(base, price, feeFor, s);
         const label = `${bestT.apr}% APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
-        out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, surplus: f.surplus, term: bestT.term, apr: bestT.apr, cash, down: num(base.down), special: label });
+        out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, surplus: f.surplus, term: bestT.term, apr: bestT.apr, rateTable: table, cash, down: num(base.down), special: label });
       }
     } else {
       const hasApr = sp && sp.financeApr != null && sp.financeApr !== "";
@@ -393,9 +395,7 @@ function optionsForVehicle(lead, v, opts = {}) {
     }
   }
   if (method !== "finance") {
-    // computeLease taxes the payment, so hand it the raw fee — the taxed
-    // feeFor would double-tax the doc fee on a used-unit lease.
-    const leaseFee = add ? add.nonTaxable : num(s.docFee);
+    const leaseFee = add.nonTaxable;
     // An advertised lease is trim-specific — apply it only to the trim the ad
     // names (sp.leaseTrim); other trims get the computed lease instead.
     // Whole-word trim match, so leaseTrim "S" hits "S FWD" but not "SV FWD".
@@ -445,10 +445,10 @@ function optionsForVehicle(lead, v, opts = {}) {
       if (bestL) {
         const l = computeLease({ ...base, fees: leaseFee, term: bestL.term, residualPct: bestL.res, apr: bestL.apr, msrp: v.price, price: leasePrice });
         const label = `${bestL.apr}% lease / ${bestL.term} mo${lcash ? ` + ${currency(lcash)} lease cash` : ""}`;
-        out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, term: bestL.term, apr: bestL.apr, resPct: bestL.res, leaseCash: lcash, down: num(base.down), special: label });
+        out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, term: bestL.term, apr: bestL.apr, resPct: bestL.res, rateTable: lr.byTerm, leaseCash: lcash, down: num(base.down), special: label });
       }
     } else {
-      const l = computeLease({ ...base, fees: leaseFee, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, price: v.price + addTaxable });
+      const l = computeLease({ ...base, fees: leaseFee, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, msrp: v.price, price: v.price + addTaxable });
       out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, down: num(base.down), special: null });
     }
   }
@@ -638,12 +638,13 @@ export function openDealDetail(lead, m) {
     const dl = paymentDelta(delta, { long: true });
 
     const add = newAddons(v);
-    const addonRows = add ? [
-      kv("Atlantic Value Package", "+ " + currency(add.avp)),
-      kv("Freight", "+ " + currency(add.freight)),
-      kv("Air tax", "+ " + currency(add.air)),
-      kv("Tire levy", "+ " + currency2(add.tire)),
-    ].join("") : "";
+    const addonRows = [
+      add.avp != null ? kv("Atlantic Value Package", "+ " + currency(add.avp)) : "",
+      add.freight != null ? kv("Freight", "+ " + currency(add.freight)) : "",
+      add.air != null ? kv("Air tax", "+ " + currency(add.air)) : "",
+      add.tire != null ? kv("Tire levy", "+ " + currency2(add.tire)) : "",
+      kv("Doc fee", "+ " + currency(add.doc)),
+    ].join("");
     let breakdown = "";
     if (m.method === "finance") {
       // m.cash is the trim-resolved program cash the option was built with;
@@ -654,8 +655,8 @@ export function openDealDetail(lead, m) {
       const term = m.term || s.defaultTerm;
       // New units: plate registration rides untaxed (the taxable add-ons are in
   // the price). Used units: the doc fee is HST-taxable in NS, so tax it here.
-  const feeFor = add ? add.nonTaxable : num(s.docFee) * (1 + num(s.taxRate) / 100);
-      const d = computeDeal({ price: v.price - cash + (add ? add.taxable : 0), down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
+  const feeFor = add.nonTaxable;
+      const d = computeDeal({ price: v.price - cash + add.taxable, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
@@ -665,7 +666,7 @@ export function openDealDetail(lead, m) {
         payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
         mDown ? kv("Cash down", "− " + currency(mDown)) : "",
         kv(`Tax (${s.taxRate}%)`, "+ " + currency(Math.round(d.tax))),
-        add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fee + tax", "+ " + currency(Math.round(num(s.docFee) * (1 + num(s.taxRate) / 100)))),
+        add.plate != null ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : "",
         kv("Amount financed", currency(Math.round(d.amountFinanced)), true),
         kv("Rate · term", `${apr}%${hasAprSp ? " 🏷" : ""} · ${term} mo`),
         kv("Total interest over term", currency(Math.round(d.totalInterest))),
@@ -688,7 +689,7 @@ export function openDealDetail(lead, m) {
       const apr = isProgram ? m.apr : num(s.defaultApr);
       const lcash = Number(m.leaseCash) || 0;
       const l = m.residual != null ? { residual: m.residual }
-        : computeLease({ price: v.price + (add ? add.taxable : 0), fees: add ? add.nonTaxable : s.docFee, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
+        : computeLease({ price: v.price + add.taxable, fees: add.nonTaxable, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
       breakdown = [
         kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
         addonRows,
@@ -697,7 +698,7 @@ export function openDealDetail(lead, m) {
         kv("Trade-in value", currency(tradeVal) + tradeTag),
         estD ? `<div class="small muted" style="margin:2px 0 8px;line-height:1.4">Workup: ${esc(estD.lines.join(" · "))}</div>` : "",
         payoffVal ? kv("Trade payoff", "− " + currency(payoffVal) + payoffTag) : "",
-        add ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : kv("Doc fee", "+ " + currency(s.docFee)),
+        add.plate != null ? kv("Plate registration (no tax)", "+ " + currency2(add.plate)) : "",
         kv("Term", `${term} mo`),
         kv(`Residual (${resPct}%${isProgram ? " 🏷" : ""})`, currency(Math.round(l.residual))),
         kv("Rate used", `${apr}%${isProgram ? " 🏷" : ""}`),
@@ -798,11 +799,8 @@ export function openDealBuilder(lead) {
       // The fee headline reflects what these rows actually carry: new units
       // take the Atlantic Value Package (a Rogue's is higher), used take the
       // doc fee. Showing one flat "doc fee" was wrong for every new Nissan.
-      const anyNew = rows.slice(0, 12).some((m) => !!newAddons(m.vehicle));
-      const feeShown = anyNew
-        ? (rows.slice(0, 12).some((m) => newAddons(m.vehicle) && /rogue/i.test(String(m.vehicle.model || "")))
-            ? num(s.avpRogue ?? 699) : num(s.avpOther ?? 599))
-        : num(s.docFee);
+      const anyNew = rows.slice(0, 12).some((m) => !newAddons(m.vehicle).used);
+      const feeShown = num(s.docFee ?? 699);
 
       // What actually got applied to the deals on screen — programs, the trade
       // and payoff with their basis, and any cash down. This is the line that
@@ -815,8 +813,7 @@ export function openDealBuilder(lead) {
         if (progs.length) bits.push(progs.slice(0, 3).join(" · ") + (progs.length > 3 ? ` · +${progs.length - 3} more` : ""));
         else if (activeSpecials().length) bits.push("no Monthly Special matched these models — standard rates");
         if (anyNew) {
-          const avp = feeShown;
-          bits.push(`new-vehicle fees: ${currency(avp)} AVP + ${currency(num(s.feeFreight ?? 2100))} freight + ${currency(num(s.feeAirTax ?? 100))} air tax + ${currency2(num(s.feeTireLevy ?? 22.5))} tire levy + ${currency2(num(s.feePlateReg ?? 13.2))} plate`);
+          bits.push(`new-vehicle fees: ${currency(num(s.avpRogue ?? 699))}/${currency(num(s.avpOther ?? 599))} AVP + ${currency(num(s.feeFreight ?? 2100))} freight + ${currency(num(s.feeAirTax ?? 100))} air tax + ${currency2(num(s.feeTireLevy ?? 22.5))} tire levy + ${currency2(num(s.feePlateReg ?? 13.2))} plate`);
         }
         if (inp.value.v != null) {
           bits.push(`trade ${currency(inp.value.v)}${inp.value.src === "known" ? " (appraised)" : inp.value.src === "book" ? " (book est.)" : " (assumed = payoff)"}`);
@@ -911,16 +908,20 @@ function calcPrefill(lead, m, inp) {
   const off = isLease ? num(m.leaseCash) : num(m.cash);
   return {
     method: isLease ? "lease" : "finance",
-    price: Math.max(0, v.price - off) + (add ? add.taxable : 0),
-    fees: add ? add.nonTaxable : num(s.docFee),
+    price: Math.max(0, v.price - off),
+    feesTaxable: add.taxable,
+    fees: add.nonTaxable,
     label: `${vehName(v)} — ${lead.name}`,
     tradeAllowance: inp.value.v || 0,
     tradePayoff: inp.payoff.v || 0,
     apr: m.apr != null ? m.apr : null,
     term: m.term || null,
     resPct: m.resPct != null ? m.resPct : null,
+    rateTable: m.rateTable || null,
     msrp: isLease ? v.price : null,
     down: num(m.down) || null,
+    feesBreakdown: add.used ? "" :
+      `${currency(add.avp)} AVP + ${currency(add.freight)} freight + ${currency(add.air)} air tax + ${currency2(add.tire)} tire levy`,
   };
 }
 

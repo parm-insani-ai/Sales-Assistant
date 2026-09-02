@@ -80,7 +80,7 @@ const DEFAULT_STATE = {
     reviewLink: "", // Google review URL — folded into the day-after delivery text
 
     taxRate: 14, // % — Nova Scotia HST on a vehicle deal
-    docFee: 499,
+    docFee: 699, // dealership documentation fee, every car sold (new or used)
     // New-vehicle fees (O'Regan's). AVP/freight/air tax/tire levy are taxable
     // add-ons; plate registration is a government fee (no tax). Used vehicles
     // use docFee instead.
@@ -192,6 +192,12 @@ function load() {
     if (!merged.settings.taxRateFixed) {
       if (Number(merged.settings.taxRate) === 6.5) merged.settings.taxRate = 14;
       merged.settings.taxRateFixed = true;
+    }
+    // Same story for the doc fee: early builds defaulted to $499. O'Regan's
+    // charges $699 on every car. Runs once so a hand-set fee is never touched.
+    if (!merged.settings.docFeeFixed) {
+      if (Number(merged.settings.docFee) === 499) merged.settings.docFee = 699;
+      merged.settings.docFeeFixed = true;
     }
     return merged;
   } catch (e) {

@@ -55,7 +55,7 @@ export function renderSettings(view) {
     <div class="card">
       <div class="field-inline">
         <div class="field"><label>Sales tax % (HST)</label><input id="s-tax" type="number" step="0.01" inputmode="decimal" value="${esc(s.taxRate)}"></div>
-        <div class="field"><label>Doc fee</label><input id="s-doc" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
+        <div class="field"><label>Doc fee (every car)</label><input id="s-doc" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
       </div>
       <div class="field-inline">
         <div class="field"><label>Default APR %</label><input id="s-apr" type="number" step="0.01" inputmode="decimal" value="${esc(s.defaultApr)}"></div>
@@ -74,7 +74,7 @@ export function renderSettings(view) {
         <div class="field"><label>AVP — Rogue</label><input id="s-avp-rogue" type="number" inputmode="decimal" value="${esc(s.avpRogue ?? 699)}"></div>
         <div class="field"><label>AVP — all others</label><input id="s-avp-other" type="number" inputmode="decimal" value="${esc(s.avpOther ?? 599)}"></div>
       </div>
-      <div class="hint" style="margin-bottom:10px">Applied to every brand-new Nissan the engine prices (lineup and in-stock units marked New). AVP, freight, air tax and tire levy are taxed; plate registration isn't. Used vehicles use the doc fee instead.</div>
+      <div class="hint" style="margin-bottom:10px">The doc fee is charged on every car sold, new or used. New vehicles add these on top: AVP, freight, air tax and tire levy are all taxed; plate registration isn't.</div>
       <div class="small strong" style="margin:4px 0 8px">Trade estimate (when no appraisal is on file)</div>
       <div class="field-inline">
         <div class="field"><label>Expected km / year</label><input id="s-tr-kmyr" type="number" inputmode="numeric" value="${esc(s.tradeKmPerYear ?? 20000)}"></div>

@@ -12,17 +12,20 @@ export function computeDeal(input) {
   const tradeAllowance = num(input.tradeAllowance);
   const tradePayoff = num(input.tradePayoff);
   const fees = num(input.fees);
+  // Dealer-installed and delivery charges (AVP, freight, air tax, tire levy)
+  // are taxable; plate registration and doc fees are not.
+  const feesTaxable = num(input.feesTaxable);
   const taxRate = num(input.taxRate) / 100;
   const apr = num(input.apr) / 100;
   const term = Math.max(0, Math.round(num(input.term)));
 
   // Trading in at a dealer, tax applies to price minus the trade allowance
   // (NS: 14% HST on the difference) — the trade-in tax credit.
-  const taxableBase = Math.max(0, price - tradeAllowance);
+  const taxableBase = Math.max(0, price + feesTaxable - tradeAllowance);
   const tax = taxableBase * taxRate;
 
   const netTradeEquity = tradeAllowance - tradePayoff; // can be negative
-  const amountFinanced = Math.max(0, price + tax + fees - down - netTradeEquity);
+  const amountFinanced = Math.max(0, price + feesTaxable + tax + fees - down - netTradeEquity);
 
   const r = apr / 12;
   let monthly = 0;
@@ -33,7 +36,7 @@ export function computeDeal(input) {
   const totalOfPayments = monthly * term;
   const totalInterest = Math.max(0, totalOfPayments - amountFinanced);
 
-  return { price, tax, taxableBase, fees, netTradeEquity, amountFinanced, monthly, totalOfPayments, totalInterest, term };
+  return { price, tax, taxableBase, fees, feesTaxable, netTradeEquity, amountFinanced, monthly, totalOfPayments, totalInterest, term };
 }
 
 // Estimate a monthly LEASE payment. Depreciation + rent (money-factor) on the
@@ -48,7 +51,9 @@ export function computeLease(input) {
   const taxRate = num(input.taxRate) / 100;
   const mf = num(input.apr) / 2400; // APR% → money factor
 
-  const capCost = price + fees;
+  // Fees are capitalised into the lease; tax is applied to the payment, so the
+  // taxable and non-taxable buckets both simply join the cap cost here.
+  const capCost = price + fees + num(input.feesTaxable);
   const adjCap = capCost - down - netTradeEquity;
   // Program residuals are a % of MSRP — pass msrp when the cap cost already
   // has lease cash or add-ons folded in, so the residual isn't distorted.
@@ -83,6 +88,16 @@ export function renderCalculator(view) {
   // Finance or lease, remembered between visits; a quoted lease row lands here
   // in lease mode automatically.
   let method = pfVal("method", sessionStorage.getItem("calc-method") || "finance");
+  // The program publishes a rate PER TERM (0% to 60, 2.9% at 72/84; leases
+  // also carry a residual per term). When a quote brings one along, changing
+  // the term re-rates instead of leaving a stale APR behind.
+  const rateTable = (pf && pf.rateTable && typeof pf.rateTable === "object") ? pf.rateTable : null;
+  const rateFor = (t) => {
+    if (!rateTable) return null;
+    const row = rateTable[String(t)] != null ? rateTable[String(t)] : rateTable[t];
+    if (row == null) return null;
+    return typeof row === "object" ? { apr: Number(row.apr), res: Number(row.res) } : { apr: Number(row), res: null };
+  };
 
   const el = document.createElement("div");
   const draw = () => {
@@ -105,12 +120,17 @@ export function renderCalculator(view) {
           <div class="field"><label>Trade payoff</label><input id="c-payoff" type="number" inputmode="decimal" placeholder="0" value="${esc(pfVal("tradePayoff", ""))}"></div>
         </div>
         <div class="field-inline">
-          <div class="field"><label>Doc / fees</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(pfVal("fees", s.docFee))}"></div>
+          <div class="field"><label>Fees (taxed)</label><input id="c-feestax" type="number" inputmode="decimal" value="${esc(pfVal("feesTaxable", s.docFee))}"></div>
+          <div class="field"><label>Plate (no tax)</label><input id="c-fees" type="number" inputmode="decimal" value="${esc(pfVal("fees", 0))}"></div>
+        </div>
+        <div class="hint" style="margin-bottom:6px">Taxed fees = ${currency(num(s.docFee))} doc fee${pf && pf.feesBreakdown ? " + " + esc(pf.feesBreakdown) : " (+ AVP, freight, air tax and tire levy on a new vehicle)"}.</div>
+        <div class="field-inline">
           <div class="field"><label>Tax rate %</label><input id="c-tax" type="number" inputmode="decimal" step="0.01" value="${esc(s.taxRate)}"></div>
+          <div class="field"><label>${isLease ? "Lease rate %" : "APR %"}</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
         </div>
         <div class="field-inline">
-          <div class="field"><label>${isLease ? "Lease rate %" : "APR %"}</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
           <div class="field"><label>Term (months)</label><input id="c-term" type="number" inputmode="numeric" value="${esc(pfVal("term", isLease ? (s.leaseTerm || 36) : s.defaultTerm))}"></div>
+          <div class="field"><label></label><div class="hint" style="margin:0">${rateTable ? "Rate follows the program for each term." : "Rate stays as typed."}</div></div>
         </div>
         ${isLease ? `
         <div class="field-inline">
@@ -138,6 +158,7 @@ export function renderCalculator(view) {
         tradeAllowance: get("trade").value,
         tradePayoff: get("payoff").value,
         fees: get("fees").value,
+        feesTaxable: get("feestax").value,
         taxRate: get("tax").value,
         apr: get("apr").value,
         term: get("term").value,
@@ -159,6 +180,7 @@ export function renderCalculator(view) {
           <div class="kv kv-total"><span class="k strong">Est. monthly</span><span class="v mono">${currency2(d.monthly)}<span class="muted small">/mo</span></span></div>
           <hr class="divider" />
           <div class="kv"><span class="k">Taxable base</span><span class="v mono">${currency(d.taxableBase)}</span></div>
+          <div class="kv"><span class="k">Fees (taxed)</span><span class="v mono">${currency(d.feesTaxable)}</span></div>
           <div class="kv"><span class="k">Sales tax</span><span class="v mono">${currency(d.tax)}</span></div>
           <div class="kv"><span class="k">Net trade equity</span><span class="v mono">${currency(d.netTradeEquity)}</span></div>
           <div class="kv"><span class="k">Amount financed</span><span class="v mono">${currency(d.amountFinanced)}</span></div>
@@ -168,22 +190,30 @@ export function renderCalculator(view) {
       }
     }
 
-    ["price", "down", "trade", "payoff", "fees", "tax", "apr", "term", "res", "msrp"]
+    ["price", "down", "trade", "payoff", "fees", "feestax", "tax", "apr", "term", "res", "msrp"]
       .forEach((k) => { const n = get(k); if (n) n.addEventListener("input", recompute); });
+    const applyTerm = (t) => {
+      get("term").value = t;
+      const r = rateFor(t);
+      if (r && !isNaN(r.apr)) get("apr").value = r.apr;
+      if (r && r.res && get("res")) get("res").value = r.res;
+      recompute();
+    };
     el.querySelectorAll("[data-term]").forEach((b) =>
-      b.addEventListener("click", () => { get("term").value = b.dataset.term; recompute(); }));
+      b.addEventListener("click", () => applyTerm(Number(b.dataset.term))));
+    get("term").addEventListener("change", () => applyTerm(Number(get("term").value)));
     // Switching method keeps whatever is already typed in the shared fields.
     el.querySelectorAll("[data-method]").forEach((b) =>
       b.addEventListener("click", () => {
         if (b.dataset.method === method) return;
         const keep = {};
-        ["price", "down", "trade", "payoff", "fees", "tax"].forEach((k) => { keep[k] = get(k).value; });
+        ["price", "down", "trade", "payoff", "fees", "feestax", "tax"].forEach((k) => { keep[k] = get(k).value; });
         method = b.dataset.method;
         sessionStorage.setItem("calc-method", method);
         pf = null; // typed values win over a stale prefill
         prefillPrice = keep.price;
         draw();
-        ["down", "trade", "payoff", "fees", "tax"].forEach((k) => { const n = el.querySelector(`#c-${k}`); if (n) n.value = keep[k]; });
+        ["down", "trade", "payoff", "fees", "feestax", "tax"].forEach((k) => { const n = el.querySelector(`#c-${k}`); if (n) n.value = keep[k]; });
         el.querySelector("#c-result") && el.querySelectorAll("[data-term]").length && el.querySelector("#c-price").dispatchEvent(new Event("input"));
       }));
 
