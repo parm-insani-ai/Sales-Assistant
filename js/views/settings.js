@@ -592,12 +592,24 @@ function buildEmail(slot) {
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li>At <span class="mono">twilio.com</span>, buy a local number (a 902 keeps it familiar to Halifax customers).</li>
+        <li>At <span class="mono">twilio.com</span>, buy a local number (a 902 keeps it familiar to Halifax customers) — or reuse one you already own, see below.</li>
         <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">TWILIO_ACCOUNT_SID</span>, <span class="mono">TWILIO_AUTH_TOKEN</span> and <span class="mono">TWILIO_FROM</span> (the number, as <span class="mono">+1902…</span>).</li>
         <li>In Twilio, open the number → <b>Messaging</b> → "A message comes in" → <b>Webhook (HTTP POST)</b> and paste:<br><span class="mono" style="word-break:break-all">${esc(((s.agentUrl || "your function URL").trim().replace(/\/+$/, "")) + "?sms=1&u=" + ((backend.currentUser() || {}).id || "<sign in first>"))}</span></li>
         <li>Paste the same number below.</li>
       </ol>
       <div class="small muted" style="margin-top:6px">Carriers require working opt-out: a customer who texts STOP is excluded from campaigns automatically, and texting START brings them back.</div>
+    </details>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} Using a number that's already on another project</summary>
+      <div class="small muted" style="margin-top:8px;line-height:1.5">
+        A number can only deliver its texts to one place, so pointing it here takes it off the other project. Nothing needs to be bought or transferred — just repointed.
+        <ul style="margin:8px 0 0;padding-left:18px">
+          <li><b>Check for a Messaging Service first.</b> In Twilio, open the number and look at <b>Messaging</b> → "A message comes in". If it says the number is in a Messaging Service, that service's inbound webhook wins and editing the number here does nothing. Either remove the number from the service, or set the webhook on the service itself (Messaging → Services → your service → Integration).</li>
+          <li><b>Same Twilio account:</b> nothing else to do — repoint the webhook and use that account's SID and auth token.</li>
+          <li><b>A subaccount:</b> use the <i>subaccount's</i> SID and auth token in the secrets, not the parent's, or sending is rejected as if the number weren't yours.</li>
+          <li><b>A different Twilio login:</b> numbers can't be self-served between separate accounts — Twilio support has to move it, which takes days. Buying a fresh number is usually faster.</li>
+        </ul>
+      </div>
     </details>
     <div class="field"><label>Your texting number</label><input id="sms-from" type="tel" value="${esc(s.smsFrom || "")}" placeholder="+19025550123"></div>
     <div class="hint" id="sms-out">${s.smsFrom ? `${icon("checkline")} Replies come into the Inbox.` : "Not set — texts open your phone's SMS app and replies won't come back."}</div>
