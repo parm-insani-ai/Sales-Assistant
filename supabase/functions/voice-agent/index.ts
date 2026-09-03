@@ -11,6 +11,8 @@
 //                                     slot: the appointment is written into
 //                                     the salesperson's synced records so it
 //                                     appears in their app on the next sync.
+//   POST ?sms=1&u=<uid>             → inbound text webhook (Twilio, signed).
+//   POST {sms: {u, to, body}}       → send a text from the dedicated number.
 // The agent's brain (system prompt + tools) lives in the app, so it improves
 // via normal app updates without redeploying this. No customer data is stored
 // here.
@@ -355,8 +357,183 @@ async function handleBook(body: any): Promise<Response> {
   }
 }
 
+// ---- Text messaging (Twilio) ----
+// Outbound goes through {sms:{...}}; inbound arrives on this same URL with
+// ?sms=1&u=<uid> as the number's webhook. Both write a "texts" record, so the
+// thread is whole on the next sync no matter which side spoke.
+//
+// Secrets: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM (E.164).
+
+function twilioCfg() {
+  return {
+    sid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
+    token: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
+    from: Deno.env.get("TWILIO_FROM") || "",
+  };
+}
+
+// Last ten digits, so every shape of the same number matches.
+function phoneKey(p: string): string {
+  const d = String(p || "").replace(/\D/g, "");
+  return d.length > 10 ? d.slice(-10) : d;
+}
+
+// Twilio signs each webhook: HMAC-SHA1 over the full URL with every POST
+// parameter appended in sorted order. Verifying JWT is off for this function,
+// so without this check anyone who learns the URL could write messages into a
+// salesperson's inbox.
+async function twilioSigned(url: string, params: Record<string, string>, sig: string, token: string): Promise<boolean> {
+  if (!sig || !token) return false;
+  const data = Object.keys(params).sort().reduce((s, k) => s + k + params[k], url);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(token), { name: "HMAC", hash: "SHA-1" }, false, ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+  // Constant-time: compare every byte regardless of where the first difference is.
+  if (expected.length !== sig.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+  return diff === 0;
+}
+
+async function saveRecord(uid: string, collection: string, id: string, data: unknown) {
+  const res = await fetch(sbUrl("/records"), {
+    method: "POST",
+    headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ id, user_id: uid, collection, data, deleted: false }),
+  });
+  if (!res.ok) throw new Error(`${collection} save failed (${res.status})`);
+}
+
+async function leadsFor(uid: string): Promise<any[]> {
+  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.leads&deleted=eq.false&select=id,data`;
+  const res = await fetch(sbUrl(q), { headers: sbHeaders() });
+  if (!res.ok) throw new Error(`lead lookup failed (${res.status})`);
+  return await res.json();
+}
+
+function prettyPhone(p: string): string {
+  const d = phoneKey(p);
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p;
+}
+
+// Carrier-standard keywords. Twilio itself blocks further sending on STOP; we
+// mirror it onto the lead so the app's own campaigns stop offering them too.
+const STOP_WORDS = ["stop", "stopall", "unsubscribe", "cancel", "end", "quit", "arret", "arrêt"];
+const START_WORDS = ["start", "unstop", "yes"];
+
+async function handleInboundSms(req: Request): Promise<Response> {
+  const { token } = twilioCfg();
+  const url = new URL(req.url);
+  const uid = String(url.searchParams.get("u") || "");
+  // TwiML: an empty response means "no auto-reply". Returned on every path,
+  // including failures — a 500 makes Twilio retry and double-post the message.
+  const empty = new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+    status: 200, headers: { "Content-Type": "text/xml" },
+  });
+
+  let params: Record<string, string> = {};
+  try {
+    const form = await req.formData();
+    for (const [k, v] of form.entries()) params[k] = String(v);
+  } catch { return empty; }
+
+  if (!await twilioSigned(req.url, params, req.headers.get("x-twilio-signature") || "", token)) {
+    return new Response("bad signature", { status: 403 });
+  }
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return empty;
+
+  const from = String(params.From || "");
+  const body = String(params.Body || "").trim().slice(0, 1600);
+  if (!from) return empty;
+  const now = new Date().toISOString();
+
+  try {
+    const rows = await leadsFor(uid);
+    const key = phoneKey(from);
+    let lead = rows.find((r: any) => phoneKey(r.data?.phone) === key);
+
+    // A text from a stranger is still a lead — it's the most engaged kind
+    // there is. Better a row to name later than a message with nowhere to sit.
+    if (!lead) {
+      const id = "led_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+      const data = {
+        id, name: prettyPhone(from), phone: from, email: "", stage: "new",
+        source: "text", vehicleInterest: "", notes: "", createdAt: now, updatedAt: now,
+      };
+      await saveRecord(uid, "leads", id, data);
+      lead = { id, data };
+    }
+
+    const word = body.toLowerCase().replace(/[^a-zà-ÿ]/g, "");
+    const isStop = STOP_WORDS.includes(word);
+    const isStart = START_WORDS.includes(word);
+    if (isStop || isStart) {
+      await saveRecord(uid, "leads", lead.id, { ...lead.data, smsOptOut: isStop, updatedAt: now });
+    }
+
+    const tid = "txt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    await saveRecord(uid, "texts", tid, {
+      id: tid, leadId: lead.id, dir: "in", body, phone: from,
+      at: now, read: false, sid: String(params.MessageSid || ""),
+      createdAt: now, updatedAt: now,
+    });
+
+    const who = lead.data?.name || prettyPhone(from);
+    sendPush(uid, {
+      title: isStop ? `${who} opted out` : `💬 ${who} replied`,
+      body: isStop ? "They won't be included in campaigns any more." : body.slice(0, 140),
+      tag: "sms-" + lead.id,
+      url: `./#/leads/${lead.id}`,
+    }).catch(() => {});
+  } catch (_e) {
+    // Swallow: a retry would deliver the same message twice, which is worse
+    // than losing the push. The text is already the customer's second attempt.
+  }
+  return empty;
+}
+
+async function handleSendSms(body: any): Promise<Response> {
+  const { sid, token, from } = twilioCfg();
+  const s = body.sms || {};
+  const uid = String(s.u || "");
+  const to = String(s.to || "").trim();
+  const text = String(s.body || "").trim();
+  if (!sid || !token || !from) return json({ error: "Texting is not set up on the server (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)" }, 500);
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
+  if (phoneKey(to).length < 10) return json({ error: "bad number" }, 400);
+  if (!text) return json({ error: "empty message" }, 400);
+
+  const form = new URLSearchParams({ To: to, From: from, Body: text.slice(0, 1600) });
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: "Basic " + btoa(`${sid}:${token}`),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form,
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return json({ error: out?.message || `send failed (${res.status})` }, 502);
+
+  // Log it on the server so the thread is complete even if this device never
+  // syncs again — the app writes its own optimistic copy under the same id.
+  const now = new Date().toISOString();
+  const tid = String(s.id || "txt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16));
+  try {
+    await saveRecord(uid, "texts", tid, {
+      id: tid, leadId: String(s.leadId || ""), dir: "out", body: text, phone: to,
+      at: now, read: true, sid: out?.sid || "", createdAt: now, updatedAt: now,
+    });
+  } catch { /* the message is sent; the log is best-effort */ }
+  return json({ sent: true, id: tid, sid: out?.sid || "" });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  // Twilio posts form-encoded, so this has to come before the JSON parse below.
+  if (req.method === "POST" && new URL(req.url).searchParams.get("sms")) return handleInboundSms(req);
   if (req.method === "GET") {
     const u = new URL(req.url);
     if (u.searchParams.get("push") === "cfg") return json({ publicKey: Deno.env.get("VAPID_PUBLIC_KEY") || null });
@@ -368,6 +545,7 @@ Deno.serve(async (req: Request) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+  if (body.sms) return handleSendSms(body);
   if (body.book) return handleBook(body);
   if (body.shorten) return handleShorten(body.shorten);
   if (body.plays) return handleMorningPlays(body);

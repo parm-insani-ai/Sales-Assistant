@@ -11,6 +11,7 @@ import { emailSendConfigured } from "../email.js";
 import { isLikelyPrefetch } from "../plays.js";
 import { getOccasions, markOccasion } from "../occasions.js";
 import { isDismissedToday, dismissToday } from "../plays.js";
+import { inboxThreads, smsReady, smsBlocker } from "../sms.js";
 
 // A customer without a phone or email: collect it on the spot, then go
 // straight into picking a message — no detour through the lead page.
@@ -92,7 +93,24 @@ export function renderComms(view) {
   const queued = due.length + occasions.length;
 
   const el = document.createElement("div");
+  // Replies outrank everything else on this page: a customer who has just
+  // texted is the most engaged person on the list, and the window is short.
+  const threads = inboxThreads();
+  const unread = threads.reduce((n, t) => n + t.unread, 0);
+  const inboxSub = unread
+    ? threads.filter((t) => t.unread).map((t) => (t.lead.name || "Someone").split(" ")[0]).slice(0, 3).join(", ") +
+      (threads.filter((t) => t.unread).length > 3 ? " and more" : "") + " — waiting on you"
+    : threads.length ? "Every text you send, and every reply, in one thread per customer."
+    : smsReady() ? "No conversations yet. Replies land here the moment they arrive."
+    : smsBlocker();
+
   el.innerHTML = `
+    <div class="card card-tap" data-goto="/inbox" style="margin-bottom:12px">
+      <div class="row"><div class="row-main">
+        <div class="row-title">${icon("message")} Inbox${unread ? ` <span class="badge badge-due">${unread} new</span>` : ""}</div>
+        <div class="row-sub">${esc(inboxSub)}</div>
+      </div><div class="row-meta strong">›</div></div>
+    </div>
     ${queued ? `<div class="card card-tap" data-goto="/" style="margin-bottom:12px">
       <div class="row"><div class="row-main">
         <div class="row-title">${icon("target")} ${queued} to reach today</div>

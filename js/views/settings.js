@@ -587,6 +587,22 @@ function buildEmail(slot) {
     <div class="hint" id="em-test-out"></div>
 
     <hr class="divider" />
+    <div class="strong" style="margin-bottom:6px">${icon("message")} Texting number</div>
+    <div class="small muted" style="margin-bottom:10px">Without this, texts hand off to your phone's own SMS app and replies never reach entoa. With a dedicated number, the whole conversation lives in the <b>Inbox</b> — and the agent can draft your replies. Customers see this number instead of your personal one.</div>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>At <span class="mono">twilio.com</span>, buy a local number (a 902 keeps it familiar to Halifax customers).</li>
+        <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">TWILIO_ACCOUNT_SID</span>, <span class="mono">TWILIO_AUTH_TOKEN</span> and <span class="mono">TWILIO_FROM</span> (the number, as <span class="mono">+1902…</span>).</li>
+        <li>In Twilio, open the number → <b>Messaging</b> → "A message comes in" → <b>Webhook (HTTP POST)</b> and paste:<br><span class="mono" style="word-break:break-all">${esc(((s.agentUrl || "your function URL").trim().replace(/\/+$/, "")) + "?sms=1&u=" + ((backend.currentUser() || {}).id || "<sign in first>"))}</span></li>
+        <li>Paste the same number below.</li>
+      </ol>
+      <div class="small muted" style="margin-top:6px">Carriers require working opt-out: a customer who texts STOP is excluded from campaigns automatically, and texting START brings them back.</div>
+    </details>
+    <div class="field"><label>Your texting number</label><input id="sms-from" type="tel" value="${esc(s.smsFrom || "")}" placeholder="+19025550123"></div>
+    <div class="hint" id="sms-out">${s.smsFrom ? `${icon("checkline")} Replies come into the Inbox.` : "Not set — texts open your phone's SMS app and replies won't come back."}</div>
+
+    <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("mail")} Outlook inbox</div>
     <div class="small muted" style="margin-bottom:10px">Connect your Outlook and entoa pulls customer replies into each lead's email history automatically. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
@@ -614,6 +630,22 @@ function buildEmail(slot) {
   slot.querySelector("#em-auto").addEventListener("change", (e) => {
     store.updateSettings({ emailAutoSend: e.target.checked });
     toast(e.target.checked ? "Automated emails on" : "Automated emails off", "success");
+  });
+  slot.querySelector("#sms-from").addEventListener("change", (e) => {
+    const raw = e.target.value.trim();
+    // Twilio wants E.164; a North American 10-digit entry is unambiguous.
+    const digits = raw.replace(/\D/g, "");
+    const val = !raw ? "" : raw.startsWith("+") ? raw
+      : digits.length === 10 ? "+1" + digits
+      : digits.length === 11 && digits[0] === "1" ? "+" + digits
+      : raw;
+    e.target.value = val;
+    store.updateSettings({ smsFrom: val });
+    const hint = slot.querySelector("#sms-out");
+    if (hint) hint.innerHTML = val
+      ? `${icon("checkline")} Replies come into the Inbox.`
+      : "Not set — texts open your phone's SMS app and replies won't come back.";
+    toast(val ? "Texting number saved" : "Texting number cleared", "success");
   });
   const out = slot.querySelector("#em-test-out");
   const btn = slot.querySelector("#em-test");

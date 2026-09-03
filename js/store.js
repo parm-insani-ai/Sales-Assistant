@@ -88,6 +88,11 @@ const DEFAULT_STATE = {
   spifs: [],
   specials: [],
   emails: [], // logged emails per lead: { leadId, direction: "in"|"out", subject, body, via }
+  // Text messages, both directions, one row per message. Inbound rows are
+  // written by the function when the carrier delivers them, so they arrive on
+  // the next sync exactly like a self-booking does.
+  //   { leadId, dir: "in"|"out", body, phone, at, read, draft }
+  texts: [],
   links: [], // short-link payloads live in the cloud; rows land here on pull and are otherwise unused
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
@@ -138,6 +143,11 @@ const DEFAULT_STATE = {
     // Automated sending: when on (and the function has RESEND_API_KEY +
     // EMAIL_FROM secrets), due cadence emails go out on app open.
     emailAutoSend: false,
+    // The dedicated texting number (E.164, e.g. +19025550123). Empty = texts
+    // still hand off to the phone's own SMS app and no replies come back.
+    // Twilio's account SID, auth token and this number's webhook are configured
+    // on the function; the app only needs to know the number to show it.
+    smsFrom: "",
     // Outlook inbox sync (Microsoft Graph, on-device OAuth). The client ID of
     // the user's own Entra app registration; empty = not connected.
     msClientId: "",
@@ -378,7 +388,51 @@ export function restore(name, item) {
 }
 
 // Every syncable collection (everything except settings/outbox metadata).
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "paychecks", "push"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "paychecks", "push"];
+
+// --- Texts ---
+// Phones are compared on their last ten digits, so "(902) 555-1111",
+// "9025551111" and "+19025551111" are one customer.
+export function phoneKey(p) {
+  const d = String(p || "").replace(/\D/g, "");
+  return d.length > 10 ? d.slice(-10) : d;
+}
+
+export function leadByPhone(phone) {
+  const k = phoneKey(phone);
+  if (k.length < 10) return null;
+  return state.leads.find((l) => phoneKey(l.phone) === k) || null;
+}
+
+export function textsFor(leadId) {
+  return state.texts
+    .filter((t) => t.leadId === leadId)
+    .sort((a, b) => String(a.at || a.createdAt).localeCompare(String(b.at || b.createdAt)));
+}
+
+export function unreadTexts() {
+  return state.texts.filter((t) => t.dir === "in" && !t.read);
+}
+
+export function markThreadRead(leadId) {
+  let touched = false;
+  state.texts.forEach((t) => {
+    if (t.leadId === leadId && t.dir === "in" && !t.read) {
+      t.read = true;
+      t.updatedAt = new Date().toISOString();
+      markOutbox("texts", t.id, false);
+      touched = true;
+    }
+  });
+  if (touched) persist();
+}
+
+// A customer who texts STOP is opted out until they text back. Campaigns and
+// the cadence both check this — an opt-out that only half the app respects is
+// worse than none, because it reads as deliberate.
+export function optedOut(lead) {
+  return !!(lead && lead.smsOptOut);
+}
 
 // --- Activity tracking (prospecting touches) ---
 // A "touch" is any outreach (call/text/logged contact). Used for the daily

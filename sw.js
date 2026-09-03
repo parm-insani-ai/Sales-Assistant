@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "entoa-v127";
+const CACHE = "entoa-v128";
 const ASSETS = [
   "./",
   "./index.html",
@@ -61,6 +61,9 @@ const ASSETS = [
   "./js/paystub.js",
   "./js/push.js",
   "./js/plays.js",
+  "./js/sms.js",
+  "./js/replies.js",
+  "./js/views/inbox.js",
 ];
 
 // ---- Push: the agent's heartbeat. The Supabase function sends

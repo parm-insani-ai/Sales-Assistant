@@ -22,6 +22,7 @@ import { shortenLink } from "../shortlink.js";
 import { allTemplates, recommendTemplate, fillTemplate } from "./messages.js";
 import { bookingLink, cachedShortBookingLink } from "./settings.js";
 import * as backend from "../backend.js";
+import { sendText, smsReady } from "../sms.js";
 
 // ---- Segments -------------------------------------------------------------
 // Each is a plain predicate over a scored opportunity, so a segment can lean on
@@ -42,6 +43,9 @@ export const SEGMENTS = [
 function reachable(lead) {
   if (!lead.phone) return false;
   if (lead.stage === "lost" || lead.doNotContact) return false;
+  // Texted STOP. Carrier rules aside, an opt-out the app only half-honours
+  // reads as deliberate, which is worse than not having one.
+  if (store.optedOut(lead)) return false;
   const last = lead.lastCampaignAt ? Date.now() - new Date(lead.lastCampaignAt).getTime() : Infinity;
   return last > 20 * 24 * 3600 * 1000; // one outreach per customer per ~3 weeks
 }
@@ -186,7 +190,11 @@ export function renderCampaign(view) {
         <div class="hero-greeting">Campaign</div>
         <div class="hero-title">Fill the desk</div>
       </div>
-      <div class="fab-note" style="margin:0 2px 14px;text-align:left">Pick who to reach, and the agent works out what to put each of them in and what to say. You send from your own number — nothing goes out on its own, and no pricing leaves the building.</div>
+      <div class="fab-note" style="margin:0 2px 14px;text-align:left">Pick who to reach, and the agent works out what to put each of them in and what to say. ${
+        smsReady()
+          ? "Sends from your texting number, so replies come back to the Inbox."
+          : "You send from your own number."
+      } Nothing goes out on its own, and no pricing leaves the building.</div>
 
       <div class="card">
         <div class="field">
@@ -230,6 +238,7 @@ export function renderCampaign(view) {
   }
 
   function rowCard(row, i) {
+    const inApp = smsReady();
     const card = document.createElement("div");
     card.className = "card";
     if (row.sent) card.style.opacity = "0.5";
@@ -246,13 +255,31 @@ export function renderCampaign(view) {
       ${row.reasons && row.reasons.length ? `<div class="btn-row" style="gap:6px;margin-top:8px">${row.reasons.map((r) => `<span class="badge badge-working">${esc(r)}</span>`).join("")}</div>` : ""}
       <div class="small muted" style="margin-top:10px;white-space:pre-wrap;line-height:1.45">${esc(body)}</div>
       <div class="btn-row" style="margin-top:10px">
-        <a class="btn ${row.sent ? "btn-ghost" : "btn-primary"} btn-sm" style="flex:1" data-act="send" href="${smsHref(row.lead.phone, body)}">${icon("message")} ${row.sent ? "Send again" : "Text"}</a>
+        ${inApp
+          ? `<button class="btn ${row.sent ? "btn-ghost" : "btn-primary"} btn-sm" style="flex:1" data-act="send">${icon("message")} ${row.sent ? "Send again" : "Text"}</button>`
+          : `<a class="btn ${row.sent ? "btn-ghost" : "btn-primary"} btn-sm" style="flex:1" data-act="send" href="${smsHref(row.lead.phone, body)}">${icon("message")} ${row.sent ? "Send again" : "Text"}</a>`}
         <button class="btn btn-ghost btn-sm" data-act="open" style="flex:0 0 auto">${icon("users")}</button>
         <button class="btn btn-ghost btn-sm" data-act="skip" style="flex:0 0 auto">Skip</button>
       </div>
       ${row.link ? "" : `<div class="hint" style="margin-top:6px">No invite link yet — tap Prepare links above so they get the vehicle page.</div>`}
     `;
-    card.querySelector('[data-act="send"]').addEventListener("click", () => {
+    card.querySelector('[data-act="send"]').addEventListener("click", async (ev) => {
+      // With a texting number configured, send from the app so the reply comes
+      // back into the Inbox. Without one it hands off to the phone's SMS app,
+      // where the reply lands in the phone's own messages and the loop is open.
+      if (inApp) {
+        ev.preventDefault();
+        const btn = card.querySelector('[data-act="send"]');
+        btn.disabled = true;
+        btn.textContent = "Sending…";
+        const r = await sendText(row.lead, body);
+        if (!r.ok) {
+          toast(r.error, "warn");
+          btn.disabled = false;
+          btn.innerHTML = `${icon("message")} Text`;
+          return;
+        }
+      }
       markSent(row);
       // Re-render just this card so the list keeps its scroll position.
       const next = rowCard(row, i);

@@ -1,6 +1,7 @@
 // App bootstrap: routing, page titles, quick-add menu, service worker.
 
 import { route, startRouter, currentBase, navigate } from "./router.js";
+import * as store from "./store.js";
 import { openModal, toast } from "./components.js";
 import { icon } from "./icons.js";
 import { renderDashboard } from "./views/dashboard.js";
@@ -22,6 +23,7 @@ import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
 import { renderSpecials } from "./views/specials.js";
 import { renderCompare } from "./views/compare.js";
 import { renderComms } from "./views/comms.js";
+import { renderInbox } from "./views/inbox.js";
 import { renderSoldLog, openDealForm } from "./views/soldlog.js";
 import { renderCoach } from "./views/coach.js";
 import { renderPay } from "./views/pay.js";
@@ -57,6 +59,7 @@ const PAGES = {
   "/specials": { title: "Monthly Specials", render: renderSpecials },
   "/compare": { title: "Compare Vehicles", render: renderCompare },
   "/comms": { title: "Communication", render: renderComms },
+  "/inbox": { title: "Inbox", render: renderInbox },
   "/soldlog": { title: "Sold Tracker", render: renderSoldLog },
   "/coach": { title: "Sales Coach", render: renderCoach },
   "/pay": { title: "Paycheck", render: renderPay },
@@ -76,7 +79,7 @@ function mount(base, ctx) {
 }
 
 function detailTitle(base) {
-  return { "/leads": "Lead", "/inventory": "Vehicle", "/deliveries": "Delivery", "/calendar": "Appointment" }[base] || "Details";
+  return { "/leads": "Lead", "/inventory": "Vehicle", "/deliveries": "Delivery", "/calendar": "Appointment", "/inbox": "Conversation" }[base] || "Details";
 }
 
 function updateTabs(base) {
@@ -88,6 +91,26 @@ function updateTabs(base) {
 Object.keys(PAGES).forEach((base) => {
   route(base, (ctx) => mount(base, ctx));
 });
+
+// Unread replies get a count on the Comms tab from anywhere in the app. A text
+// answered in five minutes books far better than one answered in an hour, so
+// this is the one thing worth interrupting whatever screen you're on.
+function paintUnread() {
+  const tab = document.querySelector('.tab[data-route="/comms"]');
+  if (!tab) return;
+  const n = store.unreadTexts().length;
+  let dot = tab.querySelector(".tab-dot");
+  if (!n) return dot && dot.remove();
+  if (!dot) {
+    dot = document.createElement("span");
+    dot.className = "tab-dot";
+    tab.appendChild(dot);
+  }
+  dot.textContent = n > 9 ? "9+" : String(n);
+  dot.setAttribute("aria-label", `${n} unread ${n === 1 ? "reply" : "replies"}`);
+}
+store.subscribe(paintUnread);
+paintUnread();
 
 // Quick-add: context-aware based on the current tab. One modal holds
 // everything — the add-a-record actions up top, every tool below — rendered

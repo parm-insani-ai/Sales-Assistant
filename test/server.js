@@ -30,6 +30,12 @@ const MIME = {
 // In-memory stand-in for the links table.
 const links = new Map();
 let seq = 0;
+// Texts the app asked us to send, so a test can assert what reached "Twilio".
+const sent = [];
+// When set, the next send fails — for exercising the failed/retry path.
+let failNextSend = false;
+// Canned reply for the drafting endpoint, so no real model is called.
+let draft = "Happy to go through it properly — takes about ten minutes. Does Thursday at 5 work, or is Saturday morning easier?";
 
 function json(res, code, body) {
   res.writeHead(code, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
@@ -68,6 +74,15 @@ const server = http.createServer((req, res) => {
     return req.on("end", () => {
       let msg = {};
       try { msg = JSON.parse(body || "{}"); } catch {}
+      if (msg.sms) {
+        if (failNextSend) { failNextSend = false; return json(res, 502, { error: "carrier rejected the message" }); }
+        sent.push(msg.sms);
+        return json(res, 200, { sent: true, id: msg.sms.id, sid: "SM" + sent.length });
+      }
+      // The Claude relay: return a canned draft in the real response shape.
+      if (Array.isArray(msg.messages)) {
+        return json(res, 200, { content: [{ type: "text", text: draft }], stop_reason: "end_turn" });
+      }
       if (msg.shorten) {
         const c = "t" + (++seq).toString(36).padStart(6, "0");
         links.set(c, {
@@ -84,7 +99,13 @@ const server = http.createServer((req, res) => {
   // Test hooks: inspect the stub's link table, or clear it so runs don't read
   // each other's links.
   if (url.pathname === "/__links") return json(res, 200, [...links.values()]);
-  if (url.pathname === "/__reset") { links.clear(); seq = 0; return json(res, 200, { ok: true }); }
+  if (url.pathname === "/__sent") return json(res, 200, sent);
+  if (url.pathname === "/__failnext") { failNextSend = true; return json(res, 200, { ok: true }); }
+  if (url.pathname === "/__draft") { draft = url.searchParams.get("t") || draft; return json(res, 200, { ok: true }); }
+  if (url.pathname === "/__reset") {
+    links.clear(); seq = 0; sent.length = 0; failNextSend = false;
+    return json(res, 200, { ok: true });
+  }
 
   // --- Static files ---
   let rel = decodeURIComponent(url.pathname);
