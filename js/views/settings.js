@@ -568,6 +568,13 @@ function buildAgent(slot) {
 // runs through the same Supabase function (Resend secrets).
 function buildEmail(slot) {
   const s = store.getSettings();
+  // Proof that the webhook is actually pointing here: an inbound text can only
+  // exist if the carrier reached the function.
+  const lastInbound = store.all("texts")
+    .filter((t) => t.dir === "in")
+    .map((t) => t.at || t.createdAt)
+    .sort()
+    .pop() || null;
   slot.innerHTML = `
     <div class="small muted" style="margin-bottom:10px">Tap-to-email with templates already works from any customer — it opens your mail app with the message filled in. Optionally, entoa can also <b>send cadence emails automatically</b> when you open the app, so follow-ups go out without you touching them.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
@@ -613,6 +620,15 @@ function buildEmail(slot) {
     </details>
     <div class="field"><label>Your texting number</label><input id="sms-from" type="tel" value="${esc(s.smsFrom || "")}" placeholder="+19025550123"></div>
     <div class="hint" id="sms-out">${s.smsFrom ? `${icon("checkline")} Replies come into the Inbox.` : "Not set — texts open your phone's SMS app and replies won't come back."}</div>
+    ${s.smsFrom ? `
+    <div class="field" style="margin-top:12px"><label>Test it — send yourself a text</label><input id="sms-test-to" type="tel" value="${esc(s.contactPhone || "")}" placeholder="(902) 555-1234"></div>
+    <button class="btn btn-sm" id="sms-test" type="button">${icon("message")} Send a test text</button>
+    <div class="hint" id="sms-test-out"></div>
+    <div class="small muted" style="margin-top:10px;line-height:1.5">
+      ${lastInbound
+        ? `${icon("checkline")} <b>Replies are arriving.</b> Last one ${esc(timeAgo(lastInbound))}.`
+        : `<b>Inbound not confirmed yet.</b> Text something to ${esc(s.smsFrom)} from your own phone — it should appear in the Inbox within a few seconds. If it doesn't, the number's webhook is still pointing at wherever it was before (and if the number belongs to a Messaging Service, the service's webhook is the one that counts).`}
+    </div>` : ""}
 
     <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("mail")} Outlook inbox</div>
@@ -659,6 +675,36 @@ function buildEmail(slot) {
       : "Not set — texts open your phone's SMS app and replies won't come back.";
     toast(val ? "Texting number saved" : "Texting number cleared", "success");
   });
+  // Sends through the real path — function, secrets, Twilio — so a failure
+  // reports the actual reason instead of leaving you to guess which of the
+  // three is wrong.
+  const smsTest = slot.querySelector("#sms-test");
+  if (smsTest) smsTest.addEventListener("click", async () => {
+    const box = slot.querySelector("#sms-test-out");
+    const to = (slot.querySelector("#sms-test-to").value || "").trim();
+    if (!to) { box.textContent = "Enter a number to send the test to"; return; }
+    const user = backend.currentUser();
+    if (!user) { box.textContent = "Sign in to your cloud account first"; return; }
+    const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
+    if (!url) { box.textContent = "Set the agent function URL first (above)"; return; }
+    smsTest.disabled = true;
+    box.textContent = "Sending…";
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sms: { u: user.id, to, body: "Test from entoa — texting is working. Reply to this and it should land in your Inbox." } }),
+      });
+      const j = await res.json().catch(() => ({}));
+      box.innerHTML = res.ok && j.sent
+        ? `${icon("checkline")} Sent. Now <b>reply to it</b> — your answer should show up in the Inbox, which proves the webhook too.`
+        : `Didn't send: ${esc(j.error || `error ${res.status}`)}`;
+    } catch {
+      box.textContent = "Couldn't reach the function — check the URL and that it's deployed.";
+    }
+    smsTest.disabled = false;
+  });
+
   const out = slot.querySelector("#em-test-out");
   const btn = slot.querySelector("#em-test");
   btn.addEventListener("click", async () => {
