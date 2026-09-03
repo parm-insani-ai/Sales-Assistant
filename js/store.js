@@ -28,17 +28,20 @@ const DEFAULT_TEMPLATES = [
   // urgency, no "more than you'd expect", no assumption they want to buy.
   // Staying put is named as a real option, so the worst case for the customer
   // is that they end up knowing their own car a little better.
-  // The figure itself is deliberately withheld — it is the reason to reply, and
-  // sending it up front spends that. The messages never claim the value is high
-  // (the app cannot know, and it would be a lie to anyone upside down); they
-  // only offer to share what was pulled. {tradeValue} stays available for
-  // custom templates.
+  // No figure ever goes out by text — not the trade value, not a payment. The
+  // numbers get worked out with the customer at the desk, where a trade can
+  // actually be looked at and a mistake can be corrected in person. So the ask
+  // is always for the ten minutes, never "want me to send it over" (which
+  // promises a text you then can't send). Withholding also keeps the reason to
+  // reply intact. The messages never claim the value is high — the app cannot
+  // know, and it would be a lie to anyone upside down. {tradeValue} stays
+  // available for custom templates.
   { id: "tpl_equity", name: "Where they stand (owner)", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. I pulled what your {theirCar} is worth today — want me to send you the number? No agenda either way, it's just useful to know where you stand, staying put included." },
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. I went through where your {theirCar} sits today and there are a couple of directions worth a look. It's a ten-minute sit-down to go through properly — worst case you leave knowing your own car better. Want me to find you a time?" },
   { id: "tpl_paidoff", name: "Paid off — where they stand", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off, and I just pulled what it's worth today. Want me to send you the number? Worth knowing what you're sitting on, even if you keep it." },
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off, which puts you somewhere worth understanding before you decide anything. Give me ten minutes in person and I'll show you exactly what you're sitting on — keeping it very much included." },
   { id: "tpl_leaseend", name: "Lease coming due", channel: "sms", subject: "",
-    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon, and you've got three choices: buy it, hand it back, or start something new. Happy to walk through what each one actually costs so you can decide properly. Want me to send a summary?" },
+    body: "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon and you've got three choices: buy it, hand it back, or start something new. I'll walk you through what each one actually costs — it's a ten-minute sit-down. Want me to find you a time?" },
   { id: "tpl_first", name: "First contact (inbound)", channel: "sms", subject: "",
     body: "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. Happy to answer anything, and if it turns out not to be the right fit I'll tell you. What would be most useful to know first?" },
   { id: "tpl_appt", name: "Appointment reminder", channel: "sms", subject: "",
@@ -222,7 +225,7 @@ function load() {
     // already drive, so it read as nonsense. Templates live in settings, so a
     // new default never reaches an existing install: swap the stale body out
     // once, and only if it is still untouched.
-    if (Number(merged.settings.firstTouchFixed || 0) < 3) {
+    if (Number(merged.settings.firstTouchFixed || 0) < 4) {
       const superseded = [
         // The original: thanked an owner for their interest in their own trade.
         "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?",
@@ -234,6 +237,11 @@ function load() {
         // v124: honest and unpushy, but it handed over the number for free.
         "Hi {firstName}, it's {salesperson} at {dealership}. I ran the current numbers on your {theirCar} — it's sitting around {tradeValue} today. Figured that's worth knowing either way. If it helps I can lay out your options from here, staying put included. Want me to send it over?",
         "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and currently worth about {tradeValue} — just a useful thing to know about your own vehicle. If you're ever curious what that opens up, I'm happy to walk through it, keeping it included. Want the details?",
+        // v125: withheld the figure, but still promised to text it — which the
+        // desk rule says never happens. The ask is the appointment now.
+        "Hi {firstName}, it's {salesperson} at {dealership}. I pulled what your {theirCar} is worth today — want me to send you the number? No agenda either way, it's just useful to know where you stand, staying put included.",
+        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off, and I just pulled what it's worth today. Want me to send you the number? Worth knowing what you're sitting on, even if you keep it.",
+        "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon, and you've got three choices: buy it, hand it back, or start something new. Happy to walk through what each one actually costs so you can decide properly. Want me to send a summary?",
       ];
       const list = merged.settings.messageTemplates;
       if (Array.isArray(list)) {
@@ -243,7 +251,7 @@ function load() {
           if (fresh) list[i] = { ...fresh };
         });
       }
-      merged.settings.firstTouchFixed = 3;
+      merged.settings.firstTouchFixed = 4;
     }
     return merged;
   } catch (e) {

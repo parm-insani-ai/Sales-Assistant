@@ -16,6 +16,7 @@ import { renderImport } from "./views/import.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { renderProspecting } from "./views/prospecting.js";
 import { renderTools, TOOL_LINKS, toolGrid } from "./views/tools.js";
+import { renderCampaign } from "./views/campaign.js";
 import { openReferralCapture } from "./views/referrals.js";
 import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
 import { renderSpecials } from "./views/specials.js";
@@ -43,6 +44,7 @@ const PAGES = {
   "/calendar": { title: "Calendar", render: renderCalendar },
   "/goals": { title: "Goals & Commission", render: renderGoals },
   "/tools": { title: "Tools", render: renderTools },
+  "/campaign": { title: "Campaign", render: renderCampaign },
   // Retired surfaces. The daily call list is the Home queue now, and the Deal
   // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
   // old notifications, voice commands and bookmarks still land somewhere sane.

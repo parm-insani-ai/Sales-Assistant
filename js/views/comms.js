@@ -8,6 +8,7 @@ import { icon } from "../icons.js";
 import { esc, initials, formatDate, relativeDay, daysFromToday, telHref, smsHref, mailtoHref } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured } from "../email.js";
+import { isLikelyPrefetch } from "../plays.js";
 import { getOccasions, markOccasion } from "../occasions.js";
 import { isDismissedToday, dismissToday } from "../plays.js";
 
@@ -132,14 +133,15 @@ export function renderComms(view) {
   if (linkBox) links.forEach((lk) => {
     const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "Booking link" : "Comparison");
     const opens = Number(lk.opens) || 0;
-    const hot = lk.lastOpenAt && Date.now() - new Date(lk.lastOpenAt).getTime() < HOT_MS;
+    const prefetch = isLikelyPrefetch(lk);
+    const hot = !prefetch && lk.lastOpenAt && Date.now() - new Date(lk.lastOpenAt).getTime() < HOT_MS;
     const row = document.createElement("div");
     row.className = "row";
     row.style.cssText = "padding:7px 0;border-bottom:1px solid var(--border)";
     row.innerHTML = `
       <div class="row-main">
         <div class="row-title" style="font-size:0.92rem">${esc(label)} ${hot ? '<span class="badge badge-soon">🔥 hot</span>' : ""}</div>
-        <div class="row-sub">${opens
+        <div class="row-sub">${prefetch ? `Opened once on delivery — that's a link preview, not them. ` : ""}${opens
           ? `Opened ${opens}×${lk.lastOpenAt ? ` · last ${esc(timeAgo(lk.lastOpenAt))}` : ""}`
           : `Not opened yet${lk.createdAt ? ` · sent ${esc(timeAgo(lk.createdAt))}` : ""}`}</div>
       </div>

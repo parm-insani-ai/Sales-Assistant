@@ -564,10 +564,15 @@ function strength(score) {
 // vehicle on the lot — pitching a $0/mo Kicks to a Frontier owner with $22k of
 // equity. Replace what they drive instead, and fall back to cheapest only when
 // we can't tell what that is.
-function bestPitch(lead, method) {
+export function bestPitch(lead, method, opts = {}) {
   const rows = dealsForLead(lead, { method });
   if (!rows.length) return null;
-  if (lead.currentPayment != null) return rows[0];
+  // The radar matches the payment, which is right when you're answering "what
+  // can they afford". Outreach asks a different question — "what would they
+  // actually want to come and see" — and the answer there is a replacement for
+  // what they drive. Inviting a Rogue owner to look at a Kicks reads as a
+  // demotion however well it prices.
+  if (lead.currentPayment != null && !opts.preferReplacement) return rows[0];
   const owned = String(lead.vehicleInterest || "").toLowerCase();
   if (owned) {
     // Same model — the natural repeat sale.

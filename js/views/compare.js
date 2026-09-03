@@ -285,7 +285,7 @@ function openCustomForm(onPick) {
 }
 
 // ---------- Sharing: a branded web page (plus plain-text fallback) ----------
-function comparePayload(selected) {
+export function comparePayload(selected) {
   const s = store.getSettings();
   let book = "";
   try { if (backend.currentUser() && (s.agentUrl || "").trim()) book = cachedShortBookingLink() || bookingLink(); } catch {}
@@ -299,7 +299,7 @@ function comparePayload(selected) {
   };
 }
 
-function compareLink(payload) {
+export function compareLink(payload) {
   const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/$/, "");

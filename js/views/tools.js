@@ -7,6 +7,7 @@ import { icon } from "../icons.js";
 import { openDealerSearch } from "./dealer.js";
 
 export const TOOL_LINKS = [
+  { icon: "target", label: "Campaign", fn: () => navigate("/campaign") },
   { icon: "calculator", label: "Calculator", fn: () => navigate("/calculator") },
   { icon: "compare", label: "Compare", fn: () => navigate("/compare") },
   { icon: "tag", label: "Specials", fn: () => navigate("/specials") },

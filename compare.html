@@ -41,6 +41,7 @@
   .cta { display: block; text-align: center; margin-top: 18px; padding: 15px; border-radius: 14px; background: var(--brand); color: var(--brand-ink); font-weight: 700; text-decoration: none; font-size: 1rem; }
   .foot { color: var(--muted); font-size: 0.76rem; text-align: center; margin-top: 16px; line-height: 1.5; }
   .bad { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .note { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; font-size: 0.92rem; line-height: 1.5; margin-bottom: 14px; }
   .hidden { display: none; }
 </style>
 </head>
@@ -48,8 +49,9 @@
 <div class="wrap">
   <div id="bad" class="bad hidden">This comparison link looks incomplete — ask for a fresh one.</div>
   <div id="page" class="hidden">
-    <h1>Your comparison</h1>
+    <h1 id="head">Your comparison</h1>
     <div class="sub" id="sub"></div>
+    <div class="note hidden" id="note"></div>
     <div class="scroll" id="table"></div>
     <a class="cta hidden" id="cta" href="#">📅 Book a time to see it in person</a>
     <div class="foot" id="foot"></div>
@@ -69,6 +71,14 @@
   if (!data || !data.v || !data.v.length || !data.r) { bad(); return; }
 
   document.getElementById("page").classList.remove("hidden");
+  // Optional personal framing: an invite names the vehicle picked for this
+  // customer, where a plain comparison is neutral. Never carries pricing.
+  if (data.h) { document.getElementById("head").textContent = data.h; document.title = data.h; }
+  if (data.m) {
+    var note = document.getElementById("note");
+    note.textContent = data.m;
+    note.classList.remove("hidden");
+  }
   document.getElementById("sub").textContent =
     (data.n ? "Put together for you by " + data.n : "Side by side, feature by feature") + (data.d ? " · " + data.d : "");
 
@@ -93,7 +103,8 @@
     cta.classList.remove("hidden");
   }
   document.getElementById("foot").textContent =
-    "Specs and pricing are approximate (base trims, Canadian market) — we'll confirm exact details together." +
+    (data.h ? "Specs are approximate (Canadian market) — we'll go through the exact details when you're in."
+            : "Specs and pricing are approximate (base trims, Canadian market) — we'll confirm exact details together.") +
     (data.n ? " — " + data.n : "");
   }
 

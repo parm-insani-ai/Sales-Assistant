@@ -12,6 +12,31 @@ import { topOpportunities } from "./views/dealbuilder.js";
 const HOT_MS = 24 * 3600 * 1000;
 const first = (name) => String(name || "").trim().split(/\s+/)[0];
 
+// Carriers and messaging apps pre-fetch links to build previews, which lands as
+// an "open" the customer never made. The tell is a SINGLE open within moments
+// of the link being created, and nothing after. Anything the customer actually
+// did shows up later, or more than once — so a second open re-arms the signal
+// immediately. Deliberately narrow: suppressing a real fast open would cost far
+// more than tolerating the odd phantom.
+const PREFETCH_MS = 90 * 1000;
+export function isLikelyPrefetch(lk) {
+  if (!lk || !lk.lastOpenAt) return false;
+  if ((Number(lk.opens) || 0) > 1) return false; // they came back — real
+  const opened = new Date(lk.lastOpenAt).getTime();
+  if (isNaN(opened)) return false;
+  // Measure from when the text actually went out, not when the link was minted
+  // — a batch prepared at 9am and sent at 9:20 would otherwise slip through.
+  let ref = lk.createdAt ? new Date(lk.createdAt).getTime() : null;
+  const leadId = lk.meta && lk.meta.leadId;
+  if (leadId) {
+    const lead = store.all("leads").find((l) => l.id === leadId);
+    const sent = lead && lead.lastCampaignAt ? new Date(lead.lastCampaignAt).getTime() : null;
+    if (sent && (!ref || sent > ref)) ref = sent;
+  }
+  if (!ref) return false;
+  return opened >= ref && opened - ref <= PREFETCH_MS;
+}
+
 // ---- Dismissals ----
 // A dismissed play stays gone for the rest of the day (per device); tomorrow
 // is a new sheet. Occasions are the exception — dismissing one marks it on
@@ -54,6 +79,7 @@ export function getPlays(limit = 6) {
   // 1. Warm link opens (last 24h) — the customer is reading right now.
   store.all("links")
     .filter((lk) => lk.lastOpenAt && now - new Date(lk.lastOpenAt).getTime() < HOT_MS)
+    .filter((lk) => !isLikelyPrefetch(lk))
     .sort((a, b) => (b.lastOpenAt || "").localeCompare(a.lastOpenAt || ""))
     .slice(0, 4)
     .forEach((lk) => {
