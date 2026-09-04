@@ -641,6 +641,13 @@ async function handleSmsCheck(body: any): Promise<Response> {
       out.number = { error: String(e).slice(0, 120) };
     }
   }
+  // Says this build knows how to answer the question below. Without it, a
+  // function too old to record inbound hits returns no field at all — which
+  // reads identically to "nothing has ever arrived", and sends someone off
+  // debugging Twilio when the real answer is "redeploy me". A diagnostic that
+  // can't tell "no" from "I don't know" is worse than none.
+  out.canReportInbound = true;
+
   // Has an inbound webhook ever actually reached this function?
   try {
     const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.smshits&deleted=eq.false&select=data`;

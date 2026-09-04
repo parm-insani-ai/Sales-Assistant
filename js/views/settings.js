@@ -822,7 +822,12 @@ function buildEmail(slot) {
       // The decisive line. Twilio showing an inbound message as "Received"
       // only means Twilio got it — it says nothing about whether the webhook
       // reached this function. This does.
-      if (d.inbound && d.inbound.at) {
+      if (!d.canReportInbound) {
+        rows.push(`⚠️ <b>This function can't report whether texts are arriving.</b> It's an older build —
+          redeploy <span class="mono">supabase/functions/voice-agent/index.ts</span> to
+          <span class="mono">${esc(url.split("/").pop())}</span> and check again. Until then this line can't
+          tell "nothing arrived" from "I wasn't built to know".`);
+      } else if (d.inbound && d.inbound.at) {
         const ago = timeAgo(d.inbound.at);
         rows.push(/accepted/.test(d.inbound.outcome || "")
           ? `✅ <b>A text has reached entoa</b> — last one ${esc(ago)}${d.inbound.from ? ` from …${esc(d.inbound.from)}` : ""}.`

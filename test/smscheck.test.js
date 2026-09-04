@@ -80,6 +80,7 @@ const CASES = [
       auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
       number: { owned: true, smsCapable: true, inMessagingService: false,
         smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      canReportInbound: true,
       inbound: null,
     },
     expect: [/No inbound text has ever reached this function/i, /only means Twilio got them/i],
@@ -91,6 +92,7 @@ const CASES = [
       auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
       number: { owned: true, smsCapable: true, inMessagingService: false,
         smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      canReportInbound: true,
       inbound: { outcome: "accepted", from: "7202", at: new Date(Date.now() - 120000).toISOString() },
     },
     expect: [/A text has reached entoa/i, /7202/],
@@ -103,6 +105,7 @@ const CASES = [
       auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
       number: { owned: true, smsCapable: true, inMessagingService: false,
         smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      canReportInbound: true,
       inbound: { outcome: "rejected: signature", from: "7202", at: new Date(Date.now() - 60000).toISOString() },
     },
     expect: [/turned away/i, /auth token is the thing to re-check/i],
@@ -118,6 +121,20 @@ const CASES = [
     },
     expect: [/Replies are pointed at entoa/i],
     forbid: [/going somewhere else/i],
+  },
+  {
+    // The trap this closes: an older function returns no inbound field, which
+    // is indistinguishable from "nothing ever arrived" — and sends someone to
+    // debug Twilio when the answer is "redeploy me".
+    name: "an older function that cannot report inbound hits",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+    },
+    expect: [/can't report whether texts are arriving/i, /older build/i],
+    forbid: [/never reached this function/i, /A text has reached entoa/i],
   },
   {
     name: "the number has no inbound webhook",
