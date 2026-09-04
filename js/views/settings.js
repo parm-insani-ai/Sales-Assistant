@@ -752,7 +752,14 @@ function buildEmail(slot) {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.secrets) {
-        box.innerHTML = `Couldn't check (${esc(d.error || res.status)}). If this says 404, the function hasn't been redeployed with the latest code yet.`;
+        // An older function has no smscheck route, so the request falls all the
+        // way through its router to the Claude relay at the bottom — which
+        // rejects it for having no messages. That answer is confusing on its
+        // own but it identifies the cause exactly, so name it.
+        const stale = /no messages/i.test(String(d.error || "")) || res.status === 404;
+        box.innerHTML = stale
+          ? `<b>The function is running an older version.</b> It answered “${esc(d.error || res.status)}”, which is what happens when it doesn't recognise this request. Re-paste <span class="mono">supabase/functions/voice-agent/index.ts</span> into Supabase → Edge Functions → <span class="mono">voice-agent</span> and deploy, then check again.`
+          : `Couldn't check: ${esc(d.error || res.status)}`;
         smsCheck.disabled = false;
         return;
       }
