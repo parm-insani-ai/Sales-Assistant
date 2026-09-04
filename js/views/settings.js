@@ -622,8 +622,12 @@ function buildEmail(slot) {
     <div class="hint" id="sms-out">${s.smsFrom ? `${icon("checkline")} Replies come into the Inbox.` : "Not set — texts open your phone's SMS app and replies won't come back."}</div>
     ${s.smsFrom ? `
     <div class="field" style="margin-top:12px"><label>Test it — send yourself a text</label><input id="sms-test-to" type="tel" value="${esc(s.contactPhone || "")}" placeholder="(902) 555-1234"></div>
-    <button class="btn btn-sm" id="sms-test" type="button">${icon("message")} Send a test text</button>
+    <div class="btn-row">
+      <button class="btn btn-sm" id="sms-test" type="button">${icon("message")} Send a test text</button>
+      <button class="btn btn-sm btn-ghost" id="sms-check" type="button">${icon("help")} Check setup</button>
+    </div>
     <div class="hint" id="sms-test-out"></div>
+    <div class="small" id="sms-check-out" style="margin-top:8px"></div>
     <div class="small muted" style="margin-top:10px;line-height:1.5">
       ${lastInbound
         ? `${icon("checkline")} <b>Replies are arriving.</b> Last one ${esc(timeAgo(lastInbound))}.`
@@ -703,6 +707,73 @@ function buildEmail(slot) {
       box.textContent = "Couldn't reach the function — check the URL and that it's deployed.";
     }
     smsTest.disabled = false;
+  });
+
+  // Asks the function what it can actually see, so a failure names itself
+  // instead of being narrowed down by guesswork. No secret is returned — only
+  // lengths, shapes, and Twilio's own verdict on the credentials.
+  const smsCheck = slot.querySelector("#sms-check");
+  if (smsCheck) smsCheck.addEventListener("click", async () => {
+    const box = slot.querySelector("#sms-check-out");
+    const user = backend.currentUser();
+    const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
+    if (!user) { box.textContent = "Sign in to your cloud account first"; return; }
+    if (!url) { box.textContent = "Set the agent function URL first"; return; }
+    smsCheck.disabled = true;
+    box.textContent = "Checking…";
+    try {
+      const res = await fetch(url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ smscheck: { u: user.id } }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.secrets) {
+        box.innerHTML = `Couldn't check (${esc(d.error || res.status)}). If this says 404, the function hasn't been redeployed with the latest code yet.`;
+        smsCheck.disabled = false;
+        return;
+      }
+      const rows = [];
+      const mark = (ok) => ok ? "✅" : "❌";
+      const s = d.secrets;
+      const shapeNote = (x) =>
+        !x.set ? "not set at all" :
+        x.hasQuotes ? `${x.length} chars — has quote marks around it, remove them` :
+        x.hasWhitespace ? `${x.length} chars — has a stray space or newline, re-paste it` :
+        x.looksRight ? `${x.length} chars, right shape` :
+        `${x.length} chars — wrong shape`;
+      rows.push(`${mark(s.TWILIO_ACCOUNT_SID.looksRight && !s.TWILIO_ACCOUNT_SID.hasWhitespace)} <b>Account SID</b> — ${esc(shapeNote(s.TWILIO_ACCOUNT_SID))}${
+        s.TWILIO_ACCOUNT_SID.set && s.TWILIO_ACCOUNT_SID.startsWith !== "AC"
+          ? ` (starts <span class="mono">${esc(s.TWILIO_ACCOUNT_SID.startsWith)}</span>, should start <span class="mono">AC</span>)` : ""}`);
+      rows.push(`${mark(s.TWILIO_AUTH_TOKEN.looksRight && !s.TWILIO_AUTH_TOKEN.hasWhitespace)} <b>Auth token</b> — ${esc(shapeNote(s.TWILIO_AUTH_TOKEN))}`);
+      rows.push(`${mark(s.TWILIO_FROM.looksRight)} <b>From number</b> — ${s.TWILIO_FROM.set ? `<span class="mono">${esc(s.TWILIO_FROM.value)}</span>${s.TWILIO_FROM.looksRight ? "" : " — needs to be like +19025550123"}` : "not set at all"}`);
+
+      if (d.auth) {
+        rows.push(d.auth.ok
+          ? `✅ <b>Twilio accepted the credentials</b> — account “${esc(d.auth.friendlyName || "")}”, ${esc(d.auth.accountType || "")}, ${esc(d.auth.accountStatus || "")}`
+          : `❌ <b>Twilio rejected the credentials</b>${d.auth.message ? ` — ${esc(d.auth.message)}` : ""}${d.auth.code ? ` (code ${d.auth.code})` : ""}`);
+        if (d.auth.ok && /trial/i.test(d.auth.accountType || ""))
+          rows.push(`⚠️ This is a <b>trial account</b> — it can only text numbers you've verified in Twilio, and it adds a trial prefix to every message. Upgrade before texting real customers.`);
+        if (d.auth.ok && d.auth.accountStatus && !/active/i.test(d.auth.accountStatus))
+          rows.push(`⚠️ The account is <b>${esc(d.auth.accountStatus)}</b>, not active — Twilio won't send until that's resolved.`);
+      }
+      if (d.number) {
+        if (d.number.owned) {
+          rows.push(`${mark(d.number.smsCapable)} <b>The number is on this account</b>${d.number.smsCapable ? " and can send SMS" : " but is NOT SMS-capable"}`);
+          if (d.number.inMessagingService)
+            rows.push(`⚠️ The number belongs to a <b>Messaging Service</b>. Sending still works, but its <i>inbound</i> webhook comes from the service — set the URL there, not on the number, or replies will never arrive.`);
+          else if (d.number.smsUrl)
+            rows.push(`Inbound webhook currently: <span class="mono" style="word-break:break-all">${esc(d.number.smsUrl)}</span>`);
+          else
+            rows.push(`⚠️ The number has <b>no inbound webhook set</b> — sending will work, but replies go nowhere.`);
+        } else {
+          rows.push(`❌ <b>${esc(d.number.note || "That number isn't on this account.")}</b>`);
+        }
+      }
+      box.innerHTML = `<div style="line-height:1.6">${rows.join("<br>")}</div>`;
+    } catch {
+      box.textContent = "Couldn't reach the function.";
+    }
+    smsCheck.disabled = false;
   });
 
   const out = slot.querySelector("#em-test-out");

@@ -516,6 +516,68 @@ function twilioReason(out: any, status: number): string {
   return raw ? `Twilio: ${raw}${code ? ` (code ${code})` : ""}` : `send failed (${status})`;
 }
 
+// Setup diagnosis. "Authenticate" tells you a credential was rejected but not
+// which one or why, and guessing from the outside is slow and often wrong. This
+// reports what the function can actually see — shapes and lengths, never the
+// secrets themselves — then asks Twilio directly whether the credentials work
+// and whether the number belongs to the account, which are separate questions
+// that the send path collapses into one error.
+async function handleSmsCheck(body: any): Promise<Response> {
+  const uid = String(body.smscheck?.u || "");
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
+  const { sid, token, from } = twilioCfg();
+
+  // Whitespace pasted into a secret is invisible in the dashboard and fatal here.
+  const shape = (v: string) => ({
+    set: !!v,
+    length: v.length,
+    hasWhitespace: v !== v.trim() || /\s/.test(v),
+    hasQuotes: /^["']|["']$/.test(v),
+  });
+  const secrets = {
+    TWILIO_ACCOUNT_SID: { ...shape(sid), startsWith: sid.slice(0, 2), looksRight: /^AC[0-9a-f]{32}$/i.test(sid) },
+    TWILIO_AUTH_TOKEN: { ...shape(token), looksRight: /^[0-9a-f]{32}$/i.test(token) },
+    // Not a secret — it's the number customers see.
+    TWILIO_FROM: { ...shape(from), value: from, looksRight: /^\+[1-9]\d{7,14}$/.test(from) },
+  };
+  if (!sid || !token) return json({ secrets, auth: { ok: false, why: "missing credentials" } });
+
+  const basic = "Basic " + btoa(`${sid.trim()}:${token.trim()}`);
+  const out: any = { secrets };
+
+  // Does this pair authenticate at all, independent of sending?
+  try {
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid.trim()}.json`, { headers: { Authorization: basic } });
+    const j = await r.json().catch(() => ({}));
+    out.auth = r.ok
+      ? { ok: true, accountStatus: j.status, accountType: j.type, friendlyName: j.friendly_name }
+      : { ok: false, status: r.status, code: j.code ?? null, message: j.message || "" };
+  } catch (e) {
+    out.auth = { ok: false, why: String(e).slice(0, 120) };
+  }
+
+  // Separate question: is TWILIO_FROM a number on THIS account, and can it text?
+  if (out.auth?.ok && from) {
+    try {
+      const q = `https://api.twilio.com/2010-04-01/Accounts/${sid.trim()}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(from.trim())}`;
+      const r = await fetch(q, { headers: { Authorization: basic } });
+      const j = await r.json().catch(() => ({}));
+      const row = (j.incoming_phone_numbers || [])[0];
+      out.number = row
+        ? { owned: true, smsCapable: !!row.capabilities?.sms, friendlyName: row.friendly_name,
+            // A number attached to a Messaging Service takes its inbound webhook
+            // from the service, not from the number — the usual reason replies
+            // never arrive even though sending works.
+            inMessagingService: !!row.messaging_service_sid,
+            smsUrl: row.sms_url || "", statusCallback: row.status_callback || "" }
+        : { owned: false, note: "That number isn't on this account — check you're using the right account or subaccount." };
+    } catch (e) {
+      out.number = { error: String(e).slice(0, 120) };
+    }
+  }
+  return json(out);
+}
+
 async function handleSendSms(body: any): Promise<Response> {
   const { sid, token, from } = twilioCfg();
   const s = body.sms || {};
@@ -567,6 +629,7 @@ Deno.serve(async (req: Request) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+  if (body.smscheck) return handleSmsCheck(body);
   if (body.sms) return handleSendSms(body);
   if (body.book) return handleBook(body);
   if (body.shorten) return handleShorten(body.shorten);

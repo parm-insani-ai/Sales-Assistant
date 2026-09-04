@@ -36,6 +36,9 @@ const sent = [];
 let failNextSend = false;
 // Canned reply for the drafting endpoint, so no real model is called.
 let draft = "Happy to go through it properly — takes about ten minutes. Does Thursday at 5 work, or is Saturday morning easier?";
+// What the function reports back from a setup check; tests swap this for the
+// shape they want to see rendered.
+let checkReply = { secrets: {}, auth: { ok: false, why: "not configured in this stub" } };
 
 function json(res, code, body) {
   res.writeHead(code, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
@@ -74,6 +77,9 @@ const server = http.createServer((req, res) => {
     return req.on("end", () => {
       let msg = {};
       try { msg = JSON.parse(body || "{}"); } catch {}
+      // Canned diagnosis, so the Settings readout can be exercised against the
+      // shapes a real misconfiguration produces.
+      if (msg.smscheck) return json(res, 200, checkReply);
       if (msg.sms) {
         if (failNextSend) { failNextSend = false; return json(res, 502, { error: "carrier rejected the message" }); }
         sent.push(msg.sms);
@@ -102,6 +108,13 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__sent") return json(res, 200, sent);
   if (url.pathname === "/__failnext") { failNextSend = true; return json(res, 200, { ok: true }); }
   if (url.pathname === "/__draft") { draft = url.searchParams.get("t") || draft; return json(res, 200, { ok: true }); }
+  if (url.pathname === "/__check") {
+    if (req.method === "POST") {
+      let b = ""; req.on("data", (c) => (b += c));
+      return req.on("end", () => { try { checkReply = JSON.parse(b); } catch {} json(res, 200, { ok: true }); });
+    }
+    return json(res, 200, checkReply);
+  }
   if (url.pathname === "/__reset") {
     links.clear(); seq = 0; sent.length = 0; failNextSend = false;
     return json(res, 200, { ok: true });
