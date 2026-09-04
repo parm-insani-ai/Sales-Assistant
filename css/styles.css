@@ -1,8 +1,8 @@
 /* ============================================================================
    Entoa — design system
-   Light theme inspired by Airbnb (calm, airy, premium), dark theme inspired by
-   Robinhood (near-black, bold numerals, confident emerald accent). Theme
-   follows the device's color scheme. Legacy variable names (--primary, --accent,
+   Both themes aim at calm: airy and premium in the light, settled and quiet in
+   the dark. Neither uses pure black or pure white. Theme follows the device's
+   colour scheme. Legacy variable names (--primary, --accent,
    --success, --danger, --bg, --surface, --border, --text, --muted) are preserved
    so inline styles across the views keep working.
    ========================================================================== */
@@ -51,6 +51,11 @@
   --shadow: 0 2px 6px rgba(15, 23, 32, 0.05), 0 6px 16px rgba(15, 23, 32, 0.06);
   --shadow-lg: 0 12px 34px rgba(15, 23, 32, 0.14);
   --ring: 0 0 0 3px rgba(10, 143, 91, 0.18);
+  /* Colour of the shadow under an accent-filled control. Tinted in light,
+     where it reads as warmth under a green button; neutral in dark, where a
+     coloured shadow on a dark ground becomes a glow and the button starts
+     looking like signage. */
+  --lift: rgba(10, 143, 91, 0.32);
 
   --nav-bg: rgba(255, 255, 255, 0.86);
   --bar-bg: rgba(246, 247, 249, 0.8);
@@ -58,39 +63,60 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* ---------- Dark theme (Robinhood-inspired) ---------- */
-    --bg: #0a0b0d;
-    --surface: #131518;
-    --surface-2: #1b1e22;
-    --surface-3: #23272c;
-    --border: #24272c;
-    --border-strong: #30353b;
+    /* ---------- Dark theme ----------
+       The old dark mode was a trading terminal: near-black under pure white,
+       with a saturated green that glowed. Maximum contrast reads as urgency,
+       which is the wrong feeling for a job already full of it — and this app
+       gets opened at 9pm on a lot after a twelve-hour shift.
 
-    --text: #f4f7fa;
-    --text-2: #c4ccd4;
-    --muted: #8b95a1;
-    --faint: #626b76;
+       So: no black and no white. The floor is a warm charcoal you can see the
+       colour of, text sits a little under white so it stops vibrating, and the
+       green is desaturated to a sage that sits in the page instead of hovering
+       above it. Surfaces separate by getting lighter — which is how depth
+       actually reads in the dark — with borders as hairlines rather than
+       drawn lines. */
+    --bg: #1b1d1e;
+    --surface: #242829;
+    --surface-2: #2e3233;
+    --surface-3: #383d3e;
+    /* Alpha, so a border lifts with whatever it sits on instead of turning
+       into a hard grey rectangle against it. */
+    --border: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.14);
 
-    --brand: #10c96f;
-    --brand-ink: #04150d;
-    --brand-strong: #0fb866;
-    --brand-tint: rgba(16, 201, 111, 0.12);
+    /* Never #fff. Pure white on a dark ground shimmers at small sizes and is
+       the single biggest reason dark UIs feel tiring. */
+    --text: #e7e9e7;
+    --text-2: #b2b7b5;
+    --muted: #8a908e;
+    --faint: #676d6b;
+
+    --brand: #5fbf94;
+    --brand-ink: #0b1a13;
+    --brand-strong: #74caa4;
+    --brand-tint: rgba(95, 191, 148, 0.13);
 
     --primary: var(--brand);
     --primary-ink: var(--brand-ink);
-    --accent: #4c8dff;
-    --success: #10c96f;
-    --warning: #f5a623;
-    --danger: #ff5a5f;
+    --accent: #7fa8e6;
+    --success: #5fbf94;
+    --warning: #d6a463;
+    /* A muted rose. The old alarm red was being used for ordinary counts like
+       "1 follow-up due", which made a normal Tuesday look like an emergency. */
+    --danger: #dd8b87;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow: 0 2px 8px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
-    --ring: 0 0 0 3px rgba(16, 201, 111, 0.28);
+    /* Big soft falloff rather than a dark halo — on a lifted ground a shadow
+       should suggest height, not draw an outline. */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.26), 0 10px 30px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.45);
+    --ring: 0 0 0 3px rgba(95, 191, 148, 0.24);
+    --lift: rgba(0, 0, 0, 0.45);
 
-    --nav-bg: rgba(19, 21, 24, 0.86);
-    --bar-bg: rgba(10, 11, 13, 0.8);
+    --nav-bg: rgba(36, 40, 41, 0.82);
+    --bar-bg: rgba(27, 29, 30, 0.78);
   }
+
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -164,7 +190,7 @@ html, body {
   display: grid;
   place-items: center;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(10, 143, 91, 0.32);
+  box-shadow: 0 4px 14px var(--lift);
   transition: transform 0.12s ease, box-shadow 0.2s;
 }
 .icon-btn:active { transform: scale(0.9); }
@@ -268,7 +294,7 @@ html, body {
   flex: none; width: 42px; height: 42px; border-radius: 50%;
   border: none; background: var(--brand); color: var(--brand-ink);
   display: grid; place-items: center; cursor: pointer;
-  box-shadow: 0 4px 14px rgba(10, 143, 91, 0.32);
+  box-shadow: 0 4px 14px var(--lift);
   transition: transform 0.12s;
 }
 .voice-send:active { transform: scale(0.9); }
@@ -315,7 +341,7 @@ html, body {
   place-items: center;
   background: var(--brand);
   color: var(--brand-ink);
-  box-shadow: 0 6px 18px rgba(10, 143, 91, 0.42);
+  box-shadow: 0 6px 18px var(--lift);
   border: 3px solid var(--nav-bg);
   transition: transform 0.12s ease;
 }
@@ -447,10 +473,10 @@ html, body {
   background: var(--brand);
   border-color: var(--brand);
   color: var(--brand-ink);
-  box-shadow: 0 3px 12px rgba(10, 143, 91, 0.26);
+  box-shadow: 0 3px 12px var(--lift);
 }
 .btn-primary:active { filter: brightness(0.96); }
-.btn-success { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); box-shadow: 0 3px 12px rgba(10, 143, 91, 0.26); }
+.btn-success { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); box-shadow: 0 3px 12px var(--lift); }
 .btn-danger { background: transparent; border-color: color-mix(in srgb, var(--danger) 45%, transparent); color: var(--danger); }
 .btn-ghost { background: var(--surface-2); border-color: transparent; }
 .btn-ghost:active { background: var(--surface-3); }
@@ -722,7 +748,7 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .prospect-card {
   background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
   border-color: transparent;
-  box-shadow: 0 6px 20px rgba(10, 143, 91, 0.32);
+  box-shadow: 0 6px 20px var(--lift);
 }
 .prospect-card .ico { vertical-align: -0.2em; }
 
@@ -853,4 +879,64 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
   border-radius: var(--radius-pill);
   background: var(--danger); color: #fff;
   font-size: 0.6rem; font-weight: 800; line-height: 16px; text-align: center;
+}
+
+/* ============================================================================
+   Dark theme — component corrections.
+   These live at the end on purpose: they override rules defined further up, and
+   an override in the palette block at the top of the file loses to them on
+   source order. That is exactly what happened the first time.
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  /* Nothing should glow. A coloured shadow under a saturated button on a black
+     ground is what made the accents read as neon signage; on a lifted floor a
+     plain soft shadow says "this floats" without the halo. */
+  .voice-fab { box-shadow: 0 5px 16px rgba(0, 0, 0, 0.45); }
+  .fab { box-shadow: 0 5px 16px rgba(0, 0, 0, 0.45); }
+  .prospect-card { box-shadow: var(--shadow); }
+
+  /* Badges were five competing hues — blue, teal, purple, amber, red — over
+     black, which turned an ordinary customer list into a status board. Tonal
+     tints instead: the word carries the meaning, the colour only groups. */
+  .badge { font-weight: 600; }
+  .badge-new,
+  .badge-appt { color: #9dc4ea; background: rgba(127, 168, 230, 0.13); }
+  .badge-working,
+  .badge-negotiating { color: #d9b784; background: rgba(214, 164, 99, 0.13); }
+  .badge-sold,
+  .badge-available,
+  .badge-delivered { color: #8fd0b0; background: rgba(95, 191, 148, 0.13); }
+  .badge-lost,
+  .badge-due,
+  .badge-hold,
+  .badge-soon { color: #e3a5a1; background: rgba(221, 139, 135, 0.13); }
+
+  /* Cards separate by sitting slightly above the floor, not by being outlined.
+     The border stays as a hairline for edge definition on large surfaces. */
+  .card { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22); }
+
+  /* A filled accent button at full saturation is the loudest thing on a dark
+     page. Softening the text weight and letting the surface carry the colour
+     keeps it obviously primary without shouting. */
+  .btn-primary { font-weight: 650; }
+
+  /* Inputs shouldn't read as bright cut-outs. */
+  .field input,
+  .field select,
+  .field textarea,
+  .searchbar { background: var(--surface-2); border-color: var(--border-strong); }
+
+  /* The unread dot is information, not an alarm. */
+  .tab-dot { background: var(--brand); color: var(--brand-ink); }
+
+  /* Light text on a dark ground blooms — the same weight reads noticeably
+     heavier than it does in light mode. Stepping the big type down is a
+     correction for that, not a style choice, and it's most of the difference
+     between a screen that feels loud and one that feels settled. */
+  .topbar h1 { font-weight: 680; letter-spacing: -0.02em; }
+  .hero-title { font-weight: 660; letter-spacing: -0.022em; }
+  .section-title { font-weight: 620; }
+  .stat-value { font-weight: 680; letter-spacing: -0.02em; }
+  .row-title { font-weight: 620; }
+  b, strong, .strong { font-weight: 640; }
 }
