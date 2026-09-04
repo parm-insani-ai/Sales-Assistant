@@ -22,6 +22,7 @@ import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
 import * as backend from "./backend.js";
+import { openText } from "./sms.js";
 
 export function agentConfigured() {
   return !!(store.getSettings().agentUrl || "").trim();
@@ -393,7 +394,10 @@ export async function execTool(name, p = {}) {
       const lead = findLead(p.customer || p.name);
       if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
       if (!lead.phone) return { result: `${lead.name} has no phone number on file`, note: `⚠ no phone on file for ${lead.name}` };
-      location.href = smsHref(lead.phone, String(p.message || ""));
+      // Same destination either way: the conversation when a texting number is
+      // set up, the phone's SMS app when it isn't.
+      if (!openText(lead.phone, String(p.message || "")))
+        location.href = smsHref(lead.phone, String(p.message || ""));
       return { result: `opened a prefilled text to ${lead.name} — the salesperson just hits send`, note: `texting ${lead.name}` };
     }
     case "call_customer": case "call": {

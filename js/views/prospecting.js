@@ -9,6 +9,7 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
+import { openText } from "../sms.js";
 import {
   esc, phoneDisplay, telHref, smsHref, relativeDay, daysFromToday,
   formatDate, parseDate,
@@ -218,7 +219,9 @@ function rowCard(r, refresh) {
     markTouched();
     const lead = r.leadId ? store.get("leads", r.leadId) : null;
     if (lead) openTemplatePicker(lead);
-    else window.location.href = smsHref(r.phone);
+    // Set directly rather than followed as a link, so the click interceptor
+    // never sees it — route it here instead.
+    else if (!openText(r.phone)) window.location.href = smsHref(r.phone);
   });
 
   el.querySelector('[data-act="appt"]').addEventListener("click", () =>

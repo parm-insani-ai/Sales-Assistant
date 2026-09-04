@@ -12,6 +12,8 @@
 
 import * as store from "./store.js";
 import * as backend from "./backend.js";
+import { navigate } from "./router.js";
+import { toast } from "./components.js";
 
 // Texting needs a signed-in cloud account (to own the records), the function
 // URL (to reach Twilio), and a number configured on this account.
@@ -86,6 +88,80 @@ export async function retryText(textId) {
   if (!lead) return { ok: false, error: "Customer is gone." };
   store.remove("texts", textId); // the retry writes a fresh row at the end of the thread
   return sendText(lead, row.body);
+}
+
+// ---- Routing every "Text" button through the number ----
+//
+// Every send button in the app is an <a href="sms:…">, which hands off to the
+// phone's own messaging app. Once a texting number is configured that's the
+// wrong destination: the customer's reply lands in the salesperson's personal
+// messages, where the agent can't see it — the exact thing two-way texting
+// exists to fix. Rather than rewrite every call site (and miss the next one
+// somebody adds), the click is intercepted in one place.
+//
+// It opens the thread with the message prefilled rather than firing it off.
+// Handing off to iMessage always had a review step before the customer got
+// anything, and silently sending on tap would quietly remove it.
+
+const PREFILL = "entoa:sms-prefill";
+
+function parseSmsHref(href) {
+  const m = /^sms:([^?]*)(?:\?&?body=(.*))?$/.exec(String(href || ""));
+  if (!m || !m[1]) return null;
+  let body = "";
+  try { body = m[2] ? decodeURIComponent(m[2]) : ""; } catch { body = m[2] || ""; }
+  return { phone: m[1], body };
+}
+
+export function takePrefill(leadId) {
+  try {
+    const raw = sessionStorage.getItem(PREFILL);
+    if (!raw) return "";
+    const p = JSON.parse(raw);
+    if (p.leadId !== leadId) return "";
+    sessionStorage.removeItem(PREFILL);
+    return p.body || "";
+  } catch { return ""; }
+}
+
+// Open a conversation instead of the phone's SMS app. Returns false when
+// texting isn't configured, so callers can fall back to their old behaviour.
+export function openText(phone, body = "") {
+  if (!smsReady()) return false;
+  if (store.phoneKey(phone).length < 10) return false;
+  let lead = store.leadByPhone(phone);
+  // Texting someone the app doesn't know yet — the inbound webhook makes a lead
+  // out of a stranger's text for the same reason, so the conversation has
+  // somewhere to live.
+  if (!lead) {
+    const d = store.phoneKey(phone);
+    lead = store.create("leads", {
+      name: d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : phone,
+      phone, stage: "new", source: "text",
+    });
+  }
+  if (store.optedOut(lead)) return false; // let the caller explain; we don't send
+  try {
+    if (body) sessionStorage.setItem(PREFILL, JSON.stringify({ leadId: lead.id, body }));
+  } catch { /* private mode — the thread still opens, just empty */ }
+  navigate(`/inbox/${lead.id}`);
+  return true;
+}
+
+export function interceptSmsLinks() {
+  document.addEventListener("click", (e) => {
+    if (!smsReady()) return;
+    const a = e.target && e.target.closest && e.target.closest('a[href^="sms:"]');
+    if (!a) return;
+    const parsed = parseSmsHref(a.getAttribute("href"));
+    if (!parsed) return;
+    const lead = store.leadByPhone(parsed.phone);
+    if (lead && store.optedOut(lead)) {
+      e.preventDefault();
+      return toast(`${(lead.name || "They").split(" ")[0]} has opted out of texts`, "warn");
+    }
+    if (openText(parsed.phone, parsed.body)) e.preventDefault();
+  }, true);
 }
 
 // Threads with something waiting on them, newest first. This is the inbox.

@@ -11,7 +11,7 @@ import { navigate } from "../router.js";
 import { toast } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, telHref } from "../utils.js";
-import { sendText, retryText, inboxThreads, smsReady, smsBlocker } from "../sms.js";
+import { sendText, retryText, inboxThreads, smsReady, smsBlocker, takePrefill } from "../sms.js";
 import { draftReply, draftingAvailable } from "../replies.js";
 
 function when(iso) {
@@ -152,6 +152,14 @@ function renderThread(view, leadId) {
       ${blocked ? `<div class="small muted" style="margin-top:8px">${esc(blocked)}</div>` : ""}`;
 
     const box = compose.querySelector("#ib-text");
+    // Arrived here from a "Text" button elsewhere in the app: it carries the
+    // message it would have handed to iMessage. Read it, don't send it — the
+    // last look before a customer gets something stays with the person.
+    const prefill = takePrefill(leadId);
+    if (prefill && box && !box.disabled) {
+      box.value = prefill;
+      requestAnimationFrame(() => { box.focus(); box.setSelectionRange(box.value.length, box.value.length); });
+    }
     compose.querySelector('[data-act="send"]')?.addEventListener("click", async () => {
       const body = box.value.trim();
       if (!body) return;

@@ -30,8 +30,17 @@ const TEXTS = [
       access_token: "test-token", refresh_token: "test-refresh",
       user: { id: "00000000-0000-4000-8000-000000000001", email: "test@example.com" },
     }));
+    // An unconfirmed appointment today gives Comms a "Confirm" button, which
+    // is a text carrying a body — the case that proves the message survives
+    // the hop into the compose box.
+    const today = new Date().toISOString().slice(0, 10);
     localStorage.setItem("sales-assistant:v1", JSON.stringify({
       leads, texts,
+      appointments: [{
+        id: "ap1", type: "appointment", title: "Appointment", customerName: "Ann Lee",
+        phone: "9025551111", vehicle: "2026 Nissan Rogue", when: `${today}T15:00`,
+        status: "scheduled", confirmed: false, leadId: "a", createdAt: "x", updatedAt: "x",
+      }],
       settings: { salesperson: "Parm", dealership: "O'Regan's Nissan", taxRate: 14, docFee: 699,
         defaultApr: 7.9, defaultTerm: 72, cloudAutoSync: false,
         smsFrom: "+19025550123",
@@ -147,6 +156,39 @@ const TEXTS = [
   });
   console.log("campaign includes:", inCampaign.join(", ") || "(none)");
   if (inCampaign.includes("Stu Ross")) throw new Error("FAIL: an opted-out customer is still in campaigns");
+
+  // --- Every "Text" button in the app, not just the ones I remembered ---
+  // The bug this covers: with a texting number configured, tapping Text on a
+  // lead still handed off to iMessage, so the customer's reply went to a
+  // personal inbox the agent can't see. Any sms: link left anywhere is a hole,
+  // so this walks the surfaces that have one.
+  for (const [where, hash] of [["lead page", "/leads/a"], ["dashboard", "/"], ["comms", "/comms"]]) {
+    await p.goto(APP + "/#" + hash);
+    await p.waitForTimeout(500);
+    const link = await p.$('a[href^="sms:"]');
+    if (!link) { console.log(`  ${where}: no text button on this screen`); continue; }
+    await link.dispatchEvent("click");
+    await p.waitForTimeout(400);
+    const landed = p.url();
+    console.log(`  ${where}: → ${landed.split("#")[1] || landed}`);
+    if (!/#\/inbox\//.test(landed)) throw new Error(`FAIL: ${where} Text button escaped to the SMS app instead of the conversation`);
+  }
+
+  // Arriving that way carries the message across, ready to review — not sent.
+  await p.goto(APP + "/#/comms");
+  await p.waitForTimeout(500);
+  const withBody = await p.$('a[href*="body="]');
+  if (withBody) {
+    const intended = await withBody.evaluate((a) => decodeURIComponent((a.getAttribute("href").split("body=")[1] || "")));
+    const beforePrefill = (await (await fetch(APP + "/__sent")).json()).length;
+    await withBody.dispatchEvent("click");
+    await p.waitForTimeout(500);
+    const box = await p.$eval("#ib-text", (t) => t.value).catch(() => "");
+    console.log(`  prefilled: ${JSON.stringify(box.slice(0, 50))}`);
+    if (box !== intended) throw new Error("FAIL: the message didn't carry into the compose box");
+    const afterPrefill = (await (await fetch(APP + "/__sent")).json()).length;
+    if (afterPrefill !== beforePrefill) throw new Error("FAIL: it sent on its own — the review step is gone");
+  }
 
   // --- Campaign sends through the number too, or the loop stays open ---
   // Handing off to the phone's SMS app would send the reply to Parm's personal

@@ -2,6 +2,7 @@
 
 import { route, startRouter, currentBase, navigate } from "./router.js";
 import * as store from "./store.js";
+import { interceptSmsLinks } from "./sms.js";
 import { openModal, toast } from "./components.js";
 import { icon } from "./icons.js";
 import { renderDashboard } from "./views/dashboard.js";
@@ -111,6 +112,11 @@ function paintUnread() {
 }
 store.subscribe(paintUnread);
 paintUnread();
+
+// With a texting number configured, every "Text" button in the app opens the
+// conversation instead of handing off to the phone's messaging app — otherwise
+// the customer's reply goes to a personal inbox the agent can't see.
+interceptSmsLinks();
 
 // Quick-add: context-aware based on the current tab. One modal holds
 // everything — the add-a-record actions up top, every tool below — rendered
