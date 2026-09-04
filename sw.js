@@ -130,7 +130,20 @@ self.addEventListener("fetch", (e) => {
           caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
           return res;
         })
-        .catch(() => caches.match(request).then((c) => c || caches.match("./index.html")))
+        .catch(() =>
+          caches.match(request).then((c) => {
+            if (c) return c;
+            // Falling back to the app shell is right for a navigation — that's
+            // SPA routing. It is very wrong for a script or stylesheet: the
+            // browser gets HTML where it expected JavaScript, the module throws
+            // a syntax error, and the whole app fails to start with no clue
+            // why. That bites hardest right after a release adds a module an
+            // older cache has never seen. Fail the request honestly instead —
+            // the browser reports a missing script, and a reload recovers.
+            if (request.mode === "navigate") return caches.match("./index.html");
+            return new Response("", { status: 504, statusText: "offline and not cached" });
+          })
+        )
     );
     return;
   }
