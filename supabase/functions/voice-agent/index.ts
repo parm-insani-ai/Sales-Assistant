@@ -440,12 +440,15 @@ function shouldWarn(uid: string): boolean {
 // never reached us at all (still pointed somewhere else), and it reached us and
 // was turned away. Without this the only evidence is an empty inbox, which is
 // what both look like. One row, overwritten each time.
-async function noteInboundHit(uid: string, outcome: string, from: string) {
+async function noteInboundHit(uid: string, outcome: string, from: string, sawUrl = "") {
   if (!/^[0-9a-f-]{36}$/.test(uid)) return;
   try {
     await saveRecord(uid, "smshits", "last", {
       id: "last", outcome, from: from.slice(-4), at: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      // On a rejection this is the whole question: Twilio signs the URL it
+      // requested, and a signature can only fail if what arrived here differs.
+      // Recording it turns "403 again" into a diff you can read.
+      sawUrl, updatedAt: new Date().toISOString(),
     });
   } catch { /* diagnostics must never break delivery */ }
 }
@@ -504,7 +507,7 @@ async function handleInboundSms(req: Request): Promise<Response> {
         url: "./#/settings",
       }).catch(() => {});
     }
-    noteInboundHit(uid, "rejected: signature", String(params.From || ""));
+    noteInboundHit(uid, "rejected: signature", String(params.From || ""), req.url);
     return new Response("bad signature", { status: 403 });
   }
   if (!/^[0-9a-f-]{36}$/.test(uid)) return empty;

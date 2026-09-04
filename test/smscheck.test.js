@@ -106,9 +106,12 @@ const CASES = [
       number: { owned: true, smsCapable: true, inMessagingService: false,
         smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
       canReportInbound: true,
-      inbound: { outcome: "rejected: signature", from: "7202", at: new Date(Date.now() - 60000).toISOString() },
+      inbound: { outcome: "rejected: signature", from: "7202", at: new Date(Date.now() - 60000).toISOString(),
+        sawUrl: "http://internal-host/functions/v1/quick-api?sms=1&u=b413a741" },
     },
-    expect: [/turned away/i, /auth token is the thing to re-check/i],
+    // A rejection is a URL mismatch or a wrong token, and only one of those is
+    // visible — so show what the function actually saw and let it be compared.
+    expect: [/turned away/i, /the function saw/i, /internal-host/, /TWILIO_AUTH_TOKEN/],
     forbid: [/never reached this function/i],
   },
   {

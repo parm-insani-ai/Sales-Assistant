@@ -831,7 +831,11 @@ function buildEmail(slot) {
         const ago = timeAgo(d.inbound.at);
         rows.push(/accepted/.test(d.inbound.outcome || "")
           ? `✅ <b>A text has reached entoa</b> — last one ${esc(ago)}${d.inbound.from ? ` from …${esc(d.inbound.from)}` : ""}.`
-          : `❌ <b>A text reached entoa and was turned away</b> (${esc(d.inbound.outcome || "rejected")}), ${esc(ago)}. The webhook is pointed correctly; the auth token is the thing to re-check.`);
+          : `❌ <b>A text reached entoa and was turned away</b> (${esc(d.inbound.outcome || "rejected")}), ${esc(ago)}.
+             The webhook is pointed correctly — this is the signature check.${d.inbound.sawUrl ? `<br>
+             <span class="muted">Twilio signed the URL it called; the function saw:</span><br>
+             <span class="mono" style="word-break:break-all">${esc(d.inbound.sawUrl)}</span><br>
+             <span class="muted">If that differs from the webhook URL above by more than nothing, that difference is the cause. If they match, it's TWILIO_AUTH_TOKEN.</span>` : ""}`);
       } else {
         rows.push(`⚠️ <b>No inbound text has ever reached this function.</b> Twilio may show messages as “Received” — that only means Twilio got them, not that they were forwarded here. Check the Messaging webhook on the number.`);
       }
