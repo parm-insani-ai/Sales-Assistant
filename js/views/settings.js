@@ -839,7 +839,12 @@ function buildEmail(slot) {
           tell "nothing arrived" from "I wasn't built to know".`);
       } else if (d.inbound && d.inbound.at) {
         const ago = timeAgo(d.inbound.at);
-        rows.push(/accepted/.test(d.inbound.outcome || "")
+        // "accepted" used to be recorded before the database writes it
+        // describes, so it could be true while the message was lost. It is now
+        // recorded after, and a failed write says so.
+        rows.push(/write failed/.test(d.inbound.outcome || "")
+          ? `❌ <b>The text arrived but couldn't be saved</b> ${esc(ago)} — ${esc(d.inbound.outcome.replace(/^write failed:\s*/, ""))}`
+          : /accepted/.test(d.inbound.outcome || "")
           ? `✅ <b>A text has reached entoa</b> — last one ${esc(ago)}${d.inbound.from ? ` from …${esc(d.inbound.from)}` : ""}.`
           : `❌ <b>A text reached entoa and was turned away</b> (${esc(d.inbound.outcome || "rejected")}), ${esc(ago)}.
              The webhook is pointed correctly — this is the signature check.${d.inbound.sawUrl ? `<br>
@@ -848,6 +853,15 @@ function buildEmail(slot) {
              <span class="muted">If that differs from the webhook URL above by more than nothing, that difference is the cause. If they match, it's TWILIO_AUTH_TOKEN.</span>` : ""}`);
       } else {
         rows.push(`⚠️ <b>No inbound text has ever reached this function.</b> Twilio may show messages as “Received” — that only means Twilio got them, not that they were forwarded here. Check the Messaging webhook on the number.`);
+      }
+      // Server-side truth. An empty inbox looks the same whether nothing was
+      // ever written or nothing was ever pulled; this says which.
+      if (d.stored) {
+        rows.push(d.stored.texts
+          ? `✅ <b>${d.stored.texts} message${d.stored.texts === 1 ? "" : "s"} stored in your account.</b>${
+              d.stored.newest ? ` Newest: “${esc(d.stored.newest.preview)}”.` : ""}
+             If Comms is empty, the messages are there and the app hasn't pulled them — open Settings → Cloud sync → Sync now.`
+          : `⚠️ <b>No messages are stored in your account.</b> The text reached the function but nothing was saved, so there is nothing for the app to pull.`);
       }
       box.innerHTML = `<div style="line-height:1.6">${rows.join("<br>")}</div>`;
       box.querySelector('[data-act="copy-hook"]')?.addEventListener("click", async () => {

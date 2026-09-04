@@ -115,6 +115,37 @@ const CASES = [
     forbid: [/never reached this function/i],
   },
   {
+    // The failure that looked like success: the signature passed, so "accepted"
+    // was recorded — before the writes it describes had happened.
+    name: "the text arrived but the write failed",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      canReportInbound: true,
+      inbound: { outcome: "write failed: leads save failed (401)", from: "7202", at: new Date(Date.now() - 30000).toISOString() },
+      stored: { texts: 0, newest: null },
+    },
+    expect: [/couldn't be saved/i, /leads save failed \(401\)/, /No messages are stored/i],
+    forbid: [/A text has reached entoa/i],
+  },
+  {
+    // Stored but not showing is a sync problem, not a delivery problem, and the
+    // fix is different — so the readout has to separate them.
+    name: "messages are stored but the app hasn't pulled them",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      canReportInbound: true,
+      inbound: { outcome: "accepted", from: "7202", at: new Date(Date.now() - 30000).toISOString() },
+      stored: { texts: 3, newest: { at: "x", dir: "in", preview: "Hello" } },
+    },
+    expect: [/3 messages stored/i, /hasn't pulled them/i, /Sync now/],
+  },
+  {
     name: "replies correctly pointed at entoa",
     reply: {
       secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },

@@ -523,7 +523,6 @@ async function handleInboundSms(req: Request): Promise<Response> {
     return new Response("bad signature", { status: 403 });
   }
   if (!/^[0-9a-f-]{36}$/.test(uid)) return empty;
-  noteInboundHit(uid, "accepted", String(params.From || ""));
 
   const from = String(params.From || "");
   const body = String(params.Body || "").trim().slice(0, 1600);
@@ -568,9 +567,13 @@ async function handleInboundSms(req: Request): Promise<Response> {
       tag: "sms-" + lead.id,
       url: `./#/leads/${lead.id}`,
     }).catch(() => {});
-  } catch (_e) {
-    // Swallow: a retry would deliver the same message twice, which is worse
-    // than losing the push. The text is already the customer's second attempt.
+    noteInboundHit(uid, "accepted", from);
+  } catch (e) {
+    // Still answer 200 — a retry would deliver the same message twice, which is
+    // worse than losing it once. But record why, because a swallowed write is
+    // otherwise indistinguishable from a delivered one: the signature passed,
+    // so everything upstream looks healthy while the message is simply gone.
+    noteInboundHit(uid, `write failed: ${String(e?.message || e).slice(0, 160)}`, from);
   }
   return empty;
 }
@@ -670,6 +673,20 @@ async function handleSmsCheck(body: any): Promise<Response> {
     const rows = r.ok ? await r.json() : [];
     out.inbound = rows[0]?.data || null;
   } catch { out.inbound = null; }
+
+  // What is actually stored for this user? Without this, a function that wrote
+  // nothing and an app that pulled nothing produce the same empty inbox.
+  try {
+    const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.texts&deleted=eq.false&select=data&order=updated_at.desc&limit=3`;
+    const r = await fetch(sbUrl(q), { headers: sbHeaders() });
+    const rows = r.ok ? await r.json() : [];
+    out.stored = {
+      texts: rows.length,
+      newest: rows[0]?.data
+        ? { at: rows[0].data.at, dir: rows[0].data.dir, preview: String(rows[0].data.body || "").slice(0, 40) }
+        : null,
+    };
+  } catch { out.stored = null; }
 
   return json(out);
 }
