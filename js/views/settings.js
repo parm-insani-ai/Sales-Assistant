@@ -814,6 +814,17 @@ function buildEmail(slot) {
           rows.push(`❌ <b>${esc(d.number.note || "That number isn't on this account.")}</b>`);
         }
       }
+      // The decisive line. Twilio showing an inbound message as "Received"
+      // only means Twilio got it — it says nothing about whether the webhook
+      // reached this function. This does.
+      if (d.inbound && d.inbound.at) {
+        const ago = timeAgo(d.inbound.at);
+        rows.push(/accepted/.test(d.inbound.outcome || "")
+          ? `✅ <b>A text has reached entoa</b> — last one ${esc(ago)}${d.inbound.from ? ` from …${esc(d.inbound.from)}` : ""}.`
+          : `❌ <b>A text reached entoa and was turned away</b> (${esc(d.inbound.outcome || "rejected")}), ${esc(ago)}. The webhook is pointed correctly; the auth token is the thing to re-check.`);
+      } else {
+        rows.push(`⚠️ <b>No inbound text has ever reached this function.</b> Twilio may show messages as “Received” — that only means Twilio got them, not that they were forwarded here. Check the Messaging webhook on the number.`);
+      }
       box.innerHTML = `<div style="line-height:1.6">${rows.join("<br>")}</div>`;
       box.querySelector('[data-act="copy-hook"]')?.addEventListener("click", async () => {
         try {

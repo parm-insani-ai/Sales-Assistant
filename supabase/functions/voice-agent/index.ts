@@ -435,6 +435,21 @@ function shouldWarn(uid: string): boolean {
   return true;
 }
 
+// Every inbound hit is recorded, accepted or rejected, so the setup check can
+// tell apart the two failures that look identical from the app: the webhook
+// never reached us at all (still pointed somewhere else), and it reached us and
+// was turned away. Without this the only evidence is an empty inbox, which is
+// what both look like. One row, overwritten each time.
+async function noteInboundHit(uid: string, outcome: string, from: string) {
+  if (!/^[0-9a-f-]{36}$/.test(uid)) return;
+  try {
+    await saveRecord(uid, "smshits", "last", {
+      id: "last", outcome, from: from.slice(-4), at: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  } catch { /* diagnostics must never break delivery */ }
+}
+
 async function handleInboundSms(req: Request): Promise<Response> {
   const { token } = twilioCfg();
   const url = new URL(req.url);
@@ -489,9 +504,11 @@ async function handleInboundSms(req: Request): Promise<Response> {
         url: "./#/settings",
       }).catch(() => {});
     }
+    noteInboundHit(uid, "rejected: signature", String(params.From || ""));
     return new Response("bad signature", { status: 403 });
   }
   if (!/^[0-9a-f-]{36}$/.test(uid)) return empty;
+  noteInboundHit(uid, "accepted", String(params.From || ""));
 
   const from = String(params.From || "");
   const body = String(params.Body || "").trim().slice(0, 1600);
@@ -624,6 +641,14 @@ async function handleSmsCheck(body: any): Promise<Response> {
       out.number = { error: String(e).slice(0, 120) };
     }
   }
+  // Has an inbound webhook ever actually reached this function?
+  try {
+    const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.smshits&deleted=eq.false&select=data`;
+    const r = await fetch(sbUrl(q), { headers: sbHeaders() });
+    const rows = r.ok ? await r.json() : [];
+    out.inbound = rows[0]?.data || null;
+  } catch { out.inbound = null; }
+
   return json(out);
 }
 

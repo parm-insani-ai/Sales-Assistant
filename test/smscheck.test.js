@@ -71,6 +71,44 @@ const CASES = [
     forbid: [/Replies are pointed at entoa/],
   },
   {
+    // The ambiguity this resolves: Twilio lists inbound messages as "Received"
+    // whether they were forwarded here or to somebody else, so an empty inbox
+    // looks the same either way. Only the function knows if it was called.
+    name: "webhook looks right but nothing has ever arrived",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      inbound: null,
+    },
+    expect: [/No inbound text has ever reached this function/i, /only means Twilio got them/i],
+  },
+  {
+    name: "a text reached the function and was accepted",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      inbound: { outcome: "accepted", from: "7202", at: new Date(Date.now() - 120000).toISOString() },
+    },
+    expect: [/A text has reached entoa/i, /7202/],
+    forbid: [/never reached this function/i],
+  },
+  {
+    name: "a text reached the function and was rejected",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+      inbound: { outcome: "rejected: signature", from: "7202", at: new Date(Date.now() - 60000).toISOString() },
+    },
+    expect: [/turned away/i, /auth token is the thing to re-check/i],
+    forbid: [/never reached this function/i],
+  },
+  {
     name: "replies correctly pointed at entoa",
     reply: {
       secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
