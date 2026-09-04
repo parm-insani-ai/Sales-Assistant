@@ -88,10 +88,6 @@ export function renderComms(view) {
     return `${Math.round(min / 1440)}d ago`;
   };
 
-  // Everything that needs chasing is one list, on Home. Point at it rather
-  // than re-ranking the same signals here.
-  const queued = due.length + occasions.length;
-
   const el = document.createElement("div");
   // Replies outrank everything else on this page: a customer who has just
   // texted is the most engaged person on the list, and the window is short.
@@ -111,12 +107,6 @@ export function renderComms(view) {
         <div class="row-sub">${esc(inboxSub)}</div>
       </div><div class="row-meta strong">›</div></div>
     </div>
-    ${queued ? `<div class="card card-tap" data-goto="/" style="margin-bottom:12px">
-      <div class="row"><div class="row-main">
-        <div class="row-title">${icon("target")} ${queued} to reach today</div>
-        <div class="row-sub">Follow-ups, reminders and reasons to call all live in Today's queue.</div>
-      </div><div class="row-meta strong">›</div></div>
-    </div>` : ""}
     ${links.length ? `<div class="section-title">Link activity</div>
     <div class="card" id="c-links"></div>` : ""}
     ${upcoming.length ? `<div class="section-title">Confirmations &amp; reminders</div>

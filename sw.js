@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "entoa-v135";
+const CACHE = "entoa-v136";
 const ASSETS = [
   "./",
   "./index.html",
@@ -92,6 +92,14 @@ self.addEventListener("notificationclick", (e) => {
       return self.clients.openWindow(url);
     })
   );
+});
+
+// Lets the app ask which build is actually being served. The deploy workflow
+// rewrites CACHE to the commit hash, so this is the running code's identity —
+// as opposed to version.json, which is fetched past every cache and describes
+// what's deployed rather than what's running.
+self.addEventListener("message", (e) => {
+  if (e.data === "version" && e.ports && e.ports[0]) e.ports[0].postMessage(CACHE);
 });
 
 self.addEventListener("install", (e) => {

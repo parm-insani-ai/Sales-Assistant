@@ -9,7 +9,7 @@ import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
 import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import * as calfeeds from "../calfeeds.js";
-import { checkForUpdate, getVersion } from "../updater.js";
+import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
 import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured } from "../email.js";
 import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
@@ -363,12 +363,36 @@ export function renderSettings(view) {
 
   // App version + manual update check.
   const verEl = el.querySelector("#app-version");
-  getVersion().then((v) => { if (verEl) verEl.textContent = v ? `Version ${v.version} · ${new Date(v.built).toLocaleDateString()}` : "entoa"; });
+  // Report what's RUNNING, and only claim "latest" when the worker serving the
+  // code agrees. Reporting the deployed version alone is what let a stale app
+  // look current — the number was right and the code was old.
+  Promise.all([getVersion(), runningVersion()]).then(([v, running]) => {
+    if (!verEl) return;
+    if (!v) return void (verEl.textContent = "entoa");
+    const date = new Date(v.built).toLocaleDateString();
+    // The worker's cache name is "entoa-<build>"; version.json carries <build>.
+    const stale = running && running !== `entoa-${v.version}`;
+    if (!stale) { verEl.textContent = `Version ${v.version} · ${date}`; return; }
+    verEl.innerHTML = `Running <span class="mono">${esc(running.replace(/^entoa-/, ""))}</span> —
+      <b>${esc(v.version)}</b> is available but hasn't taken over.<br>
+      <button class="btn btn-sm btn-ghost" data-act="hard-refresh" style="margin-top:8px">Force update</button>`;
+    verEl.querySelector('[data-act="hard-refresh"]').addEventListener("click", async () => {
+      toast("Clearing and reloading…");
+      await hardRefresh();
+    });
+  });
   el.querySelector('[data-act="update"]').addEventListener("click", async () => {
     toast("Checking for updates…");
     const updating = await checkForUpdate();
-    if (updating) toast("Update found — refreshing…", "success");
-    else setTimeout(() => toast("You're on the latest version", "success"), 500);
+    if (updating) return toast("Update found — refreshing…", "success");
+    // reg.update() found nothing, but the running code may still be behind — a
+    // worker that failed to install leaves exactly this state.
+    const [v, running] = await Promise.all([getVersion(), runningVersion()]);
+    if (v && running && running !== `entoa-${v.version}`) {
+      toast("Stuck on an old version — use Force update below", "warn");
+      return;
+    }
+    setTimeout(() => toast("You're on the latest version", "success"), 500);
   });
 }
 
