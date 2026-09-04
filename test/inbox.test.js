@@ -58,20 +58,17 @@ const TEXTS = [
   console.log("unread badge on Comms tab:", dot);
   if (dot !== "1") throw new Error("FAIL: unread reply not badged on the tab, got " + dot);
 
-  // --- Comms leads with the inbox ---
+  // --- Comms is the conversation list ---
   await p.goto(APP + "/#/comms");
-  await p.waitForSelector('[data-goto="/inbox"]');
-  const card = await p.$eval('[data-goto="/inbox"]', (c) => c.textContent.replace(/\s+/g, " ").trim());
-  console.log("comms inbox card:", card.slice(0, 90));
-  if (!/1 new/.test(card)) throw new Error("FAIL: comms card doesn't surface the unread count");
-  if (!/Ann/.test(card)) throw new Error("FAIL: comms card doesn't name who's waiting");
-
-  // --- Thread list ---
-  await p.goto(APP + "/#/inbox");
-  await p.waitForSelector(".card .row");
-  const rows = await p.$$eval(".card .row", (list) => list.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
+  await p.waitForSelector("#c-body .card");
+  const rows = await p.$$eval("#c-body > .card", (l) => l.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
   console.log("threads:", rows.length);
   if (!rows.some((r) => /Ann Lee/.test(r) && /1 new/.test(r))) throw new Error("FAIL: Ann's unread thread is missing");
+
+  // /inbox with no customer redirects into Comms — one list, not two.
+  await p.goto(APP + "/#/inbox");
+  await p.waitForTimeout(400);
+  if (!/#\/comms/.test(p.url())) throw new Error("FAIL: /inbox should redirect to the Comms inbox, got " + p.url());
 
   // --- Open the thread ---
   await p.goto(APP + "/#/inbox/a");

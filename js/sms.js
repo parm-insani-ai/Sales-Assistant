@@ -14,6 +14,7 @@ import * as store from "./store.js";
 import * as backend from "./backend.js";
 import { navigate } from "./router.js";
 import { toast } from "./components.js";
+import { isLikelyPrefetch } from "./plays.js";
 
 // Texting needs a signed-in cloud account (to own the records), the function
 // URL (to reach Twilio), and a number configured on this account.
@@ -164,22 +165,84 @@ export function interceptSmsLinks() {
   }, true);
 }
 
+// ---- The conversation ----
+//
+// A thread is everything that passed between you and one customer, in order:
+// texts, calls, and the times they opened a link you sent. Link opens belong
+// here rather than in a feed of their own — "Ann opened the booking page twice
+// this afternoon" is a fact about the conversation with Ann, and putting it
+// anywhere else means reading two lists and joining them by hand.
+
+const HOT_MS = 48 * 3600 * 1000;
+
+// Is this open worth acting on right now?
+export function linkIsHot(lk) {
+  if (!lk || !lk.lastOpenAt) return false;
+  if (isLikelyPrefetch(lk)) return false;
+  return Date.now() - new Date(lk.lastOpenAt).getTime() < HOT_MS;
+}
+
+// One customer's timeline, oldest first.
+export function timelineFor(leadId) {
+  const items = [];
+  store.textsFor(leadId).forEach((t) =>
+    items.push({ type: "text", at: t.at || t.createdAt, rec: t }));
+  store.callsFor(leadId).forEach((c) =>
+    items.push({ type: "call", at: c.at || c.createdAt, rec: c }));
+  // One entry per link, placed at its most recent open — a link opened five
+  // times is one thing that happened five times, not five separate events, and
+  // the count is what tells you how interested they are.
+  store.linksForLead(leadId).forEach((lk) => {
+    if (!lk.lastOpenAt || isLikelyPrefetch(lk)) return;
+    items.push({ type: "open", at: lk.lastOpenAt, rec: lk });
+  });
+  return items.sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+}
+
 // Threads with something waiting on them, newest first. This is the inbox.
 export function inboxThreads() {
   const byLead = new Map();
+  const touch = (leadId, at) => {
+    if (!leadId) return null;
+    if (!byLead.has(leadId)) byLead.set(leadId, { at: "", unread: 0, opens: 0, hot: false, last: null });
+    const e = byLead.get(leadId);
+    if (String(at || "") > e.at) e.at = String(at || "");
+    return e;
+  };
+
   store.all("texts").forEach((t) => {
-    const cur = byLead.get(t.leadId);
+    const e = touch(t.leadId, t.at || t.createdAt);
+    if (!e) return;
     const at = String(t.at || t.createdAt || "");
-    if (!cur || at > cur.at) byLead.set(t.leadId, { at, last: t });
-    const e = byLead.get(t.leadId);
-    if (t.dir === "in" && !t.read) e.unread = (e.unread || 0) + 1;
+    if (!e.last || at >= e.lastAt) { e.last = { type: "text", rec: t }; e.lastAt = at; }
+    if (t.dir === "in" && !t.read) e.unread += 1;
   });
+  store.all("calls").forEach((c) => {
+    const e = touch(c.leadId, c.at || c.createdAt);
+    if (!e) return;
+    const at = String(c.at || c.createdAt || "");
+    if (!e.last || at >= e.lastAt) { e.last = { type: "call", rec: c }; e.lastAt = at; }
+  });
+  store.all("links").forEach((lk) => {
+    const leadId = lk.meta && lk.meta.leadId;
+    if (!leadId || !lk.lastOpenAt || isLikelyPrefetch(lk)) return;
+    const e = touch(leadId, lk.lastOpenAt);
+    if (!e) return;
+    e.opens += Number(lk.opens) || 0;
+    if (linkIsHot(lk)) e.hot = true;
+    const at = String(lk.lastOpenAt);
+    if (!e.last || at >= e.lastAt) { e.last = { type: "open", rec: lk }; e.lastAt = at; }
+  });
+
   return [...byLead.entries()]
-    .map(([leadId, e]) => ({ leadId, lead: store.get("leads", leadId), last: e.last, at: e.at, unread: e.unread || 0 }))
+    .map(([leadId, e]) => ({ leadId, lead: store.get("leads", leadId), ...e }))
     .filter((t) => t.lead)
     .sort((a, b) => {
-      // Anything unanswered outranks everything else — that's the whole point.
+      // Unanswered replies first — someone is waiting on a person. Then live
+      // link opens, because that window closes fast and they don't know you can
+      // see it. Everything else by recency.
       if (!!a.unread !== !!b.unread) return a.unread ? -1 : 1;
+      if (!!a.hot !== !!b.hot) return a.hot ? -1 : 1;
       return b.at.localeCompare(a.at);
     });
 }

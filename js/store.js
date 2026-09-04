@@ -93,6 +93,9 @@ const DEFAULT_STATE = {
   // the next sync exactly like a self-booking does.
   //   { leadId, dir: "in"|"out", body, phone, at, read, draft }
   texts: [],
+  // Calls, so the Messages tab shows the whole conversation and not only the
+  // half that was typed: { leadId, dir, at, outcome, notes }
+  calls: [],
   links: [], // short-link payloads live in the cloud; rows land here on pull and are otherwise unused
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
@@ -388,7 +391,30 @@ export function restore(name, item) {
 }
 
 // Every syncable collection (everything except settings/outbox metadata).
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "paychecks", "push"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push"];
+
+// --- Calls ---
+// Logged when you tap to call, so the thread reads as a conversation rather
+// than only the parts that happened to be typed.
+export function logCall(leadId, patch = {}) {
+  const rec = create("calls", { leadId, dir: "out", at: new Date().toISOString(), outcome: "", notes: "", ...patch });
+  update("leads", leadId, { lastContacted: rec.at });
+  logActivity("touch");
+  return rec;
+}
+
+export function callsFor(leadId) {
+  return state.calls.filter((c) => c.leadId === leadId);
+}
+
+// --- Links ---
+// Every short link the salesperson has sent that belongs to this customer.
+// Attribution comes from meta.leadId, stamped when the link is minted.
+export function linksForLead(leadId) {
+  return state.links
+    .filter((lk) => lk.meta && lk.meta.leadId === leadId)
+    .sort((a, b) => String(b.lastOpenAt || b.createdAt || "").localeCompare(String(a.lastOpenAt || a.createdAt || "")));
+}
 
 // --- Texts ---
 // Phones are compared on their last ten digits, so "(902) 555-1111",

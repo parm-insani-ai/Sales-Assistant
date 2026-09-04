@@ -1,17 +1,29 @@
-// Communication hub: today's outreach queue, one-tap sends, the email stream,
-// and the automated-email status — everything about talking to customers.
+// Comms — the inbox.
+//
+// One list of conversations, one row per customer, newest and unanswered
+// first. Two tabs, because texts and email are answered in different postures:
+// a text is a two-minute reply, an email is a sit-down.
+//
+// What used to be here — outreach due, appointment confirmations, occasions —
+// is the Home queue's job. Those are things to go and do; this is things people
+// have said to you. Keeping both on one screen was what made Comms, Leads and
+// the old Deal Radar blur into each other.
+//
+// Link opens live in the conversation rather than in a feed of their own. "Ann
+// opened the booking page twice this afternoon" is a fact about the
+// conversation with Ann; anywhere else and you're reading two lists and
+// joining them by hand.
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
-import { openModal, buildForm, toast, undoToast } from "../components.js";
+import { openModal, buildForm, toast } from "../components.js";
 import { icon } from "../icons.js";
-import { esc, initials, formatDate, relativeDay, daysFromToday, telHref, smsHref, mailtoHref } from "../utils.js";
+import { esc, formatDate, mailtoHref } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured } from "../email.js";
-import { isLikelyPrefetch } from "../plays.js";
-import { getOccasions, markOccasion } from "../occasions.js";
-import { isDismissedToday, dismissToday } from "../plays.js";
-import { inboxThreads, smsReady, smsBlocker } from "../sms.js";
+import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
+
+const TAB_KEY = "comms-tab"; // survives navigating into a thread and back
 
 // A customer without a phone or email: collect it on the spot, then go
 // straight into picking a message — no detour through the lead page.
@@ -37,308 +49,224 @@ function addContactThenMessage(lead) {
   });
 }
 
-const chMeta = (c) =>
-  c === "text" ? { icon: "message", label: "Text" } :
-  c === "email" ? { icon: "mail", label: "Email" } :
-  { icon: "phone", label: "Call" };
+function when(iso) {
+  const t = new Date(iso);
+  if (isNaN(t)) return "";
+  const today = new Date().toISOString().slice(0, 10);
+  const clock = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return t.toISOString().slice(0, 10) === today ? clock : formatDate(iso);
+}
+
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms) || ms < 0) return "";
+  const min = Math.round(ms / 60000);
+  if (min < 60) return `${Math.max(1, min)}m ago`;
+  if (min < 1440) return `${Math.round(min / 60)}h ago`;
+  return `${Math.round(min / 1440)}d ago`;
+}
+
+// The one-line summary of where a conversation stands.
+function preview(t) {
+  const last = t.last;
+  if (!last) return "";
+  if (last.type === "text") {
+    const body = String(last.rec.body || "").replace(/\s+/g, " ").slice(0, 68);
+    return `${last.rec.dir === "out" ? "You: " : ""}${body}`;
+  }
+  if (last.type === "call") return `${last.rec.dir === "in" ? "Called you" : "You called"}${last.rec.outcome ? ` · ${last.rec.outcome}` : ""}`;
+  if (last.type === "open") {
+    const n = Number(last.rec.opens) || 1;
+    const what = /book/i.test(last.rec.kind || "") ? "your booking page" : "the vehicle page";
+    return `Opened ${what}${n > 1 ? ` ${n}×` : ""}`;
+  }
+  return "";
+}
 
 export function renderComms(view) {
-  const leads = store.all("leads");
-  const leadById = (id) => leads.find((l) => l.id === id) || null;
-  const s = store.getSettings();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const due = store.all("tasks")
-    .filter((t) => !t.done && t.leadId && t.channel && t.due && t.due <= today)
-    .sort((a, b) => (a.due || "").localeCompare(b.due || ""));
-
-  const emails = store.all("emails")
-    .slice()
-    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
-    .slice(0, 10);
-
-  // Appointments today/tomorrow that should be confirmed or reminded — the
-  // no-show killers.
-  const pad = (n) => String(n).padStart(2, "0");
-  const now = new Date();
-  const todayK = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  const tm = new Date(now); tm.setDate(tm.getDate() + 1);
-  const tomorrowK = `${tm.getFullYear()}-${pad(tm.getMonth() + 1)}-${pad(tm.getDate())}`;
-  const upcoming = store.all("appointments")
-    .filter((a) => a.status !== "canceled" && !a.outcome && a.when &&
-      (a.when.startsWith(todayK) || a.when.startsWith(tomorrowK)))
-    .sort((a, b) => (a.when || "").localeCompare(b.when || ""));
-
-  const occasions = getOccasions();
-
-  // Link activity: every short link you've sent (booking page, comparisons)
-  // reports its opens back through cloud sync. An open in the last 48h is the
-  // hottest signal in the app — that customer is reading your stuff right now.
-  const links = store.all("links")
-    .slice()
-    .sort((a, b) => (b.lastOpenAt || b.createdAt || "").localeCompare(a.lastOpenAt || a.createdAt || ""))
-    .slice(0, 6);
-  const HOT_MS = 48 * 3600 * 1000;
-  const timeAgo = (iso) => {
-    const ms = Date.now() - new Date(iso).getTime();
-    if (!isFinite(ms) || ms < 0) return "";
-    const min = Math.round(ms / 60000);
-    if (min < 60) return `${Math.max(1, min)}m ago`;
-    if (min < 1440) return `${Math.round(min / 60)}h ago`;
-    return `${Math.round(min / 1440)}d ago`;
-  };
+  let tab = sessionStorage.getItem(TAB_KEY) || "messages";
 
   const el = document.createElement("div");
-  // Replies outrank everything else on this page: a customer who has just
-  // texted is the most engaged person on the list, and the window is short.
-  const threads = inboxThreads();
-  const unread = threads.reduce((n, t) => n + t.unread, 0);
-  const inboxSub = unread
-    ? threads.filter((t) => t.unread).map((t) => (t.lead.name || "Someone").split(" ")[0]).slice(0, 3).join(", ") +
-      (threads.filter((t) => t.unread).length > 3 ? " and more" : "") + " — waiting on you"
-    : threads.length ? "Every text you send, and every reply, in one thread per customer."
-    : smsReady() ? "No conversations yet. Replies land here the moment they arrive."
-    : smsBlocker();
+  view.appendChild(el);
 
-  el.innerHTML = `
-    <div class="card card-tap" data-goto="/inbox" style="margin-bottom:12px">
-      <div class="row"><div class="row-main">
-        <div class="row-title">${icon("message")} Inbox${unread ? ` <span class="badge badge-due">${unread} new</span>` : ""}</div>
-        <div class="row-sub">${esc(inboxSub)}</div>
-      </div><div class="row-meta strong">›</div></div>
-    </div>
-    ${links.length ? `<div class="section-title">Link activity</div>
-    <div class="card" id="c-links"></div>` : ""}
-    ${upcoming.length ? `<div class="section-title">Confirmations &amp; reminders</div>
-    <div class="card" id="c-remind"></div>` : ""}
-    <div class="section-title">Send a message</div>
-    <div class="card">
-      <div class="searchbar" style="margin-bottom:10px"><input type="search" id="c-search" placeholder="Find a customer…"></div>
-      <div id="c-people"></div>
-    </div>
+  function draw() {
+    sessionStorage.setItem(TAB_KEY, tab);
+    el.innerHTML = `
+      <div class="btn-row" style="margin-bottom:14px; flex-wrap:nowrap">
+        <button class="btn btn-sm ${tab === "messages" ? "btn-primary" : "btn-ghost"}" data-tab="messages" style="flex:1">${icon("message")} Messages</button>
+        <button class="btn btn-sm ${tab === "email" ? "btn-primary" : "btn-ghost"}" data-tab="email" style="flex:1">${icon("mail")} Email</button>
+      </div>
+      <div id="c-body"></div>`;
+    el.querySelectorAll("[data-tab]").forEach((b) =>
+      b.addEventListener("click", () => { tab = b.dataset.tab; draw(); }));
+    (tab === "messages" ? drawMessages : drawEmail)(el.querySelector("#c-body"));
+  }
 
-    <div class="section-title">Recent emails</div>
-    <div class="card" id="c-emails">${emails.length ? "" : `<div class="muted small">No emails logged yet. Send one with a template, or log a reply from a customer's page.</div>`}</div>
+  // ---- Messages & calls ----
+  function drawMessages(box) {
+    const threads = inboxThreads();
 
-    <div class="card">
+    if (!smsReady()) {
+      const warn = document.createElement("div");
+      warn.className = "card";
+      warn.style.marginBottom = "12px";
+      warn.innerHTML = `<div class="row"><div class="row-main">
+        <div class="row-title">${icon("message")} Replies aren't switched on</div>
+        <div class="row-sub">${esc(smsBlocker())}</div>
+      </div><button class="btn btn-sm btn-ghost" data-act="setup">Set up</button></div>`;
+      warn.querySelector('[data-act="setup"]').addEventListener("click", () => navigate("/settings"));
+      box.appendChild(warn);
+    }
+
+    const compose = document.createElement("button");
+    compose.className = "btn btn-primary btn-block";
+    compose.style.marginBottom = "14px";
+    compose.innerHTML = `${icon("plus")} New message`;
+    compose.addEventListener("click", () => openPeoplePicker("text"));
+    box.appendChild(compose);
+
+    if (!threads.length) {
+      const empty = document.createElement("div");
+      empty.className = "card";
+      empty.innerHTML = `<div class="muted small">No conversations yet. Every text you send — and every reply — lands here.</div>`;
+      box.appendChild(empty);
+      return;
+    }
+
+    threads.forEach((t) => {
+      const card = document.createElement("div");
+      card.className = "card card-tap";
+      const badges = [
+        t.unread ? `<span class="badge badge-due">${t.unread} new</span>` : "",
+        // Only shout about an open while it's still worth acting on.
+        t.hot ? `<span class="badge badge-soon">🔥 opened ${timeAgo(t.lastOpenAtHot || t.at)}</span>` : "",
+        t.lead.smsOptOut ? `<span class="badge badge-lost">opted out</span>` : "",
+      ].filter(Boolean).join(" ");
+      card.innerHTML = `
+        <div class="row">
+          <div class="row-main" style="min-width:0">
+            <div class="row-title">${esc(t.lead.name || "Customer")} ${badges}</div>
+            <div class="row-sub">${esc(preview(t))}</div>
+            ${t.opens ? `<div class="small muted" style="margin-top:4px">${icon("target")} Opened your links ${t.opens}× in total</div>` : ""}
+          </div>
+          <div class="row-meta small muted">${esc(when(t.at))}</div>
+        </div>`;
+      card.addEventListener("click", () => navigate(`/inbox/${t.leadId}`));
+      box.appendChild(card);
+    });
+  }
+
+  // ---- Email ----
+  function drawEmail(box) {
+    const s = store.getSettings();
+    const compose = document.createElement("button");
+    compose.className = "btn btn-primary btn-block";
+    compose.style.marginBottom = "14px";
+    compose.innerHTML = `${icon("plus")} New email`;
+    compose.addEventListener("click", () => openPeoplePicker("email"));
+    box.appendChild(compose);
+
+    // One row per customer, carrying their most recent email either way.
+    const byLead = new Map();
+    store.all("emails").forEach((e) => {
+      if (!e.leadId) return;
+      const at = String(e.createdAt || e.receivedAt || "");
+      const cur = byLead.get(e.leadId);
+      if (!cur || at > cur.at) byLead.set(e.leadId, { at, last: e, count: (cur?.count || 0) + 1 });
+      else cur.count += 1;
+    });
+    const rows = [...byLead.entries()]
+      .map(([leadId, e]) => ({ leadId, lead: store.get("leads", leadId), ...e }))
+      .filter((r) => r.lead)
+      .sort((a, b) => b.at.localeCompare(a.at));
+
+    if (!rows.length) {
+      const empty = document.createElement("div");
+      empty.className = "card";
+      empty.style.marginBottom = "12px";
+      empty.innerHTML = `<div class="muted small">No emails yet. Send one with a template, or connect Outlook so customer replies land here.</div>`;
+      box.appendChild(empty);
+    }
+
+    rows.forEach((r) => {
+      const card = document.createElement("div");
+      card.className = "card card-tap";
+      const auto = r.last.via === "auto";
+      card.innerHTML = `
+        <div class="row">
+          <div class="row-main" style="min-width:0">
+            <div class="row-title">${esc(r.lead.name || "Customer")}
+              ${auto ? `<span class="badge badge-working">automatic</span>` : ""}
+              ${r.last.direction === "in" ? `<span class="badge badge-new">reply</span>` : ""}</div>
+            <div class="row-sub">${esc(String(r.last.subject || r.last.body || "").replace(/\s+/g, " ").slice(0, 68))}</div>
+            ${r.count > 1 ? `<div class="small muted" style="margin-top:4px">${r.count} messages</div>` : ""}
+          </div>
+          <div class="row-meta small muted">${esc(when(r.at))}</div>
+        </div>`;
+      card.addEventListener("click", () => navigate(`/leads/${r.leadId}`));
+      box.appendChild(card);
+    });
+
+    const auto = document.createElement("div");
+    auto.className = "card";
+    auto.style.marginTop = "14px";
+    auto.innerHTML = `
       <div class="row">
         <div class="row-main">
           <div class="row-title">${icon("mail")} Automated emails</div>
           <div class="row-sub">${
             s.emailAutoSend
-              ? (emailSendConfigured() ? "On — due follow-up emails send when you open the app." : "On, but the sending function isn't set up yet.")
+              ? (emailSendConfigured() ? "On — due follow-up emails send when you open the app, and show here marked automatic." : "On, but the sending function isn't set up yet.")
               : "Off — turn on to send due follow-up emails automatically."
           }</div>
         </div>
-        <button class="btn btn-ghost btn-sm" id="c-settings">Set up</button>
-      </div>
-    </div>
-  `;
-  view.appendChild(el);
+        <button class="btn btn-ghost btn-sm" data-act="email-settings">Set up</button>
+      </div>`;
+    auto.querySelector('[data-act="email-settings"]').addEventListener("click", () => navigate("/settings"));
+    box.appendChild(auto);
+  }
 
-  // --- Link activity rows ---
-  const linkBox = el.querySelector("#c-links");
-  if (linkBox) links.forEach((lk) => {
-    const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "Booking link" : "Comparison");
-    const opens = Number(lk.opens) || 0;
-    const prefetch = isLikelyPrefetch(lk);
-    const hot = !prefetch && lk.lastOpenAt && Date.now() - new Date(lk.lastOpenAt).getTime() < HOT_MS;
-    const row = document.createElement("div");
-    row.className = "row";
-    row.style.cssText = "padding:7px 0;border-bottom:1px solid var(--border)";
-    row.innerHTML = `
-      <div class="row-main">
-        <div class="row-title" style="font-size:0.92rem">${esc(label)} ${hot ? '<span class="badge badge-soon">🔥 hot</span>' : ""}</div>
-        <div class="row-sub">${prefetch ? `Opened once on delivery — that's a link preview, not them. ` : ""}${opens
-          ? `Opened ${opens}×${lk.lastOpenAt ? ` · last ${esc(timeAgo(lk.lastOpenAt))}` : ""}`
-          : `Not opened yet${lk.createdAt ? ` · sent ${esc(timeAgo(lk.createdAt))}` : ""}`}</div>
-      </div>
-      ${opens ? `<div class="row-meta strong mono">${opens}×</div>` : ""}
-      <button class="modal-close" data-link-x aria-label="Delete link" style="font-size:1.1rem;flex:none;margin-left:8px">&times;</button>`;
-    row.querySelector("[data-link-x]").addEventListener("click", () => {
-      store.remove("links", lk.id);
-      row.remove();
-      if (!linkBox.children.length) linkBox.innerHTML = `<div class="muted small">No links tracked.</div>`;
+  // Starting a new conversation: pick the person first, the same way a
+  // messages app does.
+  function openPeoplePicker(channel) {
+    openModal(channel === "email" ? "New email" : "New message", (close) => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<div class="searchbar"><input type="search" id="cp-q" placeholder="Find a customer…"></div><div id="cp-list"></div>`;
+      const list = wrap.querySelector("#cp-list");
+      const paint = (q = "") => {
+        const needle = q.toLowerCase();
+        const people = store.all("leads")
+          .filter((l) => !needle || [l.name, l.phone, l.email, l.vehicleInterest].join(" ").toLowerCase().includes(needle))
+          .filter((l) => (channel === "email" ? true : !l.smsOptOut))
+          .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+          .slice(0, 40);
+        list.innerHTML = people.length ? "" : `<div class="muted small" style="padding:8px 2px">Nobody matches that.</div>`;
+        people.forEach((l) => {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.style.cursor = "pointer";
+          const reachable = channel === "email" ? !!l.email : !!l.phone;
+          row.innerHTML = `<div class="row-main" style="min-width:0">
+              <div class="row-title">${esc(l.name || "Customer")}</div>
+              <div class="row-sub">${esc(l.vehicleInterest || (channel === "email" ? l.email : l.phone) || "no contact details")}</div>
+            </div>${reachable ? "" : `<div class="row-meta small muted">add ${channel === "email" ? "email" : "phone"}</div>`}`;
+          row.addEventListener("click", () => {
+            close();
+            if (!reachable) return addContactThenMessage(l);
+            if (channel === "email") return openTemplatePicker(l);
+            // Texting goes to the thread, where the conversation already lives.
+            navigate(`/inbox/${l.id}`);
+          });
+          list.appendChild(row);
+        });
+      };
+      paint();
+      wrap.querySelector("#cp-q").addEventListener("input", (e) => paint(e.target.value));
+      return wrap;
     });
-    linkBox.appendChild(row);
-  });
+  }
 
-  // --- Confirmations & reminders: one-tap prefilled text; sending marks the
-  // appointment confirmed and logs the touch.
-  const remindBox = el.querySelector("#c-remind");
-  if (remindBox) upcoming.filter((a) => !isDismissedToday(`cf:${a.id}`)).slice(0, 10).forEach((a) => {
-    const lead = a.leadId ? leadById(a.leadId) : null;
-    const phone = a.phone || (lead && lead.phone) || "";
-    const isToday = a.when.startsWith(todayK);
-    const time = a.when.slice(11, 16);
-    const fn = String(a.customerName || (lead && lead.name) || "there").split(" ")[0];
-    const msg = `Hi ${fn}, ${a.confirmed ? "quick reminder about" : "confirming"} your ${(a.title || "appointment").toLowerCase()} ${isToday ? "today" : "tomorrow"} at ${time}${s.dealership ? ` at ${s.dealership}` : ""}. See you then!${s.salesperson ? ` — ${s.salesperson}` : ""}`;
-    const row = document.createElement("div");
-    row.className = "kv";
-    row.style.alignItems = "center";
-    row.innerHTML = `
-      <span class="v" style="text-align:left;flex:1;font-weight:550;cursor:pointer">${esc(a.customerName || "Customer")}
-        <div class="small muted" style="font-weight:450">${esc(a.title || "Appointment")} · ${isToday ? "today" : "tomorrow"} ${esc(time)}${a.confirmed ? " · confirmed ✓" : ""}</div>
-      </span>
-      ${phone
-        ? `<a class="btn ${a.confirmed ? "btn-ghost" : "btn-primary"} btn-sm" href="${smsHref(phone, msg)}" style="flex:none">${icon("message")} ${a.confirmed ? "Remind" : "Confirm"}</a>`
-        : `<button class="btn btn-ghost btn-sm" data-open style="flex:none">Open</button>`}
-      <button class="modal-close" data-remind-x aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>
-    `;
-    row.querySelector("[data-remind-x]").addEventListener("click", () => {
-      dismissToday(`cf:${a.id}`);
-      row.remove();
-      if (!remindBox.children.length) remindBox.innerHTML = `<div class="muted small">All caught up.</div>`;
-    });
-    row.querySelector("span").addEventListener("click", () => navigate(`/calendar/${a.id}`));
-    const openB = row.querySelector("[data-open]");
-    if (openB) openB.addEventListener("click", () => navigate(`/calendar/${a.id}`));
-    const actB = row.querySelector("a");
-    if (actB) actB.addEventListener("click", () => {
-      store.update("appointments", a.id, { confirmed: true });
-      if (lead) store.update("leads", lead.id, { lastContacted: new Date().toISOString() });
-      store.logActivity("touch");
-      row.querySelector(".small").textContent = `${a.title || "Appointment"} · ${isToday ? "today" : "tomorrow"} ${time} · confirmed ✓`;
-    });
-    remindBox.appendChild(row);
-  });
-
-  // --- Reasons to reach out: date-driven occasions (lease maturities,
-  // birthdays, purchase anniversaries) with a ready-to-send message. Acting or
-  // dismissing marks the occasion on the lead so it never nags twice.
-  const occBox = el.querySelector("#c-occ");
-  if (occBox) occasions.slice(0, 8).forEach((o) => {
-    const row = document.createElement("div");
-    row.className = "kv";
-    row.style.alignItems = "center";
-    const canText = !!o.lead.phone;
-    row.innerHTML = `
-      <span class="v" style="text-align:left;flex:1;font-weight:550;cursor:pointer">${esc(o.lead.name)}
-        <div class="small muted" style="font-weight:450">${esc(o.label)}</div>
-      </span>
-      ${canText
-        ? `<a class="btn btn-primary btn-sm" href="${smsHref(o.lead.phone, o.message)}" style="flex:none">${icon("message")} Text</a>`
-        : `<button class="btn btn-ghost btn-sm" data-occ-open style="flex:none">Open</button>`}
-      <button class="modal-close" data-occ-skip aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>
-    `;
-    row.querySelector("span").addEventListener("click", () => navigate(`/leads/${o.lead.id}`));
-    const openB = row.querySelector("[data-occ-open]");
-    if (openB) openB.addEventListener("click", () => navigate(`/leads/${o.lead.id}`));
-    const textB = row.querySelector("a");
-    if (textB) textB.addEventListener("click", () => {
-      markOccasion(o.lead.id, o.key);
-      store.update("leads", o.lead.id, { lastContacted: new Date().toISOString() });
-      store.logActivity("touch");
-      row.style.opacity = "0.45";
-    });
-    row.querySelector("[data-occ-skip]").addEventListener("click", () => {
-      markOccasion(o.lead.id, o.key);
-      row.remove();
-      if (!occBox.children.length) occBox.innerHTML = `<div class="muted small">All caught up.</div>`;
-    });
-    occBox.appendChild(row);
-  });
-
-  el.querySelectorAll("[data-goto]").forEach((n) =>
-    n.addEventListener("click", () => navigate(n.dataset.goto)));
-
-  // --- Outreach due lives in Today's queue now; this only runs if the section
-  // is ever brought back. ---
-  const dueBox = el.querySelector("#c-due");
-  if (dueBox) due.slice(0, 12).forEach((t) => {
-    const l = leadById(t.leadId);
-    const m = chMeta(t.channel);
-    const overdue = daysFromToday(t.due) < 0;
-    const href = !l ? "#" :
-      t.channel === "text" ? smsHref(l.phone, t.body || "") :
-      t.channel === "email" ? mailtoHref(l.email, "", t.body || "") : telHref(l.phone);
-    const usable = l && (t.channel === "email" ? !!l.email : !!l.phone);
-    const row = document.createElement("div");
-    row.className = "kv";
-    row.style.alignItems = "center";
-    row.innerHTML = `
-      <span class="v" style="text-align:left;flex:1;font-weight:550;cursor:pointer">${esc(t.title)}
-        <div class="small ${overdue ? "" : "muted"}" style="font-weight:450;${overdue ? "color:var(--danger)" : ""}">${esc(relativeDay(t.due))}</div>
-      </span>
-      ${usable
-        ? `<a class="btn btn-primary btn-sm" href="${href}" style="flex:none">${icon(m.icon)} ${m.label}</a>`
-        : `<button class="btn btn-ghost btn-sm" data-open style="flex:none">Open</button>`}
-      <button class="modal-close" data-due-x aria-label="Delete follow-up" style="font-size:1.1rem;flex:none">&times;</button>
-    `;
-    row.querySelector("[data-due-x]").addEventListener("click", () => {
-      const snapshot = { ...t };
-      store.remove("tasks", t.id);
-      row.remove();
-      undoToast("Follow-up deleted", () => store.restore("tasks", snapshot));
-    });
-    row.querySelector("span").addEventListener("click", () => l && navigate(`/leads/${l.id}`));
-    const openBtn = row.querySelector("[data-open]");
-    if (openBtn) openBtn.addEventListener("click", () => l && navigate(`/leads/${l.id}`));
-    const act = row.querySelector("a");
-    if (act) act.addEventListener("click", () => {
-      store.update("tasks", t.id, { done: true });
-      store.update("leads", l.id, { lastContacted: new Date().toISOString() });
-      store.logActivity("touch");
-      row.style.opacity = "0.45";
-    });
-    dueBox.appendChild(row);
-  });
-
-  // --- Send a message: pick a customer, then a template. Everyone but lost
-  // leads shows here — sold and delivered customers are exactly who thank-you
-  // and referral messages go to. Missing contact info gets a tap-to-add path
-  // instead of silently hiding the customer.
-  const people = el.querySelector("#c-people");
-  const contactable = leads
-    .filter((l) => l.stage !== "lost")
-    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  const drawPeople = (q = "") => {
-    const query = q.trim().toLowerCase();
-    const list = (query
-      ? contactable.filter((l) => [l.name, l.vehicleInterest, l.phone, l.email].join(" ").toLowerCase().includes(query))
-      : contactable
-    ).slice(0, 8);
-    people.innerHTML = list.length ? "" : `<div class="muted small">No customers${query ? " match that" : " yet"}.</div>`;
-    list.forEach((l) => {
-      const hasContact = !!(l.phone || l.email);
-      const row = document.createElement("div");
-      row.className = "kv";
-      row.style.cssText = "align-items:center;cursor:pointer";
-      row.innerHTML = `
-        <span class="v" style="text-align:left;flex:1;font-weight:550">${esc(l.name)}
-          <div class="small muted" style="font-weight:450">${hasContact ? esc(l.vehicleInterest || "No vehicle noted") : "No phone or email — tap to add"}</div>
-        </span>
-        <span class="muted" style="flex:none">${l.phone ? icon("message") : ""} ${l.email ? icon("mail") : ""}</span>
-      `;
-      row.addEventListener("click", () => hasContact ? openTemplatePicker(l) : addContactThenMessage(l));
-      people.appendChild(row);
-    });
-  };
-  drawPeople();
-  el.querySelector("#c-search").addEventListener("input", (e) => drawPeople(e.target.value));
-
-  // --- Recent emails across every customer. ---
-  const emailBox = el.querySelector("#c-emails");
-  emails.forEach((e) => {
-    const l = leadById(e.leadId);
-    const row = document.createElement("div");
-    row.className = "kv";
-    row.style.cssText = "align-items:flex-start;cursor:pointer";
-    row.innerHTML = `
-      <span class="k" style="flex:none">${e.direction === "in" ? "↓ In" : "↑ Out"}</span>
-      <span class="v" style="text-align:left;flex:1;font-weight:550">${esc(e.subject || "(no subject)")}
-        <div class="small muted" style="font-weight:450">${esc(l ? l.name : "Customer")} · ${esc(formatDate(e.receivedAt || e.createdAt))}${e.via === "auto" ? " · automatic" : e.via === "outlook" ? " · Outlook" : ""}</div>
-      </span>
-      <button class="modal-close" data-em-x aria-label="Delete" style="font-size:1.1rem;flex:none">&times;</button>
-    `;
-    row.querySelector("[data-em-x]").addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      store.remove("emails", e.id);
-      row.remove();
-    });
-    row.addEventListener("click", () => l && navigate(`/leads/${l.id}`));
-    emailBox.appendChild(row);
-  });
-
-  el.querySelector("#c-settings").addEventListener("click", () => navigate("/settings"));
+  draw();
+  const off = store.subscribe(() => { if (document.body.contains(el)) draw(); });
+  window.addEventListener("hashchange", () => off && off(), { once: true });
 }

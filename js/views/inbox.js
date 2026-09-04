@@ -11,7 +11,8 @@ import { navigate } from "../router.js";
 import { toast } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, telHref } from "../utils.js";
-import { sendText, retryText, inboxThreads, smsReady, smsBlocker, takePrefill } from "../sms.js";
+import { sendText, retryText, smsBlocker, takePrefill, timelineFor, linkIsHot } from "../sms.js";
+import { bookingLinkForLead } from "./settings.js";
 import { draftReply, draftingAvailable } from "../replies.js";
 
 function when(iso) {
@@ -23,50 +24,12 @@ function when(iso) {
   return day === today ? clock : `${formatDate(iso)} · ${clock}`;
 }
 
-// --- Thread list ---
+// The conversation list is the Comms tab now — one inbox, not two. This route
+// stays for the per-customer thread, and for old notifications and links that
+// point at /inbox.
 export function renderInbox(view, { param } = {}) {
   if (param) return renderThread(view, param);
-
-  const threads = inboxThreads();
-  const el = document.createElement("div");
-
-  if (!smsReady()) {
-    el.innerHTML += `<div class="card" style="margin-bottom:12px">
-      <div class="row"><div class="row-main">
-        <div class="row-title">${icon("message")} Replies aren't switched on</div>
-        <div class="row-sub">${esc(smsBlocker())}</div>
-      </div><button class="btn btn-sm btn-ghost" data-act="setup">Set up</button></div>
-    </div>`;
-  }
-
-  if (!threads.length) {
-    el.innerHTML += `<div class="card"><div class="muted small">
-      No conversations yet. Texts you send from the app — and every reply that comes back — show up here.
-    </div></div>`;
-    view.appendChild(el);
-    el.querySelector('[data-act="setup"]')?.addEventListener("click", () => navigate("/settings"));
-    return;
-  }
-
-  threads.forEach((t) => {
-    const card = document.createElement("div");
-    card.className = "card card-tap";
-    const preview = String(t.last.body || "").replace(/\s+/g, " ").slice(0, 72);
-    card.innerHTML = `
-      <div class="row">
-        <div class="row-main" style="min-width:0">
-          <div class="row-title">${esc(t.lead.name || "Customer")}${
-            t.lead.smsOptOut ? ' <span class="badge badge-lost">opted out</span>' : ""
-          }${t.unread ? ` <span class="badge badge-due">${t.unread} new</span>` : ""}</div>
-          <div class="row-sub">${t.last.dir === "out" ? "You: " : ""}${esc(preview)}${preview.length >= 72 ? "…" : ""}</div>
-        </div>
-        <div class="row-meta small muted">${esc(when(t.at))}</div>
-      </div>`;
-    card.addEventListener("click", () => navigate(`/inbox/${t.leadId}`));
-    el.appendChild(card);
-  });
-  view.appendChild(el);
-  el.querySelector('[data-act="setup"]')?.addEventListener("click", () => navigate("/settings"));
+  navigate("/comms");
 }
 
 // --- One conversation ---
@@ -87,7 +50,7 @@ function renderThread(view, leadId) {
           <div class="row-sub">${esc(lead.vehicleInterest || lead.phone || "")}</div>
         </div>
         <div class="btn-row">
-          ${lead.phone ? `<a class="btn btn-sm btn-ghost" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
+          ${lead.phone ? `<a class="btn btn-sm btn-ghost" data-act="call" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
           <button class="btn btn-sm btn-ghost" data-act="open">Profile</button>
         </div>
       </div>
@@ -100,20 +63,50 @@ function renderThread(view, leadId) {
     <div class="card ib-compose" id="ib-compose"></div>`;
   view.appendChild(el);
   el.querySelector('[data-act="open"]').addEventListener("click", () => navigate(`/leads/${lead.id}`));
+  // Placing the call logs it, so the thread shows the whole conversation
+  // instead of only the half that was typed.
+  el.querySelector('[data-act="call"]')?.addEventListener("click", () => {
+    store.logCall(lead.id);
+    setTimeout(paintThread, 0);
+  });
 
   const threadBox = el.querySelector("#ib-thread");
   const compose = el.querySelector("#ib-compose");
 
   function paintThread() {
-    const msgs = store.textsFor(leadId);
+    const items = timelineFor(leadId);
     threadBox.innerHTML = "";
-    if (!msgs.length) {
+    if (!items.length) {
       threadBox.innerHTML = `<div class="card"><div class="muted small">Nothing here yet — send the first message below.</div></div>`;
       return;
     }
     const wrap = document.createElement("div");
     wrap.className = "chat";
-    msgs.forEach((m) => {
+    items.forEach((item) => {
+      // A call and a link open aren't things anybody said, so they read as
+      // quiet centred notes rather than speech bubbles — the thread stays a
+      // conversation and these sit in it as context.
+      if (item.type === "call") {
+        const c = document.createElement("div");
+        c.className = "chat-event";
+        c.innerHTML = `${icon("phone")} ${item.rec.dir === "in" ? "They called you" : "You called"}${
+          item.rec.outcome ? ` · ${esc(item.rec.outcome)}` : ""} · ${esc(when(item.at))}`;
+        wrap.appendChild(c);
+        return;
+      }
+      if (item.type === "open") {
+        const lk = item.rec;
+        const n = Number(lk.opens) || 1;
+        const what = /book/i.test(lk.kind || "") ? "your booking page" : "the vehicle page";
+        const hot = linkIsHot(lk);
+        const c = document.createElement("div");
+        c.className = `chat-event${hot ? " chat-event-hot" : ""}`;
+        c.innerHTML = `${icon("target")} Opened ${esc(what)}${n > 1 ? ` <b>${n}×</b>` : ""} · ${esc(when(item.at))}${
+          hot ? " · they're looking now" : ""}`;
+        wrap.appendChild(c);
+        return;
+      }
+      const m = item.rec;
       const b = document.createElement("div");
       b.className = `bubble ${m.dir === "in" ? "bubble-in" : "bubble-out"}${m.status === "failed" ? " bubble-failed" : ""}`;
       b.innerHTML = `<div class="bubble-body">${esc(m.body)}</div>
@@ -148,6 +141,7 @@ function renderThread(view, leadId) {
       <div class="btn-row" style="margin-top:8px">
         <button class="btn btn-primary btn-sm" data-act="send" ${blocked ? "disabled" : ""}>${icon("message")} Send</button>
         ${draftingAvailable() && !blocked ? `<button class="btn btn-ghost btn-sm" data-act="draft">${icon("sparkles")} Draft a reply</button>` : ""}
+        ${blocked ? "" : `<button class="btn btn-ghost btn-sm" data-act="booklink">${icon("calendar")} Booking link</button>`}
       </div>
       ${blocked ? `<div class="small muted" style="margin-top:8px">${esc(blocked)}</div>` : ""}`;
 
@@ -171,6 +165,20 @@ function renderThread(view, leadId) {
       if (!r.ok) toast(r.error, "warn");
       btn.disabled = false;
       paintThread();
+    });
+
+    // Drops this customer's own booking link into the message. Theirs, not the
+    // shared one — that's what lets the thread tell you they opened it.
+    compose.querySelector('[data-act="booklink"]')?.addEventListener("click", async () => {
+      const btn = compose.querySelector('[data-act="booklink"]');
+      btn.disabled = true;
+      const link = await bookingLinkForLead(lead);
+      btn.disabled = false;
+      if (!link) return toast("Set up your booking page in Settings first", "warn");
+      const sep = box.value.trim() ? "\n\n" : "";
+      box.value = `${box.value.trim()}${sep}Pick a time that suits you: ${link}`;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
     });
 
     // The agent writes it; you send it. Nothing reaches a customer unread.

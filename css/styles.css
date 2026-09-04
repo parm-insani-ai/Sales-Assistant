@@ -942,3 +942,22 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
   .row-title { font-weight: 620; }
   b, strong, .strong { font-weight: 640; }
 }
+
+/* Thread events — a call placed, a link opened. Nobody said these, so they sit
+   in the conversation as quiet context rather than as speech. */
+.chat-event {
+  align-self: center;
+  max-width: 90%;
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--muted);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.chat-event b { color: var(--text-2); font-weight: 700; }
+.chat-event-hot {
+  color: var(--brand-strong);
+  background: var(--brand-tint);
+}
+.chat-event-hot b { color: var(--brand-strong); }
