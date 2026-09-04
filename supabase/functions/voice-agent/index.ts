@@ -494,6 +494,28 @@ async function handleInboundSms(req: Request): Promise<Response> {
   return empty;
 }
 
+// Twilio's failures come back as terse strings — code 20003 is the single word
+// "Authenticate" — which tells a salesperson nothing about what to go and fix.
+// Translate the ones that actually happen during setup into the action.
+function twilioReason(out: any, status: number): string {
+  const code = Number(out?.code) || 0;
+  const raw = String(out?.message || "").trim();
+  const map: Record<number, string> = {
+    20003: "Twilio rejected the account details. Check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in your Supabase secrets — the SID starts with AC, and if the number lives in a subaccount you need that subaccount's SID and token, not the parent's.",
+    20404: "Twilio couldn't find that account. TWILIO_ACCOUNT_SID is probably from a different account than the auth token.",
+    21211: "That customer's phone number isn't a valid number Twilio can text.",
+    21212: "TWILIO_FROM isn't a valid number. It has to be E.164 — like +19025550123, no spaces or brackets.",
+    21606: "TWILIO_FROM isn't a number on this account, or it can't send SMS. Check it's the number you own and that SMS is enabled on it.",
+    21608: "This is a Twilio trial account, which can only text numbers you've verified. Verify the number in Twilio, or upgrade the account.",
+    21610: "That customer texted STOP, so Twilio won't deliver to them. They have to text START to come back.",
+    21614: "That number can't receive texts — it looks like a landline.",
+    63038: "Twilio's daily message limit for this account has been hit (trial accounts are capped).",
+  };
+  if (map[code]) return map[code];
+  if (status === 401 || status === 403) return `Twilio rejected the credentials (${raw || status}). Check the SID and auth token in your Supabase secrets.`;
+  return raw ? `Twilio: ${raw}${code ? ` (code ${code})` : ""}` : `send failed (${status})`;
+}
+
 async function handleSendSms(body: any): Promise<Response> {
   const { sid, token, from } = twilioCfg();
   const s = body.sms || {};
@@ -515,7 +537,7 @@ async function handleSendSms(body: any): Promise<Response> {
     body: form,
   });
   const out = await res.json().catch(() => ({}));
-  if (!res.ok) return json({ error: out?.message || `send failed (${res.status})` }, 502);
+  if (!res.ok) return json({ error: twilioReason(out, res.status), code: out?.code ?? null }, 502);
 
   // Log it on the server so the thread is complete even if this device never
   // syncs again — the app writes its own optimistic copy under the same id.
