@@ -34,10 +34,17 @@ export function renderInbox(view, { param } = {}) {
 
 // --- One conversation ---
 function renderThread(view, leadId) {
-  const lead = store.get("leads", leadId);
+  // The customer record and the messages sync as separate rows, so the thread
+  // can exist before its lead does. Stand in with the number rather than
+  // showing "gone" over a conversation that is plainly right there.
+  let lead = store.get("leads", leadId);
   if (!lead) {
-    view.innerHTML = `<div class="card"><div class="muted small">That conversation is gone.</div></div>`;
-    return;
+    const first = store.textsFor(leadId).find((t) => t.phone);
+    if (!first) {
+      view.innerHTML = `<div class="card"><div class="muted small">That conversation is gone.</div></div>`;
+      return;
+    }
+    lead = { id: leadId, name: first.phone, phone: first.phone, orphan: true };
   }
   store.markThreadRead(leadId);
 

@@ -27,6 +27,10 @@ await p.addInitScript(([recent, older, old2]) => {
       {id:"t1",leadId:"a",dir:"out",body:"Hi Ann, worth a ten-minute look at where your Rogue sits.",at:old2,read:true,status:"sent",createdAt:"x",updatedAt:"x"},
       {id:"t2",leadId:"a",dir:"in",body:"what's my car worth? just ballpark it",at:older,read:false,createdAt:"x",updatedAt:"x"},
       {id:"t3",leadId:"c",dir:"out",body:"Your Frontier is paid off — worth understanding before you decide.",at:old2,read:true,status:"sent",createdAt:"x",updatedAt:"x"},
+      // A reply whose customer record hasn't synced yet. Messages and leads
+      // arrive as separate rows, so this really happens — and hiding the thread
+      // means a customer texted and nothing anywhere shows it.
+      {id:"t7",leadId:"nolead",dir:"in",body:"is the Rogue still available?",phone:"9025557777",at:older,read:false,createdAt:"x",updatedAt:"x"},
     ],
     calls:[{id:"cl1",leadId:"c",dir:"out",at:older,outcome:"left a voicemail",createdAt:"x",updatedAt:"x"}],
     // Cy opened his own booking link 3 times, minutes ago — the hot signal.
@@ -50,9 +54,14 @@ const order = await p.$$eval("#c-body > .card", n=>n.map(c=>c.textContent.replac
 console.log("MESSAGES tab:"); order.forEach(o=>console.log("  "+o));
 
 // Cy has the live open, Ann has the unread reply — unread wins, hot is second.
-if (!/Ann Lee/.test(order[0]||"")) throw new Error("FAIL: unanswered reply should sort first");
-if (!/Cy Poe/.test(order[1]||"")) throw new Error("FAIL: live link open should sort second");
-if (!/Opened/.test(order[1]||"")) throw new Error("FAIL: Cy's row doesn't mention the open");
+if (!order.some(o=>/9025557777|\(902\) 555-7777/.test(o)))
+  throw new Error("FAIL: a text whose lead hasn't synced was hidden — the customer is invisible");
+// Ann and the orphan both have unread replies; both must be above Cy.
+const cyAt = order.findIndex(o=>/Cy Poe/.test(o));
+if (!order.slice(0, cyAt).some(o=>/Ann Lee/.test(o)))
+  throw new Error("FAIL: unanswered reply should sort above a link open");
+if (cyAt < 0) throw new Error("FAIL: Cy's thread is missing");
+if (!/Opened/.test(order[cyAt]||"")) throw new Error("FAIL: Cy's row doesn't mention the open");
 
 await p.$eval('[data-tab="email"]', x=>x.dispatchEvent(new MouseEvent("click",{bubbles:true})));
 await p.waitForTimeout(500);

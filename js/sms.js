@@ -106,6 +106,12 @@ export async function retryText(textId) {
 
 const PREFILL = "entoa:sms-prefill";
 
+// (902) 555-1234 from anything ten digits or longer.
+function fmtPhone(p) {
+  const d = store.phoneKey(p);
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : String(p || "Unknown");
+}
+
 function parseSmsHref(href) {
   const m = /^sms:([^?]*)(?:\?&?body=(.*))?$/.exec(String(href || ""));
   if (!m || !m[1]) return null;
@@ -235,7 +241,17 @@ export function inboxThreads() {
   });
 
   return [...byLead.entries()]
-    .map(([leadId, e]) => ({ leadId, lead: store.get("leads", leadId), ...e }))
+    .map(([leadId, e]) => {
+      // A message must never be invisible because its customer record is
+      // missing. The two arrive as separate synced rows, so a thread can land
+      // before — or without — the lead it belongs to, and dropping it means a
+      // real customer texted and nothing anywhere shows it. Stand in with the
+      // number until the record catches up.
+      const lead = store.get("leads", leadId) || (e.last && e.last.rec && e.last.rec.phone
+        ? { id: leadId, name: fmtPhone(e.last.rec.phone), phone: e.last.rec.phone, orphan: true }
+        : null);
+      return { leadId, lead, ...e };
+    })
     .filter((t) => t.lead)
     .sort((a, b) => {
       // Unanswered replies first — someone is waiting on a person. Then live
