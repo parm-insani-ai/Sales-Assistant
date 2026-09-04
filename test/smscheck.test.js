@@ -166,6 +166,26 @@ const CASES = [
     }));
   });
 
+  // A function that doesn't exist and a function that's merely out of date are
+  // opposite problems: redeploying fixes one and is useless for the other, so
+  // the readout must not conflate them.
+  await fetch(APP + "/__check", { method: "POST", body: JSON.stringify({ error: "Requested function was not found" }) });
+  await p.goto(APP + "/#/settings");
+  await p.waitForTimeout(500);
+  await p.$$eval("details", (ds) => ds.forEach((d) => (d.open = true)));
+  await p.waitForSelector("#sms-check");
+  await p.$eval("#sms-check", (x) => x.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await p.waitForFunction(() => {
+    const t = document.querySelector("#sms-check-out")?.textContent || "";
+    return t && t !== "Checking…";
+  }, null, { timeout: 8000 });
+  const missingTxt = await p.$eval("#sms-check-out", (x) => x.textContent.replace(/\s+/g, " ").trim());
+  console.log(`\na function that doesn't exist:\n  ${missingTxt.slice(0, 200)}`);
+  if (!/No function answers at that name/i.test(missingTxt))
+    throw new Error("FAIL: a 404 isn't reported as a missing function\n  got: " + missingTxt);
+  if (/older version/i.test(missingTxt))
+    throw new Error("FAIL: a 404 is being reported as a stale build — opposite advice");
+
   for (const c of CASES) {
     await fetch(APP + "/__check", { method: "POST", body: JSON.stringify(c.reply) });
     await p.goto(APP + "/#/settings");

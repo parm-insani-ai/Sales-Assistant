@@ -756,8 +756,18 @@ function buildEmail(slot) {
         // way through its router to the Claude relay at the bottom — which
         // rejects it for having no messages. That answer is confusing on its
         // own but it identifies the cause exactly, so name it.
-        const stale = /no messages/i.test(String(d.error || "")) || res.status === 404;
-        box.innerHTML = stale
+        // A 404 and a stale build are opposite problems and need opposite
+        // advice: 404 means no function answers at this name, so redeploying
+        // is pointless until the name (or the project) is right.
+        const missing = res.status === 404 || /not found|requested function/i.test(String(d.error || ""));
+        const stale = !missing && /no messages/i.test(String(d.error || ""));
+        box.innerHTML = missing
+          ? `❌ <b>No function answers at that name.</b> <span class="mono">${esc(url)}</span> returned 404, so
+             <span class="mono">${esc(url.split("/").pop())}</span> doesn't exist in that Supabase project — deploying to it
+             won't help until the name is right. Check the function list <b>in the project this URL points at</b>
+             (<span class="mono">${esc((url.match(/\/\/([^.]+)\./) || [])[1] || "your project")}</span>) and set
+             Voice agent URL to a function that's actually there.`
+          : stale
           // Name the function THIS install actually calls. The deployed name
           // varies between installs, and telling someone to redeploy the wrong
           // one is silent: their app keeps running old code while the new code
