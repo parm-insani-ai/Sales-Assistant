@@ -53,6 +53,39 @@ Now it launches full-screen like an app and works offline.
 2. Repo **Settings → Pages** → Source: *Deploy from a branch* → pick this branch, folder `/ (root)`.
 3. Your app will be live at `https://<user>.github.io/<repo>/`.
 
+## Deploying the Supabase function
+
+The cloud half of entoa — the voice agent, short links, self-serve booking,
+push notifications, email and two-way texting — is one Edge Function. Its
+source is `supabase/functions/voice-agent/index.ts`. Whenever that file
+changes, or you add a secret, the function has to be redeployed: **secrets
+added after a deploy don't reach a running function until it is redeployed.**
+
+**From the dashboard** (no tools to install, works from a phone):
+
+1. Supabase → your project → **Edge Functions**.
+2. Open the function — the deployed one is named **`quick-api`**, whatever the
+   folder is called locally.
+3. **Select all** in the editor and paste the whole new file over it. Replace,
+   don't append.
+4. **Deploy**.
+
+**From the CLI:**
+
+```sh
+supabase functions deploy quick-api --project-ref <your-project-ref>
+```
+
+The CLI looks for a folder matching the function name, so `supabase/functions/
+voice-agent/` has to be renamed to `quick-api/` first (or deploy from a copy).
+The mismatch is historical: the function grew past being just the voice agent,
+and renaming the deployed function would break every short link already texted
+to a customer.
+
+After deploying, keep **Verify JWT off** for this function — the app, the
+public booking page, and Twilio's webhook all call it without a Supabase token.
+Inbound texts are authenticated by Twilio's request signature instead.
+
 ## Finding a car on the dealer network (search launcher)
 
 From a customer's lead (or the Inventory tab), **🔎 Find a car** opens the O'Regan's inventory site pre-filtered the right way:
