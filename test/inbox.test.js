@@ -35,7 +35,7 @@ const TEXTS = [
       settings: { salesperson: "Parm", dealership: "O'Regan's Nissan", taxRate: 14, docFee: 699,
         defaultApr: 7.9, defaultTerm: 72, cloudAutoSync: false,
         smsFrom: "+19025550123",
-        agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" },
+        agentUrl: "http://127.0.0.1:8137/functions/v1/voice-agent" },
     }));
   }, [LEADS, TEXTS]);
 

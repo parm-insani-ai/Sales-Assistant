@@ -64,8 +64,7 @@ added after a deploy don't reach a running function until it is redeployed.**
 **From the dashboard** (no tools to install, works from a phone):
 
 1. Supabase → your project → **Edge Functions**.
-2. Open the function — the deployed one is named **`quick-api`**, whatever the
-   folder is called locally.
+2. Open **`voice-agent`**.
 3. **Select all** in the editor and paste the whole new file over it. Replace,
    don't append.
 4. **Deploy**.
@@ -73,14 +72,15 @@ added after a deploy don't reach a running function until it is redeployed.**
 **From the CLI:**
 
 ```sh
-supabase functions deploy quick-api --project-ref <your-project-ref>
+supabase functions deploy voice-agent --no-verify-jwt
 ```
 
-The CLI looks for a folder matching the function name, so `supabase/functions/
-voice-agent/` has to be renamed to `quick-api/` first (or deploy from a copy).
-The mismatch is historical: the function grew past being just the voice agent,
-and renaming the deployed function would break every short link already texted
-to a customer.
+The name is historical — the function long ago grew past being just the voice
+agent, and it now carries short links, booking, push, email and texting too.
+Renaming it would break every short link already sitting in a customer's text
+thread, so it stays `voice-agent`. Whatever it's called, the app finds it:
+paste any URL in the same project and Settings → *Test connection* scans for
+the real one.
 
 After deploying, keep **Verify JWT off** for this function — the app, the
 public booking page, and Twilio's webhook all call it without a Supabase token.

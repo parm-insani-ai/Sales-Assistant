@@ -25,7 +25,7 @@ const ref = (url, params, token) =>
     .update(Object.keys(params).sort().reduce((s, k) => s + k + params[k], url))
     .digest("base64");
 
-const HOOK = "https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api?sms=1&u=00000000-0000-4000-8000-000000000001";
+const HOOK = "https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001";
 const CASES = [
   ["Twilio's own example shape", "https://mycompany.com/myapp.php?foo=1&bar=2",
     { Digits: "1234", To: "+18005551212", From: "+14158675310", Caller: "+14158675310", CallSid: "CA1234567890ABCDE" }, "12345"],

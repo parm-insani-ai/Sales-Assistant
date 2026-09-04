@@ -29,7 +29,7 @@ const APP = "http://127.0.0.1:8137";
       settings: { salesperson: "Parm", dealership: "O'Regan's Nissan", taxRate: 14, docFee: 699,
         defaultApr: 7.9, defaultTerm: 72, cloudAutoSync: false,
         // Signed-in cloud + function URL are what let links be shortened.
-        agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" },
+        agentUrl: "http://127.0.0.1:8137/functions/v1/voice-agent" },
     }));
   });
 
