@@ -478,17 +478,29 @@ async function handleInboundSms(req: Request): Promise<Response> {
   const sig = req.headers.get("x-twilio-signature") || "";
   const fwdProto = req.headers.get("x-forwarded-proto");
   const fwdHost = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  const candidates = [req.url];
+  const candidates = new Set([req.url]);
   try {
-    const u2 = new URL(req.url);
-    if (fwdProto) u2.protocol = `${fwdProto}:`;
-    if (fwdHost) u2.host = fwdHost;
-    candidates.push(u2.toString());
-    // Twilio normalises away a default port; a rebuilt URL might not.
-    candidates.push(u2.toString().replace(/:443(?=\/|$)/, ""));
-    const https = new URL(req.url);
-    https.protocol = "https:";
-    candidates.push(https.toString());
+    const u = new URL(req.url);
+    const protos = new Set([u.protocol, "https:"]);
+    if (fwdProto) protos.add(`${fwdProto}:`);
+    const hosts = new Set([u.host]);
+    if (fwdHost) hosts.add(fwdHost);
+    // The one that actually bites: Supabase routes /functions/v1/<name> to the
+    // function but hands it a path of just /<name>. Twilio signed the URL it
+    // called, prefix and all, so the path this side sees can never match
+    // without putting it back. Varying protocol and host alone — which is all
+    // this did at first — leaves every inbound text rejected.
+    const paths = new Set([u.pathname]);
+    if (!u.pathname.startsWith("/functions/v1/")) paths.add(`/functions/v1${u.pathname}`);
+    for (const proto of protos) {
+      for (const host of hosts) {
+        for (const path of paths) {
+          candidates.add(`${proto}//${host}${path}${u.search}`);
+          // Twilio drops a default port; a rebuilt URL might carry one.
+          candidates.add(`${proto}//${host}${path}${u.search}`.replace(/:443(?=\/|$)/, ""));
+        }
+      }
+    }
   } catch { /* req.url is all we have */ }
 
   let ok = false;

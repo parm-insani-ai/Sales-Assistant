@@ -69,18 +69,26 @@ const CASES = [
   // proxy that can present a different scheme or host than the one Twilio
   // signed, and a mismatch drops every text with a silent 403. It tries a
   // small set of reconstructions instead — which must not become a way in.
+  // Mirrors the handler's candidate builder. The real-world failure this
+  // encodes: Supabase routes /functions/v1/<name> to the function but hands it
+  // a path of /<name>, and downgrades the scheme — so what Twilio signed and
+  // what arrives differ in two places at once.
   const candidates = (reqUrl, fwdProto, fwdHost) => {
-    const out = [reqUrl];
+    const out = new Set([reqUrl]);
     try {
-      const u2 = new URL(reqUrl);
-      if (fwdProto) u2.protocol = `${fwdProto}:`;
-      if (fwdHost) u2.host = fwdHost;
-      out.push(u2.toString());
-      out.push(u2.toString().replace(/:443(?=\/|$)/, ""));
-      const https = new URL(reqUrl); https.protocol = "https:";
-      out.push(https.toString());
+      const u = new URL(reqUrl);
+      const protos = new Set([u.protocol, "https:"]);
+      if (fwdProto) protos.add(`${fwdProto}:`);
+      const hosts = new Set([u.host]);
+      if (fwdHost) hosts.add(fwdHost);
+      const paths = new Set([u.pathname]);
+      if (!u.pathname.startsWith("/functions/v1/")) paths.add(`/functions/v1${u.pathname}`);
+      for (const proto of protos) for (const host of hosts) for (const path of paths) {
+        out.add(`${proto}//${host}${path}${u.search}`);
+        out.add(`${proto}//${host}${path}${u.search}`.replace(/:443(?=\/|$)/, ""));
+      }
     } catch { /* req.url is all there is */ }
-    return out;
+    return [...out];
   };
   const accepts = async (reqUrl, fwdProto, fwdHost, sig, token) => {
     for (const c of candidates(reqUrl, fwdProto, fwdHost)) {
@@ -88,24 +96,36 @@ const CASES = [
     }
     return false;
   };
-  const PROXY_PARAMS = { From: "+19025551111", To: "+19025002503", Body: "hey", MessageSid: "SM1" };
+  const PROXY_PARAMS = { From: "+12262467202", To: "+19025002503", Body: "Hello", MessageSid: "SMf98743be2f72cd37bae2d37e5cbb332f" };
   const TOK = "the-auth-token";
-  const signed = crypto.createHmac("sha1", TOK)
-    .update(Object.keys(PROXY_PARAMS).sort().reduce((s, k) => s + k + PROXY_PARAMS[k], HOOK)).digest("base64");
+  const sign = (u, tok) => crypto.createHmac("sha1", tok)
+    .update(Object.keys(PROXY_PARAMS).sort().reduce((s, k) => s + k + PROXY_PARAMS[k], u)).digest("base64");
 
-  check("a proxy that downgraded https to http still verifies",
-    await accepts(HOOK.replace("https:", "http:"), "https", "bgzkafhlwaldbdfehfsa.supabase.co", signed, TOK));
-  check("a proxy that rewrote the host still verifies",
-    await accepts("http://internal.local/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001",
-      "https", "bgzkafhlwaldbdfehfsa.supabase.co", signed, TOK));
-  // The reconstruction uses attacker-supplied headers, so it must not let
-  // someone sign a URL of their own choosing and have it accepted.
-  const evilUrl = "https://evil.example.com/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001";
-  const evilSig = crypto.createHmac("sha1", "attacker-token")
-    .update(Object.keys(PROXY_PARAMS).sort().reduce((s, k) => s + k + PROXY_PARAMS[k], evilUrl)).digest("base64");
-  check("a forged forwarded-host is still rejected", !await accepts(HOOK, "https", "evil.example.com", evilSig, TOK));
+  // The exact pair observed in production: Twilio signed the public URL, the
+  // function saw http:// with /functions/v1 stripped off the front.
+  const SIGNED = "https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api?sms=1&u=b413a741-754b-4e1b-9ada-2ef6c21fa79d";
+  const SAW = "http://bgzkafhlwaldbdfehfsa.supabase.co/quick-api?sms=1&u=b413a741-754b-4e1b-9ada-2ef6c21fa79d";
+  check("the real Supabase rewrite verifies (scheme downgraded AND /functions/v1 stripped)",
+    await accepts(SAW, null, null, sign(SIGNED, TOK), TOK));
+  check("stripped path alone verifies",
+    await accepts(SIGNED.replace("/functions/v1", ""), null, null, sign(SIGNED, TOK), TOK));
+  check("scheme downgrade alone verifies",
+    await accepts(SIGNED.replace("https:", "http:"), null, null, sign(SIGNED, TOK), TOK));
+  check("an untouched URL still verifies", await accepts(SIGNED, null, null, sign(SIGNED, TOK), TOK));
+  check("a rewritten host verifies",
+    await accepts("http://internal.local/quick-api?sms=1&u=b413a741-754b-4e1b-9ada-2ef6c21fa79d",
+      "https", "bgzkafhlwaldbdfehfsa.supabase.co", sign(SIGNED, TOK), TOK));
+
+  // Widening the candidate set must not widen the door.
+  check("a forged forwarded-host is still rejected",
+    !await accepts(SAW, "https", "evil.example.com",
+      sign("https://evil.example.com/functions/v1/quick-api?sms=1&u=b413a741-754b-4e1b-9ada-2ef6c21fa79d", "attacker-token"), TOK));
   check("the wrong token is still rejected across every candidate",
-    !await accepts(HOOK, "https", "bgzkafhlwaldbdfehfsa.supabase.co", signed, "other-token"));
+    !await accepts(SAW, null, null, sign(SIGNED, TOK), "other-token"));
+  check("a tampered body is still rejected across every candidate",
+    !await accepts(SAW, null, null, sign(SIGNED, TOK).slice(0, -2) + "AA", TOK));
+  check("a different path is still rejected",
+    !await accepts(SAW, null, null, sign(SIGNED.replace("quick-api", "other-fn"), TOK), TOK));
   console.log("  checked: proxy URL reconstruction");
 
   if (failed) { console.error(`\nTWILIO SIGNATURE FAIL — ${failed} check(s)`); process.exit(1); }
