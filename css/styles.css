@@ -121,6 +121,12 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* The viewport meta stops pinch-zoom; this stops the other one — the
+   double-tap-to-zoom gesture, which on a list of tappable cards fires when you
+   tap two rows in quick succession and lurches the page. It also removes the
+   300ms tap delay browsers hold in case a second tap is coming. */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
 /* Inline line icons (match the nav icon style) */
 .ico {
   width: 1.15em;

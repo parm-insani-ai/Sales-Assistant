@@ -128,6 +128,12 @@ function scheduleSync() {
   debounce = setTimeout(() => syncNow(), 2500);
 }
 
+// How often to look for anything that arrived from the outside while the app
+// is open and being used. Everything this device does syncs immediately; this
+// interval only exists for things it can't know about locally.
+const POLL_MS = 20000;
+let poll;
+
 // Wire up automatic background sync. Call once at startup.
 export function init() {
   if (!backend.isConfigured() || !backend.isSignedIn()) return;
@@ -136,6 +142,27 @@ export function init() {
   store.subscribe(() => { if (!running) scheduleSync(); });
   window.addEventListener("online", () => syncNow());
   window.addEventListener("focus", () => { if (store.getSettings().cloudAutoSync) syncNow(); });
+
+  // An inbound text never touches this device: the carrier posts it to the
+  // function, which writes the record. Nothing here knows it happened. Without
+  // a poll the reply sits on the server unseen while you are looking straight
+  // at the thread waiting for it — which is exactly what a messaging screen
+  // must never do. Same for a customer self-booking a time.
+  //
+  // visibilitychange rather than focus: on iOS a home-screen PWA reliably
+  // reports visibility, and often doesn't fire focus at all.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (store.getSettings().cloudAutoSync) syncNow();
+  });
+  clearInterval(poll);
+  poll = setInterval(() => {
+    if (document.visibilityState !== "visible") return; // backgrounded: don't burn battery
+    if (!store.getSettings().cloudAutoSync) return;
+    if (running) return;
+    syncNow();
+  }, POLL_MS);
+
   // First sync shortly after load.
   setTimeout(() => syncNow(), 800);
 }
