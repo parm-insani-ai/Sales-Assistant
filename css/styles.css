@@ -920,11 +920,13 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
      keeps it obviously primary without shouting. */
   .btn-primary { font-weight: 650; }
 
-  /* Inputs shouldn't read as bright cut-outs. */
+  /* Inputs shouldn't read as bright cut-outs. Note the `input` on the search
+     rule: .searchbar is the positioning wrapper that holds the magnifier, so
+     giving it a background paints a rectangle behind the rounded pill. */
   .field input,
   .field select,
   .field textarea,
-  .searchbar { background: var(--surface-2); border-color: var(--border-strong); }
+  .searchbar input { background: var(--surface-2); border-color: var(--border-strong); }
 
   /* The unread dot is information, not an alarm. */
   .tab-dot { background: var(--brand); color: var(--brand-ink); }

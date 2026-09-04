@@ -78,9 +78,9 @@ export function renderLeads(view, { param }) {
         <button class="btn btn-ghost btn-sm" data-act="sel-done" style="flex:0 0 auto">Done</button>
       </div>
       <div class="hint" style="margin-bottom:10px">Tap leads to select. The filter chips and search narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : `
-      <div class="btn-row" style="margin-bottom:10px">
-        <button class="btn btn-primary btn-block" data-act="add-lead">${icon("plus")} Add customer</button>
-        <button class="btn btn-ghost btn-sm" data-act="select" style="flex:0 0 auto">Select</button>
+      <div class="btn-row" style="margin-bottom:10px; flex-wrap:nowrap">
+        <button class="btn btn-primary" data-act="add-lead" style="flex:1">${icon("plus")} Add customer</button>
+        <button class="btn btn-ghost" data-act="select" style="flex:0 0 auto">Select</button>
       </div>
       <button class="btn btn-ghost btn-block" data-act="call-list" style="margin-bottom:12px">${icon("target")} Today's queue${callSub}</button>`}
       <div class="lead-list"></div>
