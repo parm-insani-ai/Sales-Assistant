@@ -65,6 +65,49 @@ const CASES = [
   check("a signature differing in one byte is rejected", !await twilioSigned(url, params, flipped, "tok"));
   check("a truncated signature is rejected", !await twilioSigned(url, params, real.slice(0, -1), "tok"));
 
+  // The handler doesn't verify req.url alone: this function runs behind a
+  // proxy that can present a different scheme or host than the one Twilio
+  // signed, and a mismatch drops every text with a silent 403. It tries a
+  // small set of reconstructions instead — which must not become a way in.
+  const candidates = (reqUrl, fwdProto, fwdHost) => {
+    const out = [reqUrl];
+    try {
+      const u2 = new URL(reqUrl);
+      if (fwdProto) u2.protocol = `${fwdProto}:`;
+      if (fwdHost) u2.host = fwdHost;
+      out.push(u2.toString());
+      out.push(u2.toString().replace(/:443(?=\/|$)/, ""));
+      const https = new URL(reqUrl); https.protocol = "https:";
+      out.push(https.toString());
+    } catch { /* req.url is all there is */ }
+    return out;
+  };
+  const accepts = async (reqUrl, fwdProto, fwdHost, sig, token) => {
+    for (const c of candidates(reqUrl, fwdProto, fwdHost)) {
+      if (await twilioSigned(c, PROXY_PARAMS, sig, token)) return true;
+    }
+    return false;
+  };
+  const PROXY_PARAMS = { From: "+19025551111", To: "+19025002503", Body: "hey", MessageSid: "SM1" };
+  const TOK = "the-auth-token";
+  const signed = crypto.createHmac("sha1", TOK)
+    .update(Object.keys(PROXY_PARAMS).sort().reduce((s, k) => s + k + PROXY_PARAMS[k], HOOK)).digest("base64");
+
+  check("a proxy that downgraded https to http still verifies",
+    await accepts(HOOK.replace("https:", "http:"), "https", "bgzkafhlwaldbdfehfsa.supabase.co", signed, TOK));
+  check("a proxy that rewrote the host still verifies",
+    await accepts("http://internal.local/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001",
+      "https", "bgzkafhlwaldbdfehfsa.supabase.co", signed, TOK));
+  // The reconstruction uses attacker-supplied headers, so it must not let
+  // someone sign a URL of their own choosing and have it accepted.
+  const evilUrl = "https://evil.example.com/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001";
+  const evilSig = crypto.createHmac("sha1", "attacker-token")
+    .update(Object.keys(PROXY_PARAMS).sort().reduce((s, k) => s + k + PROXY_PARAMS[k], evilUrl)).digest("base64");
+  check("a forged forwarded-host is still rejected", !await accepts(HOOK, "https", "evil.example.com", evilSig, TOK));
+  check("the wrong token is still rejected across every candidate",
+    !await accepts(HOOK, "https", "bgzkafhlwaldbdfehfsa.supabase.co", signed, "other-token"));
+  console.log("  checked: proxy URL reconstruction");
+
   if (failed) { console.error(`\nTWILIO SIGNATURE FAIL — ${failed} check(s)`); process.exit(1); }
   console.log("\nTWILIO SIGNATURE PASS");
 })();

@@ -423,6 +423,18 @@ function prettyPhone(p: string): string {
 const STOP_WORDS = ["stop", "stopall", "unsubscribe", "cancel", "end", "quit", "arret", "arrêt"];
 const START_WORDS = ["start", "unstop", "yes"];
 
+// Rate-limit the "rejected" warning. The webhook URL is public, so anyone who
+// learns it could otherwise drive a stream of notifications by posting garbage.
+// In-memory: instances are short-lived, so this dampens rather than guarantees.
+const warned = new Map<string, number>();
+function shouldWarn(uid: string): boolean {
+  const now = Date.now();
+  const last = warned.get(uid) || 0;
+  if (now - last < 10 * 60 * 1000) return false;
+  warned.set(uid, now);
+  return true;
+}
+
 async function handleInboundSms(req: Request): Promise<Response> {
   const { token } = twilioCfg();
   const url = new URL(req.url);
@@ -439,7 +451,44 @@ async function handleInboundSms(req: Request): Promise<Response> {
     for (const [k, v] of form.entries()) params[k] = String(v);
   } catch { return empty; }
 
-  if (!await twilioSigned(req.url, params, req.headers.get("x-twilio-signature") || "", token)) {
+  // Twilio signs the exact URL it requested. This function runs behind a
+  // proxy, so req.url can differ from that — most often http:// where Twilio
+  // used https://, or an internal host in place of the public one. When it
+  // differs the signature can't match, every text is dropped with a 403, and
+  // nothing anywhere says why. So try the plausible candidates rather than
+  // assuming req.url survived the hop.
+  const sig = req.headers.get("x-twilio-signature") || "";
+  const fwdProto = req.headers.get("x-forwarded-proto");
+  const fwdHost = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const candidates = [req.url];
+  try {
+    const u2 = new URL(req.url);
+    if (fwdProto) u2.protocol = `${fwdProto}:`;
+    if (fwdHost) u2.host = fwdHost;
+    candidates.push(u2.toString());
+    // Twilio normalises away a default port; a rebuilt URL might not.
+    candidates.push(u2.toString().replace(/:443(?=\/|$)/, ""));
+    const https = new URL(req.url);
+    https.protocol = "https:";
+    candidates.push(https.toString());
+  } catch { /* req.url is all we have */ }
+
+  let ok = false;
+  for (const cand of candidates) {
+    if (await twilioSigned(cand, params, sig, token)) { ok = true; break; }
+  }
+  if (!ok) {
+    // A 403 here is invisible from inside the app: the customer's text simply
+    // never appears. Say so out loud, once in a while, so a wrong auth token
+    // isn't diagnosed by staring at an empty inbox.
+    if (/^[0-9a-f-]{36}$/.test(uid) && shouldWarn(uid)) {
+      sendPush(uid, {
+        title: "A text was rejected",
+        body: "Someone texted your number but the signature check failed — usually TWILIO_AUTH_TOKEN not matching the account the number is on.",
+        tag: "sms-badsig",
+        url: "./#/settings",
+      }).catch(() => {});
+    }
     return new Response("bad signature", { status: 403 });
   }
   if (!/^[0-9a-f-]{36}$/.test(uid)) return empty;
