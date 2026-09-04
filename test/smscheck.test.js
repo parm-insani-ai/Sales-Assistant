@@ -61,6 +61,27 @@ const CASES = [
     expect: [/trial account/i, /only text numbers you've verified/i],
   },
   {
+    name: "replies still going to the previous project",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "My first Twilio account" },
+      number: { owned: true, smsCapable: true, inMessagingService: false, smsUrl: "https://api.vapi.ai/twilio/sms" },
+    },
+    expect: [/going somewhere else/i, /api\.vapi\.ai/, /sms=1&(amp;)?u=/, /Copy this URL/],
+    forbid: [/Replies are pointed at entoa/],
+  },
+  {
+    name: "replies correctly pointed at entoa",
+    reply: {
+      secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
+      auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
+      number: { owned: true, smsCapable: true, inMessagingService: false,
+        smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
+    },
+    expect: [/Replies are pointed at entoa/i],
+    forbid: [/going somewhere else/i],
+  },
+  {
     name: "the number has no inbound webhook",
     reply: {
       secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },

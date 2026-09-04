@@ -792,15 +792,35 @@ function buildEmail(slot) {
           rows.push(`${mark(d.number.smsCapable)} <b>The number is on this account</b>${d.number.smsCapable ? " and can send SMS" : " but is NOT SMS-capable"}`);
           if (d.number.inMessagingService)
             rows.push(`⚠️ The number belongs to a <b>Messaging Service</b>. Sending still works, but its <i>inbound</i> webhook comes from the service — set the URL there, not on the number, or replies will never arrive.`);
-          else if (d.number.smsUrl)
-            rows.push(`Inbound webhook currently: <span class="mono" style="word-break:break-all">${esc(d.number.smsUrl)}</span>`);
-          else
-            rows.push(`⚠️ The number has <b>no inbound webhook set</b> — sending will work, but replies go nowhere.`);
+          else if (d.number.smsUrl) {
+            // The reason this whole check exists: a number that sends fine can
+            // still be delivering every reply somewhere else entirely, and
+            // printing the URL without saying so leaves the reader to spot it.
+            const want = `${url}?sms=1&u=${user.id}`;
+            const same = d.number.smsUrl.split("&")[0].startsWith(url) && /[?&]sms=1/.test(d.number.smsUrl);
+            rows.push(same
+              ? `✅ <b>Replies are pointed at entoa.</b>`
+              : `❌ <b>Replies are going somewhere else.</b> This number delivers incoming texts to
+                 <span class="mono" style="word-break:break-all">${esc(d.number.smsUrl)}</span>, so nothing reaches entoa.
+                 In Twilio open the number → Messaging → “A message comes in” → <b>Webhook (HTTP POST)</b> and set it to:<br>
+                 <span class="mono" style="word-break:break-all">${esc(want)}</span>
+                 <button class="btn btn-sm btn-ghost" data-act="copy-hook" style="margin-top:8px">Copy this URL</button>
+                 <br><span class="muted">Changing it stops texts reaching whatever is on that URL today.</span>`);
+          } else
+            rows.push(`⚠️ The number has <b>no inbound webhook set</b> — sending will work, but replies go nowhere. Point it at:<br>
+              <span class="mono" style="word-break:break-all">${esc(`${url}?sms=1&u=${user.id}`)}</span>
+              <button class="btn btn-sm btn-ghost" data-act="copy-hook" style="margin-top:8px">Copy this URL</button>`);
         } else {
           rows.push(`❌ <b>${esc(d.number.note || "That number isn't on this account.")}</b>`);
         }
       }
       box.innerHTML = `<div style="line-height:1.6">${rows.join("<br>")}</div>`;
+      box.querySelector('[data-act="copy-hook"]')?.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(`${url}?sms=1&u=${user.id}`);
+          toast("Webhook URL copied", "success");
+        } catch { toast("Couldn't copy — select the URL above", "warn"); }
+      });
     } catch {
       box.textContent = "Couldn't reach the function.";
     }
