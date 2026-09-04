@@ -961,6 +961,10 @@ function calcPrefill(lead, m, inp) {
     rateTable: m.rateTable || null,
     msrp: isLease ? v.price : null,
     down: num(m.down) || null,
+    // Carried so the calculator opens on this customer's tier instead of
+    // asking again, and so a tier picked there is remembered on the lead.
+    leadId: lead.id,
+    creditTier: lead.creditTier || "",
     feesBreakdown: add.used ? "" :
       `${currency(add.avp)} AVP + ${currency(add.freight)} freight + ${currency(add.air)} air tax + ${currency2(add.tire)} tire levy`,
   };

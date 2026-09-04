@@ -12,6 +12,7 @@ import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
 import { icon } from "../icons.js";
+import { TIERS, tierMeta } from "../lenders.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
   relativeDay, daysFromToday, formatDate, todayISO,
@@ -253,6 +254,10 @@ export function openMoneyForm(l) {
         { name: "leaseEnd", label: "Contract maturity date", value: l.leaseEnd || "", type: "date", half: true },
         { name: "currentTerm", label: "Original term (mo)", value: l.currentTerm, type: "number", inputmode: "numeric", half: true, placeholder: "72" },
         { name: "odometer", label: "Odometer (km)", value: l.odometer, type: "number", inputmode: "numeric", half: true, placeholder: "48000", hint: "Feeds the km adjustment on the estimate." },
+        { name: "creditTier", label: "Credit tier", value: l.creditTier || "", type: "select", half: true, options: [
+          { value: "", label: "Unknown" },
+          ...TIERS.map((t) => ({ value: t.id, label: `${t.label} · ${t.range}` })),
+        ] },
         { name: "tradeCondition", label: "Trade condition", value: l.tradeCondition || "", type: "select", half: true, options: [
           { value: "", label: "Not graded" },
           { value: "clean", label: "Clean (+5%)" },
@@ -272,6 +277,7 @@ export function openMoneyForm(l) {
             currentTerm: numOrNull(data.currentTerm),
             odometer: numOrNull(data.odometer),
             tradeCondition: data.tradeCondition || null,
+            creditTier: data.creditTier || null,
           });
           toast("Deal inputs updated", "success");
           close();
@@ -372,6 +378,7 @@ function renderLeadDetail(view, id) {
       <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
       ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
+      ${l.creditTier && tierMeta(l.creditTier) ? `<div class="kv"><span class="k">Credit tier</span><span class="v">${esc(tierMeta(l.creditTier).label)} <span class="muted small">· ${esc(tierMeta(l.creditTier).range)}</span></span></div>` : ""}
       ${(() => {
         const e = equityDetail(l);
         if (e.v == null) return l.payoff != null

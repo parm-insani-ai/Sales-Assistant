@@ -4,6 +4,7 @@
 import * as store from "../store.js";
 import { currency, currency2, esc, paymentDelta } from "../utils.js";
 import { toast } from "../components.js";
+import { TIERS, tierMeta, matchLenders, sheetIsSeeded } from "../lenders.js";
 
 // Core deal math, exported so it can be unit-tested / reused.
 export function computeDeal(input) {
@@ -89,6 +90,12 @@ export function renderCalculator(view) {
   // Finance or lease, remembered between visits; a quoted lease row lands here
   // in lease mode automatically.
   let method = pfVal("method", sessionStorage.getItem("calc-method") || "finance");
+  // Where this customer's credit actually sits. Carried from the lead when the
+  // quote came from one, otherwise remembered between visits. Everything above
+  // this line prices at whatever APR is typed in — which, left alone, is the
+  // program rate, which is Tier 1 money.
+  let tier = String(pfVal("creditTier", sessionStorage.getItem("calc-tier") || ""));
+  const quoteLeadId = pf && pf.leadId ? String(pf.leadId) : "";
   // The program publishes a rate PER TERM (0% to 60, 2.9% at 72/84; leases
   // also carry a residual per term). When a quote brings one along, changing
   // the term re-rates instead of leaving a stale APR behind.
@@ -151,6 +158,8 @@ export function renderCalculator(view) {
 
       <div class="card" id="c-result" style="border-color:var(--accent)"></div>
 
+      ${isLease ? "" : `<div class="card" id="c-lenders"></div>`}
+
       <div class="fab-note">Estimate only — taxes, fees and program details vary by deal. Confirm final figures with your desk.</div>
     `;
 
@@ -168,6 +177,110 @@ export function renderCalculator(view) {
         previous != null && Math.abs(monthly - previous) >= 0.5 ? line("your last change", paymentDelta(monthly - previous)) : "",
       ].filter(Boolean).join("");
       return rows ? `<hr class="divider" />${rows}` : "";
+    }
+
+    // --- Who'll actually buy this ---
+    // The payment above is arithmetic; this is the deal. A lender declines on
+    // structure far more often than on rate, and the only useful thing to say
+    // about a decline is what would fix it — so every blocked row carries its
+    // fix and the sheet is sorted by how close it is to yes.
+    const lendersBox = el.querySelector("#c-lenders");
+
+    function paintLenders(d) {
+      if (!lendersBox) return;
+      const chips = TIERS.map((t) => `<button class="btn btn-sm ${tier === t.id ? "btn-primary" : "btn-ghost"}"
+        data-tier="${t.id}" title="${esc(t.blurb)}">${esc(t.label)}</button>`).join("");
+      const head = `<div class="row" style="margin-bottom:8px"><div class="row-main" style="min-width:0">
+          <div class="row-title">Who'll buy this</div>
+          <div class="row-sub">${tier
+            ? `${esc(tierMeta(tier).label)} · ${esc(tierMeta(tier).range)} — ${esc(tierMeta(tier).blurb)}`
+            : "The payment above is Tier 1 money. Pick where their credit sits."}</div>
+        </div></div>
+        <div class="btn-row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${chips}</div>`;
+
+      if (!tier) { lendersBox.innerHTML = head; wireTierChips(); return; }
+
+      // Advance is calculated against what the car is worth, not what it's
+      // being sold for. Sale price is the closest thing this screen knows, and
+      // erring high on value under-reports an advance problem rather than
+      // inventing one — so the panel says which number it used.
+      const value = d.price + d.feesTaxable;
+      const m = matchLenders({ amountFinanced: d.amountFinanced, value, term: d.term, tier });
+      const ltv = value ? (d.amountFinanced / value) * 100 : 0;
+
+      let body = "";
+      if (m.best) {
+        const gap = m.best.monthly - d.monthly;
+        body += `<div class="kv kv-total"><span class="k strong">Real payment</span>
+          <span class="v mono">${currency2(m.best.monthly)}<span class="muted small">/mo</span></span></div>
+          <div class="kv"><span class="k">${esc(m.best.name)}</span><span class="v strong">${m.best.apr}%</span></div>
+          ${Math.abs(gap) >= 1 ? `<div class="kv"><span class="k">vs the quote above</span>
+            <span class="v strong" style="color:${paymentDelta(gap).color}">${paymentDelta(gap).text}</span></div>` : ""}
+          <div class="btn-row" style="margin:8px 0 4px">
+            <button class="btn btn-sm btn-ghost" data-act="userate">Use ${m.best.apr}% above</button>
+          </div>`;
+      } else {
+        body += `<div class="kv kv-total"><span class="k strong">Nobody buys this yet</span>
+          <span class="v mono">—</span></div>
+          <div class="hint">Every lender on your sheet turned this structure down. The fixes are below.</div>`;
+      }
+
+      body += `<hr class="divider" />
+        <div class="kv"><span class="k">Advancing against</span><span class="v mono">${currency(value)}</span></div>
+        <div class="kv"><span class="k">Loan to value</span><span class="v mono">${ltv ? ltv.toFixed(0) + "%" : "—"}</span></div>`;
+
+      if (m.approved.length > 1) {
+        body += `<hr class="divider" /><div class="small muted" style="margin-bottom:4px">Also approved</div>` +
+          m.approved.slice(1).map((a) => `<div class="kv"><span class="k">${esc(a.name)} @ ${a.apr}%</span>
+            <span class="v mono">${currency2(a.monthly)}/mo</span></div>`).join("");
+      }
+      // Subprime paper is bought at a discount. It never touches the customer's
+      // payment, so it belongs here rather than in the quote — but it comes
+      // straight out of the store's gross, which makes it the desk's business.
+      if (m.best && m.best.fee > 0) {
+        body += `<div class="kv"><span class="k">Discount fee to ${esc(m.best.name)}</span>
+          <span class="v mono" style="color:var(--warning)">− ${currency(m.best.fee)}</span></div>
+          <div class="hint">Off the front, not the payment — it comes out of your gross.</div>`;
+      }
+
+      const fixable = m.declined.filter((x) => x.fix);
+      if (fixable.length) {
+        body += `<hr class="divider" /><div class="small muted" style="margin-bottom:4px">One change away</div>` +
+          fixable.slice(0, 4).map((x) => `<div class="kv"><span class="k">${esc(x.name)}</span>
+            <span class="v" style="text-align:right">${esc(x.fix)}</span></div>`).join("");
+      }
+      const hard = m.declined.filter((x) => !x.fix);
+      if (hard.length) {
+        body += `<div class="hint" style="margin-top:8px">Won't look at ${esc(tierMeta(tier).label)}: ${
+          esc(hard.map((x) => x.name).join(", "))}.</div>`;
+      }
+      if (sheetIsSeeded()) {
+        body += `<div class="hint" style="margin-top:8px">These are starting numbers, not your store's.
+          <a href="#/settings">Enter your rate sheet</a> and this gets real.</div>`;
+      }
+
+      lendersBox.innerHTML = head + body;
+      wireTierChips();
+      lendersBox.querySelector('[data-act="userate"]')?.addEventListener("click", () => {
+        get("apr").value = m.best.apr;
+        rerender();
+        toast(`Quoting ${m.best.name} money`, "");
+      });
+    }
+
+    function wireTierChips() {
+      lendersBox?.querySelectorAll("[data-tier]").forEach((b) =>
+        b.addEventListener("click", () => {
+          tier = tier === b.dataset.tier ? "" : b.dataset.tier;
+          sessionStorage.setItem("calc-tier", tier);
+          // Remember it on the customer, so the next quote for the same person
+          // starts from what you already know instead of asking again.
+          if (quoteLeadId && tier) {
+            const lead = store.get("leads", quoteLeadId);
+            if (lead && lead.creditTier !== tier) store.update("leads", quoteLeadId, { creditTier: tier });
+          }
+          rerender();
+        }));
     }
 
     function recompute() {
@@ -209,6 +322,7 @@ export function renderCalculator(view) {
           <div class="kv"><span class="k">Total of payments</span><span class="v mono">${currency(d.totalOfPayments)}</span></div>
           <div class="kv"><span class="k">Total interest</span><span class="v mono">${currency(d.totalInterest)}</span></div>
         `;
+        paintLenders(d);
       }
     }
 
