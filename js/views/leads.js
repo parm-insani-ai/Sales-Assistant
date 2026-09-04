@@ -11,7 +11,6 @@ import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
-import { prospectSummary } from "./prospecting.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
@@ -61,8 +60,6 @@ export function renderLeads(view, { param }) {
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: s.label })),
     ];
 
-    const ps = prospectSummary();
-    const callSub = ps.hot ? ` · ${ps.hot} new` : ps.total ? ` · ${ps.total}` : "";
     const opp = filter === "opportunity";
     wrap.innerHTML = `
       ${opp ? "" : `<div class="searchbar">
@@ -81,8 +78,7 @@ export function renderLeads(view, { param }) {
       <div class="btn-row" style="margin-bottom:10px; flex-wrap:nowrap">
         <button class="btn btn-primary" data-act="add-lead" style="flex:1">${icon("plus")} Add customer</button>
         <button class="btn btn-ghost" data-act="select" style="flex:0 0 auto">Select</button>
-      </div>
-      <button class="btn btn-ghost btn-block" data-act="call-list" style="margin-bottom:12px">${icon("target")} Today's queue${callSub}</button>`}
+      </div>`}
       <div class="lead-list"></div>
     `;
 
@@ -127,7 +123,6 @@ export function renderLeads(view, { param }) {
 
     const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="add-lead"]', () => openLeadForm());
-    on('[data-act="call-list"]', () => navigate("/"));
     on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
     on('[data-act="sel-done"]', () => { selecting = false; selected.clear(); draw(); });
     on('[data-act="sel-all"]', () => {
