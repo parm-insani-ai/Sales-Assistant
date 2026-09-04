@@ -758,7 +758,12 @@ function buildEmail(slot) {
         // own but it identifies the cause exactly, so name it.
         const stale = /no messages/i.test(String(d.error || "")) || res.status === 404;
         box.innerHTML = stale
-          ? `<b>The function is running an older version.</b> It answered “${esc(d.error || res.status)}”, which is what happens when it doesn't recognise this request. Re-paste <span class="mono">supabase/functions/voice-agent/index.ts</span> into Supabase → Edge Functions → <span class="mono">voice-agent</span> and deploy, then check again.`
+          // Name the function THIS install actually calls. The deployed name
+          // varies between installs, and telling someone to redeploy the wrong
+          // one is silent: their app keeps running old code while the new code
+          // sits somewhere nothing calls.
+          ? `<b>The function is running an older version.</b> It answered “${esc(d.error || res.status)}”, which is what happens when it doesn't recognise this request.
+             Re-paste <span class="mono">supabase/functions/voice-agent/index.ts</span> into Supabase → Edge Functions → <span class="mono">${esc(url.split("/").pop())}</span> — that is the function this app calls — and deploy, then check again.`
           : `Couldn't check: ${esc(d.error || res.status)}`;
         smsCheck.disabled = false;
         return;

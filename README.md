@@ -63,24 +63,29 @@ added after a deploy don't reach a running function until it is redeployed.**
 
 **From the dashboard** (no tools to install, works from a phone):
 
-1. Supabase → your project → **Edge Functions**.
-2. Open **`voice-agent`**.
+**Deploy to the function the app actually calls.** The name is NOT fixed — it
+is whatever is in Settings → *Voice agent URL*, and installs differ:
+`voice-agent` and `quick-api` are both in the wild. Deploying to the wrong one
+is silent and confusing: the app keeps working on the old code while the new
+code sits in a function nothing calls. Read the name off that URL first.
+
+1. Settings → **Voice agent URL** → note the last path segment.
+2. Supabase → your project → **Edge Functions** → open **that** function.
 3. **Select all** in the editor and paste the whole new file over it. Replace,
    don't append.
 4. **Deploy**.
 
-**From the CLI:**
+**From the CLI**, substituting the same name:
 
 ```sh
-supabase functions deploy voice-agent --no-verify-jwt
+supabase functions deploy <that-name> --no-verify-jwt
 ```
 
-The name is historical — the function long ago grew past being just the voice
-agent, and it now carries short links, booking, push, email and texting too.
-Renaming it would break every short link already sitting in a customer's text
-thread, so it stays `voice-agent`. Whatever it's called, the app finds it:
-paste any URL in the same project and Settings → *Test connection* scans for
-the real one.
+The folder in this repo is `voice-agent/` for historical reasons — the function
+long ago grew past being just the voice agent, and now carries short links,
+booking, push, email and texting too. The folder name and the deployed name do
+not have to match, and renaming the deployed one would break every short link
+already sitting in a customer's text thread.
 
 After deploying, keep **Verify JWT off** for this function — the app, the
 public booking page, and Twilio's webhook all call it without a Supabase token.
