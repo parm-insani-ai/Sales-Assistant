@@ -10,7 +10,7 @@ import * as store from "../store.js";
 import { navigate } from "../router.js";
 import { toast, openModal } from "../components.js";
 import { icon } from "../icons.js";
-import { esc, formatDate, telHref, initials } from "../utils.js";
+import { esc, formatDate, telHref } from "../utils.js";
 import { sendText, retryText, smsBlocker, takePrefill, timelineFor, linkIsHot } from "../sms.js";
 import { bookingLinkForLead } from "./settings.js";
 import { draftReply, draftingAvailable } from "../replies.js";
@@ -57,18 +57,40 @@ function renderThread(view, leadId) {
   store.markThreadRead(leadId);
 
   const name = lead.name || "Customer";
+  // The customer's name IS the title of this screen — "Conversation" told you
+  // nothing you couldn't see. Putting it in the top bar, with the call and
+  // profile buttons beside it, also retires the separate header card that used
+  // to sit inside the scroller: it was sticky, and messages scrolled through
+  // the gaps around it.
+  const title = document.getElementById("page-title");
+  if (title) title.textContent = name;
+  const actions = document.getElementById("topbar-actions");
+  if (actions) {
+    document.getElementById("quick-add").hidden = true;
+    if (lead.phone) {
+      const call = document.createElement("a");
+      call.className = "icon-btn icon-btn-quiet";
+      call.dataset.act = "call";
+      call.href = telHref(lead.phone);
+      call.setAttribute("aria-label", "Call");
+      call.innerHTML = icon("phone");
+      // Placing the call logs it, so the thread shows the whole conversation
+      // instead of only the half that was typed.
+      call.addEventListener("click", () => { store.logCall(lead.id); setTimeout(paintThread, 0); });
+      actions.appendChild(call);
+    }
+    const prof = document.createElement("button");
+    prof.className = "icon-btn icon-btn-quiet";
+    prof.dataset.act = "open";
+    prof.setAttribute("aria-label", "Profile");
+    prof.innerHTML = icon("users");
+    prof.addEventListener("click", () => navigate(`/leads/${lead.id}`));
+    actions.appendChild(prof);
+  }
+
   const el = document.createElement("div");
   el.className = "conv-screen";
   el.innerHTML = `
-    <div class="conv-head">
-      <div class="conv-av">${esc(initials(name))}</div>
-      <div class="conv-head-main">
-        <div class="conv-head-name">${esc(name)}</div>
-        <div class="conv-head-sub">${esc(lead.vehicleInterest || lead.phone || "")}</div>
-      </div>
-      ${lead.phone ? `<a class="conv-head-btn" data-act="call" aria-label="Call" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
-      <button class="conv-head-btn" data-act="open" aria-label="Profile">${icon("users")}</button>
-    </div>
     ${lead.smsOptOut ? `<div class="card" style="margin-bottom:8px"><div class="row"><div class="row-main">
       <div class="row-title">${icon("alert")} They've opted out</div>
       <div class="row-sub">${esc(String(name).split(" ")[0])} texted STOP, so the app won't message them and campaigns skip them. They can text START to come back.</div>
@@ -79,13 +101,6 @@ function renderThread(view, leadId) {
   // A thread supplies its own bottom edge — the reply bar — so it doesn't want
   // the scroll buffer the list screens carry underneath them.
   view.classList.add("view-thread");
-  el.querySelector('[data-act="open"]').addEventListener("click", () => navigate(`/leads/${lead.id}`));
-  // Placing the call logs it, so the thread shows the whole conversation
-  // instead of only the half that was typed.
-  el.querySelector('[data-act="call"]')?.addEventListener("click", () => {
-    store.logCall(lead.id);
-    setTimeout(paintThread, 0);
-  });
 
   const threadBox = el.querySelector("#ib-thread");
   const compose = el.querySelector("#ib-compose");

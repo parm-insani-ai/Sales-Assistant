@@ -82,6 +82,33 @@ const TEXTS = [
   const annUnread = await p.$eval(".conv-row.conv-unread .conv-badge", (n) => n.textContent.trim()).catch(() => "");
   if (annUnread !== "1") throw new Error("FAIL: the unread count is missing from Ann's row, got " + JSON.stringify(annUnread));
 
+  // --- The thread names the customer in the bar, and puts it back on leaving.
+  // A view that borrows the top bar has to return it, or every screen after it
+  // is titled with someone's name and missing its quick-add button.
+  await p.goto(APP + "/#/inbox/a");
+  await p.waitForSelector("#ib-compose");
+  const head = await p.evaluate(() => ({
+    title: document.getElementById("page-title").textContent.trim(),
+    quickAdd: !document.getElementById("quick-add").hidden,
+    extras: document.querySelectorAll("#topbar-actions [data-act]").length,
+  }));
+  console.log("thread top bar:", JSON.stringify(head));
+  if (head.title !== "Ann Lee") throw new Error("FAIL: the thread isn't titled with the customer's name");
+  if (head.quickAdd) throw new Error("FAIL: quick-add is still showing over a conversation");
+  if (!head.extras) throw new Error("FAIL: no call/profile controls in the bar");
+
+  await p.goto(APP + "/#/comms");
+  await p.waitForSelector("#c-body");
+  const back = await p.evaluate(() => ({
+    title: document.getElementById("page-title").textContent.trim(),
+    quickAdd: !document.getElementById("quick-add").hidden,
+    extras: document.querySelectorAll("#topbar-actions [data-act]").length,
+  }));
+  console.log("after leaving:", JSON.stringify(back));
+  if (back.title === "Ann Lee") throw new Error("FAIL: the customer's name is still the page title");
+  if (!back.quickAdd) throw new Error("FAIL: quick-add never came back");
+  if (back.extras) throw new Error("FAIL: the conversation's buttons are stranded in the bar");
+
   // /inbox with no customer redirects into Comms — one list, not two.
   await p.goto(APP + "/#/inbox");
   await p.waitForTimeout(400);

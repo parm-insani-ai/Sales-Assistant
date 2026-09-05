@@ -25,7 +25,6 @@
 // Published for the CSS:
 //   --vvh        height of what's actually visible
 //   --kb         how much of the window the keyboard covers (0 if unknowable)
-//   --topbar-h   the sticky top bar's real height
 //   body.typing  a text field is focused — the keyboard is up
 //   body.kb-open the geometry agrees the keyboard is up
 
@@ -60,16 +59,6 @@ function measure() {
 function schedule() {
   if (raf) return;
   raf = requestAnimationFrame(measure);
-}
-
-// The top bar is sticky and translucent. Anything else that sticks to top: 0 —
-// the conversation header, for one — parks itself behind the bar and ghosts
-// through the blur permanently. Publishing the bar's real height lets those
-// stick just below it instead of behind it.
-function measureTopbar() {
-  const bar = document.querySelector(".topbar");
-  if (!bar) return;
-  root.style.setProperty("--topbar-h", `${Math.round(bar.getBoundingClientRect().height)}px`);
 }
 
 // Is this a device with an on-screen keyboard? A focused field on a laptop
@@ -108,11 +97,6 @@ function watchFocus() {
 }
 
 export function initViewport() {
-  measureTopbar();
-  if (window.ResizeObserver) {
-    const bar = document.querySelector(".topbar");
-    if (bar) new ResizeObserver(measureTopbar).observe(bar);
-  }
   watchFocus();
 
   baseline = window.innerHeight;

@@ -76,7 +76,12 @@ function mount(base, ctx) {
   // The view is the scroll container, so resetting it IS resetting the page.
   view.className = "view";
   view.scrollTop = 0;
-  // Detail pages set their own contextual title inside the view.
+  // A view may replace the title and put its own controls in the bar (a
+  // conversation shows the customer's name and a call button). Put both back
+  // to the defaults first, so leaving that screen doesn't strand them.
+  document.getElementById("topbar-actions").querySelectorAll(":scope > :not(#quick-add)")
+    .forEach((n) => n.remove());
+  document.getElementById("quick-add").hidden = false;
   title.textContent = ctx.param ? detailTitle(base) : page.title;
   page.render(view, ctx);
   updateTabs(base);
