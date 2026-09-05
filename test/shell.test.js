@@ -94,8 +94,12 @@ console.log("viewport:", vp.slice(0, 70));
 // --- There's slack under the last row rather than a dead stop.
 const pad = await p.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".view")).paddingBottom));
 const tabH = await p.evaluate(() => document.querySelector(".tabbar").getBoundingClientRect().height);
-console.log(`scroll buffer: ${Math.round(pad)}px padding vs a ${Math.round(tabH)}px tab bar`);
-if (pad < tabH + 50) fail("not enough buffer below the content — the page stops dead at the tab bar");
+const slack = pad - tabH;
+console.log(`scroll buffer: ${Math.round(pad)}px padding vs a ${Math.round(tabH)}px tab bar — ${Math.round(slack)}px of slack`);
+// Bounded at both ends: enough that the page doesn't stop dead at the tab bar,
+// not so much that a short list looks like it's floating above empty screen.
+if (slack < 20) fail(`only ${Math.round(slack)}px of slack — the page stops dead at the tab bar`);
+if (slack > 60) fail(`${Math.round(slack)}px of slack below the content — too much empty space under a short list`);
 
 // --- Now the keyboard. Fake what iOS reports: the visual viewport shrinks by
 // ~336px while window.innerHeight stays put.

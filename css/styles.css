@@ -327,10 +327,11 @@ html, body {
 /* ---------- View area ---------- */
 .view {
   flex: 1;
-  /* The tab bar is ~78px. The rest is deliberate slack, so the last row of a
-     list clears the bar and the page doesn't stop dead the moment you reach
-     the bottom of the content. */
-  padding: 18px 20px calc(160px + var(--safe-bottom));
+  /* The tab bar is ~71px; the rest is deliberate slack so the last row clears
+     the bar and the page doesn't stop dead the moment you reach the bottom of
+     the content. Enough to feel like room, not so much that a short list looks
+     like it's floating above an empty screen. */
+  padding: 18px 20px calc(105px + var(--safe-bottom));
   /* `clip` rather than `hidden`: it contains a too-wide row without turning
      this into a scroll container. */
   overflow-x: clip;
