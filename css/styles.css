@@ -35,27 +35,31 @@
   --muted: #6b7580;
   --faint: #9aa4af;
 
-  --brand: #0a8f5b;
+  /* O'Regan's Automotive green, sampled from their own site: the footer
+     ground, the search button and the logo mark all render #206C48. White on
+     it is 6.36:1, so it carries body text as well as it carries a button.
+     Strong is the same hue pressed darker; tint is the same hue as a wash. */
+  --brand: #206C48;
   --brand-ink: #ffffff;
-  --brand-strong: #087a4d;
-  --brand-tint: #eafaf2;
+  --brand-strong: #195438;
+  --brand-tint: #E5F5EE;
 
   --primary: var(--brand);
   --primary-ink: var(--brand-ink);
   --accent: #2f6fed;
-  --success: #0a8f5b;
+  --success: #206C48;
   --warning: #c2740a;
   --danger: #e0413f;
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 32, 0.04), 0 1px 3px rgba(15, 23, 32, 0.05);
   --shadow: 0 2px 6px rgba(15, 23, 32, 0.05), 0 6px 16px rgba(15, 23, 32, 0.06);
   --shadow-lg: 0 12px 34px rgba(15, 23, 32, 0.14);
-  --ring: 0 0 0 3px rgba(10, 143, 91, 0.18);
+  --ring: 0 0 0 3px rgba(32, 108, 72, 0.20);
   /* Colour of the shadow under an accent-filled control. Tinted in light,
      where it reads as warmth under a green button; neutral in dark, where a
      coloured shadow on a dark ground becomes a glow and the button starts
      looking like signage. */
-  --lift: rgba(10, 143, 91, 0.32);
+  --lift: rgba(32, 108, 72, 0.32);
 
   --nav-bg: rgba(255, 255, 255, 0.86);
   --bar-bg: rgba(246, 247, 249, 0.8);
@@ -91,15 +95,19 @@
     --muted: #8a908e;
     --faint: #676d6b;
 
-    --brand: #5fbf94;
+    /* The same green lifted to sit on a dark ground. #206C48 unchanged would
+       be near-invisible here, and --brand is used as a text colour (tab
+       labels, live-link notes) as well as a fill — so it's the brand hue at
+       6.66:1 against the background rather than a different green. */
+    --brand: #46B681;
     --brand-ink: #0b1a13;
-    --brand-strong: #74caa4;
-    --brand-tint: rgba(95, 191, 148, 0.13);
+    --brand-strong: #64C496;
+    --brand-tint: rgba(70, 182, 129, 0.14);
 
     --primary: var(--brand);
     --primary-ink: var(--brand-ink);
     --accent: #7fa8e6;
-    --success: #5fbf94;
+    --success: #46B681;
     --warning: #d6a463;
     /* A muted rose. The old alarm red was being used for ordinary counts like
        "1 follow-up due", which made a normal Tuesday look like an emergency. */
@@ -110,7 +118,7 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
     --shadow: 0 2px 8px rgba(0, 0, 0, 0.26), 0 10px 30px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.45);
-    --ring: 0 0 0 3px rgba(95, 191, 148, 0.24);
+    --ring: 0 0 0 3px rgba(70, 182, 129, 0.24);
     --lift: rgba(0, 0, 0, 0.45);
 
     --nav-bg: rgba(36, 40, 41, 0.82);
@@ -1042,7 +1050,7 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
   .badge-negotiating { color: #d9b784; background: rgba(214, 164, 99, 0.13); }
   .badge-sold,
   .badge-available,
-  .badge-delivered { color: #8fd0b0; background: rgba(95, 191, 148, 0.13); }
+  .badge-delivered { color: #8fd0b0; background: rgba(70, 182, 129, 0.14); }
   .badge-lost,
   .badge-due,
   .badge-hold,

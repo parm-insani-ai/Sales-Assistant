@@ -226,7 +226,7 @@ function makeWave(canvas) {
   let energy = 0, level = 0.06, mode = "listening", raf = 0;
 
   // Harmonize the lead ribbon with the theme's brand color.
-  let brand = "#10c96f";
+  let brand = "#46B681";
   try { const v = getComputedStyle(document.documentElement).getPropertyValue("--brand").trim(); if (v) brand = v; } catch {}
   const LAYERS = [
     { amp: 1.00, cycles: 1.3, sp: 0.9,  w: 2.8, col: brand,     a: 0.95 },
