@@ -8,21 +8,12 @@
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
-import { toast } from "../components.js";
+import { toast, openModal } from "../components.js";
 import { icon } from "../icons.js";
-import { esc, formatDate, telHref } from "../utils.js";
+import { esc, formatDate, telHref, initials } from "../utils.js";
 import { sendText, retryText, smsBlocker, takePrefill, timelineFor, linkIsHot } from "../sms.js";
 import { bookingLinkForLead } from "./settings.js";
 import { draftReply, draftingAvailable } from "../replies.js";
-
-function when(iso) {
-  const t = new Date(iso);
-  if (isNaN(t)) return "";
-  const today = new Date().toISOString().slice(0, 10);
-  const day = t.toISOString().slice(0, 10);
-  const clock = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return day === today ? clock : `${formatDate(iso)} · ${clock}`;
-}
 
 // The conversation list is the Comms tab now — one inbox, not two. This route
 // stays for the per-customer thread, and for old notifications and links that
@@ -32,7 +23,24 @@ export function renderInbox(view, { param } = {}) {
   navigate("/comms");
 }
 
-// --- One conversation ---
+function clock(iso) {
+  const t = new Date(iso);
+  return isNaN(t) ? "" : t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+// The separator between days. "Today" and "Yesterday" by name, because that's
+// what people actually say, and a date for anything older.
+function dayLabel(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const day = (x) => new Date(x).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (day(iso) === today) return "Today";
+  if (day(iso) === yest) return "Yesterday";
+  return formatDate(iso);
+}
+
 function renderThread(view, leadId) {
   // The customer record and the messages sync as separate rows, so the thread
   // can exist before its lead does. Stand in with the number rather than
@@ -48,26 +56,25 @@ function renderThread(view, leadId) {
   }
   store.markThreadRead(leadId);
 
+  const name = lead.name || "Customer";
   const el = document.createElement("div");
+  el.className = "conv-screen";
   el.innerHTML = `
-    <div class="card" style="margin-bottom:12px">
-      <div class="row">
-        <div class="row-main" style="min-width:0">
-          <div class="row-title">${esc(lead.name || "Customer")}</div>
-          <div class="row-sub">${esc(lead.vehicleInterest || lead.phone || "")}</div>
-        </div>
-        <div class="btn-row">
-          ${lead.phone ? `<a class="btn btn-sm btn-ghost" data-act="call" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
-          <button class="btn btn-sm btn-ghost" data-act="open">Profile</button>
-        </div>
+    <div class="conv-head">
+      <div class="conv-av">${esc(initials(name))}</div>
+      <div class="conv-head-main">
+        <div class="conv-head-name">${esc(name)}</div>
+        <div class="conv-head-sub">${esc(lead.vehicleInterest || lead.phone || "")}</div>
       </div>
+      ${lead.phone ? `<a class="conv-head-btn" data-act="call" aria-label="Call" href="${telHref(lead.phone)}">${icon("phone")}</a>` : ""}
+      <button class="conv-head-btn" data-act="open" aria-label="Profile">${icon("users")}</button>
     </div>
-    ${lead.smsOptOut ? `<div class="card" style="margin-bottom:12px"><div class="row"><div class="row-main">
+    ${lead.smsOptOut ? `<div class="card" style="margin-bottom:8px"><div class="row"><div class="row-main">
       <div class="row-title">${icon("alert")} They've opted out</div>
-      <div class="row-sub">${esc((lead.name || "They").split(" ")[0])} texted STOP, so the app won't message them and campaigns skip them. They can text START to come back.</div>
+      <div class="row-sub">${esc(String(name).split(" ")[0])} texted STOP, so the app won't message them and campaigns skip them. They can text START to come back.</div>
     </div></div></div>` : ""}
     <div id="ib-thread"></div>
-    <div class="card ib-compose" id="ib-compose"></div>`;
+    <div class="ib-compose" id="ib-compose"></div>`;
   view.appendChild(el);
   el.querySelector('[data-act="open"]').addEventListener("click", () => navigate(`/leads/${lead.id}`));
   // Placing the call logs it, so the thread shows the whole conversation
@@ -89,15 +96,33 @@ function renderThread(view, leadId) {
     }
     const wrap = document.createElement("div");
     wrap.className = "chat";
-    items.forEach((item) => {
+
+    // Group consecutive messages from the same side into a run. Within a run
+    // the bubbles sit tight and only the last one carries a time — a timestamp
+    // under every line is noise, and the shape of the run is what tells you
+    // who said what.
+    const sameSide = (a, b) =>
+      a && b && a.type === "text" && b.type === "text" && a.rec.dir === b.rec.dir &&
+      a.rec.status !== "failed" && b.rec.status !== "failed";
+
+    let lastDay = "";
+    items.forEach((item, i) => {
+      const day = String(item.at || "").slice(0, 10);
+      if (day && day !== lastDay) {
+        lastDay = day;
+        const sep = document.createElement("div");
+        sep.className = "chat-day";
+        sep.textContent = dayLabel(item.at);
+        wrap.appendChild(sep);
+      }
+
       // A call and a link open aren't things anybody said, so they read as
-      // quiet centred notes rather than speech bubbles — the thread stays a
-      // conversation and these sit in it as context.
+      // quiet centred notes rather than speech bubbles.
       if (item.type === "call") {
         const c = document.createElement("div");
         c.className = "chat-event";
-        c.innerHTML = `${icon("phone")} ${item.rec.dir === "in" ? "They called you" : "You called"}${
-          item.rec.outcome ? ` · ${esc(item.rec.outcome)}` : ""} · ${esc(when(item.at))}`;
+        c.innerHTML = `${item.rec.dir === "in" ? "They called you" : "You called"}${
+          item.rec.outcome ? ` · ${esc(item.rec.outcome)}` : ""} · ${esc(clock(item.at))}`;
         wrap.appendChild(c);
         return;
       }
@@ -108,31 +133,48 @@ function renderThread(view, leadId) {
         const hot = linkIsHot(lk);
         const c = document.createElement("div");
         c.className = `chat-event${hot ? " chat-event-hot" : ""}`;
-        c.innerHTML = `${icon("target")} Opened ${esc(what)}${n > 1 ? ` <b>${n}×</b>` : ""} · ${esc(when(item.at))}${
+        c.innerHTML = `Opened ${esc(what)}${n > 1 ? ` <b>${n}×</b>` : ""} · ${esc(clock(item.at))}${
           hot ? " · they're looking now" : ""}`;
         wrap.appendChild(c);
         return;
       }
+
       const m = item.rec;
+      const runStart = !sameSide(items[i - 1], item);
+      const runEnd = !sameSide(item, items[i + 1]);
       const b = document.createElement("div");
-      b.className = `bubble ${m.dir === "in" ? "bubble-in" : "bubble-out"}${m.status === "failed" ? " bubble-failed" : ""}`;
-      b.innerHTML = `<div class="bubble-body">${esc(m.body)}</div>
-        <div class="bubble-meta">${esc(when(m.at || m.createdAt))}${
-          m.status === "sending" ? " · sending…" : m.status === "failed" ? ` · ${esc(m.error || "failed")}` : ""
-        }</div>`;
-      if (m.status === "failed") {
-        const again = document.createElement("button");
-        again.className = "btn btn-sm btn-ghost";
-        again.textContent = "Try again";
-        again.addEventListener("click", async () => {
-          again.disabled = true;
-          const r = await retryText(m.id);
-          if (!r.ok) toast(r.error, "warn");
-          paintThread();
-        });
-        b.appendChild(again);
-      }
+      b.className = `bubble ${m.dir === "in" ? "bubble-in" : "bubble-out"}${
+        m.status === "failed" ? " bubble-failed" : ""}${runStart ? " bubble-runstart" : ""}${
+        runEnd ? " bubble-runend" : ""}`;
+      const body = document.createElement("div");
+      body.className = "bubble-body";
+      body.textContent = m.body;
+      b.appendChild(body);
       wrap.appendChild(b);
+
+      // The time sits under the run, outside the bubble — the way it does in
+      // every messaging app, and it keeps the bubble to just the words.
+      if (runEnd || m.status !== "sent") {
+        const meta = document.createElement("div");
+        meta.className = `bubble-meta${m.dir === "in" ? " bubble-meta-in" : ""}${
+          m.status === "failed" ? " bubble-meta-failed" : ""}`;
+        meta.textContent = m.status === "sending" ? "Sending…"
+          : m.status === "failed" ? (m.error || "Not delivered")
+          : clock(m.at || m.createdAt);
+        if (m.status === "failed") {
+          const again = document.createElement("button");
+          again.className = "bubble-retry";
+          again.textContent = "Try again";
+          again.addEventListener("click", async () => {
+            again.disabled = true;
+            const r = await retryText(m.id);
+            if (!r.ok) toast(r.error, "warn");
+            paintThread();
+          });
+          meta.appendChild(again);
+        }
+        wrap.appendChild(meta);
+      }
     });
     threadBox.appendChild(wrap);
     wrap.scrollTop = wrap.scrollHeight;
@@ -140,66 +182,96 @@ function renderThread(view, leadId) {
 
   function paintCompose() {
     const blocked = lead.smsOptOut ? "They've opted out — you can't text them from here." : smsBlocker();
+    if (blocked) {
+      compose.innerHTML = `<div class="ib-blocked">${esc(blocked)}</div>`;
+      return;
+    }
+    // One row: extras, the box, send. Everything that isn't "type a reply and
+    // send it" moved behind the +, because on a phone the reply is the screen.
     compose.innerHTML = `
-      <div class="field" style="margin:0">
-        <textarea id="ib-text" rows="2" placeholder="${blocked ? "Texting unavailable" : "Write a reply…"}"
-          ${blocked ? "disabled" : ""}></textarea>
-      </div>
-      <div class="btn-row" style="margin-top:8px">
-        <button class="btn btn-primary btn-sm" data-act="send" ${blocked ? "disabled" : ""}>${icon("message")} Send</button>
-        ${draftingAvailable() && !blocked ? `<button class="btn btn-ghost btn-sm" data-act="draft">${icon("sparkles")} Draft a reply</button>` : ""}
-        ${blocked ? "" : `<button class="btn btn-ghost btn-sm" data-act="booklink">${icon("calendar")} Booking link</button>`}
-      </div>
-      ${blocked ? `<div class="small muted" style="margin-top:8px">${esc(blocked)}</div>` : ""}`;
+      <button class="ib-round ib-more" data-act="more" aria-label="More">${icon("plus")}</button>
+      <textarea id="ib-text" rows="1" placeholder="Message"></textarea>
+      <button class="ib-round ib-send" data-act="send" aria-label="Send" disabled>${icon("send")}</button>`;
 
     const box = compose.querySelector("#ib-text");
+    const sendBtn = compose.querySelector('[data-act="send"]');
+    // Grow with the message, up to the cap in CSS.
+    const grow = () => { box.style.height = "auto"; box.style.height = Math.min(box.scrollHeight, 120) + "px"; };
+    const sync = () => { sendBtn.disabled = !box.value.trim(); grow(); };
+    box.addEventListener("input", sync);
+
     // Arrived here from a "Text" button elsewhere in the app: it carries the
     // message it would have handed to iMessage. Read it, don't send it — the
     // last look before a customer gets something stays with the person.
     const prefill = takePrefill(leadId);
-    if (prefill && box && !box.disabled) {
+    if (prefill) {
       box.value = prefill;
       requestAnimationFrame(() => { box.focus(); box.setSelectionRange(box.value.length, box.value.length); });
     }
-    compose.querySelector('[data-act="send"]')?.addEventListener("click", async () => {
+    sync();
+
+    const send = async () => {
       const body = box.value.trim();
       if (!body) return;
-      const btn = compose.querySelector('[data-act="send"]');
-      btn.disabled = true;
+      sendBtn.disabled = true;
       box.value = "";
+      sync();
       paintThread();
       const r = await sendText(lead, body);
       if (!r.ok) toast(r.error, "warn");
-      btn.disabled = false;
       paintThread();
-    });
+    };
+    sendBtn.addEventListener("click", send);
 
-    // Drops this customer's own booking link into the message. Theirs, not the
-    // shared one — that's what lets the thread tell you they opened it.
-    compose.querySelector('[data-act="booklink"]')?.addEventListener("click", async () => {
-      const btn = compose.querySelector('[data-act="booklink"]');
-      btn.disabled = true;
-      const link = await bookingLinkForLead(lead);
-      btn.disabled = false;
-      if (!link) return toast("Set up your booking page in Settings first", "warn");
-      const sep = box.value.trim() ? "\n\n" : "";
-      box.value = `${box.value.trim()}${sep}Pick a time that suits you: ${link}`;
-      box.focus();
-      box.setSelectionRange(box.value.length, box.value.length);
-    });
+    compose.querySelector('[data-act="more"]').addEventListener("click", () => openExtras(box));
+  }
 
-    // The agent writes it; you send it. Nothing reaches a customer unread.
-    compose.querySelector('[data-act="draft"]')?.addEventListener("click", async () => {
-      const btn = compose.querySelector('[data-act="draft"]');
-      btn.disabled = true;
-      btn.textContent = "Thinking…";
-      const r = await draftReply(lead);
-      btn.disabled = false;
-      btn.innerHTML = `${icon("sparkles")} Draft a reply`;
-      if (!r.ok) return toast(r.error, "warn");
-      box.value = r.text;
-      box.focus();
-      toast("Draft ready — read it before you send", "");
+  // The two things worth doing to a reply that aren't typing it. A sheet keeps
+  // them one tap away without spending a row of the screen on them.
+  function openExtras(box) {
+    openModal("Add to this reply", (close) => {
+      const wrap = document.createElement("div");
+      const insert = (text) => {
+        const sep = box.value.trim() ? "\n\n" : "";
+        box.value = `${box.value.trim()}${sep}${text}`;
+        box.dispatchEvent(new Event("input"));
+        close();
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      };
+
+      const bookBtn = document.createElement("button");
+      bookBtn.className = "btn btn-ghost btn-block";
+      bookBtn.innerHTML = `${icon("calendar")} Booking link`;
+      bookBtn.addEventListener("click", async () => {
+        bookBtn.disabled = true;
+        const link = await bookingLinkForLead(lead);
+        bookBtn.disabled = false;
+        if (!link) { close(); return toast("Set up your booking page in Settings first", "warn"); }
+        insert(`Pick a time that suits you: ${link}`);
+      });
+      wrap.appendChild(bookBtn);
+
+      if (draftingAvailable()) {
+        const draftBtn = document.createElement("button");
+        draftBtn.className = "btn btn-ghost btn-block";
+        draftBtn.style.marginTop = "8px";
+        draftBtn.innerHTML = `${icon("sparkles")} Draft a reply`;
+        // The agent writes it; you send it. Nothing reaches a customer unread.
+        draftBtn.addEventListener("click", async () => {
+          draftBtn.disabled = true;
+          draftBtn.textContent = "Thinking…";
+          const r = await draftReply(lead);
+          if (!r.ok) { close(); return toast(r.error, "warn"); }
+          box.value = r.text;
+          box.dispatchEvent(new Event("input"));
+          close();
+          box.focus();
+          toast("Draft ready — read it before you send", "");
+        });
+        wrap.appendChild(draftBtn);
+      }
+      return wrap;
     });
   }
 

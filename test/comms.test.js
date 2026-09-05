@@ -50,7 +50,7 @@ await p.addInitScript(([recent, older, old2]) => {
 }, [mins(6), mins(90), mins(600)]);
 
 await p.goto(APP+"/#/comms"); await p.waitForTimeout(900);
-const order = await p.$$eval("#c-body > .card", n=>n.map(c=>c.textContent.replace(/\s+/g," ").trim().slice(0,95)));
+const order = await p.$$eval("#c-body .conv-row", n=>n.map(c=>c.textContent.replace(/\s+/g," ").trim().slice(0,95)));
 console.log("MESSAGES tab:"); order.forEach(o=>console.log("  "+o));
 
 // Cy has the live open, Ann has the unread reply — unread wins, hot is second.
@@ -65,7 +65,7 @@ if (!/Opened/.test(order[cyAt]||"")) throw new Error("FAIL: Cy's row doesn't men
 
 await p.$eval('[data-tab="email"]', x=>x.dispatchEvent(new MouseEvent("click",{bubbles:true})));
 await p.waitForTimeout(500);
-const em = await p.$$eval("#c-body > .card", n=>n.map(c=>c.textContent.replace(/\s+/g," ").trim().slice(0,85)));
+const em = await p.$$eval("#c-body .conv-row", n=>n.map(c=>c.textContent.replace(/\s+/g," ").trim().slice(0,85)));
 console.log("\nEMAIL tab:"); em.forEach(o=>console.log("  "+o));
 if (!em.some(x=>/automatic/i.test(x))) throw new Error("FAIL: automated email not marked");
 

@@ -106,14 +106,21 @@ export function esc(s) {
     .replace(/'/g, "&#39;");
 }
 
+// The two letters that go in an avatar circle. A conversation whose customer
+// record hasn't synced yet is named by their phone number, and "(902) 555-7777"
+// initialises to "(5" — so a name with no letters falls back to the last two
+// digits, which at least tells two unknown numbers apart.
 export function initials(name) {
-  return String(name || "?")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase() || "?";
+  const raw = String(name || "").trim();
+  const words = raw.split(/\s+/).filter((w) => /[a-z]/i.test(w));
+  if (!words.length) {
+    const digits = raw.replace(/\D/g, "");
+    return digits ? digits.slice(-2) : "?";
+  }
+  const letters = (w) => w.match(/[a-z]/gi) || [];
+  const first = letters(words[0])[0];
+  const second = words.length > 1 ? letters(words[words.length - 1])[0] : letters(words[0])[1];
+  return (first + (second || "")).toUpperCase();
 }
 
 // Simple debounce for search inputs.

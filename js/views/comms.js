@@ -18,7 +18,7 @@ import * as store from "../store.js";
 import { navigate } from "../router.js";
 import { openModal, buildForm, toast } from "../components.js";
 import { icon } from "../icons.js";
-import { esc, formatDate, mailtoHref } from "../utils.js";
+import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured } from "../email.js";
 import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
@@ -91,14 +91,22 @@ export function renderComms(view) {
 
   function draw() {
     sessionStorage.setItem(TAB_KEY, tab);
+    // Tabs, then a compose button the size a compose button should be. A
+    // full-width primary bar for "New message" took more of the screen than
+    // the conversations did, and starting a fresh thread is the rarer action —
+    // most of the time you're answering someone who already wrote to you.
     el.innerHTML = `
-      <div class="btn-row" style="margin-bottom:14px; flex-wrap:nowrap">
+      <div class="btn-row" style="margin-bottom:6px; flex-wrap:nowrap; align-items:center">
         <button class="btn btn-sm ${tab === "messages" ? "btn-primary" : "btn-ghost"}" data-tab="messages" style="flex:1">${icon("message")} Messages</button>
         <button class="btn btn-sm ${tab === "email" ? "btn-primary" : "btn-ghost"}" data-tab="email" style="flex:1">${icon("mail")} Email</button>
+        <button class="ib-round ib-more" data-act="compose"
+          aria-label="${tab === "email" ? "New email" : "New message"}">${icon("plus")}</button>
       </div>
       <div id="c-body"></div>`;
     el.querySelectorAll("[data-tab]").forEach((b) =>
       b.addEventListener("click", () => { tab = b.dataset.tab; draw(); }));
+    el.querySelector('[data-act="compose"]').addEventListener("click", () =>
+      openPeoplePicker(tab === "email" ? "email" : "text"));
     (tab === "messages" ? drawMessages : drawEmail)(el.querySelector("#c-body"));
   }
 
@@ -118,13 +126,6 @@ export function renderComms(view) {
       box.appendChild(warn);
     }
 
-    const compose = document.createElement("button");
-    compose.className = "btn btn-primary btn-block";
-    compose.style.marginBottom = "14px";
-    compose.innerHTML = `${icon("plus")} New message`;
-    compose.addEventListener("click", () => openPeoplePicker("text"));
-    box.appendChild(compose);
-
     if (!threads.length) {
       const empty = document.createElement("div");
       empty.className = "card";
@@ -133,39 +134,48 @@ export function renderComms(view) {
       return;
     }
 
-    threads.forEach((t) => {
-      const card = document.createElement("div");
-      card.className = "card card-tap";
-      const badges = [
-        t.unread ? `<span class="badge badge-due">${t.unread} new</span>` : "",
-        // Only shout about an open while it's still worth acting on.
-        t.hot ? `<span class="badge badge-soon">🔥 opened ${timeAgo(t.lastOpenAtHot || t.at)}</span>` : "",
-        t.lead.smsOptOut ? `<span class="badge badge-lost">opted out</span>` : "",
-      ].filter(Boolean).join(" ");
-      card.innerHTML = `
-        <div class="row">
-          <div class="row-main" style="min-width:0">
-            <div class="row-title">${esc(t.lead.name || "Customer")} ${badges}</div>
-            <div class="row-sub">${esc(preview(t))}</div>
-            ${t.opens ? `<div class="small muted" style="margin-top:4px">${icon("target")} Opened your links ${t.opens}× in total</div>` : ""}
-          </div>
-          <div class="row-meta small muted">${esc(when(t.at))}</div>
-        </div>`;
-      card.addEventListener("click", () => navigate(`/inbox/${t.leadId}`));
-      box.appendChild(card);
-    });
+    const list = document.createElement("div");
+    list.className = "conv-list";
+    threads.forEach((t) => list.appendChild(convRow(t)));
+    box.appendChild(list);
+  }
+
+  // One conversation, the way a messages list has always drawn one: who,
+  // what they last said, when. The ordering still puts unanswered replies and
+  // live link opens on top — that judgement is the point of the screen — but
+  // it's expressed by position and weight rather than by a row of chips.
+  function convRow(t) {
+    const row = document.createElement("div");
+    row.className = `conv-row${t.unread ? " conv-unread" : ""}${t.lead.smsOptOut ? " conv-row-muted" : ""}`;
+    const name = t.lead.name || "Customer";
+    row.innerHTML = `
+      <div class="conv-av${t.hot ? " conv-av-dot" : ""}">${esc(initials(name))}</div>
+      <div class="conv-main">
+        <div class="conv-top">
+          <span class="conv-name">${esc(name)}</span>
+          <span class="conv-time">${esc(when(t.at))}</span>
+        </div>
+        <div class="conv-bottom">
+          <span class="conv-preview">${esc(preview(t))}</span>
+          ${t.lead.smsOptOut ? `<span class="conv-tag">opted out</span>` : ""}
+          ${t.unread ? `<span class="conv-badge">${t.unread}</span>` : ""}
+        </div>
+      </div>`;
+    // The dot says someone is reading a link right now, which is the one thing
+    // on this screen you'd want explained. Say it, quietly, in place of the
+    // preview — it IS the newest thing that happened.
+    if (t.hot) {
+      const p2 = row.querySelector(".conv-preview");
+      p2.textContent = `Opened your link · ${timeAgo(t.lastOpenAtHot || t.at)}`;
+      p2.style.color = "var(--brand-strong)";
+    }
+    row.addEventListener("click", () => navigate(`/inbox/${t.leadId}`));
+    return row;
   }
 
   // ---- Email ----
   function drawEmail(box) {
     const s = store.getSettings();
-    const compose = document.createElement("button");
-    compose.className = "btn btn-primary btn-block";
-    compose.style.marginBottom = "14px";
-    compose.innerHTML = `${icon("plus")} New email`;
-    compose.addEventListener("click", () => openPeoplePicker("email"));
-    box.appendChild(compose);
-
     // One row per customer, carrying their most recent email either way.
     const byLead = new Map();
     store.all("emails").forEach((e) => {
@@ -188,24 +198,30 @@ export function renderComms(view) {
       box.appendChild(empty);
     }
 
+    const list = document.createElement("div");
+    list.className = "conv-list";
     rows.forEach((r) => {
-      const card = document.createElement("div");
-      card.className = "card card-tap";
-      const auto = r.last.via === "auto";
-      card.innerHTML = `
-        <div class="row">
-          <div class="row-main" style="min-width:0">
-            <div class="row-title">${esc(r.lead.name || "Customer")}
-              ${auto ? `<span class="badge badge-working">automatic</span>` : ""}
-              ${r.last.direction === "in" ? `<span class="badge badge-new">reply</span>` : ""}</div>
-            <div class="row-sub">${esc(String(r.last.subject || r.last.body || "").replace(/\s+/g, " ").slice(0, 68))}</div>
-            ${r.count > 1 ? `<div class="small muted" style="margin-top:4px">${r.count} messages</div>` : ""}
+      const name = r.lead.name || "Customer";
+      const row = document.createElement("div");
+      row.className = `conv-row${r.last.direction === "in" ? " conv-unread" : ""}`;
+      const tag = r.last.direction === "in" ? "reply" : (r.last.via === "auto" ? "automatic" : "");
+      row.innerHTML = `
+        <div class="conv-av">${esc(initials(name))}</div>
+        <div class="conv-main">
+          <div class="conv-top">
+            <span class="conv-name">${esc(name)}</span>
+            <span class="conv-time">${esc(when(r.at))}</span>
           </div>
-          <div class="row-meta small muted">${esc(when(r.at))}</div>
+          <div class="conv-bottom">
+            <span class="conv-preview">${esc(String(r.last.subject || r.last.body || "").replace(/\s+/g, " ").slice(0, 80))}</span>
+            ${tag ? `<span class="conv-tag">${esc(tag)}</span>` : ""}
+            ${r.count > 1 ? `<span class="conv-tag">${r.count}</span>` : ""}
+          </div>
         </div>`;
-      card.addEventListener("click", () => navigate(`/leads/${r.leadId}`));
-      box.appendChild(card);
+      row.addEventListener("click", () => navigate(`/leads/${r.leadId}`));
+      list.appendChild(row);
     });
+    box.appendChild(list);
 
     const auto = document.createElement("div");
     auto.className = "card";

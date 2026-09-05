@@ -5,6 +5,21 @@
 const { chromium } = require("/opt/node22/lib/node_modules/playwright");
 const APP = "http://127.0.0.1:8137";
 
+// Drafting lives behind the + in the reply bar now, so the sheet has to be
+// opened before the button exists. Same journey the salesperson takes.
+async function openDraft(p) {
+  await p.$eval('[data-act="more"]', (x) => x.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await p.waitForSelector(".modal-body button");
+  const btns = await p.$$(".modal-body button");
+  for (const b of btns) {
+    if (/Draft a reply/i.test(await b.textContent())) {
+      await b.dispatchEvent("click");
+      return;
+    }
+  }
+  throw new Error("FAIL: no Draft a reply button in the reply extras");
+}
+
 const LEADS = [
   { id: "a", name: "Ann Lee", phone: "9025551111", stage: "delivered", vehicleInterest: "2023 Nissan Rogue",
     currentPayment: 532, payoff: 19455, currentValue: 21500, createdAt: "x", updatedAt: "x" },
@@ -60,10 +75,12 @@ const TEXTS = [
 
   // --- Comms is the conversation list ---
   await p.goto(APP + "/#/comms");
-  await p.waitForSelector("#c-body .card");
-  const rows = await p.$$eval("#c-body > .card", (l) => l.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
+  await p.waitForSelector("#c-body .conv-row");
+  const rows = await p.$$eval("#c-body .conv-row", (l) => l.map((r) => r.textContent.replace(/\s+/g, " ").trim()));
   console.log("threads:", rows.length);
-  if (!rows.some((r) => /Ann Lee/.test(r) && /1 new/.test(r))) throw new Error("FAIL: Ann's unread thread is missing");
+  if (!rows.some((r) => /Ann Lee/.test(r))) throw new Error("FAIL: Ann's thread is missing");
+  const annUnread = await p.$eval(".conv-row.conv-unread .conv-badge", (n) => n.textContent.trim()).catch(() => "");
+  if (annUnread !== "1") throw new Error("FAIL: the unread count is missing from Ann's row, got " + JSON.stringify(annUnread));
 
   // /inbox with no customer redirects into Comms — one list, not two.
   await p.goto(APP + "/#/inbox");
@@ -91,7 +108,7 @@ const TEXTS = [
   if (stillUnread !== 0) throw new Error("FAIL: opening the thread didn't mark it read");
 
   // --- The agent drafts, and the draft must never carry a figure ---
-  await p.$eval('[data-act="draft"]', (x) => x.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await openDraft(p);
   await p.waitForFunction(() => document.querySelector("#ib-text")?.value.length > 0, null, { timeout: 8000 });
   const drafted = await p.$eval("#ib-text", (t) => t.value);
   console.log("\ndrafted:", drafted);
@@ -128,9 +145,9 @@ const TEXTS = [
   for (const leak of LEAKS) {
     await fetch(APP + "/__draft?t=" + encodeURIComponent(leak));
     await p.goto(APP + "/#/inbox/a");
-    await p.waitForSelector('[data-act="draft"]');
+    await p.waitForSelector('[data-act="more"]');
     await p.$eval("#ib-text", (t) => { t.value = ""; });
-    await p.$eval('[data-act="draft"]', (x) => x.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await openDraft(p);
     await p.waitForTimeout(1200);
     const box = await p.$eval("#ib-text", (t) => t.value);
     console.log(`  blocked: ${JSON.stringify(leak.slice(0, 46))} → box ${box ? "FILLED" : "left empty"}`);
@@ -141,10 +158,10 @@ const TEXTS = [
   // --- Opt-out is honoured in the thread and in campaigns ---
   await p.goto(APP + "/#/inbox/s");
   await p.waitForSelector("#ib-compose");
-  const composeDisabled = await p.$eval("#ib-text", (t) => t.disabled);
+  const canType = await p.$$eval("#ib-compose #ib-text", (n) => n.length > 0);
   const optNote = await p.$eval("#ib-compose", (c) => c.textContent.replace(/\s+/g, " ").trim());
-  console.log("\nopted-out compose disabled:", composeDisabled);
-  if (!composeDisabled) throw new Error("FAIL: an opted-out customer can still be texted");
+  console.log("\nopted-out compose offers a box:", canType);
+  if (canType) throw new Error("FAIL: an opted-out customer can still be texted");
   if (!/opted out/i.test(optNote)) throw new Error("FAIL: no reason given for the disabled box");
 
   const inCampaign = await p.evaluate(async () => {

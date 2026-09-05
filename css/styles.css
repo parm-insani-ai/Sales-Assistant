@@ -864,18 +864,139 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 /* --- Inbox: the conversation thread --- */
 /* Bubbles read the way a phone's messages app does, so a thread is scannable
    at a glance: theirs left and plain, yours right and tinted. */
-.chat { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow-y: auto; padding: 2px; }
-.bubble { max-width: 82%; padding: 9px 12px; border-radius: 16px; font-size: 0.92rem; line-height: 1.4; }
-.bubble-in { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 5px; }
-.bubble-out { align-self: flex-end; background: var(--brand-tint); border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent); border-bottom-right-radius: 5px; }
-.bubble-failed { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
-.bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
-.bubble-meta { margin-top: 4px; font-size: 0.68rem; color: var(--muted); }
-.bubble-failed .bubble-meta { color: var(--danger); }
-/* The reply box stays put above the tab bar — in a messaging screen you should
-   never have to scroll to the bottom to answer. */
-.ib-compose { position: sticky; bottom: calc(78px + var(--safe-bottom)); z-index: 2; box-shadow: var(--shadow-lg, 0 -2px 14px rgba(0,0,0,.06)); }
-.ib-compose .field textarea { min-height: 0; }
+/* ---- Conversation list -------------------------------------------------
+   A messages list, not a feed of cards. Everyone already knows how this
+   works: avatar, name, the last thing that was said, the time, and a count
+   if you haven't read it. Floating each conversation in its own rounded card
+   made three of them fill a phone screen and made none of them scannable. */
+.conv-list { display: flex; flex-direction: column; }
+.conv-row {
+  display: flex; gap: 12px; align-items: center;
+  padding: 11px 2px; cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  -webkit-tap-highlight-color: transparent;
+}
+.conv-row:last-child { border-bottom: none; }
+.conv-row:active { background: var(--surface-2); }
+.conv-av {
+  position: relative; flex: none;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--text-2);
+  font-size: 0.88rem; font-weight: 700; letter-spacing: .02em;
+}
+/* Someone reading a link you sent, right now. A dot on the avatar is how
+   every messaging app signals "live" — it earns attention without costing a
+   line of text or shouting over the name. */
+.conv-av-dot::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--brand); border: 2.5px solid var(--bg);
+}
+.conv-main { flex: 1; min-width: 0; }
+.conv-top { display: flex; align-items: baseline; gap: 8px; }
+.conv-name {
+  font-size: 0.95rem; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.conv-time { margin-left: auto; flex: none; font-size: 0.72rem; color: var(--muted); }
+.conv-bottom { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.conv-preview {
+  flex: 1; min-width: 0;
+  font-size: 0.85rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.conv-badge {
+  flex: none; min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--brand); color: var(--brand-ink);
+  font-size: 0.68rem; font-weight: 800; line-height: 20px; text-align: center;
+}
+.conv-tag { flex: none; font-size: 0.72rem; color: var(--muted); }
+/* Unread reads heavier, the way it does everywhere else. */
+.conv-unread .conv-name { font-weight: 700; }
+.conv-unread .conv-preview { color: var(--text-2); font-weight: 500; }
+.conv-row-muted .conv-name { color: var(--muted); font-weight: 500; }
+
+/* ---- Thread ------------------------------------------------------------ */
+.conv-head {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0 10px; margin-bottom: 4px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.conv-head .conv-av { width: 38px; height: 38px; font-size: 0.8rem; }
+.conv-head-main { flex: 1; min-width: 0; }
+.conv-head-name { font-size: 1rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-head-sub { font-size: 0.76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-head-btn {
+  flex: none; width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: var(--surface-2); color: var(--text-2);
+  display: grid; place-items: center; cursor: pointer;
+}
+
+/* The thread owns the screen: header at the top, reply bar pinned at the
+   bottom, messages filling whatever is between. Without this the compose bar
+   stops wherever the last message happened to end and leaves dead space under
+   it, which is the one thing no messaging app does. */
+.conv-screen {
+  display: flex; flex-direction: column;
+  min-height: calc(100dvh - 150px - var(--safe-bottom));
+}
+.conv-screen #ib-thread { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
+
+.chat { display: flex; flex-direction: column; padding: 4px 0 10px; }
+/* Consecutive messages from one side are one run: tight together, with the
+   time shown once at the end of it. A timestamp under every line is noise —
+   nobody needs to be told four times that a burst happened at 3:22. */
+.bubble {
+  max-width: 76%; padding: 8px 13px; border-radius: 19px;
+  font-size: 0.94rem; line-height: 1.38;
+  margin-top: 2px; border: none;
+}
+.bubble-runstart { margin-top: 10px; }
+.bubble-in { align-self: flex-start; background: var(--surface-2); color: var(--text); }
+.bubble-out { align-self: flex-end; background: var(--brand); color: var(--brand-ink); }
+.bubble-in.bubble-runend { border-bottom-left-radius: 6px; }
+.bubble-out.bubble-runend { border-bottom-right-radius: 6px; }
+.bubble-failed { background: color-mix(in srgb, var(--danger) 14%, var(--surface-2)); color: var(--text); }
+.bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble-meta {
+  align-self: flex-end; margin: 3px 4px 0;
+  font-size: 0.68rem; color: var(--muted);
+}
+.bubble-meta-in { align-self: flex-start; }
+.bubble-meta-failed { color: var(--danger); }
+.bubble-retry {
+  background: none; border: none; padding: 0 0 0 6px; cursor: pointer;
+  font: inherit; color: var(--brand-strong); font-weight: 600;
+}
+.chat-day {
+  align-self: center; margin: 16px 0 4px;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* The reply bar: one row, like every other messaging app. Secondary actions
+   live behind the + so the common case — type, send — is the whole surface. */
+.ib-compose {
+  position: sticky; bottom: calc(78px + var(--safe-bottom)); z-index: 2;
+  display: flex; align-items: flex-end; gap: 8px;
+  padding: 8px 0 10px; background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.ib-compose textarea {
+  flex: 1; min-height: 40px; max-height: 120px; resize: none;
+  padding: 10px 15px; border-radius: 20px; font-size: 0.94rem; line-height: 1.35;
+}
+.ib-round {
+  flex: none; width: 40px; height: 40px; border-radius: 50%;
+  border: none; display: grid; place-items: center; cursor: pointer;
+}
+.ib-more { background: var(--surface-2); color: var(--text-2); }
+.ib-send { background: var(--brand); color: var(--brand-ink); }
+.ib-send:disabled, .ib-more:disabled { opacity: .45; cursor: default; }
+.ib-blocked { padding: 10px 2px; font-size: 0.82rem; color: var(--muted); }
 
 /* Unread-reply dot on the Comms tab — visible from anywhere in the app,
    because the window to answer a text is measured in minutes. */
@@ -951,19 +1072,17 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 
 /* Thread events — a call placed, a link opened. Nobody said these, so they sit
    in the conversation as quiet context rather than as speech. */
+/* A call or a link open isn't something anybody said. Centred, plain, no
+   pill — it reads as a note in the margin rather than competing with the
+   conversation for attention. */
 .chat-event {
   align-self: center;
-  max-width: 90%;
+  max-width: 88%;
+  margin: 12px 0 6px;
   text-align: center;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   color: var(--muted);
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
 }
 .chat-event b { color: var(--text-2); font-weight: 700; }
-.chat-event-hot {
-  color: var(--brand-strong);
-  background: var(--brand-tint);
-}
+.chat-event-hot { color: var(--brand-strong); }
 .chat-event-hot b { color: var(--brand-strong); }
