@@ -141,6 +141,70 @@ if (Math.abs(during.composeBottom - 508) > 24)
   fail(`the reply row is at ${during.composeBottom}, not on the keyboard lip at 508`);
 console.log("  tab bar pushed off, reply row on the keyboard lip ✓");
 
+// --- The case that kept the bug alive: a home-screen PWA where iOS shrinks
+// the layout viewport itself. innerHeight moves with visualViewport, so the
+// measured inset is ~0, .kb-open never appears, and nothing gets out of the
+// way. Focus is what has to drive it — a focused field on a touch device means
+// the keyboard is up whatever the geometry says.
+await p.evaluate(() => {
+  const vv = window.visualViewport;
+  Object.defineProperty(vv, "height", { configurable: true, get: () => 844 });
+  vv.dispatchEvent(new Event("resize"));
+  document.activeElement?.blur();
+});
+await p.waitForTimeout(300);
+await p.evaluate(() => {
+  // Both viewports shrink together — the PWA case.
+  Object.defineProperty(window, "innerHeight", { configurable: true, get: () => 508 });
+  Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => 508 });
+  document.querySelector("#ib-text").focus();
+  window.visualViewport.dispatchEvent(new Event("resize"));
+});
+await p.waitForTimeout(400);
+const pwa = await p.evaluate(() => ({
+  typing: document.body.classList.contains("typing"),
+  kbOpen: document.body.classList.contains("kb-open"),
+  kb: getComputedStyle(document.documentElement).getPropertyValue("--kb").trim(),
+  tabTop: Math.round(document.querySelector(".tabbar").getBoundingClientRect().top),
+  composeBottom: Math.round(document.querySelector("#ib-compose").getBoundingClientRect().bottom),
+}));
+console.log("\nPWA-style (layout viewport shrinks too):", JSON.stringify(pwa));
+if (!pwa.typing) fail("a focused reply box didn't register as typing — the tab bar will stay put");
+if (pwa.tabTop < 508)
+  fail(`the tab bar is still on screen at y=${pwa.tabTop} with the keyboard up in a PWA`);
+if (Math.abs(pwa.composeBottom - 508) > 24)
+  fail(`the reply row is at ${pwa.composeBottom}, not on the keyboard lip at 508`);
+// And prove focus alone carries it: strip the geometry class and the layout
+// must not move. If this fails, the app is still relying on measurement and
+// will break again on whichever iOS build reports something unexpected.
+const focusOnly = await p.evaluate(() => {
+  document.body.classList.remove("kb-open");
+  document.documentElement.style.setProperty("--kb", "0px");
+  const t = document.querySelector(".tabbar").getBoundingClientRect();
+  const c = document.querySelector("#ib-compose").getBoundingClientRect();
+  // Against the REAL layout viewport, not the stubbed innerHeight: `bottom: 0`
+  // resolves against the actual CSS viewport, and stubbing a property can't
+  // shrink that. On a real PWA the layout viewport genuinely is the shortened
+  // one, so landing on its bottom edge is landing on the keyboard's lip.
+  const layout = document.documentElement.clientHeight;
+  return { typing: document.body.classList.contains("typing"),
+    tabTop: Math.round(t.top), composeBottom: Math.round(c.bottom), layout };
+});
+console.log("  with the measurement discarded entirely:", JSON.stringify(focusOnly));
+if (!focusOnly.typing) fail("the typing class went away with the measurement");
+if (focusOnly.tabTop < focusOnly.layout)
+  fail(`without measurement the tab bar is back on screen at y=${focusOnly.tabTop}`);
+if (Math.abs(focusOnly.composeBottom - focusOnly.layout) > 2)
+  fail(`without measurement the reply row sits at ${focusOnly.composeBottom}, not on the viewport floor at ${focusOnly.layout}`);
+console.log("  focus alone hides the tab bar and lands the reply row ✓");
+await p.evaluate(() => {
+  document.activeElement?.blur();
+  Object.defineProperty(window, "innerHeight", { configurable: true, get: () => 844 });
+  Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => 844 });
+  window.visualViewport.dispatchEvent(new Event("resize"));
+});
+await p.waitForTimeout(400);
+
 // --- And it all goes back when the keyboard closes.
 await p.evaluate(() => {
   const vv = window.visualViewport;
@@ -149,7 +213,7 @@ await p.evaluate(() => {
 });
 await p.waitForTimeout(400);
 const after = await p.evaluate(() => ({
-  kbOpen: document.body.classList.contains("kb-open"),
+  kbOpen: document.body.classList.contains("kb-open") || document.body.classList.contains("typing"),
   tabBottom: Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom),
 }));
 console.log("after keyboard:", JSON.stringify(after));

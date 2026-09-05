@@ -1134,26 +1134,34 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 
 /* The tab bar gets out of the way while you're typing. Nothing on it is
    reachable behind a keyboard anyway, and hiding it gives the conversation the
-   whole screen — which is what every messaging app does. */
-.kb-open .tabbar { transform: translateY(120%); pointer-events: none; }
+   whole screen — which is what every messaging app does.
+
+   Driven by .typing (a text field is focused) rather than only by measured
+   geometry. On a home-screen PWA iOS may shrink the layout viewport itself, so
+   the measured keyboard inset comes out near zero and .kb-open never appears —
+   which is how the tab bar kept showing up mid-screen. A focused input on a
+   touch device means the keyboard is up regardless of what the numbers say. */
+.typing .tabbar, .kb-open .tabbar { transform: translateY(120%); pointer-events: none; }
 .tabbar { transition: transform .18s ease; }
 
 /* Sticky bottom is measured against the layout viewport, so with the keyboard
    up it sticks somewhere off-screen. Fixed + a translate by the measured
    keyboard inset puts it exactly on the lip of the keyboard instead. */
-/* With the keyboard up the tab bar is gone, so the clearance goes with it and
-   the bar rides on the keyboard's lip instead. */
-.kb-open .ib-compose {
-  padding-bottom: 10px;
+/* With the keyboard up the tab bar is gone, so its clearance goes too and the
+   reply bar rides on the keyboard's lip. --kb is the measured inset where the
+   layout viewport didn't shrink; where it did, it's 0 and bottom: 0 is already
+   the right place. Either way this lands correctly. */
+.typing .ib-compose, .kb-open .ib-compose {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   transform: translate(-50%, calc(var(--kb, 0px) * -1));
 }
 /* Room for it, so the last message isn't hidden under the reply row. */
-.kb-open .conv-screen { padding-bottom: 64px; }
-.kb-open .view { padding-bottom: calc(var(--kb, 0px) + 80px); }
+.typing .conv-screen, .kb-open .conv-screen { padding-bottom: 64px; }
+.typing .view, .kb-open .view { padding-bottom: calc(var(--kb, 0px) + 80px); }
 
 /* With the keyboard up the thread stops reserving height — the compose row is
    pinned to the keyboard lip and the messages scroll behind it. */
-.kb-open .conv-screen { min-height: 0; }
+.typing .conv-screen, .kb-open .conv-screen { min-height: 0; }
 
 /* iOS paints its own blue ring on a focused field, which is the one colour in
    the app that belongs to nobody. */
@@ -1182,3 +1190,15 @@ textarea:focus, input:focus, select:focus { outline: none; }
   .ptr, .tabbar { transition: none; }
   .ptr-spin .ptr-spinner { animation-duration: 2s; }
 }
+
+/* Settings → Screen check. Deliberately crude and deliberately on top of
+   everything: its whole job is to be readable in a photograph taken while the
+   keyboard is up. */
+.screen-check {
+  position: fixed; top: calc(8px + var(--safe-top)); left: 8px; right: 8px; z-index: 9999;
+  padding: 8px 10px; border-radius: 8px;
+  background: rgba(0, 0, 0, .86); color: #7CFFC4;
+  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; pointer-events: auto;
+}
+.screen-check b { color: #fff; }

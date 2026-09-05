@@ -10,6 +10,7 @@ import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
+import { viewportReport } from "../viewport.js";
 import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured } from "../email.js";
 import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
@@ -142,6 +143,7 @@ export function renderSettings(view) {
     <div class="section-title">App</div>
     <div class="card">
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
+      <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
       <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">entoa</div>
     </div>
     <div class="fab-note">entoa · data lives on your device</div>
@@ -381,6 +383,35 @@ export function renderSettings(view) {
       await hardRefresh();
     });
   });
+  // Screen check. When the layout is wrong on a phone that can't be attached to
+  // a debugger, these are the numbers that decide it — whether the keyboard was
+  // detected, how it was measured, and which build is actually running. It
+  // stays on screen so it can be photographed with the keyboard up.
+  el.querySelector('[data-act="screencheck"]').addEventListener("click", async () => {
+    const running = await runningVersion().catch(() => null);
+    let panel = document.getElementById("screen-check");
+    if (panel) { panel.remove(); return; }
+    panel = document.createElement("div");
+    panel.id = "screen-check";
+    panel.className = "screen-check";
+    document.body.appendChild(panel);
+    const paint = () => {
+      if (!document.body.contains(panel)) return;
+      const r = viewportReport();
+      const bar = document.querySelector(".tabbar")?.getBoundingClientRect();
+      panel.innerHTML = `<b>screen check</b> · tap to close
+        <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))}${r.standalone ? " · installed" : " · browser"}</div>
+        <div>inner ${r.innerHeight} · visual ${r.visualHeight ?? "n/a"} · offset ${r.visualOffsetTop ?? "n/a"}</div>
+        <div>baseline ${r.baseline} · kb ${esc(r.kb)}</div>
+        <div>typing ${r.typing ? "YES" : "no"} · kb-open ${r.kbOpen ? "YES" : "no"}</div>
+        <div>tabbar bottom ${bar ? Math.round(bar.bottom) : "?"} of ${r.innerHeight}</div>`;
+      requestAnimationFrame(paint);
+    };
+    paint();
+    panel.addEventListener("click", () => panel.remove());
+    toast("Open a conversation and tap the reply box", "");
+  });
+
   el.querySelector('[data-act="update"]').addEventListener("click", async () => {
     toast("Checking for updates…");
     const updating = await checkForUpdate();
