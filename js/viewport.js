@@ -43,7 +43,22 @@ function schedule() {
   raf = requestAnimationFrame(measure);
 }
 
+// The top bar is sticky and translucent. Anything else that sticks to top: 0 —
+// the conversation header, for one — parks itself behind the bar and ghosts
+// through the blur permanently. Publishing the bar's real height lets those
+// stick just below it instead of behind it.
+function measureTopbar() {
+  const bar = document.querySelector(".topbar");
+  if (!bar) return;
+  root.style.setProperty("--topbar-h", `${Math.round(bar.getBoundingClientRect().height)}px`);
+}
+
 export function initViewport() {
+  measureTopbar();
+  if (window.ResizeObserver) {
+    const bar = document.querySelector(".topbar");
+    if (bar) new ResizeObserver(measureTopbar).observe(bar);
+  }
   const vv = window.visualViewport;
   root.style.setProperty("--vvh", `${Math.round(window.innerHeight)}px`);
   root.style.setProperty("--kb", "0px");

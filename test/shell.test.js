@@ -37,16 +37,54 @@ await p.addInitScript(() => {
 await p.goto(APP + "/#/inbox/a");
 await p.waitForTimeout(700);
 
-// --- Sideways travel must be impossible, keyboard or not.
+// --- Sideways travel must be impossible, keyboard or not — but NOT by putting
+// overflow on the root. iOS Safari responds to that by positioning `fixed`
+// elements against the document instead of the viewport, which sends the tab
+// bar drifting up the screen as you scroll. That shipped once; this keeps it
+// from shipping again.
 const overflow = await p.evaluate(() => {
-  const cs = getComputedStyle(document.body);
-  return { x: cs.overflowX, bounce: cs.overscrollBehaviorX,
-    scrollable: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+  const body = getComputedStyle(document.body);
+  const html = getComputedStyle(document.documentElement);
+  return {
+    bodyOverflow: `${body.overflowX}/${body.overflowY}`,
+    htmlOverflow: `${html.overflowX}/${html.overflowY}`,
+    bounce: body.overscrollBehaviorX,
+    scrollable: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  };
 });
 console.log("horizontal:", JSON.stringify(overflow));
-if (overflow.x !== "hidden") fail("the page can still be dragged sideways");
+if (overflow.bodyOverflow !== "visible/visible")
+  fail("body sets overflow — that breaks fixed positioning on iOS: " + overflow.bodyOverflow);
+if (overflow.htmlOverflow !== "visible/visible")
+  fail("html sets overflow — that breaks fixed positioning on iOS: " + overflow.htmlOverflow);
 if (overflow.bounce !== "none") fail("the horizontal rubber-band is still on");
 if (overflow.scrollable) fail("something is wider than the screen — the page scrolls sideways");
+
+// --- The tab bar stays welded to the bottom of the viewport, scrolled or not.
+// This is the symptom that was reported: it floated in the middle of a
+// conversation with dead space beneath it.
+await p.evaluate(() => window.scrollTo(0, 0));
+const barTop = await p.evaluate(() => Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom));
+await p.evaluate(() => window.scrollBy(0, 400));
+await p.waitForTimeout(200);
+const barScrolled = await p.evaluate(() => ({
+  bottom: Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom),
+  scrolled: Math.round(window.scrollY), win: window.innerHeight,
+}));
+console.log(`tab bar: ${barTop} at rest, ${barScrolled.bottom} after scrolling ${barScrolled.scrolled}px`);
+if (barScrolled.bottom !== barScrolled.win)
+  fail(`the tab bar drifted to ${barScrolled.bottom} while scrolling — it must stay at ${barScrolled.win}`);
+
+// --- Nothing scrolls through the gap between the reply bar and the tab bar.
+const gap = await p.evaluate(() => {
+  const c = document.querySelector("#ib-compose");
+  const t = document.querySelector(".tabbar");
+  return c && t ? Math.round(t.getBoundingClientRect().top - c.getBoundingClientRect().bottom) : null;
+});
+console.log("gap between reply bar and tab bar:", gap);
+if (gap === null) fail("no reply bar on the thread");
+else if (gap > 1) fail(`a ${gap}px live gap under the reply bar — messages scroll through it`);
+await p.evaluate(() => window.scrollTo(0, 0));
 
 // --- Zoom stays locked.
 const vp = await p.$eval('meta[name="viewport"]', (m) => m.content);

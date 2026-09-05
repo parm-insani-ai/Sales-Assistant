@@ -162,14 +162,17 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* No sideways travel, on either axis, ever. A phone screen that slides left
-     to reveal a strip of background reads as broken, and the horizontal
-     rubber-band was firing on any list row wide enough to overflow.
-     overscroll-behavior also switches off the browser's own pull-to-refresh,
-     which is why the app ships its own (js/pulltorefresh.js). */
+  /* No sideways travel: overscroll-behavior kills the rubber-band on both
+     axes. It also switches off the browser's own pull-to-refresh, which is
+     why the app ships its own (js/pulltorefresh.js).
+
+     Deliberately NOT `overflow-x: hidden` here. Setting overflow on the root
+     makes iOS Safari position `fixed` elements against the document instead
+     of the viewport, so the tab bar drifts up the screen as you scroll — it
+     ends up floating in the middle of a conversation with dead space beneath
+     it. Horizontal overflow is contained on .view instead, where clipping is
+     just clipping. */
   overscroll-behavior: none;
-  overflow-x: hidden;
-  max-width: 100%;
   letter-spacing: -0.006em;
 }
 
@@ -328,6 +331,9 @@ html, body {
      list clears the bar and the page doesn't stop dead the moment you reach
      the bottom of the content. */
   padding: 18px 20px calc(160px + var(--safe-bottom));
+  /* `clip` rather than `hidden`: it contains a too-wide row without turning
+     this into a scroll container. */
+  overflow-x: clip;
   max-width: 640px;
   width: 100%;
   margin: 0 auto;
@@ -938,7 +944,9 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 
 /* ---- Thread ------------------------------------------------------------ */
 .conv-head {
-  position: sticky; top: 0; z-index: 3;
+  /* Sticks below the top bar, not behind it. At top: 0 it parked itself under
+     the translucent bar and ghosted through the blur for the whole thread. */
+  position: sticky; top: var(--topbar-h, 56px); z-index: 3;
   display: flex; align-items: center; gap: 10px;
   padding: 6px 0 10px; margin-bottom: 4px;
   background: var(--bg); border-bottom: 1px solid var(--border);
@@ -998,9 +1006,20 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 /* The reply bar: one row, like every other messaging app. Secondary actions
    live behind the + so the common case — type, send — is the whole surface. */
 .ib-compose {
-  position: sticky; bottom: calc(78px + var(--safe-bottom)); z-index: 2;
+  /* Fixed, not sticky. A sticky element can't travel past the bottom of its
+     own container, and this one's container ends above the view's bottom
+     padding — so scrolled to the end of a thread the reply bar stopped short
+     and messages showed through the gap beneath it. Fixed also means it's in
+     the same place on every thread regardless of how long the conversation is.
+     The clearance for the tab bar is carried as padding, so the background
+     runs all the way down and nothing scrolls through. */
+  position: fixed; z-index: 2;
+  left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  width: min(640px, 100%);
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 8px 0 10px; background: var(--bg);
+  padding: 8px 20px calc(88px + var(--safe-bottom));
+  background: var(--bg);
   border-top: 1px solid var(--border);
 }
 .ib-compose textarea {
@@ -1121,15 +1140,11 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 /* Sticky bottom is measured against the layout viewport, so with the keyboard
    up it sticks somewhere off-screen. Fixed + a translate by the measured
    keyboard inset puts it exactly on the lip of the keyboard instead. */
+/* With the keyboard up the tab bar is gone, so the clearance goes with it and
+   the bar rides on the keyboard's lip instead. */
 .kb-open .ib-compose {
-  position: fixed;
-  left: 50%;
-  right: auto;
-  bottom: 0;
-  width: min(640px, 100%);
-  padding: 8px 20px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: 10px;
   transform: translate(-50%, calc(var(--kb, 0px) * -1));
-  background: var(--bg);
 }
 /* Room for it, so the last message isn't hidden under the reply row. */
 .kb-open .conv-screen { padding-bottom: 64px; }
