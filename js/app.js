@@ -3,6 +3,8 @@
 import { route, startRouter, currentBase, navigate } from "./router.js";
 import * as store from "./store.js";
 import { interceptSmsLinks } from "./sms.js";
+import { initViewport } from "./viewport.js";
+import { initPullToRefresh } from "./pulltorefresh.js";
 import { openModal, toast } from "./components.js";
 import { icon } from "./icons.js";
 import { renderDashboard } from "./views/dashboard.js";
@@ -117,6 +119,16 @@ paintUnread();
 // conversation instead of handing off to the phone's messaging app — otherwise
 // the customer's reply goes to a personal inbox the agent can't see.
 interceptSmsLinks();
+
+// Track the visible viewport so the tab bar and the reply row follow the
+// keyboard instead of being left behind by it. Has to run before the first
+// render so --vvh exists when the CSS first asks for it.
+initViewport();
+
+// Pull down to refresh. Inbound texts are written on the server and only reach
+// this device on a pull, so "is there anything new" has to be answerable by
+// hand and not only by the 20-second poll.
+initPullToRefresh();
 
 // Quick-add: context-aware based on the current tab. One modal holds
 // everything — the add-a-record actions up top, every tool below — rendered

@@ -154,7 +154,14 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overscroll-behavior-y: none;
+  /* No sideways travel, on either axis, ever. A phone screen that slides left
+     to reveal a strip of background reads as broken, and the horizontal
+     rubber-band was firing on any list row wide enough to overflow.
+     overscroll-behavior also switches off the browser's own pull-to-refresh,
+     which is why the app ships its own (js/pulltorefresh.js). */
+  overscroll-behavior: none;
+  overflow-x: hidden;
+  max-width: 100%;
   letter-spacing: -0.006em;
 }
 
@@ -309,7 +316,10 @@ html, body {
 /* ---------- View area ---------- */
 .view {
   flex: 1;
-  padding: 18px 20px calc(104px + var(--safe-bottom));
+  /* The tab bar is ~78px. The rest is deliberate slack, so the last row of a
+     list clears the bar and the page doesn't stop dead the moment you reach
+     the bottom of the content. */
+  padding: 18px 20px calc(160px + var(--safe-bottom));
   max-width: 640px;
   width: 100%;
   margin: 0 auto;
@@ -941,7 +951,7 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
    it, which is the one thing no messaging app does. */
 .conv-screen {
   display: flex; flex-direction: column;
-  min-height: calc(100dvh - 150px - var(--safe-bottom));
+  min-height: calc(var(--vvh, 100dvh) - 150px - var(--safe-bottom));
 }
 .conv-screen #ib-thread { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
 
@@ -1086,3 +1096,65 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .chat-event b { color: var(--text-2); font-weight: 700; }
 .chat-event-hot { color: var(--brand-strong); }
 .chat-event-hot b { color: var(--brand-strong); }
+
+/* ============================================================================
+   Keyboard, and the parts of the screen that have to move with it.
+   See js/viewport.js — iOS leaves `position: fixed` measuring against a
+   viewport taller than the window while the keyboard is up, which is what put
+   the tab bar and the reply row in the middle of the screen.
+   ========================================================================= */
+
+/* The tab bar gets out of the way while you're typing. Nothing on it is
+   reachable behind a keyboard anyway, and hiding it gives the conversation the
+   whole screen — which is what every messaging app does. */
+.kb-open .tabbar { transform: translateY(120%); pointer-events: none; }
+.tabbar { transition: transform .18s ease; }
+
+/* Sticky bottom is measured against the layout viewport, so with the keyboard
+   up it sticks somewhere off-screen. Fixed + a translate by the measured
+   keyboard inset puts it exactly on the lip of the keyboard instead. */
+.kb-open .ib-compose {
+  position: fixed;
+  left: 50%;
+  right: auto;
+  bottom: 0;
+  width: min(640px, 100%);
+  padding: 8px 20px calc(8px + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, calc(var(--kb, 0px) * -1));
+  background: var(--bg);
+}
+/* Room for it, so the last message isn't hidden under the reply row. */
+.kb-open .conv-screen { padding-bottom: 64px; }
+.kb-open .view { padding-bottom: calc(var(--kb, 0px) + 80px); }
+
+/* With the keyboard up the thread stops reserving height — the compose row is
+   pinned to the keyboard lip and the messages scroll behind it. */
+.kb-open .conv-screen { min-height: 0; }
+
+/* iOS paints its own blue ring on a focused field, which is the one colour in
+   the app that belongs to nobody. */
+textarea:focus, input:focus, select:focus { outline: none; }
+.ib-compose textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+
+/* ---------- Pull to refresh ---------- */
+.ptr {
+  position: fixed; top: 0; left: 50%; z-index: 30;
+  transform: translate(-50%, 0);
+  margin-top: 8px; opacity: 0;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--surface); box-shadow: var(--shadow-lg, 0 2px 10px rgba(0,0,0,.18));
+  display: grid; place-items: center;
+  transition: transform .18s ease, opacity .18s ease;
+  pointer-events: none;
+}
+.ptr-spinner {
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--muted);
+}
+.ptr-ready .ptr-spinner { border-top-color: var(--brand); }
+.ptr-spin .ptr-spinner { animation: ptr-turn .6s linear infinite; border-top-color: var(--brand); }
+@keyframes ptr-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ptr, .tabbar { transition: none; }
+  .ptr-spin .ptr-spinner { animation-duration: 2s; }
+}
