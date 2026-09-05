@@ -127,10 +127,6 @@ const DEFAULT_STATE = {
     tradeMarginPct: 9,
     defaultTerm: 72,
     defaultApr: 7.9,
-    // The lender rate sheet (see js/lenders.js). Empty means "use the seeded
-    // starting sheet" — the app substitutes it on read rather than writing it
-    // in, so a later change to the seed reaches anyone who never edited theirs.
-    lenders: [],
     deliveryChecklist: DEFAULT_DELIVERY_CHECKLIST,
     messageTemplates: DEFAULT_TEMPLATES,
     goalUnits: 12, // sales per month

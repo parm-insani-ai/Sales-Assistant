@@ -15,7 +15,6 @@ import { sendEmail, emailSendConfigured } from "../email.js";
 import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
 import { shorten, shortUrl } from "../shortlink.js";
 import { enablePush, disablePush, pushEnabled, pushSupported, needsInstall, sendTestPush } from "../push.js";
-import { TIERS, getLenders, saveLenders, newLender } from "../lenders.js";
 
 export function renderSettings(view) {
   const s = store.getSettings();
@@ -88,9 +87,6 @@ export function renderSettings(view) {
       <div class="hint" style="margin-bottom:10px">The book estimate works like an appraisal: trim MSRP on an age curve, adjusted for km and condition, sanity-checked against comparable used units on your own lot (retail − margin − recon). Tune these to match how your desk actually appraises.</div>
       <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>
     </div>
-
-    <div class="section-title">Lender rate sheet</div>
-    <div class="card" id="lenders-slot"></div>
 
     <div class="section-title">Prospecting & follow-up</div>
     <div class="card">
@@ -174,7 +170,6 @@ export function renderSettings(view) {
   buildAgent(el.querySelector("#agent-slot"));
   buildEmail(el.querySelector("#email-slot"));
   buildBooking(el.querySelector("#booking-slot"));
-  buildLenders(el.querySelector("#lenders-slot"));
   const onSyncEvt = (e) => {
     const line = cloudSlot.querySelector(".cloud-status");
     if (!line) return;
@@ -1006,126 +1001,6 @@ export async function bookingLinkForLead(lead) {
   } catch {
     return shortBookingLink();
   }
-}
-
-// --- Lender rate sheet ---
-// The matching engine is only as honest as this screen. Until a lender is
-// edited it carries `seeded`, and everywhere a seeded rate is shown the app
-// says so — a placeholder rate quoted as if it were the store's own is worse
-// than no rate at all.
-function buildLenders(slot) {
-  function paint() {
-    const rows = getLenders();
-    const seeded = rows.filter((l) => l.seeded).length;
-    slot.innerHTML = `
-      <div class="small muted" style="margin-bottom:10px">Who you book through, what they charge by tier, and — the part that actually kills deals — how far they'll advance. The calculator uses this to say who'll buy a structure and what would fix it if nobody will.</div>
-      ${seeded ? `<div class="hint" style="margin-bottom:10px">${seeded} of these are <b>starting numbers, not yours</b>. Open each one and put your real sheet in — rates and advance caps are what the whole feature rests on.</div>` : ""}
-      <div class="lnd-list"></div>
-      <button class="btn btn-ghost btn-sm btn-block" data-act="add-lender" style="margin-top:10px">+ Add a lender</button>`;
-
-    const list = slot.querySelector(".lnd-list");
-    rows.forEach((l) => {
-      const tiers = TIERS.filter((t) => l.tiers?.[t.id] != null && l.tiers[t.id] !== "");
-      const card = document.createElement("div");
-      card.className = "row";
-      card.innerHTML = `
-        <div class="row-main" style="min-width:0">
-          <div class="row-title">${esc(l.name || "Unnamed lender")}${l.seeded ? ` <span class="badge badge-new">starting numbers</span>` : ""}${
-            l.active ? "" : ` <span class="badge badge-lost">off</span>`}</div>
-          <div class="row-sub">${tiers.length
-            ? esc(tiers.map((t) => `${t.label.replace("Tier ", "T")} ${l.tiers[t.id]}%`).join(" · "))
-            : "No tiers priced yet"}</div>
-          <div class="row-sub">${l.maxAdvance}% advance · to ${l.maxTerm} mo${
-            Number(l.feePct) ? ` · ${l.feePct}% discount fee` : ""}</div>
-        </div>
-        <div class="btn-row">
-          <button class="btn btn-sm btn-ghost" data-edit="${esc(l.id)}">Edit</button>
-        </div>`;
-      list.appendChild(card);
-    });
-
-    slot.querySelectorAll("[data-edit]").forEach((b) =>
-      b.addEventListener("click", () => editLender(rows.find((r) => r.id === b.dataset.edit), paint)));
-    slot.querySelector('[data-act="add-lender"]').addEventListener("click", () => editLender(newLender(), paint));
-  }
-  paint();
-}
-
-function editLender(lender, done) {
-  openModal(lender.name || "New lender", (close) => {
-    const body = document.createElement("div");
-    const fields = [
-      { name: "name", label: "Lender", value: lender.name || "", required: true },
-      { name: "kind", label: "Type", type: "select", value: lender.kind || "bank",
-        options: [{ value: "captive", label: "Captive (NCF)" }, { value: "bank", label: "Bank" }, { value: "subprime", label: "Subprime / alternative" }] },
-      // The tier rates. A blank means "won't buy this tier", which is a real
-      // answer and the reason the field can't default to zero.
-      ...TIERS.map((t) => ({
-        name: "tier" + t.id, label: `${t.label} APR % (${t.range})`, type: "number", step: "0.01", half: true,
-        value: lender.tiers?.[t.id] ?? "",
-      })),
-      { name: "longTermAdd", label: "Add over 72 mo %", type: "number", step: "0.01", half: true, value: lender.longTermAdd ?? 0 },
-      { name: "maxTerm", label: "Longest term", type: "number", half: true, value: lender.maxTerm ?? 84 },
-      { name: "maxAdvance", label: "Max advance % of value", type: "number", half: true, value: lender.maxAdvance ?? 130 },
-      { name: "feePct", label: "Discount fee %", type: "number", step: "0.01", half: true, value: lender.feePct ?? 0 },
-      { name: "minAmount", label: "Smallest loan $", type: "number", half: true, value: lender.minAmount ?? 0 },
-      { name: "maxAmount", label: "Largest loan $", type: "number", half: true, value: lender.maxAmount ?? 0 },
-      { name: "maxAgeYears", label: "Oldest vehicle (yrs, 0 = any)", type: "number", half: true, value: lender.maxAgeYears ?? 0 },
-      { name: "maxKm", label: "Max km (0 = any)", type: "number", half: true, value: lender.maxKm ?? 0 },
-      { name: "active", label: "Book through them", type: "select", value: lender.active === false ? "no" : "yes",
-        options: [{ value: "yes", label: "Yes — include in matching" }, { value: "no", label: "No — leave them out" }] },
-      { name: "notes", label: "Notes", type: "textarea", value: lender.notes || "" },
-    ];
-    const built = buildForm(fields, {
-      submitLabel: "Save lender",
-      onSubmit: (v) => {
-        const tiers = {};
-        TIERS.forEach((t) => {
-          const raw = v["tier" + t.id];
-          if (raw !== "" && raw != null && !isNaN(Number(raw))) tiers[t.id] = Number(raw);
-        });
-        const rows = getLenders();
-        const next = {
-          ...lender, name: String(v.name || "").trim(), kind: v.kind, tiers,
-          longTermAdd: Number(v.longTermAdd) || 0,
-          maxTerm: Number(v.maxTerm) || 84,
-          maxAdvance: Number(v.maxAdvance) || 0,
-          feePct: Number(v.feePct) || 0,
-          minAmount: Number(v.minAmount) || 0,
-          maxAmount: Number(v.maxAmount) || 0,
-          maxAgeYears: Number(v.maxAgeYears) || 0,
-          maxKm: Number(v.maxKm) || 0,
-          active: v.active !== "no",
-          notes: String(v.notes || "").trim(),
-          // Edited by hand, so it's the user's number now and stops being
-          // announced as a placeholder.
-          seeded: false,
-        };
-        const i = rows.findIndex((r) => r.id === lender.id);
-        if (i >= 0) rows[i] = next; else rows.push(next);
-        saveLenders(rows);
-        toast("Rate sheet updated", "");
-        close();
-        done();
-      },
-    });
-    body.appendChild(built.element);
-
-    if (getLenders().some((r) => r.id === lender.id)) {
-      const del = document.createElement("button");
-      del.className = "btn btn-ghost btn-sm btn-block";
-      del.style.marginTop = "8px";
-      del.textContent = "Remove this lender";
-      del.addEventListener("click", async () => {
-        if (!(await confirmDialog(`Remove ${lender.name || "this lender"} from your sheet?`))) return;
-        saveLenders(getLenders().filter((r) => r.id !== lender.id));
-        close();
-        done();
-      });
-      body.appendChild(del);
-    }
-    return body;
-  });
 }
 
 function buildBooking(slot) {
