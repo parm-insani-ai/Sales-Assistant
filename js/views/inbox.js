@@ -76,6 +76,9 @@ function renderThread(view, leadId) {
     <div id="ib-thread"></div>
     <div class="ib-compose" id="ib-compose"></div>`;
   view.appendChild(el);
+  // A thread supplies its own bottom edge — the reply bar — so it doesn't want
+  // the scroll buffer the list screens carry underneath them.
+  view.classList.add("view-thread");
   el.querySelector('[data-act="open"]').addEventListener("click", () => navigate(`/leads/${lead.id}`));
   // Placing the call logs it, so the thread shows the whole conversation
   // instead of only the half that was typed.
@@ -177,7 +180,18 @@ function renderThread(view, leadId) {
       }
     });
     threadBox.appendChild(wrap);
-    wrap.scrollTop = wrap.scrollHeight;
+    // Open on the newest message, the way a conversation should. The scroller
+    // is the view container now — .chat scrolls with the page rather than
+    // inside itself, so setting scrollTop on it did nothing and threads opened
+    // partway up.
+    scrollToLatest();
+  }
+
+  // Called after a repaint, so wait a frame for layout before measuring.
+  function scrollToLatest() {
+    const scroller = view.closest(".view") || document.getElementById("view");
+    if (!scroller) return;
+    requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
   }
 
   function paintCompose() {

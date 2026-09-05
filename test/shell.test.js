@@ -49,7 +49,7 @@ const overflow = await p.evaluate(() => {
     bodyOverflow: `${body.overflowX}/${body.overflowY}`,
     htmlOverflow: `${html.overflowX}/${html.overflowY}`,
     bounce: body.overscrollBehaviorX,
-    scrollable: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    scrollable: document.getElementById("view").scrollWidth > document.getElementById("view").clientWidth,
   };
 });
 console.log("horizontal:", JSON.stringify(overflow));
@@ -63,13 +63,14 @@ if (overflow.scrollable) fail("something is wider than the screen — the page s
 // --- The tab bar stays welded to the bottom of the viewport, scrolled or not.
 // This is the symptom that was reported: it floated in the middle of a
 // conversation with dead space beneath it.
-await p.evaluate(() => window.scrollTo(0, 0));
+await p.evaluate(() => { document.getElementById("view").scrollTop = 0; });
 const barTop = await p.evaluate(() => Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom));
-await p.evaluate(() => window.scrollBy(0, 400));
+await p.evaluate(() => { document.getElementById("view").scrollTop += 400; });
 await p.waitForTimeout(200);
 const barScrolled = await p.evaluate(() => ({
   bottom: Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom),
-  scrolled: Math.round(window.scrollY), win: window.innerHeight,
+  scrolled: Math.round(document.getElementById("view").scrollTop),
+  win: document.documentElement.clientHeight,
 }));
 console.log(`tab bar: ${barTop} at rest, ${barScrolled.bottom} after scrolling ${barScrolled.scrolled}px`);
 if (barScrolled.bottom !== barScrolled.win)
@@ -92,6 +93,8 @@ if (!/user-scalable=no/.test(vp) || !/maximum-scale=1/.test(vp)) fail("pinch zoo
 console.log("viewport:", vp.slice(0, 70));
 
 // --- There's slack under the last row rather than a dead stop.
+// Measured on a list screen: a thread supplies its own bottom edge.
+await p.goto(APP + "/#/comms"); await p.waitForTimeout(500);
 const pad = await p.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".view")).paddingBottom));
 const tabH = await p.evaluate(() => document.querySelector(".tabbar").getBoundingClientRect().height);
 const slack = pad - tabH;
@@ -100,16 +103,31 @@ console.log(`scroll buffer: ${Math.round(pad)}px padding vs a ${Math.round(tabH)
 // not so much that a short list looks like it's floating above empty screen.
 if (slack < 20) fail(`only ${Math.round(slack)}px of slack — the page stops dead at the tab bar`);
 if (slack > 60) fail(`${Math.round(slack)}px of slack below the content — too much empty space under a short list`);
+await p.goto(APP + "/#/inbox/a"); await p.waitForTimeout(500);
 
-// --- Now the keyboard. Fake what iOS reports: the visual viewport shrinks by
-// ~336px while window.innerHeight stays put.
-const before = await p.evaluate(() => {
+// --- The keyboard. The invariant is simple now and doesn't depend on which
+// iOS behaviour is in play: the shell is exactly as tall as the visible area,
+// so its floor IS the keyboard's lip, and the tab bar is gone while typing.
+const shellState = () => p.evaluate(() => {
   const t = document.querySelector(".tabbar").getBoundingClientRect();
-  return { tabBottom: Math.round(t.bottom), win: window.innerHeight };
+  const app = document.getElementById("app").getBoundingClientRect();
+  const c = document.querySelector("#ib-compose")?.getBoundingClientRect();
+  return {
+    typing: document.body.classList.contains("typing"),
+    kbOpen: document.body.classList.contains("kb-open"),
+    kb: getComputedStyle(document.documentElement).getPropertyValue("--kb").trim(),
+    tabVisible: t.height > 0,
+    appBottom: Math.round(app.bottom),
+    composeBottom: c ? Math.round(c.bottom) : null,
+  };
 });
-console.log("\nbefore keyboard:", JSON.stringify(before));
-if (Math.abs(before.tabBottom - before.win) > 2) fail("the tab bar isn't at the bottom to begin with");
 
+const before = await shellState();
+console.log("\nbefore keyboard:", JSON.stringify(before));
+if (!before.tabVisible) fail("the tab bar is missing before the keyboard is even open");
+if (before.appBottom !== 844) fail(`the shell ends at ${before.appBottom}, not the screen bottom`);
+
+// Safari's shape: the layout viewport stays 844, the visual one shrinks.
 await p.evaluate(() => {
   const vv = window.visualViewport;
   Object.defineProperty(vv, "height", { configurable: true, get: () => 508 });
@@ -117,35 +135,20 @@ await p.evaluate(() => {
   vv.dispatchEvent(new Event("resize"));
 });
 await p.waitForTimeout(400);
+const safari = await shellState();
+console.log("Safari-shape keyboard:", JSON.stringify(safari));
+if (!safari.kbOpen) fail("the app didn't notice the keyboard opened");
+if (safari.kb !== "336px") fail("the keyboard inset was measured wrong: " + safari.kb);
+if (safari.tabVisible) fail("the tab bar is still on screen with the keyboard up");
+if (Math.abs(safari.appBottom - 508) > 2)
+  fail(`the shell ends at ${safari.appBottom}, not at the keyboard lip at 508`);
+if (Math.abs(safari.composeBottom - 508) > 24)
+  fail(`the reply row is at ${safari.composeBottom}, not on the keyboard lip at 508`);
+console.log("  shell shrank to the visible area, tab bar gone, reply row on the lip ✓");
 
-const during = await p.evaluate(() => {
-  const t = document.querySelector(".tabbar").getBoundingClientRect();
-  const c = document.querySelector("#ib-compose").getBoundingClientRect();
-  return {
-    kbOpen: document.body.classList.contains("kb-open"),
-    kb: getComputedStyle(document.documentElement).getPropertyValue("--kb").trim(),
-    tabTop: Math.round(t.top),
-    composeBottom: Math.round(c.bottom),
-    win: window.innerHeight,
-  };
-});
-console.log("with keyboard up:", JSON.stringify(during));
-
-if (!during.kbOpen) fail("the app didn't notice the keyboard opened");
-if (during.kb !== "336px") fail("the keyboard inset was measured wrong: " + during.kb);
-// The tab bar must be off the visible area — this is the thing that was
-// floating in the middle of the screenshot.
-if (during.tabTop < 508) fail(`the tab bar is still on screen at y=${during.tabTop} — it was at 508px that the keyboard started`);
-// And the reply row must sit on the keyboard's lip, not below it.
-if (Math.abs(during.composeBottom - 508) > 24)
-  fail(`the reply row is at ${during.composeBottom}, not on the keyboard lip at 508`);
-console.log("  tab bar pushed off, reply row on the keyboard lip ✓");
-
-// --- The case that kept the bug alive: a home-screen PWA where iOS shrinks
-// the layout viewport itself. innerHeight moves with visualViewport, so the
-// measured inset is ~0, .kb-open never appears, and nothing gets out of the
-// way. Focus is what has to drive it — a focused field on a touch device means
-// the keyboard is up whatever the geometry says.
+// --- The PWA shape, which is what kept this bug alive: iOS shrinks the layout
+// viewport too, so innerHeight moves with it and a naive subtraction reads ~0.
+// Focus is what has to carry it.
 await p.evaluate(() => {
   const vv = window.visualViewport;
   Object.defineProperty(vv, "height", { configurable: true, get: () => 844 });
@@ -154,49 +157,34 @@ await p.evaluate(() => {
 });
 await p.waitForTimeout(300);
 await p.evaluate(() => {
-  // Both viewports shrink together — the PWA case.
   Object.defineProperty(window, "innerHeight", { configurable: true, get: () => 508 });
   Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => 508 });
   document.querySelector("#ib-text").focus();
   window.visualViewport.dispatchEvent(new Event("resize"));
 });
 await p.waitForTimeout(400);
-const pwa = await p.evaluate(() => ({
-  typing: document.body.classList.contains("typing"),
-  kbOpen: document.body.classList.contains("kb-open"),
-  kb: getComputedStyle(document.documentElement).getPropertyValue("--kb").trim(),
-  tabTop: Math.round(document.querySelector(".tabbar").getBoundingClientRect().top),
-  composeBottom: Math.round(document.querySelector("#ib-compose").getBoundingClientRect().bottom),
-}));
-console.log("\nPWA-style (layout viewport shrinks too):", JSON.stringify(pwa));
+const pwa = await shellState();
+console.log("PWA-shape keyboard:", JSON.stringify(pwa));
 if (!pwa.typing) fail("a focused reply box didn't register as typing — the tab bar will stay put");
-if (pwa.tabTop < 508)
-  fail(`the tab bar is still on screen at y=${pwa.tabTop} with the keyboard up in a PWA`);
-if (Math.abs(pwa.composeBottom - 508) > 24)
-  fail(`the reply row is at ${pwa.composeBottom}, not on the keyboard lip at 508`);
-// And prove focus alone carries it: strip the geometry class and the layout
-// must not move. If this fails, the app is still relying on measurement and
-// will break again on whichever iOS build reports something unexpected.
+if (pwa.tabVisible) fail("the tab bar is still on screen with the keyboard up in a PWA");
+if (Math.abs(pwa.appBottom - 508) > 2) fail(`the shell ends at ${pwa.appBottom}, not at 508`);
+
+// And prove focus alone carries the tab bar: throw the measurement away
+// entirely. If this fails, the layout is back to waiting on numbers that some
+// iOS build will eventually report differently.
 const focusOnly = await p.evaluate(() => {
   document.body.classList.remove("kb-open");
+  document.documentElement.style.setProperty("--vvh", "100%");
   document.documentElement.style.setProperty("--kb", "0px");
   const t = document.querySelector(".tabbar").getBoundingClientRect();
-  const c = document.querySelector("#ib-compose").getBoundingClientRect();
-  // Against the REAL layout viewport, not the stubbed innerHeight: `bottom: 0`
-  // resolves against the actual CSS viewport, and stubbing a property can't
-  // shrink that. On a real PWA the layout viewport genuinely is the shortened
-  // one, so landing on its bottom edge is landing on the keyboard's lip.
-  const layout = document.documentElement.clientHeight;
-  return { typing: document.body.classList.contains("typing"),
-    tabTop: Math.round(t.top), composeBottom: Math.round(c.bottom), layout };
+  return { typing: document.body.classList.contains("typing"), tabVisible: t.height > 0 };
 });
-console.log("  with the measurement discarded entirely:", JSON.stringify(focusOnly));
+console.log("  with the measurement discarded:", JSON.stringify(focusOnly));
 if (!focusOnly.typing) fail("the typing class went away with the measurement");
-if (focusOnly.tabTop < focusOnly.layout)
-  fail(`without measurement the tab bar is back on screen at y=${focusOnly.tabTop}`);
-if (Math.abs(focusOnly.composeBottom - focusOnly.layout) > 2)
-  fail(`without measurement the reply row sits at ${focusOnly.composeBottom}, not on the viewport floor at ${focusOnly.layout}`);
-console.log("  focus alone hides the tab bar and lands the reply row ✓");
+if (focusOnly.tabVisible) fail("without measurement the tab bar comes back over the keyboard");
+console.log("  focus alone is enough ✓");
+
+// --- And it all goes back when the keyboard closes.
 await p.evaluate(() => {
   document.activeElement?.blur();
   Object.defineProperty(window, "innerHeight", { configurable: true, get: () => 844 });
@@ -204,21 +192,11 @@ await p.evaluate(() => {
   window.visualViewport.dispatchEvent(new Event("resize"));
 });
 await p.waitForTimeout(400);
-
-// --- And it all goes back when the keyboard closes.
-await p.evaluate(() => {
-  const vv = window.visualViewport;
-  Object.defineProperty(vv, "height", { configurable: true, get: () => 844 });
-  vv.dispatchEvent(new Event("resize"));
-});
-await p.waitForTimeout(400);
-const after = await p.evaluate(() => ({
-  kbOpen: document.body.classList.contains("kb-open") || document.body.classList.contains("typing"),
-  tabBottom: Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom),
-}));
+const after = await shellState();
 console.log("after keyboard:", JSON.stringify(after));
-if (after.kbOpen) fail("the app thinks the keyboard is still open");
-if (Math.abs(after.tabBottom - 844) > 2) fail("the tab bar didn't come back to the bottom");
+if (after.typing || after.kbOpen) fail("the app thinks the keyboard is still open");
+if (!after.tabVisible) fail("the tab bar didn't come back");
+if (after.appBottom !== 844) fail(`the shell ends at ${after.appBottom}, not back at the screen bottom`);
 
 // --- Pull to refresh. The browser's own is off (overscroll-behavior: none),
 // so this has to be the app's, and it has to actually run a sync — inbound

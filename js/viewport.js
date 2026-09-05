@@ -52,6 +52,7 @@ function measure() {
   baseline = Math.max(baseline, Math.round(h + offset), window.innerHeight);
   const covered = Math.max(0, Math.round(baseline - h - offset));
   root.style.setProperty("--vvh", `${Math.round(h)}px`);
+  root.style.setProperty("--vvtop", `${Math.round(offset)}px`);
   root.style.setProperty("--kb", `${covered}px`);
   document.body.classList.toggle("kb-open", covered > KEYBOARD_MIN);
 }
@@ -116,6 +117,7 @@ export function initViewport() {
 
   baseline = window.innerHeight;
   root.style.setProperty("--vvh", `${Math.round(window.innerHeight)}px`);
+  root.style.setProperty("--vvtop", "0px");
   root.style.setProperty("--kb", "0px");
 
   const vv = window.visualViewport;
@@ -145,6 +147,7 @@ export function viewportReport() {
     visualOffsetTop: vv ? Math.round(vv.offsetTop) : null,
     baseline,
     kb: root.style.getPropertyValue("--kb").trim() || "0px",
+    vvtop: root.style.getPropertyValue("--vvtop").trim() || "0px",
     typing: document.body.classList.contains("typing"),
     kbOpen: document.body.classList.contains("kb-open"),
     standalone: !!(window.navigator.standalone || matchMedia("(display-mode: standalone)").matches),

@@ -73,8 +73,9 @@ const PAGES = {
 function mount(base, ctx) {
   const page = PAGES[base] || PAGES["/"];
   view.innerHTML = "";
+  // The view is the scroll container, so resetting it IS resetting the page.
+  view.className = "view";
   view.scrollTop = 0;
-  window.scrollTo(0, 0);
   // Detail pages set their own contextual title inside the view.
   title.textContent = ctx.param ? detailTitle(base) : page.title;
   page.render(view, ctx);

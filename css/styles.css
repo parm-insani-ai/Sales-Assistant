@@ -176,12 +176,32 @@ html, body {
   letter-spacing: -0.006em;
 }
 
-#app { display: flex; flex-direction: column; min-height: 100dvh; }
+/* The app shell is a fixed flex column with its own scroller, not a tall
+   document with fixed bars floating over it.
+   
+   This is the third attempt at the keyboard problem and the first one that
+   doesn't depend on guessing what iOS does. Both previous fixes kept the tab
+   bar `position: fixed`, which means it is placed against the layout viewport
+   — and iOS moves, resizes, or ignores that viewport differently in Safari
+   versus an installed PWA, so the bar kept ending up mid-screen. Here the bar
+   is simply the last row of a column that is exactly as tall as the visible
+   area. There is nothing left to mis-position. */
+#app {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 100%;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+/* While typing, pin the shell to what's visible. --vvh and --vvtop come from
+   the visual viewport, which is the one that tells the truth on both
+   platforms: where iOS shrinks the layout viewport these already match, and
+   where it instead slides the page up, --vvtop is the amount it slid. */
+body.typing #app, body.kb-open #app { top: var(--vvtop, 0px); height: var(--vvh, 100%); }
 
 /* ---------- Top bar ---------- */
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
+  flex: none;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -327,6 +347,10 @@ html, body {
 /* ---------- View area ---------- */
 .view {
   flex: 1;
+  min-height: 0;             /* or a flex child refuses to shrink and scroll */
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   /* The tab bar is ~71px; the rest is deliberate slack so the last row clears
      the bar and the page doesn't stop dead the moment you reach the bottom of
      the content. Enough to feel like room, not so much that a short list looks
@@ -342,8 +366,8 @@ html, body {
 
 /* ---------- Bottom tab bar ---------- */
 .tabbar {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
+  position: relative;
+  flex: none;
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -945,9 +969,9 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 
 /* ---- Thread ------------------------------------------------------------ */
 .conv-head {
-  /* Sticks below the top bar, not behind it. At top: 0 it parked itself under
-     the translucent bar and ghosted through the blur for the whole thread. */
-  position: sticky; top: var(--topbar-h, 56px); z-index: 3;
+  /* The top bar lives outside the scroller now, so sticking to 0 sticks to the
+     top of the conversation rather than behind the bar. */
+  position: sticky; top: 0; z-index: 3;
   display: flex; align-items: center; gap: 10px;
   padding: 6px 0 10px; margin-bottom: 4px;
   background: var(--bg); border-bottom: 1px solid var(--border);
@@ -968,7 +992,7 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
    it, which is the one thing no messaging app does. */
 .conv-screen {
   display: flex; flex-direction: column;
-  min-height: calc(var(--vvh, 100dvh) - 150px - var(--safe-bottom));
+  min-height: 100%;
 }
 .conv-screen #ib-thread { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
 
@@ -1006,20 +1030,15 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 
 /* The reply bar: one row, like every other messaging app. Secondary actions
    live behind the + so the common case — type, send — is the whole surface. */
+/* Sticky to the bottom of the scroller — which, now that the scroller is
+   exactly as tall as the visible area, is the bottom of the screen. No fixed
+   positioning, nothing to be knocked out of place by the keyboard, and the
+   thread scrolls behind it instead of under a floating bar. */
 .ib-compose {
-  /* Fixed, not sticky. A sticky element can't travel past the bottom of its
-     own container, and this one's container ends above the view's bottom
-     padding — so scrolled to the end of a thread the reply bar stopped short
-     and messages showed through the gap beneath it. Fixed also means it's in
-     the same place on every thread regardless of how long the conversation is.
-     The clearance for the tab bar is carried as padding, so the background
-     runs all the way down and nothing scrolls through. */
-  position: fixed; z-index: 2;
-  left: 50%; bottom: 0;
-  transform: translateX(-50%);
-  width: min(640px, 100%);
+  position: sticky; bottom: 0; z-index: 2;
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 8px 20px calc(88px + var(--safe-bottom));
+  padding: 8px 0 10px;
+  margin-top: auto;
   background: var(--bg);
   border-top: 1px solid var(--border);
 }
@@ -1136,32 +1155,17 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
    reachable behind a keyboard anyway, and hiding it gives the conversation the
    whole screen — which is what every messaging app does.
 
-   Driven by .typing (a text field is focused) rather than only by measured
-   geometry. On a home-screen PWA iOS may shrink the layout viewport itself, so
-   the measured keyboard inset comes out near zero and .kb-open never appears —
-   which is how the tab bar kept showing up mid-screen. A focused input on a
-   touch device means the keyboard is up regardless of what the numbers say. */
-.typing .tabbar, .kb-open .tabbar { transform: translateY(120%); pointer-events: none; }
-.tabbar { transition: transform .18s ease; }
+   Driven by .typing (a text field is focused), not by measured geometry: on a
+   home-screen PWA the measured keyboard inset can come out as zero, and a
+   layout that waits for a number it never receives is a layout that never
+   moves. A focused input on a touch device means the keyboard is up. */
+body.typing .tabbar, body.kb-open .tabbar { display: none; }
 
-/* Sticky bottom is measured against the layout viewport, so with the keyboard
-   up it sticks somewhere off-screen. Fixed + a translate by the measured
-   keyboard inset puts it exactly on the lip of the keyboard instead. */
-/* With the keyboard up the tab bar is gone, so its clearance goes too and the
-   reply bar rides on the keyboard's lip. --kb is the measured inset where the
-   layout viewport didn't shrink; where it did, it's 0 and bottom: 0 is already
-   the right place. Either way this lands correctly. */
-.typing .ib-compose, .kb-open .ib-compose {
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  transform: translate(-50%, calc(var(--kb, 0px) * -1));
-}
-/* Room for it, so the last message isn't hidden under the reply row. */
-.typing .conv-screen, .kb-open .conv-screen { padding-bottom: 64px; }
-.typing .view, .kb-open .view { padding-bottom: calc(var(--kb, 0px) + 80px); }
-
-/* With the keyboard up the thread stops reserving height — the compose row is
-   pinned to the keyboard lip and the messages scroll behind it. */
-.typing .conv-screen, .kb-open .conv-screen { min-height: 0; }
+/* Nothing left to do for the reply bar: the shell is already the size of the
+   visible area, so the bottom of the scroller IS the keyboard's lip. */
+/* The thread fills the scroller so the reply bar sits at the bottom of a short
+   conversation as well as a long one. */
+.view-thread { padding-bottom: 0; }
 
 /* iOS paints its own blue ring on a focused field, which is the one colour in
    the app that belongs to nobody. */

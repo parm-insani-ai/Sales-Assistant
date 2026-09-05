@@ -33,7 +33,14 @@ export function initPullToRefresh() {
   let dist = 0;
   let busy = false;
 
-  const atTop = () => (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+  // The app scrolls inside .view, not the document — the shell is a fixed
+  // flex column. Reading window.scrollY here would always say "at the top" and
+  // a pull would fire in the middle of a conversation.
+  const scroller = () => document.getElementById("view");
+  const atTop = () => {
+    const el2 = scroller();
+    return el2 ? el2.scrollTop <= 0 : (window.scrollY || 0) <= 0;
+  };
 
   const set = (d, spin) => {
     const bar = indicator();
