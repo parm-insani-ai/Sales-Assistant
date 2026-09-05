@@ -208,6 +208,7 @@ export function stageMeta(id) {
 
 let state = load();
 const listeners = new Set();
+if (state.needsPersist) { delete state.needsPersist; persist(); }
 
 function load() {
   try {
@@ -265,6 +266,34 @@ function load() {
         });
       }
       merged.settings.firstTouchFixed = 4;
+    }
+    // v150 shipped a credit-tier / lender-matrix feature and v151 took it back
+    // out, because the rate sheet behind it was invented rather than sourced.
+    // Nothing reads these fields any more, so they're dead weight that would
+    // otherwise sit in the cloud forever. Clear them once.
+    if (!merged.settings.lenderCleanup) {
+      delete merged.settings.lenders;
+      const now = new Date().toISOString();
+      if (Array.isArray(merged.leads)) {
+        merged.leads.forEach((l) => {
+          if (!l || l.creditTier == null) return;
+          delete l.creditTier;
+          // Deleting it locally isn't enough: the cloud copy still carries the
+          // field, and a fresh install would pull it straight back. Touch the
+          // record and queue it so the cleaned version is what gets stored.
+          // Only leads that actually had a tier are touched, so an install
+          // that never used the feature sees no churn at all.
+          l.updatedAt = now;
+          merged.outbox = merged.outbox || {};
+          merged.outbox[`leads:${l.id}`] = { collection: "leads", id: l.id, deleted: false, at: now };
+        });
+      }
+      merged.settings.lenderCleanup = true;
+      // load() only builds the in-memory object; nothing reaches localStorage
+      // until a write happens. The other migrations can wait for one because
+      // they're idempotent and cheap to redo. This one queues an outbox entry
+      // that has to survive, so it asks to be written out immediately.
+      merged.needsPersist = true;
     }
     return merged;
   } catch (e) {
