@@ -20,7 +20,7 @@ import { openModal, buildForm, toast } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
-import { emailSendConfigured } from "../email.js";
+import { emailSendConfigured, lastAutoEmailError } from "../email.js";
 import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
 
 const TAB_KEY = "comms-tab"; // survives navigating into a thread and back
@@ -176,6 +176,7 @@ export function renderComms(view) {
   // ---- Email ----
   function drawEmail(box) {
     const s = store.getSettings();
+    const autoErr = lastAutoEmailError();
     // One row per customer, carrying their most recent email either way.
     const byLead = new Map();
     store.all("emails").forEach((e) => {
@@ -231,9 +232,16 @@ export function renderComms(view) {
         <div class="row-main">
           <div class="row-title">${icon("mail")} Automated emails</div>
           <div class="row-sub">${
-            s.emailAutoSend
-              ? (emailSendConfigured() ? "On — due follow-up emails send when you open the app, and show here marked automatic." : "On, but the sending function isn't set up yet.")
-              : "Off — turn on to send due follow-up emails automatically."
+            !s.emailAutoSend
+              ? "Off — turn on to send due follow-up emails automatically."
+              : !emailSendConfigured()
+                ? "On, but the sending function isn't set up yet."
+                : autoErr && autoErr.setup
+                  // The app used to shout this as a toast on every launch. It's
+                  // a standing condition, so it belongs here, next to the switch
+                  // it's about.
+                  ? `On, but nothing can send: ${esc(autoErr.message)}`
+                  : "On — due follow-up emails send when you open the app, and show here marked automatic."
           }</div>
         </div>
         <button class="btn btn-ghost btn-sm" data-act="email-settings">Set up</button>

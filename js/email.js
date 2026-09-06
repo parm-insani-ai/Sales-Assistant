@@ -15,6 +15,36 @@ export function emailSendConfigured() {
   return !!(store.getSettings().agentUrl || "").trim();
 }
 
+// The last reason automatic sending failed, and whether it's a setup problem
+// rather than a one-off.
+//
+// This exists because a missing server secret is not an event — it's a state.
+// It will be just as true on the next launch, and the one after, so announcing
+// it as though something just went wrong means shouting the same sentence at
+// someone every time they open the app. Recorded here, reported where the
+// setting lives.
+let lastAutoError = null;
+export function lastAutoEmailError() {
+  return lastAutoError;
+}
+function noteAutoError(msg) {
+  // Only ever records a problem, never clears one. Two passes run back to back
+  // — cadence emails then appointment reminders — and if the second had nothing
+  // to do it would otherwise wipe the first one's reason on its way past.
+  const text = String(msg || "");
+  if (!text) return;
+  lastAutoError = { message: text, setup: isSetupError(text), at: new Date().toISOString() };
+}
+// Called at the start of a run, so a problem that has since been fixed stops
+// being reported.
+export function resetAutoEmailError() {
+  lastAutoError = null;
+}
+// Things only fixable in the Supabase dashboard, not by retrying.
+export function isSetupError(msg) {
+  return /server missing|RESEND_API_KEY|EMAIL_FROM|isn't set up|not set up/i.test(String(msg || ""));
+}
+
 // Send one real email through the Supabase function. Throws a plain-language
 // message when a config step is missing.
 export async function sendEmail({ to, subject, text }) {
@@ -95,12 +125,14 @@ export async function autoSendAppointmentReminders() {
       break;
     }
   }
+  noteAutoError(errors[0]);
   return { sent, errors };
 }
 
 // Tier 2's automation: send any due cadence email steps. Called on app open.
 // Caps at 5 per run and stops on the first failure (it's almost always config).
 export async function autoSendDueEmails() {
+  resetAutoEmailError();
   const s = store.getSettings();
   if (!s.emailAutoSend || !emailSendConfigured()) return { sent: 0, errors: [] };
   const today = new Date().toISOString().slice(0, 10);
@@ -136,5 +168,6 @@ export async function autoSendDueEmails() {
       break;
     }
   }
+  noteAutoError(errors[0]);
   return { sent, errors };
 }

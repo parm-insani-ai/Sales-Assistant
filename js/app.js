@@ -33,7 +33,7 @@ import { renderPay } from "./views/pay.js";
 import { startVoiceAssistant } from "./voice.js";
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
-import { autoSendDueEmails, autoSendAppointmentReminders } from "./email.js";
+import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from "./email.js";
 import { reconcileLinks } from "./connections.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 
@@ -211,8 +211,19 @@ autoSendDueEmails().then(async (r) => {
   const r2 = await autoSendAppointmentReminders().catch(() => ({ sent: 0, errors: [] }));
   const sent = (r.sent || 0) + (r2.sent || 0);
   const errs = (r.errors || []).concat(r2.errors || []);
-  if (sent) toast(`${sent} email${sent === 1 ? "" : "s"} sent automatically`, "success");
-  else if (errs.length) toast(`Auto-email: ${errs[0]}`, "danger");
+  if (sent) return toast(`${sent} email${sent === 1 ? "" : "s"} sent automatically`, "success");
+  if (!errs.length) return;
+  // A missing server secret isn't news — it's the same on every launch, and
+  // the emails stay due, so this fired on every single open. Setup problems
+  // are reported where the setting lives (Comms → Email, and Settings); only
+  // genuine send failures are worth interrupting for, and even those at most
+  // once a day so one bad address doesn't nag forever.
+  if (isSetupError(errs[0])) return;
+  const key = "entoa:autoemail-warned";
+  const last = Number(localStorage.getItem(key) || 0);
+  if (Date.now() - last < 24 * 3600 * 1000) return;
+  try { localStorage.setItem(key, String(Date.now())); } catch { }
+  toast(`Auto-email: ${errs[0]}`, "danger");
 }).catch(() => {});
 
 // New synced records (e.g. a customer self-booking from the booking page) get
