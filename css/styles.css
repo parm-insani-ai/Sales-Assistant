@@ -187,8 +187,12 @@ html, body {
    is simply the last row of a column that is exactly as tall as the visible
    area. There is nothing left to mis-position. */
 #app {
-  position: fixed; top: 0; left: 0; right: 0;
-  height: 100%;
+  /* top/bottom rather than height: 100%. A percentage height on a fixed
+     element resolves against the layout viewport, and on iOS that excludes the
+     home-indicator inset — so the shell stopped ~40pt short of the screen and
+     left a band of background under the tab bar. Anchoring both edges leaves
+     nothing to resolve. */
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
 }
@@ -196,7 +200,11 @@ html, body {
    the visual viewport, which is the one that tells the truth on both
    platforms: where iOS shrinks the layout viewport these already match, and
    where it instead slides the page up, --vvtop is the amount it slid. */
-body.typing #app, body.kb-open #app { top: var(--vvtop, 0px); height: var(--vvh, 100%); }
+body.typing #app, body.kb-open #app {
+  top: var(--vvtop, 0px);
+  bottom: auto;                       /* height wins while the keyboard is up */
+  height: var(--vvh, 100%);
+}
 
 /* ---------- Top bar ---------- */
 .topbar {
@@ -424,8 +432,8 @@ body.typing #app, body.kb-open #app { top: var(--vvtop, 0px); height: var(--vvh,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 11px 4px 12px;
+  gap: 3px;
+  padding: 7px 4px 8px;
   text-decoration: none;
   color: var(--muted);
   font-size: 0.66rem;

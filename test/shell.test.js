@@ -73,6 +73,22 @@ const barScrolled = await p.evaluate(() => ({
   win: document.documentElement.clientHeight,
 }));
 console.log(`tab bar: ${barTop} at rest, ${barScrolled.bottom} after scrolling ${barScrolled.scrolled}px`);
+
+// Nothing between the tab bar and the bottom of the screen. On iOS a
+// percentage height on the fixed shell resolves against a viewport that
+// excludes the home-indicator inset, which left a band of background under the
+// bar; the shell anchors top and bottom instead. Chromium can't reproduce that
+// resolution difference, but it can hold the invariant.
+const bottomEdge = await p.evaluate(() => ({
+  app: Math.round(document.getElementById("app").getBoundingClientRect().bottom),
+  bar: Math.round(document.querySelector(".tabbar").getBoundingClientRect().bottom),
+  screen: document.documentElement.clientHeight,
+}));
+console.log("bottom edge:", JSON.stringify(bottomEdge));
+if (bottomEdge.app !== bottomEdge.screen)
+  fail(`the shell ends at ${bottomEdge.app}, ${bottomEdge.screen - bottomEdge.app}px short of the screen`);
+if (bottomEdge.bar !== bottomEdge.app)
+  fail(`${bottomEdge.app - bottomEdge.bar}px of dead space between the tab bar and the bottom of the shell`);
 if (barScrolled.bottom !== barScrolled.win)
   fail(`the tab bar drifted to ${barScrolled.bottom} while scrolling — it must stay at ${barScrolled.win}`);
 
