@@ -123,9 +123,36 @@ export function initViewport() {
 // diagnostics panel: when the layout is wrong on a device that can't be
 // attached to a debugger, these six numbers are the difference between fixing
 // it and guessing at it again.
+// env(safe-area-inset-bottom) isn't readable from JS, so measure it: a probe
+// whose padding is that inset reports it back as a number.
+function safeInsets() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;left:0;top:0;width:0;visibility:hidden;" +
+    "padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)";
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const out = { top: Math.round(parseFloat(cs.paddingTop) || 0), bottom: Math.round(parseFloat(cs.paddingBottom) || 0) };
+  probe.remove();
+  return out;
+}
+
 export function viewportReport() {
   const vv = window.visualViewport;
+  const app = document.getElementById("app");
+  const bar = document.querySelector(".tabbar");
+  const safe = safeInsets();
   return {
+    // The bottom-edge question: does the shell reach the floor of the viewport,
+    // does the tab bar reach the shell, and is the viewport itself the whole
+    // screen or only the safe area?
+    safeTop: safe.top,
+    safeBottom: safe.bottom,
+    appBottom: app ? Math.round(app.getBoundingClientRect().bottom) : null,
+    barBottom: bar ? Math.round(bar.getBoundingClientRect().bottom) : null,
+    barHeight: bar ? Math.round(bar.getBoundingClientRect().height) : null,
+    clientHeight: document.documentElement.clientHeight,
+    screenHeight: Math.round(window.screen.height),
+    dpr: window.devicePixelRatio,
     innerHeight: window.innerHeight,
     visualHeight: vv ? Math.round(vv.height) : null,
     visualOffsetTop: vv ? Math.round(vv.offsetTop) : null,

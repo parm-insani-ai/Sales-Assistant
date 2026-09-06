@@ -398,18 +398,22 @@ export function renderSettings(view) {
     const paint = () => {
       if (!document.body.contains(panel)) return;
       const r = viewportReport();
-      const bar = document.querySelector(".tabbar")?.getBoundingClientRect();
+      const gapBelowBar = r.appBottom != null && r.barBottom != null ? r.appBottom - r.barBottom : "?";
+      const gapBelowApp = r.clientHeight != null && r.appBottom != null ? r.clientHeight - r.appBottom : "?";
+      const screenPt = Math.round(r.screenHeight);
       panel.innerHTML = `<b>screen check</b> · tap to close
         <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))}${r.standalone ? " · installed" : " · browser"}</div>
+        <div><b>gap under bar ${gapBelowBar}</b> · <b>gap under app ${gapBelowApp}</b></div>
+        <div>bar h ${r.barHeight} · bar btm ${r.barBottom} · app btm ${r.appBottom}</div>
+        <div>viewport ${r.clientHeight} · screen ${screenPt} · dpr ${r.dpr}</div>
+        <div>safe top ${r.safeTop} · safe bottom ${r.safeBottom}</div>
         <div>inner ${r.innerHeight} · visual ${r.visualHeight ?? "n/a"} · offset ${r.visualOffsetTop ?? "n/a"}</div>
-        <div>baseline ${r.baseline} · kb ${esc(r.kb)}</div>
-        <div>typing ${r.typing ? "YES" : "no"} · kb-open ${r.kbOpen ? "YES" : "no"}</div>
-        <div>tabbar bottom ${bar ? Math.round(bar.bottom) : "?"} of ${r.innerHeight}</div>`;
+        <div>typing ${r.typing ? "YES" : "no"} · kb-open ${r.kbOpen ? "YES" : "no"} · kb ${esc(r.kb)}</div>`;
       requestAnimationFrame(paint);
     };
     paint();
     panel.addEventListener("click", () => panel.remove());
-    toast("Open a conversation and tap the reply box", "");
+    toast("Screenshot this — it names the exact numbers", "");
   });
 
   el.querySelector('[data-act="update"]').addEventListener("click", async () => {
