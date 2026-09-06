@@ -401,6 +401,12 @@ export function renderSettings(view) {
       const gapBelowBar = r.appBottom != null && r.barBottom != null ? r.appBottom - r.barBottom : "?";
       const gapBelowApp = r.clientHeight != null && r.appBottom != null ? r.clientHeight - r.appBottom : "?";
       const screenPt = Math.round(r.screenHeight);
+      // The one condition CSS cannot fix: iOS handed the app a web view shorter
+      // than the screen, so the leftover strip is outside the page entirely.
+      const short = r.screenHeight - r.clientHeight;
+      const verdict = short > 8
+        ? `<div style="color:#FF9E9E">web view is ${short}pt SHORTER than the screen — that strip is outside the app and no CSS reaches it (status-bar-style / reinstall)</div>`
+        : `<div style="color:#7CFFC4">web view fills the screen</div>`;
       panel.innerHTML = `<b>screen check</b> · tap to close
         <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))}${r.standalone ? " · installed" : " · browser"}</div>
         <div><b>gap under bar ${gapBelowBar}</b> · <b>gap under app ${gapBelowApp}</b></div>
@@ -408,7 +414,8 @@ export function renderSettings(view) {
         <div>viewport ${r.clientHeight} · screen ${screenPt} · dpr ${r.dpr}</div>
         <div>safe top ${r.safeTop} · safe bottom ${r.safeBottom}</div>
         <div>inner ${r.innerHeight} · visual ${r.visualHeight ?? "n/a"} · offset ${r.visualOffsetTop ?? "n/a"}</div>
-        <div>typing ${r.typing ? "YES" : "no"} · kb-open ${r.kbOpen ? "YES" : "no"} · kb ${esc(r.kb)}</div>`;
+        <div>typing ${r.typing ? "YES" : "no"} · kb-open ${r.kbOpen ? "YES" : "no"} · kb ${esc(r.kb)}</div>
+        ${verdict}`;
       requestAnimationFrame(paint);
     };
     paint();

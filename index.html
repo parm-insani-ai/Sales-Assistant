@@ -10,7 +10,17 @@
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#1b1d1e" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- NOT black-translucent. With that setting iOS makes the installed web view
+       the height of the screen MINUS the status bar, but positions it at the
+       very top — so the app is drawn from y=0 and a strip the height of the
+       status bar is left over at the bottom, outside the web view entirely.
+       Measured on an iPhone: screen 812pt, viewport 771pt, safe-area-inset-top
+       41pt. Exactly that difference, and no CSS can reach it, which is why
+       three attempts at moving the tab bar down changed nothing.
+       "black" places the view below the status bar and lets it run to the
+       bottom edge. iOS reads this at install time, so it only takes effect on
+       a fresh add-to-home-screen. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <meta name="apple-mobile-web-app-title" content="entoa" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png" />
