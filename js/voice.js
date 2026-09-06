@@ -15,13 +15,34 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export function voiceRecognitionSupported() { return !!SR; }
 
 export function speak(text) {
-  try {
-    if (!("speechSynthesis" in window)) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-  } catch {}
+  speakAsync(text);
+}
+
+// Speaking, but awaitable. In a conversation the app has to know when its own
+// voice has stopped before it starts listening again — otherwise the microphone
+// hears the reply and answers itself. Resolves on end, on error, and on a
+// timeout, because some platforms simply never fire onend and a conversation
+// that waits forever is worse than one that talks over itself occasionally.
+export function speakAsync(text) {
+  return new Promise((resolve) => {
+    try {
+      if (!("speechSynthesis" in window) || !text) return resolve();
+      const u = new SpeechSynthesisUtterance(String(text));
+      u.rate = 1.05;
+      let done = false;
+      const finish = () => { if (done) return; done = true; resolve(); };
+      u.onend = finish;
+      u.onerror = finish;
+      // Roughly the time it takes to say it, plus slack.
+      setTimeout(finish, Math.min(20000, 1200 + String(text).length * 70));
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    } catch { resolve(); }
+  });
+}
+
+export function stopSpeaking() {
+  try { speechSynthesis.cancel(); } catch { }
 }
 
 // ---------- Date / time / number helpers ----------
@@ -249,6 +270,10 @@ function makeWave(canvas) {
     let target;
     if (mode === "idle") target = 0.05;
     else if (mode === "thinking") target = 0.32;
+    // Speaking gets its own steady swell, so the ribbon distinguishes "I'm
+    // talking" from "I'm listening to you" — otherwise you can't tell whether
+    // it's your turn.
+    else if (mode === "speaking") target = 0.5 + Math.sin(performance.now() / 260) * 0.12;
     else target = 0.13 + energy * 1.15; // listening
     level += (target - level) * 0.18;
 
@@ -315,7 +340,8 @@ export function startVoiceAssistant() {
   const close = () => {
     if (closed) return;
     closed = true;
-    try { if (rec) rec.abort(); } catch {}
+    try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
+    stopSpeaking();
     wave.stop();
     overlay.remove();
   };
@@ -329,115 +355,169 @@ export function startVoiceAssistant() {
   // and continue). Null when the agent isn't configured — we use the parser.
   const session = agentConfigured() ? createAgentSession() : null;
 
+  // --- Conversation ---
+  //
+  // The panel used to take one sentence, act, and close. That's a command box,
+  // not a conversation: every follow-up meant tapping the mic again, and
+  // anything the agent said back was the end of the exchange rather than the
+  // middle of one. It now runs a loop — listen, act, answer, listen again —
+  // until you close it or say you're done.
+  let hearing = false;      // recognition is running right now
+  let quiet = 0;            // consecutive rounds that heard nothing
+  let busy = false;         // acting on something; don't listen over it
+
+  // Ways to say "we're finished" that shouldn't be sent to the agent as a
+  // command. People trail off with a thank-you — "that's all thanks" — so the
+  // courtesy is stripped before the phrase is matched, and a bare thank-you
+  // counts on its own.
+  const THANKS = /\b(thanks?(\s+you)?|cheers|appreciate it)\b[.,! ]*$/i;
+  const FAREWELL = /^(that'?s (it|all)|nothing( else)?|never ?mind|i'?m (good|done)|all good|we'?re done|done|stop|goodbye|bye|cancel|close)[.,! ]*$/i;
+  function isFarewell(said) {
+    // Dictation returns typographic apostrophes — "that\u2019s all" would sail
+    // past a pattern written with the straight one and be sent to the agent as
+    // a command.
+    const bare = String(said).replace(/[\u2018\u2019\u02bc]/g, "'").trim();
+    const core = bare.replace(THANKS, "").trim();
+    if (!core) return THANKS.test(bare);       // just "thanks"
+    // "no thanks" ends it; a bare "no" must not, or answering a yes/no question
+    // from the agent would hang up on it.
+    if (/^no(pe)?[.,! ]*$/i.test(core)) return core !== bare;
+    return FAREWELL.test(core);
+  }
+
+  const setStatus = (t) => { statusEl.textContent = t; };
+
+  function stopHearing() {
+    try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
+    rec = null;
+    hearing = false;
+  }
+
   const onParser = (text) => {
     const cmd = parseCommand(text);
     const say = cmd.action !== "error" ? executeCommand(cmd) : null;
-    if (say) {
-      statusEl.textContent = say;
-      speak(say);
-      toast(say, "success");
-      setTimeout(close, 900);
-    } else {
-      statusEl.textContent = "Sorry, I didn't catch that — try rephrasing.";
-      wave.set("idle");
-      speak("Sorry, I didn't catch that.");
-    }
+    return say || "Sorry, I didn't catch that — try rephrasing.";
   };
 
   const run = async (text) => {
-    if (!text || !text.trim()) return;
-    transcriptEl.textContent = `“${text.trim()}”`;
+    const said = (text || "").trim();
+    if (!said || busy) return;
+    if (isFarewell(said)) {
+      await speakAsync("Okay.");
+      return close();
+    }
+    busy = true;
+    stopHearing();
+    transcriptEl.textContent = `\u201c${said}\u201d`;
+    textInput.value = "";
 
-    // With the Claude-backed agent configured, hand it the request; it decides
-    // which actions to run and we execute them locally. Fall back to the
-    // on-device parser if the agent is unreachable.
+    let reply = "";
+    let ok = true;
     if (session) {
-      statusEl.textContent = "Thinking…";
+      setStatus("Thinking\u2026");
       wave.set("thinking");
       try {
-        const res = await session.send(text, (n) => {
-          if (n && !n.startsWith("⚠")) statusEl.textContent = n.charAt(0).toUpperCase() + n.slice(1) + "…";
+        const res = await session.send(said, (n) => {
+          if (n && !n.startsWith("\u26a0")) setStatus(n.charAt(0).toUpperCase() + n.slice(1) + "\u2026");
         });
-        const reply = res.say || "Done";
-        statusEl.textContent = reply;
-        speak(reply);
-        if (res.done) {
-          wave.set("idle");
-          toast(reply, "success");
-          setTimeout(close, 1300);
-        } else {
-          // The agent needs more info — keep the panel open for the answer.
-          wave.set("listening");
-          transcriptEl.textContent = "";
-          textInput.value = "";
-          textInput.focus();
-        }
-        return;
+        reply = res.say || "Done";
       } catch (e) {
-        // Show the real error right in the panel so it's readable on the phone.
-        const msg = e && e.message ? e.message : "couldn't reach the assistant";
-        wave.set("idle");
-        statusEl.textContent = "Voice agent error";
-        transcriptEl.textContent = msg;
-        toast(`Voice agent: ${msg}`, "danger");
-        return;
+        ok = false;
+        reply = e && e.message ? e.message : "I couldn't reach the assistant";
+        toast(`Voice agent: ${reply}`, "danger");
       }
+    } else {
+      reply = onParser(said);
     }
-    onParser(text);
+
+    setStatus(reply);
+    wave.set("speaking");
+    busy = false;
+    await speakAsync(reply);
+    // Straight back to listening. A conversation doesn't end because one answer
+    // did — the next thing said is usually a follow-up on the same subject, and
+    // the agent session remembers it.
+    if (!closed) { if (ok) listen(); else fallbackToTyping("Tap the mic to try again, or type below."); }
   };
 
   overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
 
-  // iOS Safari's speech recognition is unreliable and unavailable in installed
-  // (home-screen) mode, so on iOS we lead with the text box + keyboard dictation,
-  // which always works. Elsewhere we use live recognition.
-  const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  function fallbackToTyping(msg) {
+    stopHearing();
+    wave.set("idle");
+    setStatus(msg);
+    textInput.focus();
+  }
 
-  // Start speech recognition if available; otherwise fall straight to typing.
-  if (SR && !isIOS) {
+  // One turn of listening. A fresh recogniser each time: these are one-shot on
+  // most engines, and reusing one that has already ended silently never fires
+  // again.
+  function listen() {
+    if (closed || busy || hearing || !SR) return;
+    let heard = "";
     try {
       rec = new SR();
-      rec.lang = "en-US";
-      rec.interimResults = true;
-      rec.maxAlternatives = 1;
-      rec.continuous = false;
-      wave.set("listening");
-      let finalText = "";
-      rec.onresult = (ev) => {
-        let interim = "";
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          const r = ev.results[i];
-          if (r.isFinal) finalText += r[0].transcript;
-          else interim += r[0].transcript;
-        }
-        wave.bump(0.9);
-        transcriptEl.textContent = `“${(finalText || interim).trim()}”`;
-      };
-      rec.onerror = (ev) => {
-        wave.set("idle");
-        if (ev.error === "not-allowed" || ev.error === "service-not-allowed")
-          statusEl.textContent = "Microphone blocked — type your command below.";
-        else if (ev.error === "no-speech") statusEl.textContent = "Didn't hear anything — try again or type below.";
-        else statusEl.textContent = "Voice unavailable — type your command below.";
-      };
-      rec.onend = () => {
-        wave.set("idle");
-        if (!closed && finalText.trim()) run(finalText);
-        else if (!closed && statusEl.textContent === "Listening…") statusEl.textContent = "Go ahead — or type below.";
-      };
-      rec.start();
-      setTimeout(() => textInput && textInput.setAttribute("placeholder", "Ask or tell me anything…"), 10);
     } catch {
-      wave.set("idle");
-      statusEl.textContent = "Type your command, or tap your keyboard's mic to dictate.";
-      textInput.focus();
+      return fallbackToTyping("Voice isn't available here \u2014 type below.");
     }
+    rec.lang = "en-US";
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.continuous = false;
+    hearing = true;
+    wave.set("listening");
+    setStatus("Listening\u2026");
+
+    rec.onresult = (ev) => {
+      let interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) heard += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      wave.bump(0.9);
+      transcriptEl.textContent = `\u201c${(heard || interim).trim()}\u201d`;
+    };
+    rec.onerror = (ev) => {
+      hearing = false;
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed")
+        return fallbackToTyping("Microphone blocked \u2014 type your command below.");
+      if (ev.error === "no-speech") return; // onend deals with it
+      // Anything else (network, aborted, audio-capture): one retry, then type.
+      if (++quiet >= 2) fallbackToTyping("Voice isn't working here \u2014 type below.");
+    };
+    rec.onend = () => {
+      hearing = false;
+      if (closed || busy) return;
+      const said = heard.trim();
+      if (said) { quiet = 0; return run(said); }
+      // Heard nothing. Keep the conversation open for a couple of rounds, then
+      // stop rather than holding the mic open forever.
+      if (++quiet >= 3) return fallbackToTyping("Still here \u2014 tap the mic or type below.");
+      setTimeout(() => { if (!closed && !busy) listen(); }, 250);
+    };
+    try { rec.start(); } catch { hearing = false; fallbackToTyping("Type your command below."); }
+  }
+
+  // Tapping the waveform interrupts: stop talking and listen. That's how you
+  // cut the agent off mid-sentence when you already know what you want.
+  overlay.querySelector("#v-wave").addEventListener("click", () => {
+    stopSpeaking();
+    if (hearing) { stopHearing(); wave.set("idle"); setStatus("Paused \u2014 tap to talk."); }
+    else { quiet = 0; listen(); }
+  });
+
+  // Speech recognition is attempted everywhere now, including iOS. It used to
+  // be skipped there on the assumption it doesn't work in an installed app,
+  // which made the mic button a keyboard on the one device this is built for.
+  // If it genuinely isn't available the error handlers above fall through to
+  // typing within a second, which is a better trade than never trying.
+  if (SR) {
+    listen();
   } else {
     wave.set("idle");
-    statusEl.textContent = "Say your command";
-    // Focus synchronously (within the tap gesture) so iOS opens the keyboard,
-    // where the user can tap the dictation mic to speak.
+    setStatus("Type your command, or tap your keyboard's mic to dictate.");
+    // Focus synchronously (within the tap gesture) so iOS opens the keyboard.
     textInput.focus();
   }
 }
