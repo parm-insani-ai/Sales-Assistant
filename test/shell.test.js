@@ -103,6 +103,30 @@ if (gap === null) fail("no reply bar on the thread");
 else if (gap > 1) fail(`a ${gap}px live gap under the reply bar — messages scroll through it`);
 await p.evaluate(() => window.scrollTo(0, 0));
 
+// --- When iOS hands the app a viewport shorter than the screen, the home
+// indicator sits in the strip BELOW the app, not over it — so reserving space
+// for it inside the tab bar guards against nothing and just wastes height.
+// (The strip itself is unreachable; this reclaims the padding, not the strip.)
+//
+// Only the detection is testable here: env(safe-area-inset-bottom) is 0 in a
+// headless browser and can't be forged, so the reclaim itself correctly
+// declines to fire — there is nothing to reclaim.
+const reclaim = await p.evaluate(async () => {
+  const m = await import("/js/viewport.js");
+  const real = Object.getOwnPropertyDescriptor(window.screen, "height");
+  Object.defineProperty(window.screen, "height", {
+    configurable: true, get: () => document.documentElement.clientHeight + 40 });
+  m.initViewport();
+  const r = m.viewportReport();
+  if (real) Object.defineProperty(window.screen, "height", real);
+  return { shortBy: r.viewShortBy, inset: r.safeBottom, applied: r.safeBottomApplied };
+});
+console.log("safe-area reclaim:", JSON.stringify(reclaim));
+if (reclaim.shortBy !== 40)
+  fail(`the app didn't notice the viewport is ${40}pt shorter than the screen (saw ${reclaim.shortBy})`);
+if (reclaim.inset === 0 && !reclaim.applied)
+  fail("padding was dropped when there was no inset to drop — that would eat real space on a device");
+
 // --- Zoom stays locked.
 const vp = await p.$eval('meta[name="viewport"]', (m) => m.content);
 if (!/user-scalable=no/.test(vp) || !/maximum-scale=1/.test(vp)) fail("pinch zoom isn't locked: " + vp);

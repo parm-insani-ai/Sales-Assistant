@@ -34,6 +34,9 @@ const root = document.documentElement;
 const KEYBOARD_MIN = 90;
 
 let raf = 0;
+// The measured home-indicator inset, and whether it's actually redundant.
+let safeBottomPt = 0;
+let viewShortBy = 0;
 // Tallest viewport seen since the last orientation change. The keyboard can
 // only ever make the viewport smaller, so this is the "no keyboard" baseline
 // even on a platform that shrinks innerHeight out from under us.
@@ -42,6 +45,21 @@ let baseline = 0;
 function viewportHeight() {
   const vv = window.visualViewport;
   return vv ? vv.height : window.innerHeight;
+}
+
+// iOS reports safe-area-inset-bottom from the SCREEN, not from the web view.
+// If the web view already stops short of the bottom of the screen — which it
+// does when iOS hands the app a viewport shorter than the display — then the
+// home indicator sits in the strip below the app, not over it, and reserving
+// space for it inside the tab bar is 30-odd points of padding guarding against
+// nothing. Measured, not assumed: when the app really does reach the bottom
+// edge the inset is needed and stays.
+function reconcileSafeArea() {
+  const insets = safeInsets();
+  safeBottomPt = insets.bottom;
+  viewShortBy = Math.max(0, Math.round(window.screen.height - document.documentElement.clientHeight));
+  const redundant = safeBottomPt > 0 && viewShortBy >= safeBottomPt - 2;
+  root.style.setProperty("--safe-bottom", redundant ? "0px" : "");
 }
 
 function measure() {
@@ -98,6 +116,7 @@ function watchFocus() {
 
 export function initViewport() {
   watchFocus();
+  reconcileSafeArea();
 
   baseline = window.innerHeight;
   root.style.setProperty("--vvh", `${Math.round(window.innerHeight)}px`);
@@ -114,7 +133,7 @@ export function initViewport() {
     // The baseline belongs to one orientation; carrying it across makes the
     // app think a permanent keyboard appeared.
     baseline = 0;
-    setTimeout(measure, 300);
+    setTimeout(() => { reconcileSafeArea(); measure(); }, 300);
   });
   measure();
 }
@@ -147,6 +166,9 @@ export function viewportReport() {
     // screen or only the safe area?
     safeTop: safe.top,
     safeBottom: safe.bottom,
+    // Whether that bottom inset is being applied or was dropped as redundant.
+    safeBottomApplied: root.style.getPropertyValue("--safe-bottom").trim() !== "0px",
+    viewShortBy,
     appBottom: app ? Math.round(app.getBoundingClientRect().bottom) : null,
     barBottom: bar ? Math.round(bar.getBoundingClientRect().bottom) : null,
     barHeight: bar ? Math.round(bar.getBoundingClientRect().height) : null,

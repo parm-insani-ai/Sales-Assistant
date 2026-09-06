@@ -412,7 +412,7 @@ export function renderSettings(view) {
         <div><b>gap under bar ${gapBelowBar}</b> · <b>gap under app ${gapBelowApp}</b></div>
         <div>bar h ${r.barHeight} · bar btm ${r.barBottom} · app btm ${r.appBottom}</div>
         <div>viewport ${r.clientHeight} · screen ${screenPt} · dpr ${r.dpr}</div>
-        <div>safe top ${r.safeTop} · safe bottom ${r.safeBottom}</div>
+        <div>safe top ${r.safeTop} · safe bottom ${r.safeBottom} ${r.safeBottomApplied ? "applied" : "DROPPED (redundant)"}</div>
         <div>inner ${r.innerHeight} · visual ${r.visualHeight ?? "n/a"} · offset ${r.visualOffsetTop ?? "n/a"}</div>
         <div>typing ${r.typing ? "YES" : "no"} · kb-open ${r.kbOpen ? "YES" : "no"} · kb ${esc(r.kb)}</div>
         ${verdict}`;
