@@ -97,6 +97,7 @@ const DEFAULT_STATE = {
   // half that was typed: { leadId, dir, at, outcome, notes }
   calls: [],
   links: [], // short-link payloads live in the cloud; rows land here on pull and are otherwise unused
+  prefs: [], // one synced row telling the server your timezone and quiet hours
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
@@ -164,6 +165,12 @@ const DEFAULT_STATE = {
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
+    // Proactive notifications (the server sweep — see the Edge Function).
+    // Quiet hours are local 24h; the server can't know either of these unless
+    // the app tells it, which is what the synced "prefs" record is for.
+    proactive: true,
+    quietFrom: 21,
+    quietTo: 8,
     dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
     dealMethod: "both", // "both" | "finance" | "lease"
     dealMaxPayment: 0, // $/mo ceiling on the radar; 0 = no cap
@@ -322,6 +329,29 @@ export function getState() {
 export function getSettings() {
   return state.settings;
 }
+// Settings live on the device and are deliberately not synced — they're full of
+// this phone's own configuration. But the server sweep has to know two things
+// to notify sensibly: what time it is where you are, and when not to. Those go
+// up as an ordinary synced record, which is the narrowest thing that works.
+export function publishPrefs() {
+  const s = state.settings;
+  const data = {
+    id: "me",
+    tzOffsetMinutes: new Date().getTimezoneOffset(),
+    proactive: s.proactive !== false,
+    quietFrom: Number(s.quietFrom ?? 21),
+    quietTo: Number(s.quietTo ?? 8),
+    updatedAt: new Date().toISOString(),
+  };
+  const existing = get("prefs", "me");
+  // Only write when something actually changed — this runs on every launch and
+  // an unconditional write would queue a sync every time the app opened.
+  if (existing && ["tzOffsetMinutes", "proactive", "quietFrom", "quietTo"]
+    .every((k) => existing[k] === data[k])) return;
+  if (existing) update("prefs", "me", data);
+  else create("prefs", data);
+}
+
 export function updateSettings(patch) {
   state.settings = { ...state.settings, ...patch };
   persist();

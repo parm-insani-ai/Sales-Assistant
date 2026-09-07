@@ -1206,3 +1206,15 @@ textarea:focus, input:focus, select:focus { outline: none; }
   pointer-events: auto;
 }
 .screen-check b { color: #fff; }
+
+/* ---------- "Right now" ----------
+   Above the day's queue, and deliberately quieter than it looks like it should
+   be: these are already sorted to the top of the screen, so shouting in colour
+   as well would make an ordinary Tuesday look like an emergency. Only the
+   genuinely time-critical ones get the marker. */
+.nudge-card { padding: 4px 14px; }
+.nudge-row { padding: 11px 0; border-bottom: 1px solid var(--border); cursor: pointer; gap: 10px; }
+.nudge-row:last-child { border-bottom: none; }
+.nudge-row:active { opacity: .6; }
+.nudge-row .row-meta { color: var(--muted); font-size: 1.1rem; line-height: 1; }
+.nudge-hot .row-title { color: var(--brand-strong); }

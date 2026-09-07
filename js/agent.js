@@ -21,6 +21,7 @@ import { smsHref, telHref } from "./utils.js";
 import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
+import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
 import { openText } from "./sms.js";
 
@@ -58,6 +59,7 @@ const TOOLS = [
   { name: "deal_options", description: "Payment-matched vehicles from inventory for one customer ('what could I put Dana in?').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
+  { name: "get_nudges", description: "What needs attention RIGHT NOW — customers waiting on a reply, appointments about to start that aren't confirmed, appointments that have passed with no outcome, deliveries with prep outstanding, deals gone quiet. Use for 'what needs me now?', 'anything urgent?', 'am I missing anything?'. Different from get_plays: this is time-critical, that is the day's queue.", input_schema: { type: "object", properties: {} } },
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "tools", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
@@ -290,6 +292,10 @@ export async function execTool(name, p = {}) {
       if (!lead) return { result: "not found", note: "" };
       const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method, special: r.special || null, inStock: !r.vehicle.lineup }));
       return { result: { customer: lead.name, currentPayment: lead.currentPayment ?? null, options: rows }, note: "" };
+    }
+    case "get_nudges": {
+      const list = getNudges({ limit: 6 }).map((n) => ({ what: n.title, why: n.sub, urgency: n.urgency }));
+      return { result: { urgent: list, note: list.length ? "most urgent first" : "nothing time-critical right now" }, note: "" };
     }
     case "get_plays": {
       const plays = getPlays(6).map((p) => ({ play: p.title, why: p.sub, oneTapReady: !!p.href }));

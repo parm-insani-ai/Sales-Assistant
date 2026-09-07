@@ -163,6 +163,170 @@ async function sendPush(uid: string, payload: Record<string, unknown>, errs?: st
 // The morning play sheet: a scheduled job POSTs {plays:1} (Supabase
 // Dashboard → Integrations → Cron). Every user with a registered device
 // gets one summary push; the app computes the full ranked sheet on open.
+// ---- The sweep: proactivity while the app is shut ----
+//
+// The morning play sheet fires once. Everything that goes wrong in a
+// salesperson's day goes wrong at a specific hour: a customer replies at 2pm,
+// an appointment at four is still unconfirmed at half three, tomorrow's
+// delivery has no plates ordered. None of that is knowable from a 7am push,
+// and the app can't notice it either because it isn't running.
+//
+// So this runs on a schedule (every 30-60 minutes) and pushes only what is
+// both time-critical and actionable. Three rules keep it from becoming noise:
+// each alert is sent at most once ever (deduped by a stable key), nothing goes
+// out during quiet hours, and there's a hard cap per sweep. An assistant that
+// cries wolf gets its notifications switched off, and then it can't help at
+// all.
+
+const SWEEP_CAP = 3;                    // most pushes one sweep will send
+const REPLY_GRACE_MIN = 12;             // a reply older than this is waiting
+const CONFIRM_WINDOW_MIN = 180;         // unconfirmed appointment this close
+
+function localParts(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(iso || ""));
+  return m ? { y: +m[1], mo: +m[2], d: +m[3], h: +m[4], mi: +m[5] } : null;
+}
+
+// Appointments are stored as local wall-clock with no zone. The salesperson's
+// offset comes from their settings so the server reads them the same way their
+// phone does — otherwise every alert is out by however far Halifax is from UTC.
+function wallClockMs(iso: string, offsetMinutes: number): number {
+  const p = localParts(iso);
+  if (!p) return NaN;
+  return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi) - offsetMinutes * 60000;
+}
+
+// Which alerts have already gone out. One row, a map of key -> when.
+async function sentNudges(uid: string): Promise<Record<string, string>> {
+  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.nudgelog&deleted=eq.false&select=data&limit=1`;
+  const r = await fetch(sbUrl(q), { headers: sbHeaders() });
+  if (!r.ok) return {};
+  const rows = await r.json();
+  return (rows[0]?.data?.sent) || {};
+}
+
+async function rememberNudges(uid: string, sent: Record<string, string>) {
+  // Keep the log from growing forever — a week is longer than any window here.
+  const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+  const trimmed: Record<string, string> = {};
+  for (const [k, v] of Object.entries(sent)) if (v > cutoff) trimmed[k] = v;
+  await saveRecord(uid, "nudgelog", "last", { id: "last", sent: trimmed, updatedAt: new Date().toISOString() });
+}
+
+function inQuietHours(nowLocalHour: number, from: number, to: number): boolean {
+  if (from === to) return false;
+  // Windows that wrap midnight (21 -> 8) are the normal case.
+  return from < to ? (nowLocalHour >= from && nowLocalHour < to)
+                   : (nowLocalHour >= from || nowLocalHour < to);
+}
+
+async function handleSweep(body: any): Promise<Response> {
+  const cronKey = Deno.env.get("CRON_KEY");
+  if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  if (!ensureVapid()) return json({ error: "VAPID keys not set" }, 500);
+
+  const res = await fetch(sbUrl(`/records?collection=eq.push&deleted=eq.false&select=user_id`), { headers: sbHeaders() });
+  if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
+  const users = [...new Set(((await res.json()) as any[]).map((r) => r.user_id))];
+  const now = Date.now();
+  const report: any[] = [];
+
+  for (const uid of users) {
+    const rows = async (coll: string) => {
+      const r = await fetch(
+        sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data`),
+        { headers: sbHeaders() });
+      return r.ok ? (await r.json()).map((x: any) => x.data || {}) : [];
+    };
+
+    // Written by the app (store.publishPrefs) — the server has no other way
+    // to know what time it is where the salesperson is.
+    const cfg = (await rows("prefs"))[0] || {};
+    if (cfg.proactive === false) { report.push({ uid: uid.slice(0, 8), skipped: "switched off" }); continue; }
+    const offset = Number(cfg.tzOffsetMinutes);
+    const tzOffset = isFinite(offset) ? offset : 0;
+    const localHour = new Date(now - tzOffset * 60000).getUTCHours();
+    const quietFrom = Number(cfg.quietFrom ?? 21);
+    const quietTo = Number(cfg.quietTo ?? 8);
+    if (inQuietHours(localHour, quietFrom, quietTo)) { report.push({ uid: uid.slice(0, 8), skipped: "quiet hours" }); continue; }
+
+    const already = await sentNudges(uid);
+    const leads = await rows("leads");
+    const leadById = (id: string) => leads.find((l: any) => l.id === id) || null;
+    const found: { key: string; urgency: number; title: string; body: string; url: string }[] = [];
+
+    // 1. A customer is waiting on a reply.
+    const unread = (await rows("texts")).filter((t: any) => t.dir === "in" && !t.read);
+    const oldestByLead = new Map<string, any>();
+    for (const t of unread) {
+      const at = new Date(t.at || t.createdAt).getTime();
+      const cur = oldestByLead.get(t.leadId);
+      if (!cur || at < new Date(cur.at || cur.createdAt).getTime()) oldestByLead.set(t.leadId, t);
+    }
+    for (const [leadId, t] of oldestByLead) {
+      const waited = Math.round((now - new Date(t.at || t.createdAt).getTime()) / 60000);
+      if (waited < REPLY_GRACE_MIN) continue;
+      const lead = leadById(leadId);
+      const who = (lead?.name || t.phone || "A customer").split(" ")[0];
+      found.push({
+        key: `reply:${t.id}`,
+        urgency: Math.min(100, 70 + Math.floor(waited / 10)),
+        title: `${who} is waiting on you`,
+        body: `Replied ${waited < 60 ? `${waited} min` : `${Math.round(waited / 60)}h`} ago — ${String(t.body || "").slice(0, 70)}`,
+        url: `./#/inbox/${leadId}`,
+      });
+    }
+
+    // 2. An appointment about to start that nobody has confirmed.
+    for (const a of await rows("appointments")) {
+      if (a.status !== "scheduled" || a.confirmed || a.outcome) continue;
+      const t = wallClockMs(a.when, tzOffset);
+      if (!isFinite(t)) continue;
+      const mins = Math.round((t - now) / 60000);
+      if (mins <= 0 || mins > CONFIRM_WINDOW_MIN) continue;
+      found.push({
+        key: `confirm:${a.id}`,
+        urgency: Math.min(99, 100 - Math.floor(mins / 3)),
+        title: `${a.customerName || "An appointment"} at ${String(a.when).slice(11, 16)} isn't confirmed`,
+        body: `In ${mins < 60 ? `${mins} min` : `${Math.round(mins / 60)}h`} — a confirmation now is the difference between a show and a no-show.`,
+        url: a.leadId ? `./#/inbox/${a.leadId}` : "./#/calendar",
+      });
+    }
+
+    // 3. Tomorrow's delivery with prep outstanding, flagged the evening before
+    //    while there's still time to do something about it.
+    if (localHour >= 15) {
+      const tomorrow = new Date(now - tzOffset * 60000 + 86400000).toISOString().slice(0, 10);
+      for (const d of await rows("deliveries")) {
+        if (d.done || String(d.when || d.date || "").slice(0, 10) !== tomorrow) continue;
+        const left = (Array.isArray(d.checklist) ? d.checklist : []).filter((i: any) => !i.done);
+        if (!left.length) continue;
+        found.push({
+          key: `prep:${d.id}:${left.length}`,
+          urgency: 75,
+          title: `${d.customerName || "A delivery"} tomorrow — ${left.length} thing${left.length === 1 ? "" : "s"} left`,
+          body: left.slice(0, 2).map((i: any) => i.label || i.text || "").filter(Boolean).join(" \u00b7 "),
+          url: "./#/deliveries",
+        });
+      }
+    }
+
+    const fresh = found
+      .filter((n) => !already[n.key])
+      .sort((a, b) => b.urgency - a.urgency)
+      .slice(0, SWEEP_CAP);
+
+    let pushed = 0;
+    for (const n of fresh) {
+      pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: n.url });
+      already[n.key] = new Date().toISOString();
+    }
+    if (fresh.length) await rememberNudges(uid, already);
+    report.push({ uid: uid.slice(0, 8), candidates: found.length, sent: fresh.length, pushed });
+  }
+  return json({ users: users.length, report });
+}
+
 async function handleMorningPlays(body: any): Promise<Response> {
   const cronKey = Deno.env.get("CRON_KEY");
   if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
@@ -746,6 +910,7 @@ Deno.serve(async (req: Request) => {
   if (body.sms) return handleSendSms(body);
   if (body.book) return handleBook(body);
   if (body.shorten) return handleShorten(body.shorten);
+  if (body.sweep) return handleSweep(body);
   if (body.plays) return handleMorningPlays(body);
   if (body.testpush) {
     const uid = String(body.testpush.u || "");

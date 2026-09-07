@@ -142,6 +142,15 @@ export function renderSettings(view) {
 
     <div class="section-title">App</div>
     <div class="card">
+      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:10px">
+        <label class="switch"><input id="s-proactive" type="checkbox" ${s.proactive !== false ? "checked" : ""}><span>Tell me when something needs me</span></label>
+      </div>
+      <div class="field-inline">
+        <div class="field"><label>Quiet from</label><input id="s-quietfrom" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.quietFrom ?? 21)}"></div>
+        <div class="field"><label>Quiet until</label><input id="s-quietto" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.quietTo ?? 8)}"></div>
+      </div>
+      <div class="hint" style="margin-bottom:10px">A customer waiting on a reply, an appointment about to start unconfirmed, tomorrow's delivery with prep outstanding — you'll get one notification each, never a repeat, and nothing between these hours.</div>
+      <button class="btn btn-ghost btn-block" data-act="save-proactive" style="margin-bottom:8px">Save notification hours</button>
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
       <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
       <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">entoa</div>
@@ -421,6 +430,21 @@ export function renderSettings(view) {
     paint();
     panel.addEventListener("click", () => panel.remove());
     toast("Screenshot this — it names the exact numbers", "");
+  });
+
+  el.querySelector('[data-act="save-proactive"]').addEventListener("click", () => {
+    const hour = (id, dflt) => {
+      const v = Math.round(Number(el.querySelector(id).value));
+      return isFinite(v) && v >= 0 && v <= 23 ? v : dflt;
+    };
+    store.updateSettings({
+      proactive: el.querySelector("#s-proactive").checked,
+      quietFrom: hour("#s-quietfrom", 21),
+      quietTo: hour("#s-quietto", 8),
+    });
+    // The server only learns about this through the synced prefs record.
+    store.publishPrefs();
+    toast("Saved", "success");
   });
 
   el.querySelector('[data-act="update"]').addEventListener("click", async () => {

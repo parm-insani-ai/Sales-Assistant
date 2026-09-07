@@ -10,6 +10,7 @@ import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays, dismissPlay } from "../plays.js";
+import { getNudges } from "../nudges.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -57,6 +58,8 @@ export function renderDashboard(view) {
       <div class="hero-title">Here's your day</div>
     </div>
 
+    <div class="nudge-slot"></div>
+
     <div class="card card-tap" data-goto="/calendar" style="margin-bottom:6px">
       <div class="row">
         <div class="row-main">
@@ -94,6 +97,40 @@ export function renderDashboard(view) {
   // The work queue — every reason to contact someone today, ranked, each with
   // its own one-tap action. This is the single list; Comms and the old call
   // list used to render their own versions of the same signals.
+  // Above the day's queue: the handful of things that stop being true if you
+  // wait. The queue is what to work today; this is what is happening now, and
+  // mixing them into one ranked list buried the urgent under the merely due.
+  const nudgeSlot = el.querySelector(".nudge-slot");
+  function paintNudges() {
+    const list = getNudges({ limit: 4 });
+    nudgeSlot.innerHTML = "";
+    if (!list.length) return;
+    nudgeSlot.innerHTML = `<div class="section-title">Right now <span class="muted">\u00b7 ${list.length}</span></div>`;
+    const box = document.createElement("div");
+    box.className = "card nudge-card";
+    list.forEach((n) => {
+      const row = document.createElement("div");
+      row.className = `row nudge-row${n.urgency >= 85 ? " nudge-hot" : ""}`;
+      row.innerHTML = `<div class="row-main" style="min-width:0">
+          <div class="row-title">${esc(n.title)}</div>
+          <div class="row-sub">${esc(n.sub)}</div>
+        </div><div class="row-meta">\u203a</div>`;
+      row.addEventListener("click", () => {
+        if (n.href) { window.location.href = n.href; return; }
+        if (n.route) navigate(n.route);
+      });
+      box.appendChild(row);
+    });
+    nudgeSlot.appendChild(box);
+  }
+  paintNudges();
+  // Time passes while the screen is open: an appointment slides into its
+  // confirm window, a reply crosses from "just arrived" into "waiting".
+  const nudgeTimer = setInterval(() => {
+    if (!document.body.contains(nudgeSlot)) return clearInterval(nudgeTimer);
+    paintNudges();
+  }, 60000);
+
   const playsSlot = el.querySelector(".plays-slot");
   const plays = getPlays(40);
   if (!plays.length) {

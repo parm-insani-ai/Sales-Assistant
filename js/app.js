@@ -126,6 +126,10 @@ paintUnread();
 // the customer's reply goes to a personal inbox the agent can't see.
 interceptSmsLinks();
 
+// Tell the server this device's timezone and quiet hours, so the proactive
+// sweep can notify at sensible times. No-op when nothing has changed.
+try { store.publishPrefs(); } catch { }
+
 // Track the visible viewport so the tab bar and the reply row follow the
 // keyboard instead of being left behind by it. Has to run before the first
 // render so --vvh exists when the CSS first asks for it.
