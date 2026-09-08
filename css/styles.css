@@ -1239,20 +1239,24 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .voice-overlay.voice-docked .voice-sheet {
   pointer-events: auto;
   min-height: 0;
-  width: auto;
-  max-width: 540px;
-  /* Above whatever the screen already has at its bottom edge — the tab bar, and
-     on a conversation the reply row too. Docking on top of the send button
-     would recreate the problem this exists to solve. Measured in JS, because
-     it differs per screen. */
-  margin: 0 10px var(--dock-bottom, calc(10px + 62px + var(--safe-bottom)));
-  padding: 8px 14px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.3));
+  /* Full width and flush against whatever the screen already anchors to its
+     bottom — the tab bar, and on a conversation the reply row above it. A
+     floating pill read as a separate widget dropped on top of the app; sharing
+     the width, the surface and the hairline makes the bottom of the screen one
+     assembly that happens to be listening. Offset measured in JS, because what
+     it has to sit on differs per screen. */
+  width: 100%;
+  max-width: none;
+  margin: 0 0 var(--dock-bottom, calc(62px + var(--safe-bottom)));
+  padding: 6px 14px;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  /* The same opaque ground as the reply row it sits on, so the two read as one
+     stack. Translucent, the conversation showed through and it looked like a
+     rendering fault rather than a bar. */
+  background: var(--bg);
+  box-shadow: none;
   flex-direction: row;
   align-items: center;
   gap: 10px;
@@ -1287,3 +1291,23 @@ body.kb-open .voice-overlay.voice-docked .voice-sheet {
   margin-bottom: calc(10px + var(--kb, 0px));
 }
 .voice-overlay.voice-docked .voice-wave { height: 30px; }
+
+/* The Voice button is the app's own control for this, so while a session is
+   live it should be the thing that looks live — otherwise the docked strip is
+   an orphan indicator sitting above a button that appears idle. */
+body.voice-live .voice-fab {
+  animation: voice-pulse 2s ease-in-out infinite;
+}
+body.voice-live .tab-voice .tab-label { color: var(--brand-strong); }
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 6px 18px var(--lift), 0 0 0 0 color-mix(in srgb, var(--brand) 55%, transparent); }
+  50%      { box-shadow: 0 6px 18px var(--lift), 0 0 0 7px color-mix(in srgb, var(--brand) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.voice-live .voice-fab { animation: none; box-shadow: 0 6px 18px var(--lift), 0 0 0 3px color-mix(in srgb, var(--brand) 40%, transparent); }
+}
+
+/* In the strip the waveform is a status light, not the hero — small, brand
+   coloured, sitting where the eye already expects the mic. */
+.voice-overlay.voice-docked .voice-status { color: var(--text); }
+.voice-overlay.voice-docked .voice-close { background: transparent; }

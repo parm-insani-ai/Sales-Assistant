@@ -180,6 +180,29 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
     };
   });
   console.log("  clearance:", JSON.stringify(clears));
+  // The strip has to read as part of the screen's bottom edge, not a widget
+  // dropped on top of it: same width, flush, opaque, and the waveform down to
+  // one brand-coloured line at a size where three interleaved colours are just
+  // a squiggle. The canvas also has to actually re-measure — rendered at the
+  // full panel's backing size and squashed into a strip, it looked broken.
+  const look = await p.evaluate(() => {
+    const sheet = document.querySelector(".voice-overlay .voice-sheet");
+    const cs = getComputedStyle(sheet);
+    const c = document.querySelector("#v-wave");
+    return {
+      fullWidth: Math.round(sheet.getBoundingClientRect().width) === document.documentElement.clientWidth,
+      translucent: /rgba\(.*0(\.\d+)?\)/.test(cs.backgroundColor),
+      radius: parseFloat(cs.borderTopLeftRadius),
+      canvasMatchesBox: c.width === Math.round(c.clientWidth) && c.height === Math.round(c.clientHeight),
+      liveTab: document.body.classList.contains("voice-live"),
+    };
+  });
+  console.log("  integration:", JSON.stringify(look));
+  if (!look.fullWidth) fail("the docked strip is inset — it reads as a floating pill, not the screen's edge");
+  if (look.translucent) fail("the strip is see-through; the conversation shows through it");
+  if (look.radius > 1) fail("the strip has rounded corners — that's a pill, not an edge");
+  if (!look.canvasMatchesBox) fail("the waveform canvas didn't re-measure when it docked");
+  if (!look.liveTab) fail("the Voice button isn't showing a live session");
   if (clears.hasCompose && clears.overCompose)
     fail("the docked bar is sitting on top of the reply row — that's the bug it exists to fix");
   if (clears.overTabs) fail("the docked bar is covering the tab bar");

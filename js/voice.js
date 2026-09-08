@@ -245,7 +245,7 @@ function makeWave(canvas) {
   const ctx = canvas.getContext("2d");
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const t0 = performance.now();
-  let energy = 0, level = 0.06, mode = "listening", raf = 0;
+  let energy = 0, level = 0.06, mode = "listening", raf = 0, compact = false;
 
   // Harmonize the lead ribbon with the theme's brand color.
   let brand = "#46B681";
@@ -280,7 +280,7 @@ function makeWave(canvas) {
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const L of LAYERS) {
+    for (const L of (compact ? LAYERS.slice(0, 1) : LAYERS)) {
       ctx.beginPath();
       for (let x = 0; x <= w; x += 2) {
         const nx = x / w;                                   // 0..1
@@ -293,7 +293,8 @@ function makeWave(canvas) {
       ctx.strokeStyle = L.col;
       ctx.globalAlpha = L.a;
       ctx.shadowColor = L.col;
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = compact ? 6 : 12;
+      if (compact) ctx.lineWidth = Math.max(2.4, ctx.lineWidth);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -302,11 +303,22 @@ function makeWave(canvas) {
   }
   resize();
   window.addEventListener("resize", resize);
+  // The canvas changes size when the panel docks — from the full-screen hero to
+  // a strip an inch wide. Only listening to window resize left it rendering at
+  // the old backing size and being squashed into the new box, which is what
+  // made the docked ribbon look like a stray squiggle rather than a waveform.
+  let ro = null;
+  if (window.ResizeObserver) { ro = new ResizeObserver(resize); ro.observe(canvas); }
   raf = requestAnimationFrame(frame);
   return {
     bump(v = 1) { energy = Math.min(1, Math.max(energy, v)); },
     set(m) { mode = m; },
-    stop() { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); },
+    // Docked, the ribbon is a status light an inch wide, not the hero of a
+    // full-screen panel. Three interleaved colours at that size read as a stray
+    // squiggle, so it drops to one line in the app's own green — which is also
+    // the colour of the Voice button it now sits above.
+    compact(on) { compact = !!on; },
+    stop() { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); if (ro) ro.disconnect(); },
   };
 }
 
@@ -330,6 +342,10 @@ export function startVoiceAssistant() {
     </div>
   `;
   root.appendChild(overlay);
+  // The Voice button in the tab bar is this feature's own control; while a
+  // session is live it carries the live state, so the strip isn't an orphan
+  // indicator floating above a button that looks switched off.
+  document.body.classList.add("voice-live");
 
   const statusEl = overlay.querySelector("#v-status");
   const transcriptEl = overlay.querySelector("#v-transcript");
@@ -343,6 +359,7 @@ export function startVoiceAssistant() {
     closed = true;
     try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
     window.removeEventListener("hashchange", onRoute);
+    document.body.classList.remove("voice-live");
     stopSpeaking();
     wave.stop();
     overlay.remove();
@@ -373,13 +390,17 @@ export function startVoiceAssistant() {
       const r = el2.getBoundingClientRect();
       if (r.height > 0 && r.top < highest) highest = r.top;
     }
-    overlay.style.setProperty("--dock-bottom", `${Math.max(10, Math.round(floor - highest) + 10)}px`);
+    // Flush, not floating: exactly the height of what's below it, so the strip
+    // and the reply row share an edge instead of leaving a gap that makes them
+    // look like two unrelated things.
+    overlay.style.setProperty("--dock-bottom", `${Math.max(0, Math.round(floor - highest))}px`);
   }
 
   function dock() {
     if (docked || closed) return;
     docked = true;
     overlay.classList.add("voice-docked");
+    wave.compact(true);
     // A frame, so the screen it navigated to has rendered and can be measured.
     requestAnimationFrame(measureDock);
   }
@@ -387,6 +408,7 @@ export function startVoiceAssistant() {
     if (!docked || closed) return;
     docked = false;
     overlay.classList.remove("voice-docked");
+    wave.compact(false);
   }
   overlay.querySelector(".voice-sheet").addEventListener("click", () => { if (docked) undock(); });
 
