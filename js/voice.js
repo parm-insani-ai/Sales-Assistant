@@ -360,6 +360,10 @@ export function startVoiceAssistant() {
     try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
     window.removeEventListener("hashchange", onRoute);
     document.body.classList.remove("voice-live");
+    // Give the shell its top back, or the app stays pushed down behind a strip
+    // that no longer exists.
+    clearStrip();
+    if (stripRO) stripRO.disconnect();
     stopSpeaking();
     wave.stop();
     overlay.remove();
@@ -373,48 +377,59 @@ export function startVoiceAssistant() {
   // with the text already written — the panel used to stay full-height over the
   // top of it. It would say "just hit send" while covering the send button.
   //
-  // So a route change docks it: a bar above the tab bar, still listening, out
-  // of the way of the thing it just asked you to do. Tap to bring it back.
+  // So a route change docks it. Tap to bring it back.
+  //
+  // The bar takes the top of the screen and the app shell is moved down to
+  // start underneath it — it doesn't hover over the screen at all. Docked at
+  // the bottom it was still a thing lying on top of the app: however flush it
+  // was made against the tab bar, it covered a row of the conversation it had
+  // just opened, and the first thing you did was scroll to see what was there.
+  // Taking a slice of the screen instead of borrowing one means there is
+  // nothing left to interfere with.
   let docked = false;
+  const sheet = overlay.querySelector(".voice-sheet");
 
-  // How high the bar has to sit to clear what's already anchored to the bottom
-  // of this screen. On a conversation that's the reply row, not just the tab
-  // bar — docking over the send button would recreate the problem exactly.
-  function measureDock() {
+  // How far down to push the app. The strip's height isn't a constant — the
+  // status-bar inset differs per device, and the text can change the line box —
+  // so it's measured and published for the stylesheet to consume.
+  function measureStrip() {
     if (!docked || closed) return;
-    const floor = window.innerHeight;
-    let highest = floor;
-    for (const sel of [".tabbar", ".ib-compose"]) {
-      const el2 = document.querySelector(sel);
-      if (!el2) continue;
-      const r = el2.getBoundingClientRect();
-      if (r.height > 0 && r.top < highest) highest = r.top;
-    }
-    // Flush, not floating: exactly the height of what's below it, so the strip
-    // and the reply row share an edge instead of leaving a gap that makes them
-    // look like two unrelated things.
-    overlay.style.setProperty("--dock-bottom", `${Math.max(0, Math.round(floor - highest))}px`);
+    const h = Math.round(sheet.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty("--voice-strip-h", `${h}px`);
+  }
+  // Keep it honest: rotation, a longer status line wrapping, the keyboard
+  // changing the insets. A stale height would leave a band of nothing under the
+  // strip, or clip the top bar behind it.
+  let stripRO = null;
+  if (window.ResizeObserver) { stripRO = new ResizeObserver(measureStrip); stripRO.observe(sheet); }
+
+  function clearStrip() {
+    document.body.classList.remove("voice-docked");
+    document.documentElement.style.removeProperty("--voice-strip-h");
   }
 
   function dock() {
     if (docked || closed) return;
     docked = true;
     overlay.classList.add("voice-docked");
+    document.body.classList.add("voice-docked");
     wave.compact(true);
-    // A frame, so the screen it navigated to has rendered and can be measured.
-    requestAnimationFrame(measureDock);
+    // A frame, so the strip has been laid out at its docked size before it's
+    // measured — otherwise the app is offset by the full panel's height.
+    requestAnimationFrame(measureStrip);
   }
   function undock() {
     if (!docked || closed) return;
     docked = false;
     overlay.classList.remove("voice-docked");
+    clearStrip();
     wave.compact(false);
   }
-  overlay.querySelector(".voice-sheet").addEventListener("click", () => { if (docked) undock(); });
+  sheet.addEventListener("click", () => { if (docked) undock(); });
 
   // The agent navigating IS the signal. Anything that moves the app — opening a
   // thread, a screen, a customer — means there's something on screen to look at.
-  const onRoute = () => { dock(); requestAnimationFrame(measureDock); };
+  const onRoute = () => { dock(); requestAnimationFrame(measureStrip); };
   window.addEventListener("hashchange", onRoute);
   // Pulse the waveform as dictated/typed words stream in.
   textInput.addEventListener("input", () => wave.bump(0.85));

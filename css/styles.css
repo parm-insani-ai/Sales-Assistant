@@ -1223,10 +1223,21 @@ textarea:focus, input:focus, select:focus { outline: none; }
    When the agent takes you somewhere to finish something — a thread with the
    text already written, a screen it opened — the full-height panel was still
    covering it. It said "just hit send" over the top of the send button.
-   
-   So on navigation the panel shrinks to a bar above the tab bar: still
-   listening, still showing what it heard, but out of the way of the thing it
-   just asked you to do. Tap it to bring the whole panel back. */
+
+   So on navigation the panel shrinks to a bar. Still listening, still showing
+   what it heard, out of the way of the thing it just asked you to do. Tap it to
+   bring the whole panel back.
+
+   The bar lives at the TOP, and — this is the part that matters — it does not
+   overlay anything. It takes the top of the screen and the app shell starts
+   below it: the whole column, top bar included, is pushed down by the strip's
+   measured height, so nothing in entoa is ever behind it. Docked at the bottom
+   it was still a thing sitting on top of the app, and however flush it was
+   made, it covered a row of whatever screen it had just opened.
+
+   Above the top bar it also reads correctly: a live session is a state the
+   whole app is in, and app-wide state belongs above the app, not beside the
+   send button. */
 .voice-overlay.voice-docked {
   background: transparent;
   backdrop-filter: none;
@@ -1238,23 +1249,24 @@ textarea:focus, input:focus, select:focus { outline: none; }
 }
 .voice-overlay.voice-docked .voice-sheet {
   pointer-events: auto;
+  /* Pinned to the top of what is actually visible. --vvtop is 0 until iOS
+     slides the page up for the keyboard, at which point the strip rides with
+     it instead of scrolling off the top. */
+  position: fixed;
+  top: var(--vvtop, 0px);
+  left: 0; right: 0;
   min-height: 0;
-  /* Full width and flush against whatever the screen already anchors to its
-     bottom — the tab bar, and on a conversation the reply row above it. A
-     floating pill read as a separate widget dropped on top of the app; sharing
-     the width, the surface and the hairline makes the bottom of the screen one
-     assembly that happens to be listening. Offset measured in JS, because what
-     it has to sit on differs per screen. */
-  width: 100%;
+  width: auto;
   max-width: none;
-  margin: 0 0 var(--dock-bottom, calc(62px + var(--safe-bottom)));
-  padding: 6px 14px;
+  margin: 0;
+  /* It owns the status bar area now, so it carries the inset the top bar used
+     to — see the .topbar rule below, which gives it up while docked. */
+  padding: calc(6px + var(--safe-top)) 14px 6px;
   border: none;
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   border-radius: 0;
-  /* The same opaque ground as the reply row it sits on, so the two read as one
-     stack. Translucent, the conversation showed through and it looked like a
-     rendering fault rather than a bar. */
+  /* Opaque, on the app's own ground: it's a band of the screen, not a card
+     floating over one. */
   background: var(--bg);
   box-shadow: none;
   flex-direction: row;
@@ -1262,6 +1274,23 @@ textarea:focus, input:focus, select:focus { outline: none; }
   gap: 10px;
   cursor: pointer;
 }
+/* The shell starts below the strip. --voice-strip-h is the strip's measured
+   height, published by voice.js — it depends on the safe-area inset and on the
+   font, so it can't be a constant here. */
+body.voice-docked #app { top: var(--voice-strip-h, 0px); }
+/* Two things must not both pay for the status bar. While the strip is up it's
+   the one against the top of the screen, so the top bar goes back to ordinary
+   padding and the header doesn't sit in a pocket of empty space. */
+body.voice-docked .topbar { padding-top: 14px; }
+/* Keyboard up: the visible area starts at --vvtop and the strip takes the first
+   slice of it, so the shell gets what's left. Three classes, so this wins over
+   the plain body.typing rule above. */
+body.voice-docked.typing #app, body.voice-docked.kb-open #app {
+  top: calc(var(--vvtop, 0px) + var(--voice-strip-h, 0px));
+  height: calc(var(--vvh, 100%) - var(--voice-strip-h, 0px));
+}
+/* Toasts land under the strip rather than behind it. */
+body.voice-docked #toast-root { top: calc(8px + var(--voice-strip-h, 0px)); }
 .voice-overlay.voice-docked .voice-grip,
 .voice-overlay.voice-docked .voice-transcript,
 .voice-overlay.voice-docked .voice-input { display: none; }
@@ -1283,12 +1312,6 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .voice-overlay.voice-docked .voice-close {
   order: 3;
   position: static; flex: none; width: 30px; height: 30px;
-}
-/* While typing, the tab bar is gone — so the bar drops with it rather than
-   floating over a gap. */
-body.typing .voice-overlay.voice-docked .voice-sheet,
-body.kb-open .voice-overlay.voice-docked .voice-sheet {
-  margin-bottom: calc(10px + var(--kb, 0px));
 }
 .voice-overlay.voice-docked .voice-wave { height: 30px; }
 

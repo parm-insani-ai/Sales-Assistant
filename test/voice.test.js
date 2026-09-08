@@ -166,25 +166,43 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   if (after.sheetClicks === "none") fail("the docked bar itself isn't tappable");
   if (after.sheetHeight > after.viewport / 3)
     fail(`the docked bar is ${after.sheetHeight}px tall — it's still covering the screen`);
-  // The whole point: it must clear whatever the screen already anchors to its
-  // bottom edge. On a conversation that's the reply row — docking over the send
-  // button is the bug this exists to fix.
+  // The whole point, and the thing every previous version got wrong: the strip
+  // must not be ON the app. It takes the top of the screen and entoa starts
+  // below it — top bar, content, tab bar, all of it. Anything overlapping means
+  // a row of the screen it just opened is hidden behind a bar, which is the
+  // complaint that produced this in the first place.
   const clears = await p.evaluate(() => {
     const bar = document.querySelector(".voice-overlay .voice-sheet")?.getBoundingClientRect();
-    const compose = document.querySelector("#ib-compose")?.getBoundingClientRect();
-    const tabs = document.querySelector(".tabbar")?.getBoundingClientRect();
+    const box = (sel) => document.querySelector(sel)?.getBoundingClientRect();
+    const shell = box("#app"), topbar = box(".topbar");
+    const compose = box("#ib-compose"), tabs = box(".tabbar");
+    const under = (r) => !!(bar && r && r.height > 0 && r.top < bar.bottom - 1);
     return {
-      overCompose: !!(bar && compose && bar.bottom > compose.top + 1),
-      overTabs: !!(bar && tabs && bar.bottom > tabs.top + 1),
-      hasCompose: !!compose,
+      atTop: !!bar && Math.round(bar.top) <= 1,
+      appStartsBelow: !!(shell && bar && Math.round(shell.top) >= Math.round(bar.bottom) - 1),
+      // Nothing the app draws may sit behind it.
+      behind: [".topbar", "#ib-compose", ".tabbar", ".view"].filter((s) => under(box(s))),
+      // And the shell still reaches the bottom of the screen — pushing its top
+      // down must shrink it, not slide it off the end.
+      shellBottom: shell ? Math.round(shell.bottom) : null,
+      screen: window.innerHeight,
+      topbarVisible: !!(topbar && topbar.height > 0),
+      hasCompose: !!compose, hasTabs: !!tabs,
     };
   });
-  console.log("  clearance:", JSON.stringify(clears));
-  // The strip has to read as part of the screen's bottom edge, not a widget
-  // dropped on top of it: same width, flush, opaque, and the waveform down to
-  // one brand-coloured line at a size where three interleaved colours are just
-  // a squiggle. The canvas also has to actually re-measure — rendered at the
-  // full panel's backing size and squashed into a strip, it looked broken.
+  console.log("  layout:", JSON.stringify(clears));
+  if (!clears.atTop) fail("the strip isn't at the top of the screen");
+  if (!clears.appStartsBelow) fail("the app shell doesn't start below the strip — it's overlaying entoa");
+  if (clears.behind.length)
+    fail("the strip is covering part of the app: " + clears.behind.join(", "));
+  if (Math.abs(clears.shellBottom - clears.screen) > 1)
+    fail(`pushing the shell down slid it off the bottom (ends at ${clears.shellBottom} of ${clears.screen})`);
+  if (!clears.topbarVisible) fail("the top bar disappeared under the strip");
+  // The strip has to read as a band of the screen, not a widget dropped on top
+  // of one: full width, square, opaque, and the waveform down to one
+  // brand-coloured line at a size where three interleaved colours are just a
+  // squiggle. The canvas also has to actually re-measure — rendered at the full
+  // panel's backing size and squashed into a strip, it looked broken.
   const look = await p.evaluate(() => {
     const sheet = document.querySelector(".voice-overlay .voice-sheet");
     const cs = getComputedStyle(sheet);
@@ -203,9 +221,6 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   if (look.radius > 1) fail("the strip has rounded corners — that's a pill, not an edge");
   if (!look.canvasMatchesBox) fail("the waveform canvas didn't re-measure when it docked");
   if (!look.liveTab) fail("the Voice button isn't showing a live session");
-  if (clears.hasCompose && clears.overCompose)
-    fail("the docked bar is sitting on top of the reply row — that's the bug it exists to fix");
-  if (clears.overTabs) fail("the docked bar is covering the tab bar");
   if (!after.listening) fail("it stopped listening once docked — the whole point is to keep talking");
 
   // Talking to it docked still works.
@@ -218,9 +233,17 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   // And tapping it brings the full panel back.
   await p.$eval(".voice-sheet", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   await p.waitForTimeout(300);
-  const back = await p.evaluate(() => document.querySelector(".voice-overlay")?.classList.contains("voice-docked"));
-  if (back) fail("tapping the docked bar didn't reopen the full panel");
-  console.log("  tapping it reopens the panel \u2713");
+  const back = await p.evaluate(() => ({
+    docked: document.querySelector(".voice-overlay")?.classList.contains("voice-docked"),
+    // Undocking has to hand the top of the screen back, or the app stays
+    // pushed down behind a strip that isn't there any more.
+    appTop: Math.round(document.querySelector("#app").getBoundingClientRect().top),
+    bodyFlag: document.body.classList.contains("voice-docked"),
+  }));
+  if (back.docked) fail("tapping the docked bar didn't reopen the full panel");
+  if (back.appTop !== 0 || back.bodyFlag)
+    fail(`the app is still pushed down after undocking (top ${back.appTop})`);
+  console.log("  tapping it reopens the panel and gives the screen back \u2713");
 }
 
 // --- Silence doesn't hold the microphone open forever.
