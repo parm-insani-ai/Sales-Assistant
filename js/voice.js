@@ -10,6 +10,7 @@ import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
 import { agentConfigured, createAgentSession } from "./agent.js";
+import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export function voiceRecognitionSupported() { return !!SR; }
@@ -362,6 +363,9 @@ export function startVoiceAssistant() {
   // anything the agent said back was the end of the exchange rather than the
   // middle of one. It now runs a loop — listen, act, answer, listen again —
   // until you close it or say you're done.
+  // Built once when the panel opens: it walks every customer and vehicle, and
+  // recognition results arrive several times a second.
+  const vocab = vocabulary();
   let hearing = false;      // recognition is running right now
   let quiet = 0;            // consecutive rounds that heard nothing
   let busy = false;         // acting on something; don't listen over it
@@ -460,9 +464,12 @@ export function startVoiceAssistant() {
     } catch {
       return fallbackToTyping("Voice isn't available here \u2014 type below.");
     }
-    rec.lang = "en-US";
+    rec.lang = recognitionLang();
     rec.interimResults = true;
-    rec.maxAlternatives = 1;
+    // Engines return several readings of the same audio and rank them for
+    // general English. Asking for a handful lets the app pick the one that
+    // mentions a customer who actually exists.
+    rec.maxAlternatives = 5;
     rec.continuous = false;
     hearing = true;
     wave.set("listening");
@@ -472,8 +479,12 @@ export function startVoiceAssistant() {
       let interim = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
-        if (r.isFinal) heard += r[0].transcript;
-        else interim += r[0].transcript;
+        if (!r.isFinal) { interim += r[0].transcript; continue; }
+        // Every alternative for this chunk, best-of picked against the names
+        // and models this salesperson actually deals in.
+        const alts = [];
+        for (let k = 0; k < r.length; k++) alts.push(r[k].transcript);
+        heard += pickBest(alts, vocab);
       }
       wave.bump(0.9);
       transcriptEl.textContent = `\u201c${(heard || interim).trim()}\u201d`;
@@ -489,8 +500,12 @@ export function startVoiceAssistant() {
     rec.onend = () => {
       hearing = false;
       if (closed || busy) return;
-      const said = heard.trim();
-      if (said) { quiet = 0; return run(said); }
+      const said = repair(heard.trim(), vocab);
+      if (said) {
+        quiet = 0;
+        transcriptEl.textContent = `\u201c${said}\u201d`;
+        return run(said);
+      }
       // Heard nothing. Keep the conversation open for a couple of rounds, then
       // stop rather than holding the mic open forever.
       if (++quiet >= 3) return fallbackToTyping("Still here \u2014 tap the mic or type below.");

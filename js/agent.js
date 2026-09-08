@@ -24,6 +24,7 @@ import { getPlays } from "./plays.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
 import { openText } from "./sms.js";
+import { vocabulary } from "./asr.js";
 
 export function agentConfigured() {
   return !!(store.getSettings().agentUrl || "").trim();
@@ -38,6 +39,10 @@ function buildContext() {
     nowTime: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
     salesperson: store.getSettings().salesperson || "",
     counts: { leads: store.all("leads").length, appointments: store.all("appointments").length },
+    // The proper nouns the speech engine is most likely to have mangled. The
+    // model repairing "centra" into "Sentra" from context is far more reliable
+    // than any distance metric, but only if it knows what the candidates are.
+    vocab: vocabulary({ limit: 120 }),
   };
 }
 
@@ -94,6 +99,14 @@ function buildSystem(ctx) {
     `Match people to existing customers by name; create a new lead only if clearly new.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
+    // Everything the user "says" reached here through speech recognition, and
+    // saying so changes how the model reads a garbled sentence: as something to
+    // repair from context rather than as a strange request to query.
+    `What the user says arrives as a SPEECH TRANSCRIPT and may contain recognition errors — wrong homophones, a name spelled as ordinary words, a stray or missing short word. Read for intent and repair silently against the names below and the rest of the sentence. Do NOT ask the user to repeat themselves or point out that something was unclear; act on the most sensible reading. Numbers spoken aloud may arrive as words or be split up ("two two six" = 226) — join them.`,
+    ctx.vocab && ctx.vocab.names.length
+      ? `Customers on file (a mangled word close to one of these is almost certainly that name): ${ctx.vocab.names.join(", ")}.` : ``,
+    ctx.vocab && ctx.vocab.models.length
+      ? `Vehicles this dealership deals in: ${ctx.vocab.models.join(", ")}.` : ``,
   ].filter(Boolean).join("\n");
 }
 
