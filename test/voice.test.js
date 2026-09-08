@@ -133,6 +133,73 @@ console.log("user turns carried into each agent call:", JSON.stringify(asked));
 if (asked.length < 2) fail("the second turn didn't reach the agent");
 if (asked[1] < 2) fail("the follow-up started a new session — the agent lost the first exchange");
 
+// --- When the agent takes you somewhere, the panel gets out of the way.
+// It used to sit full-height over the screen it had just opened, saying "just
+// hit send" on top of the send button.
+{
+  const before = await p.evaluate(() => ({
+    docked: document.querySelector(".voice-overlay")?.classList.contains("voice-docked"),
+    hash: location.hash,
+  }));
+  if (before.docked) fail("the panel was already docked before anything navigated");
+
+  await p.evaluate(() => { location.hash = "#/inbox/a"; });
+  await p.waitForTimeout(400);
+  const after = await p.evaluate(() => {
+    const o = document.querySelector(".voice-overlay");
+    const sheet = o?.querySelector(".voice-sheet");
+    const cs = o ? getComputedStyle(o) : null;
+    return {
+      open: !!o,
+      docked: o?.classList.contains("voice-docked"),
+      overlayClicks: cs?.pointerEvents,
+      sheetClicks: sheet ? getComputedStyle(sheet).pointerEvents : null,
+      sheetHeight: sheet ? Math.round(sheet.getBoundingClientRect().height) : null,
+      viewport: window.innerHeight,
+      listening: !!window.__mic.live,
+    };
+  });
+  console.log("\nafter the agent navigated:", JSON.stringify(after));
+  if (!after.open) fail("the panel closed entirely — you can't keep talking to it");
+  if (!after.docked) fail("the panel didn't dock when the app navigated");
+  if (after.overlayClicks !== "none") fail("the backdrop still swallows taps on the screen underneath");
+  if (after.sheetClicks === "none") fail("the docked bar itself isn't tappable");
+  if (after.sheetHeight > after.viewport / 3)
+    fail(`the docked bar is ${after.sheetHeight}px tall — it's still covering the screen`);
+  // The whole point: it must clear whatever the screen already anchors to its
+  // bottom edge. On a conversation that's the reply row — docking over the send
+  // button is the bug this exists to fix.
+  const clears = await p.evaluate(() => {
+    const bar = document.querySelector(".voice-overlay .voice-sheet")?.getBoundingClientRect();
+    const compose = document.querySelector("#ib-compose")?.getBoundingClientRect();
+    const tabs = document.querySelector(".tabbar")?.getBoundingClientRect();
+    return {
+      overCompose: !!(bar && compose && bar.bottom > compose.top + 1),
+      overTabs: !!(bar && tabs && bar.bottom > tabs.top + 1),
+      hasCompose: !!compose,
+    };
+  });
+  console.log("  clearance:", JSON.stringify(clears));
+  if (clears.hasCompose && clears.overCompose)
+    fail("the docked bar is sitting on top of the reply row — that's the bug it exists to fix");
+  if (clears.overTabs) fail("the docked bar is covering the tab bar");
+  if (!after.listening) fail("it stopped listening once docked — the whole point is to keep talking");
+
+  // Talking to it docked still works.
+  await p.evaluate(() => window.__say("what's the story with Ann Lee"));
+  await p.waitForTimeout(900);
+  const spoke = await p.evaluate(() => window.__mic.spoke.length);
+  console.log("  spoken replies after docking:", spoke);
+  if (spoke < 3) fail("a command given to the docked bar didn't run");
+
+  // And tapping it brings the full panel back.
+  await p.$eval(".voice-sheet", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await p.waitForTimeout(300);
+  const back = await p.evaluate(() => document.querySelector(".voice-overlay")?.classList.contains("voice-docked"));
+  if (back) fail("tapping the docked bar didn't reopen the full panel");
+  console.log("  tapping it reopens the panel \u2713");
+}
+
 // --- Silence doesn't hold the microphone open forever.
 for (let i = 0; i < 4; i++) { await p.evaluate(() => window.__silence()); await p.waitForTimeout(320); }
 const afterQuiet = await p.evaluate(() => ({

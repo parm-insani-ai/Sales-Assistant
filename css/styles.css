@@ -1218,3 +1218,72 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .nudge-row:active { opacity: .6; }
 .nudge-row .row-meta { color: var(--muted); font-size: 1.1rem; line-height: 1; }
 .nudge-hot .row-title { color: var(--brand-strong); }
+
+/* ---------- Voice, docked ----------
+   When the agent takes you somewhere to finish something — a thread with the
+   text already written, a screen it opened — the full-height panel was still
+   covering it. It said "just hit send" over the top of the send button.
+   
+   So on navigation the panel shrinks to a bar above the tab bar: still
+   listening, still showing what it heard, but out of the way of the thing it
+   just asked you to do. Tap it to bring the whole panel back. */
+.voice-overlay.voice-docked {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* The screen underneath is the point — everything except the bar itself has
+     to be tappable. */
+  pointer-events: none;
+  animation: none;
+}
+.voice-overlay.voice-docked .voice-sheet {
+  pointer-events: auto;
+  min-height: 0;
+  width: auto;
+  max-width: 540px;
+  /* Above whatever the screen already has at its bottom edge — the tab bar, and
+     on a conversation the reply row too. Docking on top of the send button
+     would recreate the problem this exists to solve. Measured in JS, because
+     it differs per screen. */
+  margin: 0 10px var(--dock-bottom, calc(10px + 62px + var(--safe-bottom)));
+  padding: 8px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.3));
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.voice-overlay.voice-docked .voice-grip,
+.voice-overlay.voice-docked .voice-transcript,
+.voice-overlay.voice-docked .voice-input { display: none; }
+.voice-overlay.voice-docked .voice-stage {
+  flex: none; width: 62px; min-height: 0;
+}
+.voice-overlay.voice-docked .voice-stage::before { display: none; }
+.voice-overlay.voice-docked .voice-wave { height: 34px; }
+.voice-overlay.voice-docked .voice-status {
+  flex: 1; min-width: 0;
+  text-align: left; font-size: 0.9rem; font-weight: 600; margin: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Wave, then what it heard, then the dismiss — the close button is first in the
+   markup because it's absolutely positioned in the full panel, and left alone
+   it lands on the wrong side of the bar. */
+.voice-overlay.voice-docked .voice-stage { order: 1; }
+.voice-overlay.voice-docked .voice-status { order: 2; }
+.voice-overlay.voice-docked .voice-close {
+  order: 3;
+  position: static; flex: none; width: 30px; height: 30px;
+}
+/* While typing, the tab bar is gone — so the bar drops with it rather than
+   floating over a gap. */
+body.typing .voice-overlay.voice-docked .voice-sheet,
+body.kb-open .voice-overlay.voice-docked .voice-sheet {
+  margin-bottom: calc(10px + var(--kb, 0px));
+}
+.voice-overlay.voice-docked .voice-wave { height: 30px; }

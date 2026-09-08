@@ -342,12 +342,58 @@ export function startVoiceAssistant() {
     if (closed) return;
     closed = true;
     try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
+    window.removeEventListener("hashchange", onRoute);
     stopSpeaking();
     wave.stop();
     overlay.remove();
   };
-  overlay.querySelector(".voice-close").addEventListener("click", close);
+  overlay.querySelector(".voice-close").addEventListener("click", (e) => { e.stopPropagation(); close(); });
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  // --- Docking ---
+  //
+  // When the agent takes you somewhere to finish something — a conversation
+  // with the text already written — the panel used to stay full-height over the
+  // top of it. It would say "just hit send" while covering the send button.
+  //
+  // So a route change docks it: a bar above the tab bar, still listening, out
+  // of the way of the thing it just asked you to do. Tap to bring it back.
+  let docked = false;
+
+  // How high the bar has to sit to clear what's already anchored to the bottom
+  // of this screen. On a conversation that's the reply row, not just the tab
+  // bar — docking over the send button would recreate the problem exactly.
+  function measureDock() {
+    if (!docked || closed) return;
+    const floor = window.innerHeight;
+    let highest = floor;
+    for (const sel of [".tabbar", ".ib-compose"]) {
+      const el2 = document.querySelector(sel);
+      if (!el2) continue;
+      const r = el2.getBoundingClientRect();
+      if (r.height > 0 && r.top < highest) highest = r.top;
+    }
+    overlay.style.setProperty("--dock-bottom", `${Math.max(10, Math.round(floor - highest) + 10)}px`);
+  }
+
+  function dock() {
+    if (docked || closed) return;
+    docked = true;
+    overlay.classList.add("voice-docked");
+    // A frame, so the screen it navigated to has rendered and can be measured.
+    requestAnimationFrame(measureDock);
+  }
+  function undock() {
+    if (!docked || closed) return;
+    docked = false;
+    overlay.classList.remove("voice-docked");
+  }
+  overlay.querySelector(".voice-sheet").addEventListener("click", () => { if (docked) undock(); });
+
+  // The agent navigating IS the signal. Anything that moves the app — opening a
+  // thread, a screen, a customer — means there's something on screen to look at.
+  const onRoute = () => { dock(); requestAnimationFrame(measureDock); };
+  window.addEventListener("hashchange", onRoute);
   // Pulse the waveform as dictated/typed words stream in.
   textInput.addEventListener("input", () => wave.bump(0.85));
   overlay.querySelector("#v-wave").addEventListener("click", () => textInput.focus());
@@ -434,7 +480,7 @@ export function startVoiceAssistant() {
       reply = onParser(said);
     }
 
-    setStatus(reply);
+    setStatus(docked && reply.length > 60 ? reply.slice(0, 58).trimEnd() + "\u2026" : reply);
     wave.set("speaking");
     busy = false;
     await speakAsync(reply);
@@ -517,6 +563,7 @@ export function startVoiceAssistant() {
   // Tapping the waveform interrupts: stop talking and listen. That's how you
   // cut the agent off mid-sentence when you already know what you want.
   overlay.querySelector("#v-wave").addEventListener("click", () => {
+    if (docked) { undock(); return; }
     stopSpeaking();
     if (hearing) { stopHearing(); wave.set("idle"); setStatus("Paused \u2014 tap to talk."); }
     else { quiet = 0; listen(); }
