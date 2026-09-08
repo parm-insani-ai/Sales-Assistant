@@ -68,8 +68,8 @@ const TOOLS = [
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
   { name: "complete_task", description: "Check off an open to-do (match by words from its title — 'mark the plates thing done').", input_schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
   { name: "complete_delivery", description: "Mark a customer's delivery as delivered/handed over. Kicks off the post-delivery follow-up plan.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
-  { name: "text_customer", description: "Open Messages prefilled with a text to a customer — YOU write a natural message; the salesperson just hits send. Use for 'text Ken that his car is ready', or to send the booking link / a comparison.", input_schema: { type: "object", properties: { customer: { type: "string" }, message: { type: "string" } }, required: ["customer", "message"] } },
-  { name: "call_customer", description: "Open the phone dialer with a customer's number ('call Moe').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
+  { name: "text_customer", description: "Text a customer — YOU write a natural message; the salesperson just hits send. Use for 'text Ken that his car is ready', or to send the booking link / a comparison. `customer` accepts a NAME or a PHONE NUMBER. Given a number for someone not on file, just send it — the customer record is created automatically. Never ask who a phone number belongs to.", input_schema: { type: "object", properties: { customer: { type: "string", description: "customer name, or a phone number" }, message: { type: "string" } }, required: ["customer", "message"] } },
+  { name: "call_customer", description: "Open the phone dialer ('call Moe', 'call 902 555 1234'). `customer` accepts a name or a phone number — dial a raw number without asking who it is.", input_schema: { type: "object", properties: { customer: { type: "string", description: "customer name, or a phone number" } }, required: ["customer"] } },
   { name: "send_email", description: "Actually send an email to a customer (needs their email on file and email sending set up). YOU write the subject and body.", input_schema: { type: "object", properties: { customer: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["customer", "subject", "body"] } },
   { name: "add_special", description: "Save a manufacturer/monthly special ('0% for 60 months on Rogues till Monday').", input_schema: { type: "object", properties: { model: { type: "string" }, financeApr: { type: "number" }, financeTerm: { type: "number" }, leasePayment: { type: "number" }, leaseTerm: { type: "number" }, leaseDown: { type: "number" }, leaseTrim: { type: "string", description: "trim the advertised lease applies to" }, cash: { type: "number" }, expiry: { type: "string", description: "YYYY-MM-DD" }, notes: { type: "string" } }, required: ["model"] } },
   { name: "add_spif", description: "Save a spif/bonus ('$500 on every Pathfinder this weekend').", input_schema: { type: "object", properties: { title: { type: "string" }, amount: { type: "number" }, match: { type: "string", description: "keyword a sale's vehicle must contain to count" }, expiry: { type: "string", description: "YYYY-MM-DD" }, notes: { type: "string" } }, required: ["title"] } },
@@ -169,9 +169,23 @@ export async function findAgentFunction() {
 }
 
 // ---- Entity resolution ----
+// A phone number spoken out loud can arrive in any shape. Strip it to digits
+// and see whether there are enough of them to be a number.
+function asPhone(q) {
+  const digits = String(q || "").replace(/\D/g, "");
+  return digits.length >= 10 ? digits : null;
+}
+
 function findLead(name) {
   if (!name) return null;
   const q = String(name).trim().toLowerCase();
+  // "text 226-246-7202 that his car is ready" is an ordinary instruction, and
+  // matching on names alone meant the agent came back asking who that was.
+  const phone = asPhone(q);
+  if (phone) {
+    const byPhone = store.leadByPhone(phone);
+    if (byPhone) return byPhone;
+  }
   const leads = store.all("leads");
   return (
     leads.find((l) => (l.name || "").toLowerCase() === q) ||
@@ -397,8 +411,22 @@ export async function execTool(name, p = {}) {
       return { result: `marked delivered — post-delivery follow-ups queued`, note: `marked ${d.customerName}'s delivery complete` };
     }
     case "text_customer": case "text": {
-      const lead = findLead(p.customer || p.name);
-      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      const who = p.customer || p.name || p.phone || "";
+      const lead = findLead(who);
+      // Nobody on file, but a real phone number was given: text it. openText
+      // creates the customer record on the way, exactly as an inbound text from
+      // a stranger does — the conversation needs somewhere to live either way,
+      // and refusing to send until someone types a name is worse than a record
+      // briefly named after a phone number.
+      if (!lead) {
+        const phone = asPhone(who);
+        if (phone) {
+          if (!openText(phone, String(p.message || "")))
+            location.href = smsHref(phone, String(p.message || ""));
+          return { result: `opened a text to ${who} — the salesperson just hits send`, note: `texting ${who}` };
+        }
+        return { result: "not found", note: `⚠ couldn't find ${who}` };
+      }
       if (!lead.phone) return { result: `${lead.name} has no phone number on file`, note: `⚠ no phone on file for ${lead.name}` };
       // Same destination either way: the conversation when a texting number is
       // set up, the phone's SMS app when it isn't.
@@ -407,8 +435,13 @@ export async function execTool(name, p = {}) {
       return { result: `opened a prefilled text to ${lead.name} — the salesperson just hits send`, note: `texting ${lead.name}` };
     }
     case "call_customer": case "call": {
-      const lead = findLead(p.customer || p.name);
-      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      const who = p.customer || p.name || p.phone || "";
+      const lead = findLead(who);
+      if (!lead) {
+        const phone = asPhone(who);
+        if (phone) { location.href = telHref(phone); return { result: `dialing ${who}`, note: `calling ${who}` }; }
+        return { result: "not found", note: `⚠ couldn't find ${who}` };
+      }
       if (!lead.phone) return { result: `${lead.name} has no phone number on file`, note: `⚠ no phone on file for ${lead.name}` };
       location.href = telHref(lead.phone);
       return { result: `dialing ${lead.name}`, note: `calling ${lead.name}` };
