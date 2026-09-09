@@ -179,7 +179,9 @@ document.getElementById("quick-add").addEventListener("click", () => {
   });
 });
 
-document.getElementById("voice-btn").addEventListener("click", startVoiceAssistant);
+// Wrapped, not passed directly: the click event would arrive as the options
+// argument.
+document.getElementById("voice-btn").addEventListener("click", () => startVoiceAssistant());
 
 startRouter();
 

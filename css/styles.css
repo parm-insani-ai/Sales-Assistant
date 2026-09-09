@@ -1053,6 +1053,26 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .ib-more { background: var(--surface-2); color: var(--text-2); }
 .ib-send { background: var(--brand); color: var(--brand-ink); }
 .ib-send:disabled, .ib-more:disabled { opacity: .45; cursor: default; }
+/* Talk to entoa from inside a conversation. Voice normally lives in the tab
+   bar, which is hidden while the keyboard is up — so it went missing exactly
+   when you'd want to say "ask her if Thursday works" instead of thumbing it.
+   Tinted rather than filled: send is the filled button here, and two solid
+   circles side by side would compete for the same tap. */
+.ib-mic { background: var(--brand-tint); color: var(--brand-strong); }
+.ib-mic svg { width: 19px; height: 19px; }
+/* While a session is live the mic reads as live too, the same as the Voice
+   button in the tab bar — otherwise tapping it again looks like nothing
+   happened when in fact it's already listening.
+   A pulsing ring rather than a fill: send is the filled circle in this row, and
+   a second solid green disc beside it just made the two fight. */
+body.voice-live .ib-mic { animation: ib-mic-live 2s ease-in-out infinite; }
+@keyframes ib-mic-live {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--brand) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.voice-live .ib-mic { animation: none; box-shadow: 0 0 0 2px var(--brand); }
+}
 .ib-blocked { padding: 10px 2px; font-size: 0.82rem; color: var(--muted); }
 
 /* Unread-reply dot on the Comms tab — visible from anywhere in the app,

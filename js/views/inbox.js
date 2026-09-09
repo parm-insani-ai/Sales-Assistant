@@ -14,6 +14,7 @@ import { esc, formatDate, telHref } from "../utils.js";
 import { sendText, retryText, smsBlocker, takePrefill, timelineFor, linkIsHot } from "../sms.js";
 import { bookingLinkForLead } from "./settings.js";
 import { draftReply, draftingAvailable } from "../replies.js";
+import { startVoiceAssistant } from "../voice.js";
 
 // The conversation list is the Comms tab now — one inbox, not two. This route
 // stays for the per-customer thread, and for old notifications and links that
@@ -217,9 +218,15 @@ function renderThread(view, leadId) {
     }
     // One row: extras, the box, send. Everything that isn't "type a reply and
     // send it" moved behind the +, because on a phone the reply is the screen.
+    // The mic earns its place here because the tab bar — where Voice normally
+    // lives — is hidden while the keyboard is up. That is exactly when you want
+    // it: mid-reply, wanting to say "ask her if Thursday works" rather than
+    // thumb it. It opens the strip rather than the full panel, so the
+    // conversation you're talking about stays on screen.
     compose.innerHTML = `
       <button class="ib-round ib-more" data-act="more" aria-label="More">${icon("plus")}</button>
       <textarea id="ib-text" rows="1" placeholder="Message"></textarea>
+      <button class="ib-round ib-mic" data-act="voice" aria-label="Talk to entoa">${icon("mic")}</button>
       <button class="ib-round ib-send" data-act="send" aria-label="Send" disabled>${icon("send")}</button>`;
 
     const box = compose.querySelector("#ib-text");
@@ -253,6 +260,7 @@ function renderThread(view, leadId) {
     sendBtn.addEventListener("click", send);
 
     compose.querySelector('[data-act="more"]').addEventListener("click", () => openExtras(box));
+    compose.querySelector('[data-act="voice"]').addEventListener("click", () => startVoiceAssistant({ docked: true }));
   }
 
   // The two things worth doing to a reply that aren't typing it. A sheet keeps

@@ -322,7 +322,26 @@ function makeWave(canvas) {
   };
 }
 
-export function startVoiceAssistant() {
+// The one live session, if there is one. Two overlays talking at once — each
+// with its own recogniser fighting for the microphone — is never what the tap
+// meant, and there are two buttons that can start one now.
+let session_ = null;
+
+/**
+ * Open the voice assistant.
+ *
+ * `docked: true` starts it as the strip at the top rather than the full panel.
+ * That's what the mic in a conversation wants: you're looking at the thread,
+ * you have something to say about it, and covering the thread to say it would
+ * be the same mistake docking exists to fix.
+ */
+export function startVoiceAssistant({ docked: startDocked = false } = {}) {
+  // Already listening: bring that session to the user rather than stacking a
+  // second one on top of it.
+  if (session_) {
+    if (startDocked) session_.dock(); else session_.undock();
+    return session_;
+  }
   const root = document.getElementById("modal-root");
   const overlay = document.createElement("div");
   overlay.className = "voice-overlay";
@@ -367,6 +386,7 @@ export function startVoiceAssistant() {
     stopSpeaking();
     wave.stop();
     overlay.remove();
+    session_ = null;
   };
   overlay.querySelector(".voice-close").addEventListener("click", (e) => { e.stopPropagation(); close(); });
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -621,4 +641,11 @@ export function startVoiceAssistant() {
     // Focus synchronously (within the tap gesture) so iOS opens the keyboard.
     textInput.focus();
   }
+
+  // Started from a place that already has something on screen worth keeping —
+  // the mic in a conversation — so open as the strip, not over the top of it.
+  if (startDocked) dock();
+
+  session_ = { dock, undock, close, isDocked: () => docked };
+  return session_;
 }
