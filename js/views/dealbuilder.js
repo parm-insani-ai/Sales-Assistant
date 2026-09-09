@@ -450,8 +450,15 @@ function optionsForVehicle(lead, v, opts = {}) {
         out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, term: bestL.term, apr: bestL.apr, resPct: bestL.res, rateTable: lr.byTerm, leaseCash: lcash, down: num(base.down), special: label });
       }
     } else {
-      const l = computeLease({ ...base, fees: leaseFee, term: s.leaseTerm || 36, residualPct: s.leaseResidualPct || 58, msrp: v.price, price: v.price + addTaxable });
-      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, down: num(base.down), special: null });
+      const term = s.leaseTerm || 36;
+      const resPct = s.leaseResidualPct || 58;
+      const l = computeLease({ ...base, fees: leaseFee, term, residualPct: resPct, msrp: v.price, price: v.price + addTaxable });
+      // term/resPct travel with the row. Every other option carries them and
+      // this one didn't, so a plain computed lease reached the rest of the app
+      // as a payment with no term attached — which reads as "$118/mo" with
+      // nothing to say over how long, and quietly breaks anything that divides
+      // by it.
+      out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, term, resPct, down: num(base.down), special: null });
     }
   }
   return out;

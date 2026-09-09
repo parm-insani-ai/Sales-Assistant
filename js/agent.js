@@ -319,19 +319,39 @@ export async function execTool(name, p = {}) {
           if (["sold", "delivered", "lost"].includes(l.stage)) return;
           const options = dealsForLead(l, { method });
           if (!options.length) return;
-          const cheapest = options.reduce((a, b) => (b.monthly < a.monthly ? b : a));
+          // What their equity is worth, and so what a deal spends when it puts
+          // the trade in.
+          const eq = Math.max(0, Number(equityOf(l)) || 0);
+          // Ranking on the headline payment alone hands the top spot to
+          // whichever option consumes the most equity, and that is almost
+          // always a lease. $15,000 of trade equity poured into a 48-month
+          // lease buys a $117/mo payment and a car they hand back owning
+          // nothing — the biggest saving on the sheet and the worst advice on
+          // it. Financed, the same equity survives as ownership in the new
+          // vehicle; leased, it is simply spent.
+          //
+          // So a lease carries the equity it burns, amortised over its own
+          // term, and the ranking compares like with like.
+          const cost = (o) => o.monthly + (o.method === "lease" && o.term > 0 ? eq / o.term : 0);
+          const cheapest = options.reduce((a, b) => (cost(b) < cost(a) ? b : a));
           if (cap && cheapest.monthly > cap) return;
           if (!(cheapest.monthly < l.currentPayment)) return;
           const saving = Math.round(l.currentPayment - cheapest.monthly);
-          const eq = equityOf(l);
+          const burns = cheapest.method === "lease" && eq > 0;
           rows.push({
             lead: l, best: cheapest,
-            reasons: [`Saves $${saving}/mo`].concat(eq > 0 ? [`$${Math.round(eq).toLocaleString()} equity`] : []),
+            equityUsed: Math.round(eq),
+            effectiveMonthly: Math.round(cost(cheapest)),
+            reasons: [`Saves $${saving}/mo`]
+              .concat(eq > 0 ? [`$${Math.round(eq).toLocaleString()} equity`] : [])
+              // Said plainly, because this is the sentence that stops a number
+              // being quoted that would have to be walked back at the desk.
+              .concat(burns ? [`Lease — spends their $${Math.round(eq).toLocaleString()} equity, nothing owned at the end`] : []),
           });
         });
-        // Biggest saving first — the first name out of a "who saves money"
-        // question should be the one who saves the most.
-        rows.sort((a, b) => a.best.delta - b.best.delta);
+        // Cheapest by TRUE cost, so an equity-funded lease can't outrank a
+        // finance deal that reaches a similar payment and keeps the equity.
+        rows.sort((a, b) => a.effectiveMonthly - b.effectiveMonthly);
       } else {
         rows = topOpportunities(Number(p.limit) || 8);
         if (cap) rows = rows.filter((o) => o.best.monthly <= cap);
@@ -341,6 +361,11 @@ export async function execTool(name, p = {}) {
         vehicle: [o.best.vehicle.year, o.best.vehicle.make, o.best.vehicle.model].filter(Boolean).join(" "),
         monthly: Math.round(o.best.monthly), delta: o.best.delta != null ? Math.round(o.best.delta) : null,
         saves: o.best.delta != null && o.best.delta < 0 ? Math.abs(Math.round(o.best.delta)) : null,
+        // What the saving actually costs. A lease funded by the trade shows a
+        // small payment and a large equityUsed; without both numbers the model
+        // reads back a headline that isn't the whole deal.
+        equityUsed: o.equityUsed ?? null,
+        trueMonthly: o.effectiveMonthly ?? null,
         method: o.best.method, reasons: o.reasons,
       }));
       if (opps.length) navigate("/deals");
