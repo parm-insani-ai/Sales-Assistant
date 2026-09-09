@@ -457,9 +457,17 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
   textInput.addEventListener("input", () => wave.bump(0.85));
   overlay.querySelector("#v-wave").addEventListener("click", () => textInput.focus());
 
-  // A conversational agent session for this panel (so it can ask a follow-up
-  // and continue). Null when the agent isn't configured — we use the parser.
-  const session = agentConfigured() ? createAgentSession() : null;
+  // A conversational agent session for this panel, so it can ask a follow-up
+  // and continue. Created on the first turn that needs it rather than at open,
+  // because settings can arrive from cloud sync — or be fixed in Settings —
+  // after the panel is already up, and a session decided once at open would
+  // leave you talking to the keyword parser for the rest of the session.
+  let session = null;
+  const agentSession = () => {
+    if (!agentConfigured()) return null;
+    if (!session) session = createAgentSession();
+    return session;
+  };
 
   // --- Conversation ---
   //
@@ -502,10 +510,20 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
     hearing = false;
   }
 
+  // The no-agent path. This is a fixed keyword grammar — it knows "book Ken
+  // Thursday at 4" and a dozen shapes like it, and nothing else. Understanding
+  // an arbitrary sentence is the model's job, so when it can't match, the
+  // honest answer names the reason.
+  //
+  // It used to say "Sorry, I didn't catch that — try rephrasing." That blamed
+  // the sentence for a missing connection, and sent you off rewording a
+  // question that was never the problem: no rephrasing of anything reaches a
+  // parser that doesn't have the concept.
   const onParser = (text) => {
     const cmd = parseCommand(text);
     const say = cmd.action !== "error" ? executeCommand(cmd) : null;
-    return say || "Sorry, I didn't catch that — try rephrasing.";
+    if (say) return say;
+    return "I can't work that out without the assistant connected — open Settings and tap Test connection under Voice agent.";
   };
 
   const run = async (text) => {
@@ -522,11 +540,12 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
 
     let reply = "";
     let ok = true;
-    if (session) {
+    const agent = agentSession();
+    if (agent) {
       setStatus("Thinking\u2026");
       wave.set("thinking");
       try {
-        const res = await session.send(said, (n) => {
+        const res = await agent.send(said, (n) => {
           if (n && !n.startsWith("\u26a0")) setStatus(n.charAt(0).toUpperCase() + n.slice(1) + "\u2026");
         });
         reply = res.say || "Done";

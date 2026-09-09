@@ -53,7 +53,7 @@ const TOOLS = [
   { name: "find_customers", description: "Look up customers/leads by name/vehicle query, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
   { name: "get_customer", description: "Full details for one customer by name.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
-  { name: "deal_radar", description: "Top trade-up opportunities (customer, matched vehicle, monthly, delta).", input_schema: { type: "object", properties: { limit: { type: "number" } } } },
+  { name: "deal_radar", description: "Who on file could be put into a different vehicle right now, matched against real inventory. Use for ANY phrasing of this question — 'who can I get into a car for less than they're paying now', 'who could I upgrade', 'who's got equity', 'anyone I can move into something newer', 'who should I call about a trade'. Returns each customer with what they pay today, the matched vehicle, the new monthly, and `delta` (new minus current — NEGATIVE means cheaper). Set cheaperOnly when the ask is specifically about a lower/cheaper/better payment than they have now.", input_schema: { type: "object", properties: { limit: { type: "number" }, cheaperOnly: { type: "boolean", description: "only customers whose matched payment is LOWER than what they pay today" }, maxMonthly: { type: "number", description: "cap the new monthly payment" } } } },
   { name: "get_stats", description: "This month's appointment funnel, units, commission, goals.", input_schema: { type: "object", properties: {} } },
   { name: "get_tasks", description: "List open to-dos ('what's on my plate?'). dueToday also includes overdue.", input_schema: { type: "object", properties: { dueToday: { type: "boolean" } } } },
   { name: "get_deliveries", description: "Upcoming deliveries with prep progress ('when's Sara's delivery?', 'what's left to prep?').", input_schema: { type: "object", properties: {} } },
@@ -95,6 +95,11 @@ function buildSystem(ctx) {
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
+    // "Who are people I can get into a car right now for a lower payment than
+    // they're paying currently" is one sentence for a question the app can
+    // answer exactly. Nothing in it names a tool, and that has to be fine —
+    // the salesperson is describing the job, not operating a menu.
+    `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
     // The screen follows the conversation. The list tools put their results on
@@ -288,14 +293,66 @@ export async function execTool(name, p = {}) {
       return { result: { appointments: list.map((a) => ({ customer: a.customerName, when: a.when, type: a.type, confirmed: !!a.confirmed, outcome: a.outcome || "" })) }, note: "" };
     }
     case "deal_radar": {
-      const opps = topOpportunities(p.limit || 8).map((o) => ({
+      // "Who can I get into something for LESS than they're paying now" is not
+      // the radar's usual question, and running it through the usual machinery
+      // gets the wrong answer for a subtle reason.
+      //
+      // dealsForLead ranks a customer's options by |delta| — closest to the
+      // payment they already have. That's right for "what can they afford":
+      // it finds the most car for the money they're already spending. But it
+      // means each customer's "best" match is the payment-NEUTRAL one, which
+      // is precisely the row that can't show a saving. Filtering those for
+      // delta < 0 tests the wrong option and misses everyone whose cheapest
+      // match would genuinely save them money.
+      //
+      // So when the ask is about saving, look at each customer's CHEAPEST
+      // viable option instead, and rank by how much they'd save.
+      const cap = Number(p.maxMonthly) || 0;
+      let rows;
+      if (p.cheaperOnly) {
+        const method = store.getSettings().dealMethod || "both";
+        rows = [];
+        store.all("leads").forEach((l) => {
+          // No current payment means no baseline to beat. A paid-off customer
+          // is a real opportunity, but not an answer to this question.
+          if (l.currentPayment == null) return;
+          if (["sold", "delivered", "lost"].includes(l.stage)) return;
+          const options = dealsForLead(l, { method });
+          if (!options.length) return;
+          const cheapest = options.reduce((a, b) => (b.monthly < a.monthly ? b : a));
+          if (cap && cheapest.monthly > cap) return;
+          if (!(cheapest.monthly < l.currentPayment)) return;
+          const saving = Math.round(l.currentPayment - cheapest.monthly);
+          const eq = equityOf(l);
+          rows.push({
+            lead: l, best: cheapest,
+            reasons: [`Saves $${saving}/mo`].concat(eq > 0 ? [`$${Math.round(eq).toLocaleString()} equity`] : []),
+          });
+        });
+        // Biggest saving first — the first name out of a "who saves money"
+        // question should be the one who saves the most.
+        rows.sort((a, b) => a.best.delta - b.best.delta);
+      } else {
+        rows = topOpportunities(Number(p.limit) || 8);
+        if (cap) rows = rows.filter((o) => o.best.monthly <= cap);
+      }
+      const opps = rows.slice(0, Number(p.limit) || 8).map((o) => ({
         customer: o.lead.name, phone: o.lead.phone || "", pays: o.lead.currentPayment ?? null,
         vehicle: [o.best.vehicle.year, o.best.vehicle.make, o.best.vehicle.model].filter(Boolean).join(" "),
         monthly: Math.round(o.best.monthly), delta: o.best.delta != null ? Math.round(o.best.delta) : null,
+        saves: o.best.delta != null && o.best.delta < 0 ? Math.abs(Math.round(o.best.delta)) : null,
         method: o.best.method, reasons: o.reasons,
       }));
       if (opps.length) navigate("/deals");
-      return { result: { opportunities: opps }, note: "" };
+      return {
+        result: {
+          opportunities: opps,
+          note: opps.length ? "" : (p.cheaperOnly
+            ? "nobody on file currently matches to a cheaper payment — the radar needs their current payment, payoff or trade value to compare against"
+            : "no trade-up matches — check there's inventory loaded and customers have payment/payoff details"),
+        },
+        note: "",
+      };
     }
     case "get_stats": {
       const f = apptFunnel(); const m = monthSummary(); const s = store.getSettings();
