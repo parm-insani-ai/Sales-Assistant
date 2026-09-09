@@ -98,6 +98,7 @@ const DEFAULT_STATE = {
   calls: [],
   links: [], // short-link payloads live in the cloud; rows land here on pull and are otherwise unused
   prefs: [], // one synced row telling the server your timezone and quiet hours
+  config: [], // one synced row mirroring `settings`, so a reinstall gets them back
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
@@ -329,10 +330,74 @@ export function getState() {
 export function getSettings() {
   return state.settings;
 }
-// Settings live on the device and are deliberately not synced — they're full of
-// this phone's own configuration. But the server sweep has to know two things
-// to notify sensibly: what time it is where you are, and when not to. Those go
-// up as an ordinary synced record, which is the narrowest thing that works.
+// Settings that belong to THIS phone rather than to the person, and so must
+// never be carried onto another device. The two credentials are here because
+// they're what a device uses to reach the account in the first place: a stale
+// copy arriving from the cloud and overwriting a working one would cut a device
+// off from the very thing that sent it.
+const DEVICE_ONLY_SETTINGS = ["supabaseUrl", "supabaseAnonKey", "cloudAutoSync"];
+
+/**
+ * Mirror the settings to the cloud as one record.
+ *
+ * These used to be deliberately local, on the reasoning that they were "this
+ * phone's own configuration". That was wrong about almost all of them. The
+ * dealership name, the tax rate, the doc fee and the new-vehicle fees, the
+ * trade-appraisal knobs, the default term and rate, the monthly goals, the
+ * message templates, the delivery checklist, the texting number, the agent URL
+ * — none of that describes a phone. It describes a salesperson, and it took a
+ * long time to enter.
+ *
+ * Reinstalling the app on iOS clears its storage, so all of it went, while
+ * every customer, text and appointment came back from the cloud untouched. The
+ * one category of data that was expensive to re-enter by hand was the only
+ * category with no copy anywhere.
+ */
+export function publishConfig() {
+  const payload = {};
+  Object.keys(state.settings || {}).forEach((k) => {
+    if (!DEVICE_ONLY_SETTINGS.includes(k)) payload[k] = state.settings[k];
+  });
+  const existing = get("config", "me");
+  // Runs on every settings change and every launch, so only write when
+  // something actually differs — otherwise each launch queues a pointless sync.
+  if (existing) {
+    const { id, updatedAt, createdAt, ...was } = existing;
+    if (JSON.stringify(was) === JSON.stringify(payload)) return;
+    update("config", "me", payload);
+  } else {
+    create("config", { id: "me", ...payload });
+  }
+}
+
+/**
+ * Fold a settings record pulled from the cloud back into the live settings.
+ *
+ * Called after a sync pull. The device-only keys are kept as they are on this
+ * phone; everything else adopts what came down. Anything the cloud has never
+ * heard of (a newer default shipped in an app update) survives too, because
+ * this merges rather than replaces.
+ */
+export function adoptRemoteConfig() {
+  const rec = get("config", "me");
+  if (!rec) return false;
+  const { id, updatedAt, createdAt, ...incoming } = rec;
+  const next = { ...state.settings };
+  let changed = false;
+  Object.keys(incoming).forEach((k) => {
+    if (DEVICE_ONLY_SETTINGS.includes(k)) return;
+    if (JSON.stringify(next[k]) === JSON.stringify(incoming[k])) return;
+    next[k] = incoming[k];
+    changed = true;
+  });
+  if (!changed) return false;
+  state.settings = next;
+  persist();
+  return true;
+}
+
+// The server sweep also has to know two things to notify sensibly: what time it
+// is where you are, and when not to. Those go up as their own record.
 export function publishPrefs() {
   const s = state.settings;
   const data = {
@@ -355,6 +420,9 @@ export function publishPrefs() {
 export function updateSettings(patch) {
   state.settings = { ...state.settings, ...patch };
   persist();
+  // Queue the change for the cloud. Everything expensive to type by hand lives
+  // in here, and until now none of it was backed up anywhere.
+  try { publishConfig(); } catch { }
 }
 
 // --- Cloud-sync change tracking ---
@@ -450,7 +518,9 @@ export function restore(name, item) {
 }
 
 // Every syncable collection (everything except settings/outbox metadata).
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push"];
+// "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
+// record. Both are single-row collections keyed "me".
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather

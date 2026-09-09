@@ -70,6 +70,10 @@ async function pullApply() {
     }
   });
   if (cursor) setMeta({ cursor });
+  // The settings mirror arrives as an ordinary record; fold it back into the
+  // live settings. This is what makes a reinstall recover the dealership name,
+  // fees, goals, templates and numbers instead of asking for them all again.
+  if (store.adoptRemoteConfig()) applied++;
   return applied;
 }
 

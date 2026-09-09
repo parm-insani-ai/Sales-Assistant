@@ -5,17 +5,23 @@
 // what actually protects the data.
 
 import * as store from "./store.js";
+import { BACKEND_DEFAULTS } from "./config.js";
 
 const AUTH_KEY = "entoa:auth"; // { access_token, refresh_token, expires_at, user }
 
 function cfg() {
   const s = store.getSettings();
+  // Settings first, then whatever the build ships. The build-time default is
+  // what makes a reinstall recoverable: the credentials live in localStorage,
+  // so wiping the app takes away the only means it had of reaching the backup
+  // its data is sitting in. See js/config.js.
+  const raw = (s.supabaseUrl || BACKEND_DEFAULTS.url || "").trim();
   // Heal a common paste mistake: the function URL (or any API path) in the
   // project-URL field. Auth/REST calls need the bare project origin.
-  const url = (s.supabaseUrl || "").trim()
+  const url = raw
     .replace(/\/(functions|rest|auth|storage|realtime)\/.*$/, "")
     .replace(/\/+$/, "");
-  const anonKey = (s.supabaseAnonKey || "").trim();
+  const anonKey = (s.supabaseAnonKey || BACKEND_DEFAULTS.anonKey || "").trim();
   return { url, anonKey };
 }
 

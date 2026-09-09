@@ -70,10 +70,29 @@ const run = (tool, input = {}) => p.evaluate(async ([tool, input]) => {
 
 const goto = async (hash) => { await p.evaluate((h) => { location.hash = h; }, hash); await p.waitForTimeout(300); };
 
+// Wait for the reveal scroll to finish. It's a smooth scroll, so sampling a
+// fixed moment later measures the animation in flight — which is how this test
+// read 152px, 190px and 232px for the same working behaviour on three
+// consecutive runs.
+const settle = () => p.evaluate(() => new Promise((done) => {
+  const view = document.querySelector(".view");
+  if (!view) return done(0);
+  let last = -1, still = 0;
+  const tick = () => {
+    const now = Math.round(view.scrollTop);
+    still = now === last ? still + 1 : 0;
+    last = now;
+    if (still >= 3) return done(now);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}));
+
 // --- The exact utterance that failed. get_plays has to land on the queue.
 {
   await goto("#/settings");
   const r = await run("get_plays");
+  await settle();
   console.log("get_plays →", r.hash, "| plays:", (r.result.plays || []).length);
   if (!(r.result.plays || []).length) fail("no plays for a salesperson with three overdue follow-ups");
   if (r.hash !== "#/") fail("asking for your plays didn't take you to them: " + r.hash);
@@ -88,7 +107,9 @@ const goto = async (hash) => { await p.evaluate((h) => { location.hash = h; }, h
   });
   console.log("  queue:", JSON.stringify(where));
   if (!where) fail("the play sheet isn't on the screen it navigated to");
-  else if (where.top > 200)
+  // Deterministic now that it waits for the scroll to settle: the queue lands
+  // flush against the top of the scroller.
+  else if (where.top > 40)
     fail(`landed ${where.top}px above the queue — the answer is off screen (scrolled ${where.scrolled})`);
 }
 
@@ -101,6 +122,7 @@ const goto = async (hash) => { await p.evaluate((h) => { location.hash = h; }, h
   let navigated = 0;
   await p.evaluate(() => { window.__navs = 0; window.addEventListener("entoa-navigated", () => { window.__navs++; }); });
   await run("get_plays");
+  await settle();
   navigated = await p.evaluate(() => window.__navs);
   const scrolled = await p.evaluate(() => Math.round(document.querySelector(".view").scrollTop));
   console.log("\nalready on Home → navigations:", navigated, "| scrolled to:", scrolled);

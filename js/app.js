@@ -129,6 +129,10 @@ interceptSmsLinks();
 // Tell the server this device's timezone and quiet hours, so the proactive
 // sweep can notify at sensible times. No-op when nothing has changed.
 try { store.publishPrefs(); } catch { }
+// Mirror the settings to the cloud on launch, so an install that predates this
+// backs itself up the first time it opens rather than waiting for the next
+// settings edit that may never come.
+try { store.publishConfig(); } catch { }
 
 // Track the visible viewport so the tab bar and the reply row follow the
 // keyboard instead of being left behind by it. Has to run before the first
