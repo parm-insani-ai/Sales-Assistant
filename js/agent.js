@@ -97,6 +97,12 @@ function buildSystem(ctx) {
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
+    // The screen follows the conversation. The list tools put their results on
+    // screen as tappable rows, so the spoken reply's job is to hand over to
+    // what the salesperson is now looking at — not to read the list back to
+    // them. Reciting three names they can already see, and that they then have
+    // to go and find for themselves, is the assistant stopping half way.
+    `The app FOLLOWS you: a tool that returns a list of people or jobs also puts that list on the salesperson's screen, with one-tap text and call buttons on every row. So do NOT read a list aloud. Name at most the top one or two and hand over to the screen — "Lynn and Mark are your hottest, both one tap away" — because they're already looking at it.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
     // Everything the user "says" reached here through speech recognition, and
@@ -239,6 +245,16 @@ export async function execTool(name, p = {}) {
   const t = (name || "").toLowerCase();
   switch (t) {
     // ---- READS ----
+    //
+    // A read that produces a LIST of things to act on also puts that list on
+    // screen. Reading three names aloud and stopping there is the assistant
+    // doing the easy half: the salesperson then has to go and find those three
+    // people themselves, which is the work they asked to be saved.
+    //
+    // So each of these lands on the screen where its rows are already tappable
+    // — the queue on Home, the leads list filtered, the calendar — and scrolls
+    // to it. Nothing new is rendered; these screens already have the one-tap
+    // text and call buttons on every row.
     case "find_customers": {
       let list = store.all("leads");
       const q = (p.query || "").toLowerCase();
@@ -247,6 +263,16 @@ export async function execTool(name, p = {}) {
       if (p.needsFollowUp) list = list.filter((l) => l.followUp);
       if (p.hasEquity) list = list.filter((l) => (equityOf(l) || 0) > 0);
       const customers = list.slice(0, 15).map((l) => ({ name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", payment: l.currentPayment ?? null, equity: equityOf(l), followUp: l.followUp || null }));
+      // Show the same set on the leads list. It already has these filters, so
+      // the screen matches the answer instead of being a different list that
+      // happens to contain it.
+      if (list.length) {
+        try {
+          sessionStorage.setItem("leads-filter", p.stage || (p.needsFollowUp ? "due" : "all"));
+          if (p.query) sessionStorage.setItem("leads-search", p.query);
+        } catch { }
+        navigate("/leads");
+      }
       return { result: { count: list.length, customers }, note: "" };
     }
     case "get_customer": {
@@ -258,6 +284,7 @@ export async function execTool(name, p = {}) {
       let list = store.all("appointments").filter((a) => a.status !== "canceled");
       if (p.date) list = list.filter((a) => String(a.when).slice(0, 10) === p.date);
       list = list.sort((a, b) => String(a.when).localeCompare(String(b.when))).slice(0, 25);
+      if (list.length) navigate("/calendar");
       return { result: { appointments: list.map((a) => ({ customer: a.customerName, when: a.when, type: a.type, confirmed: !!a.confirmed, outcome: a.outcome || "" })) }, note: "" };
     }
     case "deal_radar": {
@@ -267,6 +294,7 @@ export async function execTool(name, p = {}) {
         monthly: Math.round(o.best.monthly), delta: o.best.delta != null ? Math.round(o.best.delta) : null,
         method: o.best.method, reasons: o.reasons,
       }));
+      if (opps.length) navigate("/deals");
       return { result: { opportunities: opps }, note: "" };
     }
     case "get_stats": {
@@ -281,11 +309,13 @@ export async function execTool(name, p = {}) {
         list = list.filter((x) => x.due && String(x.due).slice(0, 10) <= iso);
       }
       list.sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+      if (list.length) navigate("/", ".tasks-slot");
       return { result: { count: list.length, tasks: list.slice(0, 20).map((x) => ({ title: x.title, due: x.due || null, priority: x.priority || "normal" })) }, note: "" };
     }
     case "get_deliveries": {
       const list = store.all("deliveries").filter((d) => d.status !== "delivered")
         .sort((a, b) => (a.deliveryDate || "9999").localeCompare(b.deliveryDate || "9999"));
+      if (list.length) navigate("/deliveries");
       return { result: { count: list.length, deliveries: list.slice(0, 15).map((d) => {
         const items = d.checklist || [];
         return { customer: d.customerName || "", vehicle: d.vehicle || "", date: d.deliveryDate || null, prepDone: `${items.filter((i) => i.done).length}/${items.length}`, remaining: items.filter((i) => !i.done).map((i) => i.label).slice(0, 10) };
@@ -293,6 +323,7 @@ export async function execTool(name, p = {}) {
     }
     case "get_occasions": {
       const occ = getOccasions().slice(0, 12).map((o) => ({ customer: o.lead.name, phone: o.lead.phone || "", occasion: o.label, suggestedMessage: o.message }));
+      if (occ.length) navigate("/comms");
       return { result: { occasions: occ }, note: "" };
     }
     case "get_specials": {
@@ -322,10 +353,13 @@ export async function execTool(name, p = {}) {
     }
     case "get_nudges": {
       const list = getNudges({ limit: 6 }).map((n) => ({ what: n.title, why: n.sub, urgency: n.urgency }));
+      if (list.length) navigate("/", ".nudge-slot");
       return { result: { urgent: list, note: list.length ? "most urgent first" : "nothing time-critical right now" }, note: "" };
     }
     case "get_plays": {
       const plays = getPlays(6).map((p) => ({ play: p.title, why: p.sub, oneTapReady: !!p.href }));
+      // Today's queue lives most of a page down Home — land on it, not above it.
+      if (plays.length) navigate("/", ".plays-slot");
       return { result: { plays, note: plays.length ? "ordered hottest first" : "nothing urgent — a good time for prospecting calls" }, note: "" };
     }
     case "get_coach": case "weekly_review": {

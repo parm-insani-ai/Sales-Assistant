@@ -22,8 +22,12 @@ import { afterSale, closeFollowUps } from "../connections.js";
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
 
-  let search = "";
-  // active | due | all | <stage>. A stat card can preset the filter (one-shot).
+  // A stat card or the voice agent can preset the filter and the search
+  // (one-shot each) so the list you land on is the set that was just described
+  // to you, rather than the default list with that set buried in it.
+  let search = sessionStorage.getItem("leads-search") || "";
+  sessionStorage.removeItem("leads-search");
+  // active | due | all | <stage>.
   let filter = sessionStorage.getItem("leads-filter") || "active";
   sessionStorage.removeItem("leads-filter");
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
