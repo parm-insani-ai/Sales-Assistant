@@ -481,6 +481,11 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
   const vocab = vocabulary();
   let hearing = false;      // recognition is running right now
   let quiet = 0;            // consecutive rounds that heard nothing
+  // Engine errors, counted separately. Silence and a broken recogniser are
+  // different conditions with different answers, and sharing one counter let
+  // them contaminate each other — a couple of quiet moments could tip the panel
+  // into declaring the microphone dead.
+  let faults = 0;
   let busy = false;         // acting on something; don't listen over it
 
   // Ways to say "we're finished" that shouldn't be sent to the agent as a
@@ -504,8 +509,21 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
 
   const setStatus = (t) => { statusEl.textContent = t; };
 
+  // Let go of the recogniser and stop listening to anything it has left to say.
+  //
+  // Every handler has to come off, not just onend. Aborting fires onerror with
+  // "aborted", and this runs at the top of EVERY turn — so the panel was
+  // counting its own deliberate abort as an engine failure and, two of those
+  // later, announcing that voice doesn't work on this device.
   function stopHearing() {
-    try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
+    try {
+      if (rec) {
+        rec.onend = null;
+        rec.onerror = null;
+        rec.onresult = null;
+        rec.abort();
+      }
+    } catch { }
     rec = null;
     hearing = false;
   }
@@ -617,9 +635,21 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
       hearing = false;
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed")
         return fallbackToTyping("Microphone blocked \u2014 type your command below.");
-      if (ev.error === "no-speech") return; // onend deals with it
-      // Anything else (network, aborted, audio-capture): one retry, then type.
-      if (++quiet >= 2) fallbackToTyping("Voice isn't working here \u2014 type below.");
+      if (ev.error === "no-speech") return;  // onend deals with it
+      // Someone asked it to stop — us, at the start of a turn, or the tap that
+      // pauses it. Never a fault, whoever initiated it.
+      if (ev.error === "aborted") return;
+      // iOS sends the audio to Apple to transcribe, so a weak signal in a
+      // showroom surfaces here. That is a lost moment, not a broken device, and
+      // saying "voice isn't working here" about it sounds permanent and sends
+      // someone off checking settings that are fine.
+      if (ev.error === "network") {
+        if (++faults >= 3) return fallbackToTyping("Can't reach the speech service \u2014 check your signal, or type below.");
+        setStatus("Bad signal \u2014 trying again\u2026");
+        setTimeout(() => { if (!closed && !busy) listen(); }, 700);
+        return;
+      }
+      if (++faults >= 2) fallbackToTyping("Voice isn't working here \u2014 type below.");
     };
     rec.onend = () => {
       hearing = false;
@@ -627,6 +657,7 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
       const said = repair(heard.trim(), vocab);
       if (said) {
         quiet = 0;
+        faults = 0;
         transcriptEl.textContent = `\u201c${said}\u201d`;
         return run(said);
       }
@@ -644,7 +675,7 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
     if (docked) { undock(); return; }
     stopSpeaking();
     if (hearing) { stopHearing(); wave.set("idle"); setStatus("Paused \u2014 tap to talk."); }
-    else { quiet = 0; listen(); }
+    else { quiet = 0; faults = 0; listen(); }
   });
 
   // Speech recognition is attempted everywhere now, including iOS. It used to

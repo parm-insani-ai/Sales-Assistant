@@ -53,7 +53,7 @@ const TOOLS = [
   { name: "find_customers", description: "Look up customers/leads by name/vehicle query, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
   { name: "get_customer", description: "Full details for one customer by name.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
-  { name: "deal_radar", description: "Who on file could be put into a different vehicle right now, matched against real inventory. Use for ANY phrasing of this question — 'who can I get into a car for less than they're paying now', 'who could I upgrade', 'who's got equity', 'anyone I can move into something newer', 'who should I call about a trade'. Returns each customer with what they pay today, the matched vehicle, the new monthly, and `delta` (new minus current — NEGATIVE means cheaper). Set cheaperOnly when the ask is specifically about a lower/cheaper/better payment than they have now.", input_schema: { type: "object", properties: { limit: { type: "number" }, cheaperOnly: { type: "boolean", description: "only customers whose matched payment is LOWER than what they pay today" }, maxMonthly: { type: "number", description: "cap the new monthly payment" } } } },
+  { name: "deal_radar", description: "Who on file could be put into a different vehicle right now, matched against real inventory. Use for ANY phrasing of this question — 'who can I get into a car for less than they're paying now', 'who could I upgrade', 'who's got equity', 'anyone I can move into something newer', 'who should I call about a trade'. Returns each customer with what they pay today, the matched vehicle, the new monthly, and `delta` (new minus current — NEGATIVE means cheaper). Set cheaperOnly when the ask is specifically about a lower/cheaper/better payment than they have now. Set `vehicle` to run it the OTHER WAY — from a vehicle to the customers who fit it: 'which customers can be put in a Nissan Sentra right now', 'who could I move into a Rogue', 'who fits this Frontier'.", input_schema: { type: "object", properties: { limit: { type: "number" }, cheaperOnly: { type: "boolean", description: "only customers whose matched payment is LOWER than what they pay today" }, maxMonthly: { type: "number", description: "cap the new monthly payment" }, vehicle: { type: "string", description: "a model/trim to match against, e.g. \"Sentra\" or \"2026 Nissan Rogue SV\" — returns the customers who fit THAT vehicle" } } } },
   { name: "get_stats", description: "This month's appointment funnel, units, commission, goals.", input_schema: { type: "object", properties: {} } },
   { name: "get_tasks", description: "List open to-dos ('what's on my plate?'). dueToday also includes overdue.", input_schema: { type: "object", properties: { dueToday: { type: "boolean" } } } },
   { name: "get_deliveries", description: "Upcoming deliveries with prep progress ('when's Sara's delivery?', 'what's left to prep?').", input_schema: { type: "object", properties: {} } },
@@ -230,6 +230,15 @@ const num = (v) => (v == null || v === "" ? null : Number(String(v).replace(/[^0
 // appraised must read as unknown, never as "negative the entire payoff".
 const equityOf = (l) => equityDetail(l).v;
 
+// Does this vehicle answer to what was asked for? Every spoken word has to
+// appear somewhere in the vehicle, so "Sentra" and "2026 Nissan Sentra SV" both
+// match a Sentra, and "Rogue" never does.
+function matchesVehicle(v, want) {
+  if (!want) return true;
+  const hay = [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ").toLowerCase();
+  return want.split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+}
+
 const ROUTES = {
   home: "/", dashboard: "/", leads: "/leads", customers: "/leads", inventory: "/inventory",
   calculator: "/calculator", deliveries: "/deliveries", calendar: "/calendar", schedule: "/calendar",
@@ -308,8 +317,14 @@ export async function execTool(name, p = {}) {
       // So when the ask is about saving, look at each customer's CHEAPEST
       // viable option instead, and rank by how much they'd save.
       const cap = Number(p.maxMonthly) || 0;
+      // "Which customers can be put in a Nissan Sentra right now" is the radar
+      // run the other way round — from a vehicle to the people who fit it —
+      // and there was no way to ask it. It is one of the most ordinary
+      // questions on a lot: a unit is aging, or a model is on program, and you
+      // want the names.
+      const want = String(p.vehicle || "").trim().toLowerCase();
       let rows;
-      if (p.cheaperOnly) {
+      if (p.cheaperOnly || want) {
         const method = store.getSettings().dealMethod || "both";
         rows = [];
         store.all("leads").forEach((l) => {
@@ -317,7 +332,8 @@ export async function execTool(name, p = {}) {
           // is a real opportunity, but not an answer to this question.
           if (l.currentPayment == null) return;
           if (["sold", "delivered", "lost"].includes(l.stage)) return;
-          const options = dealsForLead(l, { method });
+          let options = dealsForLead(l, { method });
+          if (want) options = options.filter((o) => matchesVehicle(o.vehicle, want));
           if (!options.length) return;
           // What their equity is worth, and so what a deal spends when it puts
           // the trade in.
@@ -335,7 +351,9 @@ export async function execTool(name, p = {}) {
           const cost = (o) => o.monthly + (o.method === "lease" && o.term > 0 ? eq / o.term : 0);
           const cheapest = options.reduce((a, b) => (cost(b) < cost(a) ? b : a));
           if (cap && cheapest.monthly > cap) return;
-          if (!(cheapest.monthly < l.currentPayment)) return;
+          // Only gate on beating today's payment when that was the question.
+          // "Who could go into a Sentra" is not asking who saves money.
+          if (p.cheaperOnly && !(cheapest.monthly < l.currentPayment)) return;
           const saving = Math.round(l.currentPayment - cheapest.monthly);
           const burns = cheapest.method === "lease" && eq > 0;
           rows.push({
@@ -372,9 +390,11 @@ export async function execTool(name, p = {}) {
       return {
         result: {
           opportunities: opps,
-          note: opps.length ? "" : (p.cheaperOnly
-            ? "nobody on file currently matches to a cheaper payment — the radar needs their current payment, payoff or trade value to compare against"
-            : "no trade-up matches — check there's inventory loaded and customers have payment/payoff details"),
+          note: opps.length ? "" : (want
+            ? `nobody on file matches to a ${p.vehicle} — either it isn't in stock or the lineup, or the customers who'd fit have no payment/payoff on file to price against`
+            : p.cheaperOnly
+              ? "nobody on file currently matches to a cheaper payment — the radar needs their current payment, payoff or trade value to compare against"
+              : "no trade-up matches — check there's inventory loaded and customers have payment/payoff details"),
         },
         note: "",
       };

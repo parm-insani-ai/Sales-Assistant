@@ -115,6 +115,36 @@ const run = (tool, input = {}) => p.evaluate(async ([tool, input]) => {
     fail("an empty radar says nothing about why: " + r.result.note);
 }
 
+// --- "Which customers can be put in a Nissan Sentra right now?"
+// The radar only ever ran customer → vehicle. Asking it the other way round —
+// from a unit on the lot to the people who fit it — is one of the most ordinary
+// questions on a floor (a car is aging, or a model is on program, and you want
+// the names) and there was no way to ask it at all.
+console.log("\nfrom a vehicle to its customers:");
+{
+  const r = await run("deal_radar", { vehicle: "Sentra", limit: 10 });
+  const rows = r.result.opportunities || [];
+  rows.forEach((o) => console.log(`  ${o.customer} → ${o.vehicle} $${o.monthly}/mo`));
+  if (!rows.length) fail("nobody matches a Sentra, with a Sentra in stock and customers on file");
+  for (const o of rows) {
+    if (!/sentra/i.test(o.vehicle)) fail(`asked for a Sentra, got ${o.vehicle} for ${o.customer}`);
+  }
+
+  // A model nobody fits comes back empty and says why, rather than silently
+  // falling back to whatever the radar liked anyway.
+  const none = await run("deal_radar", { vehicle: "Ferrari 296" });
+  console.log("  a car we don't sell →", JSON.stringify(none.result.note || "").slice(0, 110));
+  if ((none.result.opportunities || []).length) fail("matched a vehicle that isn't on the lot or in the lineup");
+  if (!/Ferrari/i.test(String(none.result.note || ""))) fail("an empty vehicle search doesn't name what was asked for");
+
+  // Naming a vehicle is not asking who saves money — someone paying less today
+  // than the Sentra would cost still belongs in the answer.
+  const cheap = await run("deal_radar", { vehicle: "Sentra", cheaperOnly: true, limit: 10 });
+  console.log(`  plain: ${rows.length} customers | cheaper-only: ${(cheap.result.opportunities || []).length}`);
+  if ((cheap.result.opportunities || []).length > rows.length)
+    fail("adding cheaperOnly widened the answer");
+}
+
 // --- And the fallback when the assistant isn't connected names THAT, rather
 // than telling the salesperson their sentence was wrong.
 {

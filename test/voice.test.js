@@ -40,7 +40,18 @@ await p.addInitScript(() => {
       window.__mic.live = this;
       setTimeout(() => { if (window.__mic.live === this) window.dispatchEvent(new Event("__mic-ready")); }, 0);
     }
-    abort() { if (window.__mic.live === this) window.__mic.live = null; }
+    // The real engine reports an abort as an ERROR before it ends, including
+    // when the app itself asked it to stop — which it does at the top of every
+    // turn. The fake used to abort silently, which is politer than reality and
+    // hid a bug where the panel counted its own abort as the microphone
+    // failing and, two turns in, announced "Voice isn't working here".
+    abort() {
+      if (window.__mic.live !== this) return;
+      window.__mic.live = null;
+      window.__mic.aborts = (window.__mic.aborts || 0) + 1;
+      this.onerror && this.onerror({ error: "aborted" });
+      this.onend && this.onend();
+    }
     stop() { this.abort(); }
   }
   window.SpeechRecognition = FakeRecognition;
@@ -132,6 +143,51 @@ if (!convo.open) fail("the panel closed after the follow-up");
 console.log("user turns carried into each agent call:", JSON.stringify(asked));
 if (asked.length < 2) fail("the second turn didn't reach the agent");
 if (asked[1] < 2) fail("the follow-up started a new session — the agent lost the first exchange");
+
+// --- The panel must not mistake its own abort for a broken microphone.
+//
+// stopHearing() runs at the top of every turn and calls abort(), and the engine
+// reports that as an error. Typing a command while it's listening is the
+// clearest way to hit it: the recogniser is genuinely live, so the abort is
+// real. Two of those and the panel used to announce "Voice isn't working here
+// — type below" about a microphone that was never asked a question.
+{
+  const before = await p.evaluate(() => window.__mic.aborts || 0);
+  for (const line of ["what's the story with Ann Lee", "book her Thursday at five"]) {
+    await p.evaluate((t) => {
+      document.querySelector("#v-text").value = t;
+      document.querySelector("#v-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }, line);
+    await p.waitForTimeout(700);
+  }
+  const st = await p.evaluate(() => ({
+    aborts: window.__mic.aborts || 0,
+    status: document.querySelector("#v-status")?.textContent.trim(),
+    listening: !!window.__mic.live,
+  }));
+  console.log("\ntyping while it listens:", JSON.stringify(st));
+  if (st.aborts <= before) fail("the test never actually aborted a live recogniser — it proves nothing");
+  if (/isn't working/i.test(st.status)) fail("the panel called its own abort a broken microphone: " + st.status);
+  if (!st.listening) fail("it stopped listening after a typed turn");
+}
+
+// --- A real network error is a lost moment, not a dead device. iOS sends the
+// audio to Apple to transcribe, so a weak signal in a showroom lands here.
+{
+  await p.evaluate(() => {
+    const r = window.__mic.live;
+    window.__mic.live = null;
+    r && r.onerror && r.onerror({ error: "network" });
+  });
+  await p.waitForTimeout(900);
+  const st = await p.evaluate(() => ({
+    status: document.querySelector("#v-status")?.textContent.trim(),
+    listening: !!window.__mic.live,
+  }));
+  console.log("one network error:", JSON.stringify(st));
+  if (/isn't working here/i.test(st.status)) fail("one dropped packet and it declares voice broken: " + st.status);
+  if (!st.listening) fail("it gave up listening after a single network blip");
+}
 
 // --- When the agent takes you somewhere, the panel gets out of the way.
 // It used to sit full-height over the screen it had just opened, saying "just
