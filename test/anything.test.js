@@ -137,6 +137,42 @@ console.log("\nfrom a vehicle to its customers:");
   if ((none.result.opportunities || []).length) fail("matched a vehicle that isn't on the lot or in the lineup");
   if (!/Ferrari/i.test(String(none.result.note || ""))) fail("an empty vehicle search doesn't name what was asked for");
 
+  // A FRESHLY IMPORTED BOOK OF BUSINESS. A customer-list upload carries names
+  // and phone numbers; it does not carry what anyone pays today. Requiring a
+  // current payment to answer "who can get in a Sentra" met that upload with
+  // "nobody on file" — and then blamed the file for it. A baseline is needed to
+  // BEAT a payment, not to quote one, and the app prices a Sentra for these
+  // people perfectly well.
+  {
+    const fresh = await p.evaluate(async () => {
+      const store = await import("/js/store.js");
+      const agent = await import("/js/agent.js");
+      const made = ["Fresh One", "Fresh Two"].map((name) =>
+        store.create("leads", { name, phone: "9025559999", stage: "new" }).id);
+      const r = await agent.execTool("deal_radar", { vehicle: "2026 Nissan Sentra", limit: 20 });
+      const rows = r.result.opportunities || [];
+      made.forEach((id) => store.remove("leads", id));
+      return {
+        names: rows.map((o) => o.customer),
+        freshRow: rows.find((o) => /Fresh One/.test(o.customer)) || null,
+        note: r.result.note || "",
+      };
+    });
+    console.log("  after a plain customer import:", JSON.stringify(fresh.names));
+    if (!fresh.freshRow)
+      fail("a customer with no payment on file can't be shown a Sentra — that's every row of a fresh import");
+    else {
+      if (!(fresh.freshRow.monthly > 0)) fail("no payment was quoted for them: " + JSON.stringify(fresh.freshRow));
+      if (fresh.freshRow.saves != null) fail("a saving was claimed with nothing to compare against");
+      if (!(fresh.freshRow.reasons || []).some((x) => /no current payment/i.test(x)))
+        fail("it doesn't say the comparison is missing: " + JSON.stringify(fresh.freshRow.reasons));
+    }
+    // Someone you CAN show a saving to still leads — that's the call you can
+    // make today.
+    if (fresh.names.length > 1 && /Fresh/.test(fresh.names[0]))
+      fail("a customer with no baseline outranked one with a real saving: " + JSON.stringify(fresh.names));
+  }
+
   // Naming a vehicle is not asking who saves money — someone paying less today
   // than the Sentra would cost still belongs in the answer.
   const cheap = await run("deal_radar", { vehicle: "Sentra", cheaperOnly: true, limit: 10 });

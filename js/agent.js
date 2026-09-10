@@ -328,9 +328,13 @@ export async function execTool(name, p = {}) {
         const method = store.getSettings().dealMethod || "both";
         rows = [];
         store.all("leads").forEach((l) => {
-          // No current payment means no baseline to beat. A paid-off customer
-          // is a real opportunity, but not an answer to this question.
-          if (l.currentPayment == null) return;
+          // A baseline is needed to BEAT a payment, not to quote one. "Who can
+          // get in a Sentra right now" can be answered for anybody the app can
+          // price — and after a plain customer import, that is everybody,
+          // because a name and a phone number are all such a file carries.
+          // Requiring a current payment here answered a freshly imported book
+          // of business with "nobody", and then blamed the file for it.
+          if (p.cheaperOnly && l.currentPayment == null) return;
           if (["sold", "delivered", "lost"].includes(l.stage)) return;
           let options = dealsForLead(l, { method });
           if (want) options = options.filter((o) => matchesVehicle(o.vehicle, want));
@@ -354,13 +358,13 @@ export async function execTool(name, p = {}) {
           // Only gate on beating today's payment when that was the question.
           // "Who could go into a Sentra" is not asking who saves money.
           if (p.cheaperOnly && !(cheapest.monthly < l.currentPayment)) return;
-          const saving = Math.round(l.currentPayment - cheapest.monthly);
+          const saving = l.currentPayment != null ? Math.round(l.currentPayment - cheapest.monthly) : null;
           const burns = cheapest.method === "lease" && eq > 0;
           rows.push({
             lead: l, best: cheapest,
             equityUsed: Math.round(eq),
             effectiveMonthly: Math.round(cost(cheapest)),
-            reasons: [`Saves $${saving}/mo`]
+            reasons: (saving > 0 ? [`Saves $${saving}/mo`] : saving != null ? [`$${Math.abs(saving)}/mo more than now`] : [`$${Math.round(cheapest.monthly)}/mo — no current payment on file to compare`])
               .concat(eq > 0 ? [`$${Math.round(eq).toLocaleString()} equity`] : [])
               // Said plainly, because this is the sentence that stops a number
               // being quoted that would have to be walked back at the desk.
@@ -369,7 +373,18 @@ export async function execTool(name, p = {}) {
         });
         // Cheapest by TRUE cost, so an equity-funded lease can't outrank a
         // finance deal that reaches a similar payment and keeps the equity.
-        rows.sort((a, b) => a.effectiveMonthly - b.effectiveMonthly);
+        //
+        // Anyone we can show a saving to leads, because "you'd pay less than
+        // you do now" is a call you can make today. Everyone else follows on
+        // payment alone — still worth ringing about a Sentra, just without a
+        // number to open with.
+        const savesBy = (o) => (o.lead.currentPayment != null ? o.lead.currentPayment - o.best.monthly : null);
+        rows.sort((a, b) => {
+          const sa = savesBy(a), sb = savesBy(b);
+          if ((sa > 0) !== (sb > 0)) return sa > 0 ? -1 : 1;
+          if (sa > 0 && sb > 0) return a.effectiveMonthly - b.effectiveMonthly;
+          return a.best.monthly - b.best.monthly;
+        });
       } else {
         rows = topOpportunities(Number(p.limit) || 8);
         if (cap) rows = rows.filter((o) => o.best.monthly <= cap);
@@ -391,7 +406,7 @@ export async function execTool(name, p = {}) {
         result: {
           opportunities: opps,
           note: opps.length ? "" : (want
-            ? `nobody on file matches to a ${p.vehicle} — either it isn't in stock or the lineup, or the customers who'd fit have no payment/payoff on file to price against`
+            ? `no ${p.vehicle} could be priced — check that model is in stock or in the Nissan lineup, and that you have customers on file`
             : p.cheaperOnly
               ? "nobody on file currently matches to a cheaper payment — the radar needs their current payment, payoff or trade value to compare against"
               : "no trade-up matches — check there's inventory loaded and customers have payment/payoff details"),
