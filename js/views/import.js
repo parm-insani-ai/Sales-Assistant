@@ -127,8 +127,17 @@ export function renderImport(view) {
       toast(err && err.message ? err.message : "Couldn't read that file", "danger");
       return;
     }
-    if (!parsed.headers.length || !parsed.rows.length) {
-      stage.innerHTML = emptyState("file", "No rows found", "Make sure the sheet has a header row and at least one data row.");
+    // Two different problems, and the parser knows which one it hit. Telling
+    // someone to check for a header row when the header parsed fine and the
+    // sheet was simply empty sends them looking at the one thing that works.
+    if (!parsed.headers.length) {
+      stage.innerHTML = emptyState("file", "No column headings found",
+        `Nothing in the first row of ${esc(file.name)} looks like a column name. Export again with headings, or check it isn't a summary sheet with the table further down.`);
+      return;
+    }
+    if (!parsed.rows.length) {
+      stage.innerHTML = emptyState("file", "Headings but no data",
+        `Read ${parsed.headers.length} column${parsed.headers.length === 1 ? "" : "s"} — ${esc(parsed.headers.slice(0, 4).join(", "))}${parsed.headers.length > 4 ? "…" : ""} — and no rows underneath.`);
       return;
     }
     showMapping(stage, typeSel.value, parsed, { outreach: () => el.querySelector("#imp-outreach")?.checked });

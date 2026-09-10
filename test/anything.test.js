@@ -111,8 +111,13 @@ const run = (tool, input = {}) => p.evaluate(async ([tool, input]) => {
   const r = await run("deal_radar", { cheaperOnly: true, maxMonthly: 1 });
   console.log("\nnothing matches:", JSON.stringify(r.result));
   if ((r.result.opportunities || []).length) fail("matches came back under a $1/mo cap");
-  if (!/needs|payment|payoff|compare/i.test(String(r.result.note || "")))
-    fail("an empty radar says nothing about why: " + r.result.note);
+  // The cap is what excluded them, and the cap is what it has to say. It used
+  // to answer this with "your customers have no payment details" — a cause it
+  // had never checked, and wrong here, since these customers have payments.
+  if (!/cap/i.test(String(r.result.note || "")))
+    fail("an empty radar doesn't name the cap that emptied it: " + r.result.note);
+  if (/no current payment/i.test(String(r.result.note || "")))
+    fail("it blames missing payment data for customers who have it: " + r.result.note);
 }
 
 // --- "Which customers can be put in a Nissan Sentra right now?"

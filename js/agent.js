@@ -230,6 +230,33 @@ const num = (v) => (v == null || v === "" ? null : Number(String(v).replace(/[^0
 // appraised must read as unknown, never as "negative the entire payoff".
 const equityOf = (l) => equityDetail(l).v;
 
+/**
+ * Say why the radar came back empty, from what was actually counted.
+ *
+ * The old messages asserted causes nobody had checked — "your customers don't
+ * have payment details captured yet" was told to a salesperson who had just
+ * imported a customer file, and was both wrong and the app's own fault. A
+ * message that names a cause has to have measured it; otherwise it sends
+ * someone off fixing the wrong thing, and it costs them trust in every other
+ * number the app shows them.
+ */
+function emptyReason({ skipped, want, vehicle, cheaperOnly, cap }) {
+  const total = store.all("leads").length;
+  if (!total) return "there are no customers on file yet";
+  if (want && skipped.noVehicle && !skipped.noOptions)
+    return `${skipped.noVehicle} customer${skipped.noVehicle === 1 ? " was" : "s were"} priced, but none against a ${vehicle} — check that model is in stock or in the Nissan lineup`;
+  if (want && skipped.noOptions === total)
+    return "nothing could be priced at all — there's no inventory loaded and no lineup to fall back on";
+  const bits = [];
+  if (skipped.notCheaper) bits.push(`${skipped.notCheaper} priced above what they pay now`);
+  if (skipped.overCap) bits.push(`${skipped.overCap} over the $${cap}/mo cap`);
+  if (skipped.noBaseline) bits.push(`${skipped.noBaseline} with no current payment on file to compare against`);
+  if (skipped.noOptions) bits.push(`${skipped.noOptions} with nothing to price against`);
+  if (skipped.closed) bits.push(`${skipped.closed} already sold or lost`);
+  if (bits.length) return `no matches — ${bits.join(", ")}`;
+  return cheaperOnly ? "nobody prices below what they pay today" : "no matches";
+}
+
 // Does this vehicle answer to what was asked for? Every spoken word has to
 // appear somewhere in the vehicle, so "Sentra" and "2026 Nissan Sentra SV" both
 // match a Sentra, and "Rogue" never does.
@@ -324,6 +351,11 @@ export async function execTool(name, p = {}) {
       // want the names.
       const want = String(p.vehicle || "").trim().toLowerCase();
       let rows;
+      // Why each customer fell out. An empty answer that guesses at its own
+      // cause is worse than one that says nothing: it sends the salesperson off
+      // fixing whatever was guessed at. The /deals screen already reports these
+      // counts honestly; this tool was inventing a reason instead.
+      const skipped = { noBaseline: 0, noOptions: 0, noVehicle: 0, overCap: 0, notCheaper: 0, closed: 0 };
       if (p.cheaperOnly || want) {
         const method = store.getSettings().dealMethod || "both";
         rows = [];
@@ -334,11 +366,14 @@ export async function execTool(name, p = {}) {
           // because a name and a phone number are all such a file carries.
           // Requiring a current payment here answered a freshly imported book
           // of business with "nobody", and then blamed the file for it.
-          if (p.cheaperOnly && l.currentPayment == null) return;
-          if (["sold", "delivered", "lost"].includes(l.stage)) return;
+          if (p.cheaperOnly && l.currentPayment == null) { skipped.noBaseline++; return; }
+          if (["sold", "delivered", "lost"].includes(l.stage)) { skipped.closed++; return; }
           let options = dealsForLead(l, { method });
-          if (want) options = options.filter((o) => matchesVehicle(o.vehicle, want));
-          if (!options.length) return;
+          if (!options.length) { skipped.noOptions++; return; }
+          if (want) {
+            options = options.filter((o) => matchesVehicle(o.vehicle, want));
+            if (!options.length) { skipped.noVehicle++; return; }
+          }
           // What their equity is worth, and so what a deal spends when it puts
           // the trade in.
           const eq = Math.max(0, Number(equityOf(l)) || 0);
@@ -354,10 +389,10 @@ export async function execTool(name, p = {}) {
           // term, and the ranking compares like with like.
           const cost = (o) => o.monthly + (o.method === "lease" && o.term > 0 ? eq / o.term : 0);
           const cheapest = options.reduce((a, b) => (cost(b) < cost(a) ? b : a));
-          if (cap && cheapest.monthly > cap) return;
+          if (cap && cheapest.monthly > cap) { skipped.overCap++; return; }
           // Only gate on beating today's payment when that was the question.
           // "Who could go into a Sentra" is not asking who saves money.
-          if (p.cheaperOnly && !(cheapest.monthly < l.currentPayment)) return;
+          if (p.cheaperOnly && !(cheapest.monthly < l.currentPayment)) { skipped.notCheaper++; return; }
           const saving = l.currentPayment != null ? Math.round(l.currentPayment - cheapest.monthly) : null;
           const burns = cheapest.method === "lease" && eq > 0;
           rows.push({
@@ -405,11 +440,7 @@ export async function execTool(name, p = {}) {
       return {
         result: {
           opportunities: opps,
-          note: opps.length ? "" : (want
-            ? `no ${p.vehicle} could be priced — check that model is in stock or in the Nissan lineup, and that you have customers on file`
-            : p.cheaperOnly
-              ? "nobody on file currently matches to a cheaper payment — the radar needs their current payment, payoff or trade value to compare against"
-              : "no trade-up matches — check there's inventory loaded and customers have payment/payoff details"),
+          note: opps.length ? "" : emptyReason({ skipped, want, vehicle: p.vehicle, cheaperOnly: p.cheaperOnly, cap }),
         },
         note: "",
       };
