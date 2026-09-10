@@ -2,6 +2,7 @@
 // and data backup (export / import / reset).
 
 import * as store from "../store.js";
+import { BACKEND_DEFAULTS } from "../config.js";
 import { openModal, buildForm, toast, confirmDialog } from "../components.js";
 import { esc } from "../utils.js";
 import { icon } from "../icons.js";
@@ -490,9 +491,13 @@ function buildCloud(slot) {
       </ol>
     </details>`;
 
+  // Fall back to whatever the build ships (js/config.js), so a fresh install
+  // shows the fields already filled rather than asking for something the app
+  // already knows. Nothing is saved until Save is tapped, and a value typed
+  // here still wins.
   const configFields = `
-    <div class="field"><label>Supabase Project URL</label><input id="c-url" type="url" value="${esc(s.supabaseUrl || "")}" placeholder="https://xxxx.supabase.co"></div>
-    <div class="field"><label>Supabase anon key</label><input id="c-key" value="${esc(s.supabaseAnonKey || "")}" placeholder="eyJhbGciOi…"></div>`;
+    <div class="field"><label>Supabase Project URL</label><input id="c-url" type="url" value="${esc(s.supabaseUrl || BACKEND_DEFAULTS.url || "")}" placeholder="https://xxxx.supabase.co"></div>
+    <div class="field"><label>Supabase anon key</label><input id="c-key" value="${esc(s.supabaseAnonKey || BACKEND_DEFAULTS.anonKey || "")}" placeholder="eyJhbGciOi…"></div>`;
 
   if (!configured) {
     slot.innerHTML = `

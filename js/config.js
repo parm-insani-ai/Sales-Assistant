@@ -20,8 +20,13 @@
 // Anything saved in Settings still wins over these — this is the floor, not an
 // override.
 export const BACKEND_DEFAULTS = {
-  // e.g. "https://abcdefghijklmnop.supabase.co"
-  url: "",
-  // Supabase → Project Settings → API → Project API keys → `anon` `public`
+  url: "https://bgzkafhlwaldbdfehfsa.supabase.co",
+  // Supabase dashboard → Settings → API (newer dashboards: "API Keys") →
+  // Project API keys → the one labelled `anon` `public`. It is either a long
+  // `eyJ...` JWT or an `sb_publishable_...` string; both are correct.
+  //
+  // NOT `service_role`. That key bypasses row-level security, and it is the one
+  // the dashboard hides behind a Reveal button — if you had to click to see it,
+  // it's the wrong one.
   anonKey: "",
 };
