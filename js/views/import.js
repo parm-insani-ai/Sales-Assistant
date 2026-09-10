@@ -200,9 +200,13 @@ function showMapping(stage, type, parsed, opts = {}) {
     // Automate outreach: start a follow-up cadence on each newly-created prospect.
     let outreach = 0;
     if (type === "leads" && opts.outreach && opts.outreach()) {
-      result.addedIds.forEach((id) => {
-        const l = store.get("leads", id);
-        if (l && l.stage === "new") { startCadence(id); outreach++; }
+      // Also batched: a cadence is eight tasks per lead, so on a big file this
+      // loop is an order of magnitude more writes than the import itself.
+      store.bulk(() => {
+        result.addedIds.forEach((id) => {
+          const l = store.get("leads", id);
+          if (l && l.stage === "new") { startCadence(id); outreach++; }
+        });
       });
     }
     const verb = type === "vehicles" ? "updated" : "enriched";
@@ -211,6 +215,14 @@ function showMapping(stage, type, parsed, opts = {}) {
     if (result.unchanged) parts.push(`${result.unchanged} already current`);
     if (result.skipped) parts.push(`${result.skipped} skipped`);
     const extra = outreach ? ` · outreach started for ${outreach}` : "";
+    // Storage filling up used to be a console line and nothing else: the app
+    // showed the rows, said "Import complete", and lost them on the next
+    // launch. If the save didn't land, say so instead of celebrating.
+    const saveFailed = store.saveError();
+    if (saveFailed) {
+      toast(`Read ${result.added + result.updated} customers but couldn't save them — this device's storage is full. Export a backup, then remove old imports before trying again.`, "danger");
+      return;
+    }
     toast(`Import complete — ${parts.join(", ")}${extra}`, "success");
     // Land on a filter that actually shows what was just imported — past
     // customers come in at "delivered", which the default Active filter hides.
@@ -352,6 +364,15 @@ function mergeLead(existing, incoming) {
 }
 
 function runImport(type, rows, mapping) {
+  // One save at the end, not one per row. Each create/update otherwise
+  // re-serialises the entire store and re-runs every subscriber, so the cost
+  // of a file grows with the square of its length — 3,235 customers locked the
+  // phone up rather than importing. Inside bulk() the same file is a single
+  // write.
+  return store.bulk(() => runImportRows(type, rows, mapping));
+}
+
+function runImportRows(type, rows, mapping) {
   let added = 0, updated = 0, skipped = 0, unchanged = 0;
   const addedIds = [];
 

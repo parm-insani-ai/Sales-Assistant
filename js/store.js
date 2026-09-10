@@ -6,6 +6,15 @@ import { uid } from "./utils.js";
 
 const KEY = "sales-assistant:v1";
 
+// Batched-write state. Declared up here rather than beside bulk(): load() runs
+// at module init and can persist a migration, which happens before a `let`
+// declared further down the file exists at all.
+let bulkDepth = 0;
+let bulkDirty = false;
+// Why the last save failed, or null.
+let lastSaveError = null;
+export function saveError() { return lastSaveError; }
+
 const DEFAULT_DELIVERY_CHECKLIST = [
   "Vehicle detailed / washed",
   "Full tank of gas / charged",
@@ -310,13 +319,52 @@ function load() {
   }
 }
 
+// --- Bulk writes ---
+//
+// Every create/update/remove persists the WHOLE store and notifies every
+// subscriber. That is right for one edit and catastrophic for a file: an
+// import of 3,235 customers ran 3,235 full JSON.stringify passes over a state
+// that grew with each one, wrote localStorage 3,235 times, and re-ran every
+// listener each time. The work is quadratic in the row count, so the phone
+// simply stopped — which is what "the app is breaking" looks like from
+// outside.
+//
+// bulk() collapses all of that into one save and one notification at the end.
+
+/**
+ * Run a batch of writes as one save. Nests safely; returns whatever fn returns.
+ * Anything that writes more than a handful of records should be inside this.
+ */
+export function bulk(fn) {
+  bulkDepth++;
+  try {
+    return fn();
+  } finally {
+    bulkDepth--;
+    if (bulkDepth === 0 && bulkDirty) {
+      bulkDirty = false;
+      persist();
+    }
+  }
+}
+
+// Why the last save failed, or null. Storage filling up used to be a
+// console.error and nothing else — the app carried on showing data that was
+// only in memory, and the next launch had lost it with no explanation.
+
 function persist() {
+  if (bulkDepth > 0) { bulkDirty = true; return true; }
+  let ok = true;
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
+    lastSaveError = null;
   } catch (e) {
+    ok = false;
+    lastSaveError = e;
     console.error("Failed to save. Storage may be full.", e);
   }
   listeners.forEach((fn) => fn(state));
+  return ok;
 }
 
 export function subscribe(fn) {

@@ -35,12 +35,20 @@ export function hasSampleData() {
 }
 
 export function removeSampleData() {
+  // One save, not one per record — see store.bulk().
+  return store.bulk(() => removeSampleData_());
+}
+function removeSampleData_() {
   COLLECTIONS.forEach((name) => {
     store.all(name).filter((x) => x.demo).forEach((x) => store.remove(name, x.id));
   });
 }
 
 export function loadSampleData() {
+  // One save, not one per record — see store.bulk().
+  return store.bulk(() => loadSampleData_());
+}
+function loadSampleData_() {
   removeSampleData(); // avoid duplicates if run twice
 
   const V = (o) => store.create("vehicles", { status: "available", condition: "New", demo: true, ...o });

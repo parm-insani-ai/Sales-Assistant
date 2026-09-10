@@ -56,7 +56,12 @@ async function pushOutbox() {
 async function pullApply() {
   const { rows, cursor } = await backend.pullRecords(meta().cursor);
   let applied = 0;
-  rows.forEach((row) => {
+  // One save for the whole page, not one per row. The first sync after a
+  // reinstall pulls the entire book down at once, and applying it record by
+  // record re-serialises the whole store each time — the same quadratic cost
+  // that made importing 3,235 customers lock the phone up, arriving by a
+  // different door.
+  store.bulk(() => rows.forEach((row) => {
     const key = `${row.collection}:${row.id}`;
     const remoteTime = (row.data && row.data.updatedAt) || row.updated_at || "";
     const local = store.get(row.collection, row.id);
@@ -68,7 +73,7 @@ async function pullApply() {
       store.clearOutboxKeys([key]);
       applied++;
     }
-  });
+  }));
   if (cursor) setMeta({ cursor });
   // The settings mirror arrives as an ordinary record; fold it back into the
   // live settings. This is what makes a reinstall recover the dealership name,
