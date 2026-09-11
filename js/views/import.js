@@ -194,7 +194,7 @@ function showMapping(stage, type, parsed, opts = {}) {
   drawPreview();
   mapRows.querySelectorAll("select").forEach((s) => s.addEventListener("change", drawPreview));
 
-  stage.querySelector('[data-act="run"]').addEventListener("click", () => {
+  stage.querySelector('[data-act="run"]').addEventListener("click", async () => {
     const m = readMapping();
     const result = runImport(type, parsed.rows, m);
     // Automate outreach: start a follow-up cadence on each newly-created prospect.
@@ -218,6 +218,9 @@ function showMapping(stage, type, parsed, opts = {}) {
     // Storage filling up used to be a console line and nothing else: the app
     // showed the rows, said "Import complete", and lost them on the next
     // launch. If the save didn't land, say so instead of celebrating.
+    // Writes land asynchronously now; wait for this batch before deciding
+    // whether it saved.
+    await store.flush();
     const saveFailed = store.saveError();
     if (saveFailed) {
       toast(`Read ${result.added + result.updated} customers but couldn't save them — this device's storage is full. Export a backup, then remove old imports before trying again.`, "danger");

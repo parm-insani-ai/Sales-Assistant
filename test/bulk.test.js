@@ -47,12 +47,23 @@ const ROWS = 3235;
     store.bulk(() => { for (let i = 0; i < n; i++) store.create("leads", mk(i)); });
     const ms = performance.now() - t0;
     off();
-    const raw = localStorage.getItem("sales-assistant:v1") || "";
+    // Writes are asynchronous now — wait for them, then count what's on disk.
+    await store.flush();
+    const persisted = await new Promise((res, rej) => {
+      const r = indexedDB.open("entoa");
+      r.onsuccess = () => {
+        const q = r.result.transaction("records").objectStore("records").getAllKeys();
+        q.onsuccess = () => res(q.result.filter((k) => String(k).startsWith("leads\u0000")).length);
+        q.onerror = () => rej(q.error);
+      };
+      r.onerror = () => rej(r.error);
+    });
+    const mb = +(JSON.stringify(store.getState()).length / 1048576).toFixed(2);
     return {
       ms: Math.round(ms), notifies,
       inMemory: store.all("leads").length,
-      persisted: JSON.parse(raw).leads.length,
-      mb: +(raw.length / 1048576).toFixed(2),
+      persisted,
+      mb,
       saveError: String(store.saveError() || ""),
     };
   }, ROWS);
@@ -68,8 +79,8 @@ const ROWS = 3235;
   // Generous, because CI machines vary; the pre-fix number was "did not finish
   // in 120 seconds", so anything in this range proves the shape changed.
   if (r.ms > 5000) fail(`the batch took ${r.ms}ms — that's the per-row cost coming back`);
-  // And the whole book has to fit in localStorage with room to work.
-  if (r.mb > 4) fail(`${r.mb}MB stored — too close to the ~5MB localStorage ceiling`);
+  // (No ceiling check any more: records live in IndexedDB, one row each, and
+  // the ~5MB localStorage limit that used to loom here no longer applies.)
   console.log(`  one save, one notification, ${r.mb}MB, ${r.ms}ms`);
 }
 
@@ -97,20 +108,24 @@ const ROWS = 3235;
 
 // --- A failed save must not be reported as success. Storage filling up was a
 // console line and nothing else: the rows showed on screen, the app said
-// "Import complete", and the next launch had lost them.
+// "Import complete", and the next launch had lost them. Records live in
+// IndexedDB now, so the failure to simulate is IndexedDB refusing the write.
 {
   const r = await p.evaluate(async () => {
     const store = await import("/js/store.js");
-    const real = Storage.prototype.setItem;
-    Storage.prototype.setItem = function () { const e = new Error("QuotaExceededError"); e.name = "QuotaExceededError"; throw e; };
-    let ok;
+    const realPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function () { const e = new Error("QuotaExceededError"); e.name = "QuotaExceededError"; throw e; };
+    let err;
     try {
-      ok = store.bulk(() => { store.create("leads", { name: "Overflow", stage: "new" }); return true; });
+      store.bulk(() => { store.create("leads", { name: "Overflow", stage: "new" }); });
+      await store.flush();
+      err = String(store.saveError() || "");
     } finally {
-      Storage.prototype.setItem = real;
+      IDBObjectStore.prototype.put = realPut;
     }
-    const err = String(store.saveError() || "");
-    store.create("leads", { name: "After", stage: "new" });   // storage works again
+    // Storage works again: the retry lands and the error clears.
+    store.create("leads", { name: "After", stage: "new" });
+    await store.flush();
     return { err, clearedAfterGoodSave: String(store.saveError() || "") };
   });
   console.log("\nstorage full:", JSON.stringify(r));

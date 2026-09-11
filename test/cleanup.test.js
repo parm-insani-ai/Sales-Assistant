@@ -34,7 +34,33 @@ await p.addInitScript(() => {
 await p.goto(APP + "/#/leads");
 await p.waitForTimeout(800);
 
-const state = await p.evaluate(() => JSON.parse(localStorage.getItem("sales-assistant:v1")));
+// Persisted state now lives in IndexedDB, one record per row. Read it back the
+// way a relaunch would, rather than through the retired localStorage blob.
+const persisted = () => p.evaluate(() => new Promise((res, rej) => {
+  const r = indexedDB.open("entoa");
+  r.onsuccess = () => {
+    const tx = r.result.transaction(["records", "outbox", "kv"]);
+    const rk = tx.objectStore("records").getAllKeys(), rv = tx.objectStore("records").getAll();
+    const ok = tx.objectStore("outbox").getAllKeys(), ov = tx.objectStore("outbox").getAll();
+    const kv = tx.objectStore("kv").get("settings");
+    tx.oncomplete = () => {
+      // Rebuild the shape the old blob had: one array per collection, plus
+      // outbox and settings.
+      const state = { outbox: {}, settings: kv.result || {} };
+      rv.result.forEach((v, i) => {
+        const key = String(rk.result[i]);
+        const c = key.slice(0, key.indexOf("\u0000"));
+        (state[c] = state[c] || []).push(v);
+      });
+      ov.result.forEach((v, i) => { state.outbox[String(ok.result[i])] = v; });
+      res(state);
+    };
+    tx.onerror = () => rej(tx.error);
+  };
+  r.onerror = () => rej(r.error);
+}));
+
+const state = await persisted();
 
 console.log("settings.lenders after load:", JSON.stringify(state.settings.lenders));
 if (state.settings.lenders !== undefined) fail("the invented rate sheet is still in settings");
@@ -60,7 +86,7 @@ if (bo.updatedAt !== "2026-09-01T00:00:00.000Z") fail("an untouched lead had its
 // And it must be genuinely one-time.
 await p.reload();
 await p.waitForTimeout(600);
-const again = await p.evaluate(() => JSON.parse(localStorage.getItem("sales-assistant:v1")));
+const again = await persisted();
 if (again.leads.find((l) => l.id === "a").updatedAt !== ann.updatedAt)
   fail("the cleanup ran a second time and re-touched the record");
 console.log("second load left it alone ✓");

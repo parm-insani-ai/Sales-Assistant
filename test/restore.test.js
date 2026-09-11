@@ -68,9 +68,12 @@ const backup = await p.evaluate(async () => {
   return JSON.parse(JSON.stringify(store.get("config", store.CONFIG_ID)));
 });
 
-const p2 = await ctx.newPage();
+// A fresh browser context: deleting the PWA takes IndexedDB with it, not just
+// localStorage, and a second page in the same context would still see the
+// first page's database.
+const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+const p2 = await ctx2.newPage();
 await p2.addInitScript((rec) => {
-  localStorage.clear();                       // exactly what deleting the PWA does
   window.__cloudConfig = rec;                 // what the server still holds
 }, backup);
 await p2.goto(APP + "/#/");

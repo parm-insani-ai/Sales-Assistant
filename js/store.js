@@ -235,135 +235,353 @@ export function stageMeta(id) {
   return LEAD_STAGES.find((s) => s.id === id) || LEAD_STAGES[0];
 }
 
-let state = load();
-const listeners = new Set();
-if (state.needsPersist) { delete state.needsPersist; persist(); }
+// ---------------------------------------------------------------------------
+// Persistence
+//
+// The store used to be one JSON blob in localStorage, rewritten in full on
+// every write. That is fine at fifty customers and wrong at three thousand:
+// each tap serialised and wrote ~3.4MB on the main thread (a third of a second
+// on a desktop, a second on a phone), and localStorage's ~5MB ceiling was one
+// import away. Past it, the save failed with a console line, the app carried
+// on from memory, and the next launch loaded whatever had last fit — which is
+// exactly "the customers don't remain if I click out for a few minutes".
+//
+// Now: IndexedDB, one row per record. A tap writes one record. There is no
+// practical size ceiling. Writes are asynchronous, so nothing blocks the UI.
+// The in-memory `state` is unchanged and every read in the app stays
+// synchronous; only the write-behind changed. localStorage remains as the
+// fallback if IndexedDB can't open, and the old blob is migrated across once —
+// removed only after IndexedDB has confirmed the write.
+// ---------------------------------------------------------------------------
 
-function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return structuredClone(DEFAULT_STATE);
-    const parsed = JSON.parse(raw);
-    // Merge so new default fields appear for existing users.
-    const merged = {
-      ...structuredClone(DEFAULT_STATE),
-      ...parsed,
-      settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
-    };
-    // One-time correction: early builds shipped a 6.5% tax default. Nova Scotia
-    // HST on a vehicle deal is 14%. Runs once (taxRateFixed), so a rate the
-    // user sets deliberately afterwards is never overwritten.
-    if (!merged.settings.taxRateFixed) {
-      if (Number(merged.settings.taxRate) === 6.5) merged.settings.taxRate = 14;
-      merged.settings.taxRateFixed = true;
+const DB_NAME = "entoa";
+const DB_VERSION = 1;
+const SEP = "\u0000";                      // record key = collection + SEP + id
+let db = null;
+let backend = "idb";                       // "idb" | "ls"
+
+let state = structuredClone(DEFAULT_STATE);
+const listeners = new Set();
+
+// What has changed in memory and not yet reached disk. Keys only — the value
+// is read from `state` at flush time, so a record removed since it was touched
+// is written as a delete, and one touched twice is written once.
+const dirty = { records: new Set(), outbox: new Set(), kv: new Set(), rewriteAll: false, outboxClear: false };
+const touch = (c, id) => dirty.records.add(c + SEP + id);
+const touchOutbox = (key) => dirty.outbox.add(key);
+const touchKv = (key) => dirty.kv.add(key);
+
+/**
+ * Merge a loaded snapshot over the defaults and apply the one-time migrations.
+ * Shared by every load path — the IndexedDB read, the localStorage migration,
+ * and the fallback.
+ */
+function hydrate(parsed) {
+  // Merge so new default fields appear for existing users.
+  const merged = {
+    ...structuredClone(DEFAULT_STATE),
+    ...parsed,
+    settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
+  };
+  // One-time correction: early builds shipped a 6.5% tax default. Nova Scotia
+  // HST on a vehicle deal is 14%. Runs once (taxRateFixed), so a rate the
+  // user sets deliberately afterwards is never overwritten.
+  if (!merged.settings.taxRateFixed) {
+    if (Number(merged.settings.taxRate) === 6.5) merged.settings.taxRate = 14;
+    merged.settings.taxRateFixed = true;
+  }
+  // Same story for the doc fee: early builds defaulted to $499. O'Regan's
+  // charges $699 on every car. Runs once so a hand-set fee is never touched.
+  if (!merged.settings.docFeeFixed) {
+    if (Number(merged.settings.docFee) === 499) merged.settings.docFee = 699;
+    merged.settings.docFeeFixed = true;
+  }
+  // The old "First contact" template thanked the customer for their interest
+  // in {vehicle} — but for an imported owner {vehicle} is the car they
+  // already drive, so it read as nonsense. Templates live in settings, so a
+  // new default never reaches an existing install: swap the stale body out
+  // once, and only if it is still untouched.
+  if (Number(merged.settings.firstTouchFixed || 0) < 4) {
+    const superseded = [
+      // The original: thanked an owner for their interest in their own trade.
+      "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?",
+      // The first rewrite: accurate, but it read like a pitch.
+      "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is worth about {tradeValue} right now — more than most people expect. With this month's Nissan rates that's enough to put you in a new one for close to {payment}. Want me to send you the exact numbers?",
+      "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and still worth about {tradeValue} — that's real money sitting in the driveway, and it's quietly dropping every month. Want me to show you what it could put you into with nothing out of pocket?",
+      "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} is coming due, so you've got a decision to make. I've pulled two options that keep you at or under {payment}. Want me to text them over, or would a quick call be easier?",
+      "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. I've got one here I think you'd like. Are you free to see it this week, or are evenings and weekends better for you?",
+      // v124: honest and unpushy, but it handed over the number for free.
+      "Hi {firstName}, it's {salesperson} at {dealership}. I ran the current numbers on your {theirCar} — it's sitting around {tradeValue} today. Figured that's worth knowing either way. If it helps I can lay out your options from here, staying put included. Want me to send it over?",
+      "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and currently worth about {tradeValue} — just a useful thing to know about your own vehicle. If you're ever curious what that opens up, I'm happy to walk through it, keeping it included. Want the details?",
+      // v125: withheld the figure, but still promised to text it — which the
+      // desk rule says never happens. The ask is the appointment now.
+      "Hi {firstName}, it's {salesperson} at {dealership}. I pulled what your {theirCar} is worth today — want me to send you the number? No agenda either way, it's just useful to know where you stand, staying put included.",
+      "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off, and I just pulled what it's worth today. Want me to send you the number? Worth knowing what you're sitting on, even if you keep it.",
+      "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon, and you've got three choices: buy it, hand it back, or start something new. Happy to walk through what each one actually costs so you can decide properly. Want me to send a summary?",
+    ];
+    const list = merged.settings.messageTemplates;
+    if (Array.isArray(list)) {
+      list.forEach((t, i) => {
+        if (!superseded.includes(String(t.body).trim())) return; // hand-edited: leave it
+        const fresh = DEFAULT_TEMPLATES.find((d) => d.id === t.id);
+        if (fresh) list[i] = { ...fresh };
+      });
     }
-    // Same story for the doc fee: early builds defaulted to $499. O'Regan's
-    // charges $699 on every car. Runs once so a hand-set fee is never touched.
-    if (!merged.settings.docFeeFixed) {
-      if (Number(merged.settings.docFee) === 499) merged.settings.docFee = 699;
-      merged.settings.docFeeFixed = true;
+    merged.settings.firstTouchFixed = 4;
+  }
+  // v150 shipped a credit-tier / lender-matrix feature and v151 took it back
+  // out, because the rate sheet behind it was invented rather than sourced.
+  // Nothing reads these fields any more, so they're dead weight that would
+  // otherwise sit in the cloud forever. Clear them once.
+  if (!merged.settings.lenderCleanup) {
+    delete merged.settings.lenders;
+    const now = new Date().toISOString();
+    if (Array.isArray(merged.leads)) {
+      merged.leads.forEach((l) => {
+        if (!l || l.creditTier == null) return;
+        delete l.creditTier;
+        // Deleting it locally isn't enough: the cloud copy still carries the
+        // field, and a fresh install would pull it straight back. Touch the
+        // record and queue it so the cleaned version is what gets stored.
+        // Only leads that actually had a tier are touched, so an install
+        // that never used the feature sees no churn at all.
+        l.updatedAt = now;
+        merged.outbox = merged.outbox || {};
+        merged.outbox[`leads:${l.id}`] = { collection: "leads", id: l.id, deleted: false, at: now };
+      });
     }
-    // The old "First contact" template thanked the customer for their interest
-    // in {vehicle} — but for an imported owner {vehicle} is the car they
-    // already drive, so it read as nonsense. Templates live in settings, so a
-    // new default never reaches an existing install: swap the stale body out
-    // once, and only if it is still untouched.
-    if (Number(merged.settings.firstTouchFixed || 0) < 4) {
-      const superseded = [
-        // The original: thanked an owner for their interest in their own trade.
-        "Hi {firstName}, this is {salesperson} at {dealership}. Thanks for your interest in the {vehicle}! When would be a good time to come take a look or a test drive?",
-        // The first rewrite: accurate, but it read like a pitch.
-        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is worth about {tradeValue} right now — more than most people expect. With this month's Nissan rates that's enough to put you in a new one for close to {payment}. Want me to send you the exact numbers?",
-        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and still worth about {tradeValue} — that's real money sitting in the driveway, and it's quietly dropping every month. Want me to show you what it could put you into with nothing out of pocket?",
-        "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} is coming due, so you've got a decision to make. I've pulled two options that keep you at or under {payment}. Want me to text them over, or would a quick call be easier?",
-        "Hi {firstName}, it's {salesperson} at {dealership} — thanks for reaching out about the {vehicle}. I've got one here I think you'd like. Are you free to see it this week, or are evenings and weekends better for you?",
-        // v124: honest and unpushy, but it handed over the number for free.
-        "Hi {firstName}, it's {salesperson} at {dealership}. I ran the current numbers on your {theirCar} — it's sitting around {tradeValue} today. Figured that's worth knowing either way. If it helps I can lay out your options from here, staying put included. Want me to send it over?",
-        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off and currently worth about {tradeValue} — just a useful thing to know about your own vehicle. If you're ever curious what that opens up, I'm happy to walk through it, keeping it included. Want the details?",
-        // v125: withheld the figure, but still promised to text it — which the
-        // desk rule says never happens. The ask is the appointment now.
-        "Hi {firstName}, it's {salesperson} at {dealership}. I pulled what your {theirCar} is worth today — want me to send you the number? No agenda either way, it's just useful to know where you stand, staying put included.",
-        "Hi {firstName}, it's {salesperson} at {dealership}. Your {theirCar} is paid off, and I just pulled what it's worth today. Want me to send you the number? Worth knowing what you're sitting on, even if you keep it.",
-        "Hi {firstName}, it's {salesperson} at {dealership}. Your lease on the {theirCar} comes due soon, and you've got three choices: buy it, hand it back, or start something new. Happy to walk through what each one actually costs so you can decide properly. Want me to send a summary?",
-      ];
-      const list = merged.settings.messageTemplates;
-      if (Array.isArray(list)) {
-        list.forEach((t, i) => {
-          if (!superseded.includes(String(t.body).trim())) return; // hand-edited: leave it
-          const fresh = DEFAULT_TEMPLATES.find((d) => d.id === t.id);
-          if (fresh) list[i] = { ...fresh };
-        });
+    merged.settings.lenderCleanup = true;
+    // load() only builds the in-memory object; nothing reaches localStorage
+    // until a write happens. The other migrations can wait for one because
+    // they're idempotent and cheap to redo. This one queues an outbox entry
+    // that has to survive, so it asks to be written out immediately.
+    merged.needsPersist = true;
+  }
+  // v176-v183 wrote the settings mirror as config/"me", which is the id the
+  // prefs row already used. The cloud table's primary key is (user_id, id)
+  // and excludes the collection, so those are one row up there — every full
+  // push sent the same key twice and Postgres rejected the batch. Move it to
+  // its own id, and drop the old row rather than leaving it to collide.
+  if (Array.isArray(merged.config)) {
+    const stale = merged.config.find((c) => c && c.id === "me");
+    if (stale) {
+      merged.config = merged.config.filter((c) => c && c.id !== "me");
+      if (!merged.config.some((c) => c.id === CONFIG_ID)) {
+        merged.config.push({ ...stale, id: CONFIG_ID, updatedAt: new Date().toISOString() });
       }
-      merged.settings.firstTouchFixed = 4;
-    }
-    // v150 shipped a credit-tier / lender-matrix feature and v151 took it back
-    // out, because the rate sheet behind it was invented rather than sourced.
-    // Nothing reads these fields any more, so they're dead weight that would
-    // otherwise sit in the cloud forever. Clear them once.
-    if (!merged.settings.lenderCleanup) {
-      delete merged.settings.lenders;
+      // Nothing needs to delete config/"me" from the cloud: prefs/"me" owns
+      // that key and republishes itself, so it wins the row back on the next
+      // push. Just make sure the corrected row leaves this device.
       const now = new Date().toISOString();
-      if (Array.isArray(merged.leads)) {
-        merged.leads.forEach((l) => {
-          if (!l || l.creditTier == null) return;
-          delete l.creditTier;
-          // Deleting it locally isn't enough: the cloud copy still carries the
-          // field, and a fresh install would pull it straight back. Touch the
-          // record and queue it so the cleaned version is what gets stored.
-          // Only leads that actually had a tier are touched, so an install
-          // that never used the feature sees no churn at all.
-          l.updatedAt = now;
-          merged.outbox = merged.outbox || {};
-          merged.outbox[`leads:${l.id}`] = { collection: "leads", id: l.id, deleted: false, at: now };
-        });
-      }
-      merged.settings.lenderCleanup = true;
-      // load() only builds the in-memory object; nothing reaches localStorage
-      // until a write happens. The other migrations can wait for one because
-      // they're idempotent and cheap to redo. This one queues an outbox entry
-      // that has to survive, so it asks to be written out immediately.
+      merged.outbox = merged.outbox || {};
+      merged.outbox[`config:${CONFIG_ID}`] = { collection: "config", id: CONFIG_ID, deleted: false, at: now };
+      delete merged.outbox["config:me"];
       merged.needsPersist = true;
     }
-    // v176-v183 wrote the settings mirror as config/"me", which is the id the
-    // prefs row already used. The cloud table's primary key is (user_id, id)
-    // and excludes the collection, so those are one row up there — every full
-    // push sent the same key twice and Postgres rejected the batch. Move it to
-    // its own id, and drop the old row rather than leaving it to collide.
-    if (Array.isArray(merged.config)) {
-      const stale = merged.config.find((c) => c && c.id === "me");
-      if (stale) {
-        merged.config = merged.config.filter((c) => c && c.id !== "me");
-        if (!merged.config.some((c) => c.id === CONFIG_ID)) {
-          merged.config.push({ ...stale, id: CONFIG_ID, updatedAt: new Date().toISOString() });
-        }
-        // Nothing needs to delete config/"me" from the cloud: prefs/"me" owns
-        // that key and republishes itself, so it wins the row back on the next
-        // push. Just make sure the corrected row leaves this device.
-        const now = new Date().toISOString();
-        merged.outbox = merged.outbox || {};
-        merged.outbox[`config:${CONFIG_ID}`] = { collection: "config", id: CONFIG_ID, deleted: false, at: now };
-        delete merged.outbox["config:me"];
-        merged.needsPersist = true;
-      }
-    }
-    return merged;
-  } catch (e) {
-    console.warn("Failed to load state, starting fresh.", e);
-    return structuredClone(DEFAULT_STATE);
   }
+  return merged;
+}
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") return reject(new Error("IndexedDB unavailable"));
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("records")) d.createObjectStore("records");
+      if (!d.objectStoreNames.contains("outbox")) d.createObjectStore("outbox");
+      if (!d.objectStoreNames.contains("kv")) d.createObjectStore("kv");
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+    req.onblocked = () => reject(new Error("IndexedDB blocked"));
+  });
+}
+
+const reqDone = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const txDone = (tx) => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error("aborted")); });
+
+async function readEverything(d) {
+  const tx = d.transaction(["records", "outbox", "kv"], "readonly");
+  const [recVals, recKeys, obVals, obKeys, kvVals, kvKeys] = await Promise.all([
+    reqDone(tx.objectStore("records").getAll()), reqDone(tx.objectStore("records").getAllKeys()),
+    reqDone(tx.objectStore("outbox").getAll()), reqDone(tx.objectStore("outbox").getAllKeys()),
+    reqDone(tx.objectStore("kv").getAll()), reqDone(tx.objectStore("kv").getAllKeys()),
+  ]);
+  const snapshot = {};
+  recVals.forEach((v, i) => {
+    const key = String(recKeys[i]);
+    const c = key.slice(0, key.indexOf(SEP));
+    (snapshot[c] = snapshot[c] || []).push(v);
+  });
+  // Newest first, which is the order create() maintains in memory (unshift).
+  Object.values(snapshot).forEach((arr) => arr.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))));
+  snapshot.outbox = {};
+  obVals.forEach((v, i) => { snapshot.outbox[String(obKeys[i])] = v; });
+  const kv = {};
+  kvVals.forEach((v, i) => { kv[String(kvKeys[i])] = v; });
+  if (kv.settings) snapshot.settings = kv.settings;
+  return { snapshot, kv, count: recVals.length };
+}
+
+// Write the whole in-memory state out (first migration, import, reset).
+async function writeEverything(d) {
+  const tx = d.transaction(["records", "outbox", "kv"], "readwrite");
+  const rs = tx.objectStore("records"), os = tx.objectStore("outbox"), ks = tx.objectStore("kv");
+  rs.clear(); os.clear(); ks.clear();
+  Object.keys(state).forEach((c) => {
+    if (!Array.isArray(state[c])) return;
+    state[c].forEach((rec) => { if (rec && rec.id != null) rs.put(rec, c + SEP + rec.id); });
+  });
+  Object.entries(state.outbox || {}).forEach(([k, v]) => os.put(v, k));
+  ks.put(state.settings, "settings");
+  ks.put(1, "migrated");
+  await txDone(tx);
+}
+
+// Write only what changed.
+async function writeBatch(d, snap) {
+  if (snap.rewriteAll) return writeEverything(d);
+  const tx = d.transaction(["records", "outbox", "kv"], "readwrite");
+  const rs = tx.objectStore("records"), os = tx.objectStore("outbox"), ks = tx.objectStore("kv");
+  // Index each touched collection once — a 3,000-row import touches 3,000
+  // records, and a find() per record would be quadratic again.
+  const index = new Map();
+  const lookup = (c, id) => {
+    if (!index.has(c)) index.set(c, new Map((state[c] || []).map((x) => [x.id, x])));
+    return index.get(c).get(id);
+  };
+  snap.records.forEach((key) => {
+    const i = key.indexOf(SEP);
+    const c = key.slice(0, i), id = key.slice(i + 1);
+    const rec = lookup(c, id);
+    if (rec) rs.put(rec, key); else rs.delete(key);
+  });
+  if (snap.outboxClear) os.clear();
+  snap.outbox.forEach((key) => {
+    const v = (state.outbox || {})[key];
+    if (v) os.put(v, key); else os.delete(key);
+  });
+  snap.kv.forEach((key) => ks.put(state[key], key));
+  await txDone(tx);
+}
+
+let flushChain = Promise.resolve();
+let flushQueued = false;
+
+/**
+ * Push every pending change to disk. Returns a promise that settles when it
+ * has landed (or failed — see saveError()). Called automatically after each
+ * write; call it directly before deciding whether a save succeeded.
+ */
+export function flush() {
+  const snap = {
+    records: [...dirty.records], outbox: [...dirty.outbox], kv: [...dirty.kv],
+    rewriteAll: dirty.rewriteAll, outboxClear: dirty.outboxClear,
+  };
+  dirty.records.clear(); dirty.outbox.clear(); dirty.kv.clear();
+  dirty.rewriteAll = false; dirty.outboxClear = false;
+  const empty = !snap.records.length && !snap.outbox.length && !snap.kv.length && !snap.rewriteAll && !snap.outboxClear;
+  if (empty) return flushChain;
+  flushChain = flushChain.then(async () => {
+    if (backend === "ls") { persistBlob(); return; }
+    try {
+      await writeBatch(db, snap);
+      lastSaveError = null;
+    } catch (e) {
+      lastSaveError = e;
+      // Put the keys back so the next flush retries them rather than losing
+      // the change silently.
+      snap.records.forEach((k) => dirty.records.add(k));
+      snap.outbox.forEach((k) => dirty.outbox.add(k));
+      snap.kv.forEach((k) => dirty.kv.add(k));
+      dirty.rewriteAll = dirty.rewriteAll || snap.rewriteAll;
+      dirty.outboxClear = dirty.outboxClear || snap.outboxClear;
+      console.error("Failed to save.", e);
+    }
+  });
+  return flushChain;
+}
+
+function scheduleFlush() {
+  if (flushQueued) return;
+  flushQueued = true;
+  // A microtask, so a burst of synchronous writes becomes one transaction.
+  queueMicrotask(() => { flushQueued = false; flush(); });
+}
+
+// The old path, kept for environments where IndexedDB won't open.
+function persistBlob() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    lastSaveError = null;
+  } catch (e) {
+    lastSaveError = e;
+    console.error("Failed to save. Storage may be full.", e);
+  }
+}
+
+/**
+ * Resolves once the store has loaded. Nothing should read or write before
+ * this — app.js awaits it before starting the router.
+ */
+export const ready = (async () => {
+  try {
+    db = await openDB();
+    const { snapshot, kv, count } = await readEverything(db);
+    const blob = (() => { try { return localStorage.getItem(KEY); } catch { return null; } })();
+    if (!count && !kv.migrated && blob) {
+      // First launch on this build with data in the old blob: bring it across.
+      // The blob is removed only after the write has committed — a failure
+      // here leaves it exactly where it was.
+      state = hydrate(JSON.parse(blob));
+      delete state.needsPersist;
+      await writeEverything(db);
+      try { localStorage.removeItem(KEY); } catch { }
+      return;
+    }
+    state = hydrate(snapshot);
+    if (state.needsPersist) {
+      // A migration changed records and queued outbox entries; write it all.
+      delete state.needsPersist;
+      dirty.rewriteAll = true;
+      await flush();
+    }
+  } catch (e) {
+    // No IndexedDB (private mode, an old WebView): behave as before, from the
+    // blob. Slower and capped, but never a blank screen.
+    console.warn("IndexedDB unavailable, using localStorage.", e);
+    backend = "ls";
+    try {
+      const raw = localStorage.getItem(KEY);
+      state = raw ? hydrate(JSON.parse(raw)) : structuredClone(DEFAULT_STATE);
+    } catch (e2) {
+      console.warn("Failed to load state, starting fresh.", e2);
+      state = structuredClone(DEFAULT_STATE);
+    }
+    if (state.needsPersist) { delete state.needsPersist; persistBlob(); }
+  }
+})();
+
+// Don't let a backgrounded app take unwritten changes with it. The flush is
+// already queued as a microtask; this just makes sure it's issued before the
+// page is frozen or torn down.
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => { flush(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush(); });
+}
+
+/** Where data is being kept, for the diagnostics screen. */
+export function storageInfo() {
+  return { backend, pending: dirty.records.size + dirty.outbox.size + dirty.kv.size, lastError: lastSaveError ? String(lastSaveError.message || lastSaveError) : null };
 }
 
 // --- Bulk writes ---
 //
-// Every create/update/remove persists the WHOLE store and notifies every
-// subscriber. That is right for one edit and catastrophic for a file: an
-// import of 3,235 customers ran 3,235 full JSON.stringify passes over a state
-// that grew with each one, wrote localStorage 3,235 times, and re-ran every
-// listener each time. The work is quadratic in the row count, so the phone
-// simply stopped — which is what "the app is breaking" looks like from
-// outside.
-//
-// bulk() collapses all of that into one save and one notification at the end.
+// Every write notifies every subscriber. That is right for one edit and
+// catastrophic for a file: an import of 3,235 customers used to persist 3,235
+// times and re-run every listener each time, quadratic in the row count.
+// bulk() collapses a batch into one notification and one disk transaction.
 
 /**
  * Run a batch of writes as one save. Nests safely; returns whatever fn returns.
@@ -382,23 +600,12 @@ export function bulk(fn) {
   }
 }
 
-// Why the last save failed, or null. Storage filling up used to be a
-// console.error and nothing else — the app carried on showing data that was
-// only in memory, and the next launch had lost it with no explanation.
-
+// Notify subscribers now (from memory, so it's cheap) and queue the disk write.
 function persist() {
   if (bulkDepth > 0) { bulkDirty = true; return true; }
-  let ok = true;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-    lastSaveError = null;
-  } catch (e) {
-    ok = false;
-    lastSaveError = e;
-    console.error("Failed to save. Storage may be full.", e);
-  }
   listeners.forEach((fn) => fn(state));
-  return ok;
+  scheduleFlush();
+  return true;
 }
 
 export function subscribe(fn) {
@@ -474,6 +681,7 @@ export function adoptRemoteConfig() {
   });
   if (!changed) return false;
   state.settings = next;
+  touchKv("settings");
   persist();
   return true;
 }
@@ -501,6 +709,7 @@ export function publishPrefs() {
 
 export function updateSettings(patch) {
   state.settings = { ...state.settings, ...patch };
+  touchKv("settings");
   persist();
   // Queue the change for the cloud. Everything expensive to type by hand lives
   // in here, and until now none of it was backed up anywhere.
@@ -513,17 +722,18 @@ export function updateSettings(patch) {
 let trackChanges = false;
 export function setSyncTracking(on) {
   trackChanges = !!on;
-  if (!on) { state.outbox = {}; persist(); }
+  if (!on) { state.outbox = {}; dirty.outboxClear = true; persist(); }
 }
 function markOutbox(name, id, deleted) {
   if (!trackChanges) return;
   state.outbox[`${name}:${id}`] = { collection: name, id, deleted: !!deleted, at: new Date().toISOString() };
+  touchOutbox(`${name}:${id}`);
 }
 export function getOutbox() {
   return Object.values(state.outbox || {});
 }
 export function clearOutboxKeys(keys) {
-  keys.forEach((k) => { delete state.outbox[k]; });
+  keys.forEach((k) => { delete state.outbox[k]; touchOutbox(k); });
   persist();
 }
 // Apply a change pulled from the cloud WITHOUT re-queuing it for push.
@@ -536,13 +746,14 @@ export function applyRemote(name, id, data) {
   // the shared page's payload lives in the cloud and would bloat localStorage.
   if (name === "links") delete rec.payload;
   if (idx >= 0) arr[idx] = rec; else arr.unshift(rec);
+  touch(name, id);
   persist();
 }
 export function applyRemoteDelete(name, id) {
   if (!Array.isArray(state[name])) return;
   const arr = state[name];
   const idx = arr.findIndex((x) => x.id === id);
-  if (idx >= 0) { arr.splice(idx, 1); persist(); }
+  if (idx >= 0) { arr.splice(idx, 1); touch(name, id); persist(); }
 }
 
 // --- Generic collection helpers ---
@@ -575,6 +786,7 @@ export function create(name, data) {
   const item = { id: uid(name.slice(0, 3)), createdAt: now, updatedAt: now, ...data };
   collection(name).unshift(item);
   markOutbox(name, item.id, false);
+  touch(name, item.id);
   persist();
   return item;
 }
@@ -584,6 +796,7 @@ export function update(name, id, patch) {
   if (!item) return null;
   Object.assign(item, patch, { updatedAt: new Date().toISOString() });
   markOutbox(name, id, false);
+  touch(name, id);
   persist();
   return item;
 }
@@ -594,6 +807,7 @@ export function remove(name, id) {
   if (idx >= 0) {
     arr.splice(idx, 1);
     markOutbox(name, id, true);
+    touch(name, id);
     persist();
     return true;
   }
@@ -607,6 +821,7 @@ export function restore(name, item) {
   const arr = collection(name);
   if (!arr.find((x) => x.id === item.id)) arr.unshift({ ...item });
   markOutbox(name, item.id, false);
+  touch(name, item.id);
   persist();
   return get(name, item.id);
 }
@@ -670,6 +885,7 @@ export function markThreadRead(leadId) {
       t.read = true;
       t.updatedAt = new Date().toISOString();
       markOutbox("texts", t.id, false);
+      touch("texts", t.id);
       touched = true;
     }
   });
@@ -706,10 +922,12 @@ export function importJSON(json) {
     ...parsed,
     settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
   };
+  dirty.rewriteAll = true;
   persist();
 }
 
 export function resetAll() {
   state = structuredClone(DEFAULT_STATE);
+  dirty.rewriteAll = true;
   persist();
 }

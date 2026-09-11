@@ -37,6 +37,11 @@ import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from ".
 import { reconcileLinks } from "./connections.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 
+// The store loads from IndexedDB, which is asynchronous. Nothing below reads
+// or writes it until it's ready — a route rendering against an empty store
+// would show a blank app for the half-second the load takes, then flicker.
+await store.ready;
+
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
 
