@@ -192,6 +192,41 @@ if (!Array.isArray(restored.settings.deliveryChecklist) || !restored.settings.de
     fail("the error doesn't name which two collections collided: " + guard);
 }
 
+// --- A collection the app has never heard of must not kill the sync.
+//
+//   "undefined is not an object (evaluating 'collection(name).find')"
+//
+// The cloud is one generic records table, and the whole point of that is that a
+// new collection needs no migration. The Edge Function relies on it: it writes
+// "nudgelog" to remember what it has already nudged about, and nothing in the
+// app declares that collection. A pull handed the row to get(), which called
+// .find() on undefined — so one row the server wrote stopped ALL syncing, not
+// just that collection. The same would hit an older install pulling down
+// something a newer build had added.
+{
+  const r = await p2.evaluate(async () => {
+    const store = await import("/js/store.js");
+    const out = {};
+    const t = (k, fn) => { try { out[k] = fn(); } catch (e) { out[k] = "THREW: " + e.message; } };
+    // Exactly what pullApply does with a server-written row: look for a local
+    // copy first, then apply.
+    t("readBefore", () => store.get("nudgelog", "last"));
+    t("listBefore", () => store.all("nudgelog").length);
+    t("apply", () => { store.applyRemote("nudgelog", "last", { sent: ["x"], updatedAt: "2026-01-01T00:00:00Z" }); return store.all("nudgelog").length; });
+    t("readAfter", () => !!store.get("nudgelog", "last"));
+    // A delete for something never seen is the same shape of problem.
+    t("deleteUnknown", () => { store.applyRemoteDelete("neverseen", "x"); return "ok"; });
+    return out;
+  });
+  console.log("\na collection only the server knows:", JSON.stringify(r));
+  for (const [k, v] of Object.entries(r)) {
+    if (String(v).startsWith("THREW")) fail(`${k} on an unknown collection: ${v}`);
+  }
+  if (r.readBefore !== null) fail("an unknown collection should read as empty, got " + JSON.stringify(r.readBefore));
+  if (r.apply !== 1) fail("applying a server-written row didn't land it: " + r.apply);
+  if (r.readAfter !== true) fail("the row couldn't be read back");
+}
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nrestore.test.js FAILED" : "\nrestore.test.js passed");

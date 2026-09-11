@@ -547,6 +547,18 @@ export function applyRemoteDelete(name, id) {
 
 // --- Generic collection helpers ---
 function collection(name) {
+  // An unknown collection reads as empty, not as undefined.
+  //
+  // The cloud is one generic records table and the whole point of that design
+  // is that a new collection needs no migration — the Edge Function itself
+  // writes collections the app has never declared ("nudgelog", which it uses to
+  // remember what it has already nudged about). A pull hands those rows
+  // straight to get(), which called .find() on undefined and threw:
+  //   "undefined is not an object (evaluating 'collection(name).find')"
+  // One unrecognised row from the server killed the entire sync — not that
+  // collection, all of it — and the same would happen to an older install
+  // pulling down a collection a newer build had added.
+  if (!Array.isArray(state[name])) state[name] = [];
   return state[name];
 }
 
