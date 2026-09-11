@@ -52,8 +52,8 @@ const ROWS = 3235;
     const persisted = await new Promise((res, rej) => {
       const r = indexedDB.open("entoa");
       r.onsuccess = () => {
-        const q = r.result.transaction("records").objectStore("records").getAllKeys();
-        q.onsuccess = () => res(q.result.filter((k) => String(k).startsWith("leads\u0000")).length);
+        const q = r.result.transaction("rows").objectStore("rows").getAllKeys();
+        q.onsuccess = () => res(q.result.filter((k) => k[0] === "leads").length);
         q.onerror = () => rej(q.error);
       };
       r.onerror = () => rej(r.error);

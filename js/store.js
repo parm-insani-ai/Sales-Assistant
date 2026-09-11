@@ -255,10 +255,23 @@ export function stageMeta(id) {
 // ---------------------------------------------------------------------------
 
 const DB_NAME = "entoa";
-const DB_VERSION = 1;
-const SEP = "\u0000";                      // record key = collection + SEP + id
+// v2: records keyed by [collection, id] in the "rows" store. v1 keyed a single
+// "records" store by the string collection + "\u0000" + id. A NUL inside a
+// string key is legal in the spec, but it is exactly the kind of thing a
+// SQLite-backed engine can mishandle, and WebKit's IndexedDB is SQLite-backed.
+// An array key is the form the API was designed around; nothing to split,
+// nothing to escape.
+const DB_VERSION = 2;
+const SEP = "\u0000";                      // in-memory dirty-key separator only
+const CRUMB = "entoa:rows";                 // how many rows were on disk after the last write
 let db = null;
 let backend = "idb";                       // "idb" | "ls"
+
+// What the load saw, for the Storage check in Settings. When customers vanish
+// between sessions, the one question that matters is whether they were ever
+// written or were written and then lost — and that needs a number from the
+// previous session to compare against.
+const diag = { expected: 0, loaded: 0, migratedFrom: null, dbError: null, blobPresent: false };
 
 let state = structuredClone(DEFAULT_STATE);
 const listeners = new Set();
@@ -386,11 +399,24 @@ function openDB() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") return reject(new Error("IndexedDB unavailable"));
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev) => {
       const d = req.result;
-      if (!d.objectStoreNames.contains("records")) d.createObjectStore("records");
+      const tx = req.transaction;
+      if (!d.objectStoreNames.contains("rows")) d.createObjectStore("rows");
       if (!d.objectStoreNames.contains("outbox")) d.createObjectStore("outbox");
       if (!d.objectStoreNames.contains("kv")) d.createObjectStore("kv");
+      // v1 → v2: carry the string-keyed rows across into array keys.
+      if (ev.oldVersion >= 1 && d.objectStoreNames.contains("records")) {
+        const from = tx.objectStore("records"), to = tx.objectStore("rows");
+        from.openCursor().onsuccess = (e) => {
+          const cur = e.target.result;
+          if (!cur) { d.deleteObjectStore("records"); return; }
+          const key = String(cur.key);
+          const i = key.indexOf(SEP);
+          if (i > 0) to.put(cur.value, [key.slice(0, i), key.slice(i + 1)]);
+          cur.continue();
+        };
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
@@ -402,16 +428,15 @@ const reqDone = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.res
 const txDone = (tx) => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error("aborted")); });
 
 async function readEverything(d) {
-  const tx = d.transaction(["records", "outbox", "kv"], "readonly");
+  const tx = d.transaction(["rows", "outbox", "kv"], "readonly");
   const [recVals, recKeys, obVals, obKeys, kvVals, kvKeys] = await Promise.all([
-    reqDone(tx.objectStore("records").getAll()), reqDone(tx.objectStore("records").getAllKeys()),
+    reqDone(tx.objectStore("rows").getAll()), reqDone(tx.objectStore("rows").getAllKeys()),
     reqDone(tx.objectStore("outbox").getAll()), reqDone(tx.objectStore("outbox").getAllKeys()),
     reqDone(tx.objectStore("kv").getAll()), reqDone(tx.objectStore("kv").getAllKeys()),
   ]);
   const snapshot = {};
   recVals.forEach((v, i) => {
-    const key = String(recKeys[i]);
-    const c = key.slice(0, key.indexOf(SEP));
+    const c = String(recKeys[i][0]);
     (snapshot[c] = snapshot[c] || []).push(v);
   });
   // Newest first, which is the order create() maintains in memory (unshift).
@@ -426,24 +451,37 @@ async function readEverything(d) {
 
 // Write the whole in-memory state out (first migration, import, reset).
 async function writeEverything(d) {
-  const tx = d.transaction(["records", "outbox", "kv"], "readwrite");
-  const rs = tx.objectStore("records"), os = tx.objectStore("outbox"), ks = tx.objectStore("kv");
+  const tx = d.transaction(["rows", "outbox", "kv"], "readwrite");
+  const rs = tx.objectStore("rows"), os = tx.objectStore("outbox"), ks = tx.objectStore("kv");
   rs.clear(); os.clear(); ks.clear();
   Object.keys(state).forEach((c) => {
     if (!Array.isArray(state[c])) return;
-    state[c].forEach((rec) => { if (rec && rec.id != null) rs.put(rec, c + SEP + rec.id); });
+    state[c].forEach((rec) => { if (rec && rec.id != null) rs.put(rec, [c, String(rec.id)]); });
   });
   Object.entries(state.outbox || {}).forEach(([k, v]) => os.put(v, k));
   ks.put(state.settings, "settings");
   ks.put(1, "migrated");
   await txDone(tx);
+  crumb();
+}
+
+// Total rows in memory — what the disk should hold once writes have landed.
+function countRows() {
+  let n = 0;
+  Object.keys(state).forEach((c) => { if (Array.isArray(state[c])) n += state[c].length; });
+  return n;
+}
+// Leave a note of how many rows were on disk, in a place that survives
+// independently of IndexedDB. The next launch compares against it.
+function crumb() {
+  try { localStorage.setItem(CRUMB, String(countRows())); } catch { }
 }
 
 // Write only what changed.
 async function writeBatch(d, snap) {
   if (snap.rewriteAll) return writeEverything(d);
-  const tx = d.transaction(["records", "outbox", "kv"], "readwrite");
-  const rs = tx.objectStore("records"), os = tx.objectStore("outbox"), ks = tx.objectStore("kv");
+  const tx = d.transaction(["rows", "outbox", "kv"], "readwrite");
+  const rs = tx.objectStore("rows"), os = tx.objectStore("outbox"), ks = tx.objectStore("kv");
   // Index each touched collection once — a 3,000-row import touches 3,000
   // records, and a find() per record would be quadratic again.
   const index = new Map();
@@ -455,7 +493,7 @@ async function writeBatch(d, snap) {
     const i = key.indexOf(SEP);
     const c = key.slice(0, i), id = key.slice(i + 1);
     const rec = lookup(c, id);
-    if (rec) rs.put(rec, key); else rs.delete(key);
+    if (rec) rs.put(rec, [c, id]); else rs.delete([c, id]);
   });
   if (snap.outboxClear) os.clear();
   snap.outbox.forEach((key) => {
@@ -464,6 +502,7 @@ async function writeBatch(d, snap) {
   });
   snap.kv.forEach((key) => ks.put(state[key], key));
   await txDone(tx);
+  crumb();
 }
 
 let flushChain = Promise.resolve();
@@ -527,10 +566,14 @@ function persistBlob() {
  */
 export const ready = (async () => {
   try {
+    try { diag.expected = Number(localStorage.getItem(CRUMB)) || 0; } catch { }
     db = await openDB();
     const { snapshot, kv, count } = await readEverything(db);
+    diag.loaded = count;
     const blob = (() => { try { return localStorage.getItem(KEY); } catch { return null; } })();
+    diag.blobPresent = !!blob;
     if (!count && !kv.migrated && blob) {
+      diag.migratedFrom = "localStorage";
       // First launch on this build with data in the old blob: bring it across.
       // The blob is removed only after the write has committed — a failure
       // here leaves it exactly where it was.
@@ -551,6 +594,7 @@ export const ready = (async () => {
     // No IndexedDB (private mode, an old WebView): behave as before, from the
     // blob. Slower and capped, but never a blank screen.
     console.warn("IndexedDB unavailable, using localStorage.", e);
+    diag.dbError = String((e && e.message) || e);
     backend = "ls";
     try {
       const raw = localStorage.getItem(KEY);
@@ -573,7 +617,20 @@ if (typeof window !== "undefined") {
 
 /** Where data is being kept, for the diagnostics screen. */
 export function storageInfo() {
-  return { backend, pending: dirty.records.size + dirty.outbox.size + dirty.kv.size, lastError: lastSaveError ? String(lastSaveError.message || lastSaveError) : null };
+  const counts = {};
+  Object.keys(state).forEach((c) => { if (Array.isArray(state[c]) && state[c].length) counts[c] = state[c].length; });
+  return {
+    backend, dbVersion: DB_VERSION,
+    pending: dirty.records.size + dirty.outbox.size + dirty.kv.size,
+    lastError: lastSaveError ? String(lastSaveError.message || lastSaveError) : null,
+    // From the load: rows the previous session left on disk vs rows found now.
+    expected: diag.expected, loaded: diag.loaded,
+    migratedFrom: diag.migratedFrom, dbError: diag.dbError,
+    // Read live, not from the load: the migration removes the blob after the
+    // flag was captured, and the panel must say what's true now.
+    blobPresent: (() => { try { return !!localStorage.getItem(KEY); } catch { return false; } })(),
+    inMemory: countRows(), counts,
+  };
 }
 
 // --- Bulk writes ---

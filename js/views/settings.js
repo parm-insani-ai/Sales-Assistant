@@ -154,6 +154,7 @@ export function renderSettings(view) {
       <button class="btn btn-ghost btn-block" data-act="save-proactive" style="margin-bottom:8px">Save notification hours</button>
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
       <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
+      <button class="btn btn-ghost btn-block" data-act="storagecheck" style="margin-top:8px">${icon("help")} Storage check</button>
       <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">entoa</div>
     </div>
     <div class="fab-note">entoa · data lives on your device</div>
@@ -392,6 +393,46 @@ export function renderSettings(view) {
       toast("Clearing and reloading…");
       await hardRefresh();
     });
+  });
+  // Storage check. When customers vanish between sessions on a phone that can't
+  // be attached to a debugger, this is the one screenshot that decides it:
+  // which build is running, where data is kept, how many rows the previous
+  // session left on disk against how many this launch found, and whether any
+  // write has failed. "Expected 3,235, loaded 0" and "expected 0, loaded 0" are
+  // different bugs with different fixes.
+  el.querySelector('[data-act="storagecheck"]').addEventListener("click", async () => {
+    const running = await runningVersion().catch(() => null);
+    let panel = document.getElementById("storage-check");
+    if (panel) { panel.remove(); return; }
+    panel = document.createElement("div");
+    panel.id = "storage-check";
+    panel.className = "screen-check";
+    document.body.appendChild(panel);
+    const paint = () => {
+      if (!document.body.contains(panel)) return;
+      const i = store.storageInfo();
+      const lost = i.expected > 0 && i.loaded < i.expected * 0.9;
+      const verdict = i.dbError
+        ? `<div style="color:#FF9E9E">IndexedDB failed to open — running on localStorage: ${esc(i.dbError)}</div>`
+        : lost
+          ? `<div style="color:#FF9E9E">last session left ${i.expected} rows on disk, this launch found ${i.loaded} — storage was CLEARED between sessions</div>`
+          : i.migratedFrom
+            ? `<div style="color:#7CFFC4">moved ${i.inMemory} rows from the old ${esc(i.migratedFrom)} store into IndexedDB this launch</div>`
+          : i.expected === 0 && i.loaded === 0 && i.inMemory > 0
+            ? `<div style="color:#FFD27C">nothing was on disk at launch; ${i.inMemory} rows are in memory now — if they're gone after a relaunch, the write never landed</div>`
+            : `<div style="color:#7CFFC4">disk and memory agree (${i.loaded} loaded, ${i.inMemory} in memory)</div>`;
+      const counts = Object.entries(i.counts).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") || "none";
+      panel.innerHTML = `<b>storage check</b> · tap to close
+        <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))} · store ${esc(i.backend)} v${i.dbVersion}</div>
+        ${verdict}
+        <div>expected ${i.expected} · loaded ${i.loaded} · in memory ${i.inMemory} · pending writes ${i.pending}</div>
+        <div>${counts}</div>
+        <div>${i.migratedFrom ? "migrated from " + esc(i.migratedFrom) + " this launch" : "no migration this launch"} · old blob ${i.blobPresent ? "still present" : "gone"}</div>
+        ${i.lastError ? `<div style="color:#FF9E9E">last write error: ${esc(i.lastError)}</div>` : ""}`;
+    };
+    paint();
+    const tick = setInterval(() => { if (!document.body.contains(panel)) clearInterval(tick); else paint(); }, 2000);
+    panel.addEventListener("click", () => { panel.remove(); clearInterval(tick); });
   });
   // Screen check. When the layout is wrong on a phone that can't be attached to
   // a debugger, these are the numbers that decide it — whether the keyboard was

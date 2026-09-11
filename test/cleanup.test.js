@@ -39,8 +39,8 @@ await p.waitForTimeout(800);
 const persisted = () => p.evaluate(() => new Promise((res, rej) => {
   const r = indexedDB.open("entoa");
   r.onsuccess = () => {
-    const tx = r.result.transaction(["records", "outbox", "kv"]);
-    const rk = tx.objectStore("records").getAllKeys(), rv = tx.objectStore("records").getAll();
+    const tx = r.result.transaction(["rows", "outbox", "kv"]);
+    const rk = tx.objectStore("rows").getAllKeys(), rv = tx.objectStore("rows").getAll();
     const ok = tx.objectStore("outbox").getAllKeys(), ov = tx.objectStore("outbox").getAll();
     const kv = tx.objectStore("kv").get("settings");
     tx.oncomplete = () => {
@@ -48,8 +48,7 @@ const persisted = () => p.evaluate(() => new Promise((res, rej) => {
       // outbox and settings.
       const state = { outbox: {}, settings: kv.result || {} };
       rv.result.forEach((v, i) => {
-        const key = String(rk.result[i]);
-        const c = key.slice(0, key.indexOf("\u0000"));
+        const c = String(rk.result[i][0]);
         (state[c] = state[c] || []).push(v);
       });
       ov.result.forEach((v, i) => { state.outbox[String(ok.result[i])] = v; });
