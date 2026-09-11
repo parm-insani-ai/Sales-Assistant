@@ -28,5 +28,5 @@ export const BACKEND_DEFAULTS = {
   // NOT `service_role`. That key bypasses row-level security, and it is the one
   // the dashboard hides behind a Reveal button — if you had to click to see it,
   // it's the wrong one.
-  anonKey: "",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJnemthZmhsd2FsZGJkZmVoZnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1Mjk2NDgsImV4cCI6MjEwMjEwNTY0OH0.UUHR6DDwqWoC2B-ZWBGuwnUpZjoTxL48gXSDt6ypsNU",
 };
