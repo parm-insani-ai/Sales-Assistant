@@ -45,7 +45,7 @@ const TYPED = {
 const mirrored = await p.evaluate(async (typed) => {
   const store = await import("/js/store.js");
   store.updateSettings(typed);
-  const rec = store.get("config", "me");
+  const rec = store.get("config", store.CONFIG_ID);
   return { rec, synced: store.SYNC_COLLECTIONS.includes("config") };
 }, TYPED);
 console.log("settings mirrored:", mirrored.rec ? Object.keys(mirrored.rec).length + " keys" : "NOTHING");
@@ -65,7 +65,7 @@ else {
 // and see what comes back.
 const backup = await p.evaluate(async () => {
   const store = await import("/js/store.js");
-  return JSON.parse(JSON.stringify(store.get("config", "me")));
+  return JSON.parse(JSON.stringify(store.get("config", store.CONFIG_ID)));
 });
 
 const p2 = await ctx.newPage();
@@ -86,7 +86,7 @@ if (gone.dealership) fail("the wipe didn't actually clear anything — the test 
 // Sync pulls the record down; adoptRemoteConfig folds it back into settings.
 const restored = await p2.evaluate(async () => {
   const store = await import("/js/store.js");
-  store.applyRemote("config", "me", window.__cloudConfig);
+  store.applyRemote("config", store.CONFIG_ID, window.__cloudConfig);
   const changed = store.adoptRemoteConfig();
   return { changed, settings: store.getSettings() };
 });
@@ -112,7 +112,7 @@ if (!Array.isArray(restored.settings.deliveryChecklist) || !restored.settings.de
   const kept = await p2.evaluate(async () => {
     const store = await import("/js/store.js");
     store.updateSettings({ brandNewSetting: "keep me", supabaseUrl: "https://this-device.supabase.co" });
-    store.applyRemote("config", "me", window.__cloudConfig);
+    store.applyRemote("config", store.CONFIG_ID, window.__cloudConfig);
     store.adoptRemoteConfig();
     const s = store.getSettings();
     return { brandNewSetting: s.brandNewSetting, supabaseUrl: s.supabaseUrl };
@@ -148,6 +148,48 @@ if (!Array.isArray(restored.settings.deliveryChecklist) || !restored.settings.de
   console.log("  with them filled in, a bare install is configured:", withDefaults);
   if (!boot.defaults.url || !boot.defaults.anonKey)
     console.log("  NOTE: shipped empty — fill js/config.js in to make reinstalls self-healing.");
+}
+
+// --- The settings mirror must not share a cloud row with anything else.
+//
+// It shipped as config/"me", and prefs was already using "me". The records
+// table's primary key is (user_id, id) and does NOT include the collection, so
+// those are one row: every full push sent the same key twice and the database
+// threw the whole batch out —
+//   "ON CONFLICT DO UPDATE command cannot affect row a second time"
+// Had they landed in separate chunks it would have been quieter and worse: the
+// two records overwriting each other in the cloud.
+{
+  const r = await p2.evaluate(async () => {
+    const store = await import("/js/store.js");
+    store.updateSettings({ dealership: "O'Regan's" });
+    store.publishPrefs();
+    const ids = {};
+    ["config", "prefs"].forEach((c) => { ids[c] = store.all(c).map((x) => x.id); });
+    return { ids, configId: store.CONFIG_ID };
+  });
+  console.log("\nsingle-row collection ids:", JSON.stringify(r.ids));
+  if (!r.ids.config.length) fail("no settings mirror was written");
+  const clash = r.ids.config.filter((id) => r.ids.prefs.includes(id));
+  if (clash.length) fail(`config and prefs share the id ${JSON.stringify(clash)} — that's one row in the cloud`);
+  if (r.ids.config.includes("me")) fail('the settings mirror is still using "me"');
+
+  // And a push carrying a collision is stopped here, naming both collections,
+  // rather than surfacing as a database error with no context.
+  const guard = await p2.evaluate(async () => {
+    const backend = await import("/js/backend.js");
+    try {
+      await backend.pushRecords([
+        { id: "me", collection: "prefs", data: { updatedAt: "x" } },
+        { id: "me", collection: "config", data: { updatedAt: "x" } },
+      ]);
+      return "no error";
+    } catch (e) { return String(e.message || e); }
+  });
+  console.log("  a colliding push:", guard.slice(0, 120));
+  if (guard === "no error") fail("a duplicate id sails through to the database");
+  if (!/prefs/.test(guard) || !/config/.test(guard))
+    fail("the error doesn't name which two collections collided: " + guard);
 }
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }

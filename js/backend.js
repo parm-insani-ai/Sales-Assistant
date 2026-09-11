@@ -158,6 +158,22 @@ export async function pushRecords(rows) {
       data: r.data,
       deleted: !!r.deleted,
     }));
+    // The table's primary key is (user_id, id) — the collection is NOT part of
+    // it — so two collections using the same id are one row up here. Sending
+    // both in a single statement makes Postgres reject the whole batch with
+    // "ON CONFLICT DO UPDATE command cannot affect row a second time", and
+    // splitting them across chunks would be worse: they'd overwrite each other
+    // silently. Catch it here, where the collections are still named, rather
+    // than letting a database string be the only clue.
+    const seen = new Map();
+    for (const row of chunk) {
+      const other = seen.get(row.id);
+      if (other && other !== row.collection) {
+        throw new Error(`Two collections are using the id "${row.id}" (${other} and ${row.collection}). ` +
+          `Records share one table keyed by id, so those are the same row — one of them needs a different id.`);
+      }
+      seen.set(row.id, row.collection);
+    }
     await rest("records?on_conflict=user_id,id", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },

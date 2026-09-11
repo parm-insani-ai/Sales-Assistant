@@ -11,6 +11,18 @@ const KEY = "sales-assistant:v1";
 // declared further down the file exists at all.
 let bulkDepth = 0;
 let bulkDirty = false;
+
+// The id of the single settings-mirror row.
+//
+// NOT "me". The cloud table's primary key is (user_id, id) and does not include
+// the collection, so two collections using the same id are the same row up
+// there. prefs had "me" first; giving config "me" as well made every full push
+// send one key twice, which Postgres rejects outright:
+//   "ON CONFLICT DO UPDATE command cannot affect row a second time"
+// and had they landed in separate chunks they would have silently overwritten
+// each other instead, which is worse.
+export const CONFIG_ID = "config";
+
 // Why the last save failed, or null.
 let lastSaveError = null;
 export function saveError() { return lastSaveError; }
@@ -312,6 +324,28 @@ function load() {
       // that has to survive, so it asks to be written out immediately.
       merged.needsPersist = true;
     }
+    // v176-v183 wrote the settings mirror as config/"me", which is the id the
+    // prefs row already used. The cloud table's primary key is (user_id, id)
+    // and excludes the collection, so those are one row up there — every full
+    // push sent the same key twice and Postgres rejected the batch. Move it to
+    // its own id, and drop the old row rather than leaving it to collide.
+    if (Array.isArray(merged.config)) {
+      const stale = merged.config.find((c) => c && c.id === "me");
+      if (stale) {
+        merged.config = merged.config.filter((c) => c && c.id !== "me");
+        if (!merged.config.some((c) => c.id === CONFIG_ID)) {
+          merged.config.push({ ...stale, id: CONFIG_ID, updatedAt: new Date().toISOString() });
+        }
+        // Nothing needs to delete config/"me" from the cloud: prefs/"me" owns
+        // that key and republishes itself, so it wins the row back on the next
+        // push. Just make sure the corrected row leaves this device.
+        const now = new Date().toISOString();
+        merged.outbox = merged.outbox || {};
+        merged.outbox[`config:${CONFIG_ID}`] = { collection: "config", id: CONFIG_ID, deleted: false, at: now };
+        delete merged.outbox["config:me"];
+        merged.needsPersist = true;
+      }
+    }
     return merged;
   } catch (e) {
     console.warn("Failed to load state, starting fresh.", e);
@@ -406,15 +440,15 @@ export function publishConfig() {
   Object.keys(state.settings || {}).forEach((k) => {
     if (!DEVICE_ONLY_SETTINGS.includes(k)) payload[k] = state.settings[k];
   });
-  const existing = get("config", "me");
+  const existing = get("config", CONFIG_ID);
   // Runs on every settings change and every launch, so only write when
   // something actually differs — otherwise each launch queues a pointless sync.
   if (existing) {
     const { id, updatedAt, createdAt, ...was } = existing;
     if (JSON.stringify(was) === JSON.stringify(payload)) return;
-    update("config", "me", payload);
+    update("config", CONFIG_ID, payload);
   } else {
-    create("config", { id: "me", ...payload });
+    create("config", { id: CONFIG_ID, ...payload });
   }
 }
 
@@ -427,7 +461,7 @@ export function publishConfig() {
  * this merges rather than replaces.
  */
 export function adoptRemoteConfig() {
-  const rec = get("config", "me");
+  const rec = get("config", CONFIG_ID);
   if (!rec) return false;
   const { id, updatedAt, createdAt, ...incoming } = rec;
   const next = { ...state.settings };
@@ -567,7 +601,7 @@ export function restore(name, item) {
 
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
-// record. Both are single-row collections keyed "me".
+// record. Both hold exactly one row.
 export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs"];
 
 // --- Calls ---
