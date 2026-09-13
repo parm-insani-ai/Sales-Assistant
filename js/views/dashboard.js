@@ -11,6 +11,8 @@ import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { getNudges } from "../nudges.js";
+import { draftTouch } from "../touches.js";
+import { openText } from "../sms.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -159,14 +161,32 @@ export function renderDashboard(view) {
           <div class="strong" style="font-size:0.92rem">${esc(p.title)}</div>
           <div class="small muted">${esc(p.sub)}</div>
         </div>
-        ${p.href
-          ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${p.kind === "followup" && /^tel:/.test(p.href) ? "Call" : /^tel:/.test(p.href) ? "Call" : "Text"}</a>`
+        ${p.taskId
+          ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-draft="${p.taskId}">Review</button>`
+          : p.href
+          ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${/^tel:/.test(p.href) ? "Call" : "Text"}</a>`
           : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}
         <button class="modal-close" data-play-x aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>`;
       const act = row.querySelector("a");
       if (act) act.addEventListener("click", () => {
         store.logActivity("touch");
         row.style.opacity = "0.45";
+      });
+      // A plan text: written for this customer now, from their context and
+      // the conversation so far, then put in front of the salesperson. The
+      // thread opens with the draft in the box; sending is their tap.
+      const draft = row.querySelector("[data-play-draft]");
+      if (draft) draft.addEventListener("click", async () => {
+        const task = store.get("tasks", p.taskId);
+        const lead = task && task.leadId ? store.get("leads", task.leadId) : null;
+        if (!task || !lead || !lead.phone) return navigate("/comms");
+        draft.disabled = true; draft.textContent = "Drafting…";
+        try {
+          const { body } = await draftTouch(lead, task);
+          if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
+        } finally {
+          draft.disabled = false; draft.textContent = "Review";
+        }
       });
       const go = row.querySelector("[data-play-go]");
       if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));

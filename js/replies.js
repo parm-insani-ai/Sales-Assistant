@@ -80,7 +80,7 @@ Reply with the message text and nothing else — no quotation marks, no preamble
 // number the salesperson has to walk back with a real customer.
 const MONEY = /(\$\s?\d|\d+\s?(%|percent)|\bapr\b|\b\d{2,3}\s?(a|per)\s?(month|mo)\b|\$\d|\b\d{3,}\s?(dollars|bucks)\b|\bmonthly\s+(payment|is)\s+\d)/i;
 
-function looksLikeMoney(text) {
+export function looksLikeMoney(text) {
   return MONEY.test(String(text || ""));
 }
 

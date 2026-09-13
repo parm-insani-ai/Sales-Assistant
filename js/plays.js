@@ -140,11 +140,16 @@ export function getPlays(limit = 6) {
     .forEach((t) => {
       const lead = leadById(t.leadId);
       const phone = lead && lead.phone;
+      // A plan text carries its intent, not its words: the words are drafted
+      // for this customer when the play is tapped (touches.js), so the
+      // salesperson reads a message written from today's context and taps
+      // send. taskId is how the dashboard knows to do that.
+      const drafted = t.cadence && t.channel === "text" && !!t.intent && !!phone;
       plays.push({
-        key: `fu:${t.id}`,
+        key: `fu:${t.id}`, taskId: drafted ? t.id : null, leadId: t.leadId,
         rank: 70, icon: t.channel === "call" ? "phone" : "message", kind: "followup",
         title: t.title,
-        sub: daysFromToday(t.due) < 0 ? "Overdue — clear it today." : "Due today.",
+        sub: daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
         href: !phone ? null : t.channel === "call" ? telHref(phone) : smsHref(phone, t.body || ""),
         route: phone ? null : "/comms",
       });

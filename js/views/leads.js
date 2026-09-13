@@ -8,7 +8,8 @@ import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
-import { maybeStartCadence, startCadence, hasCadence } from "../cadence.js";
+import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
+import { addContext, profileLines } from "../context.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
 import { icon } from "../icons.js";
@@ -493,7 +494,34 @@ function renderLeadDetail(view, id) {
 
     <div id="deal-slot"></div>
 
-    ${l.notes ? `<div class="section-title">Notes</div><div class="card" data-edit="notes" style="cursor:pointer"><div style="white-space:pre-wrap">${esc(l.notes)}</div></div>` : ""}
+    ${(() => {
+      // What we know about them — the structured facts, then the notes as
+      // spoken. Every text in the plan is written from this card.
+      const lines = profileLines(l);
+      return `
+    <div class="section-title">Context <span class="muted" style="font-weight:500;font-size:0.78rem">· every follow-up is written from this</span></div>
+    <div class="card">
+      ${lines.map((x) => `<div class="kv"><span class="k">${esc(x.label)}</span><span class="v">${esc(x.value)}</span></div>`).join("")}
+      ${l.notes
+        ? `<div data-edit="notes" style="white-space:pre-wrap;cursor:pointer;${lines.length ? "margin-top:10px;padding-top:10px;border-top:1px solid var(--border)" : ""}">${esc(l.notes)}</div>`
+        : `<div class="muted small">Nothing yet. Tell the voice agent about them, or add it here — what they want, what they love, budget, timeline, who else decides.</div>`}
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-context" style="margin-top:12px">${icon("plus")} Add context</button>
+    </div>`;
+    })()}
+
+    ${(() => {
+      const steps = planSteps(l.id);
+      const short = (t) => t.title.replace(/^\w+ \S+ — /, "");
+      return `
+    <div class="section-title">Follow-up plan</div>
+    <div class="card">
+      ${steps.length ? `
+        <div class="small muted" style="margin-bottom:8px">${esc(planSummary(l.id))}</div>
+        ${steps.slice(0, 5).map((t) => `<div class="kv" style="align-items:flex-start"><span class="k" style="flex:none">${esc(relativeDay(t.due))}</span><span class="v" style="text-align:left;flex:1">${icon(t.channel === "call" ? "phone" : t.channel === "email" ? "mail" : "message")} ${esc(short(t))}</span></div>`).join("")}
+        ${steps.length > 5 ? `<div class="small muted" style="margin-top:6px">+ ${steps.length - 5} more, out to 90 days. Texts are drafted from the context above and wait for your OK on Home.</div>` : ""}`
+      : `<div class="muted small">${["sold", "delivered", "lost"].includes(l.stage) ? "No plan running." : "No plan running — start one below and every text in it is drafted for you."}</div>`}
+    </div>`;
+    })()}
 
     <div class="section-title">Email history</div>
     <div class="card">
@@ -537,6 +565,27 @@ function renderLeadDetail(view, id) {
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
+
+  // Typed context goes the same way as spoken context: onto the record whole,
+  // and if nobody has started working this person yet, that starts now.
+  el.querySelector('[data-act="add-context"]').addEventListener("click", () => {
+    openModal("Add context", (close) => {
+      const { element } = buildForm(
+        [{ name: "note", label: "What did you learn?", value: "", type: "textarea", required: true,
+           placeholder: "Loves the SV moonroof, open to new or used, wants to be around thirty, wife has to sign off…" }],
+        {
+          submitLabel: "Add",
+          onSubmit: (data) => {
+            addContext(l.id, { note: data.note });
+            const n = ["new", "working"].includes(l.stage) ? maybeStartCadence(l.id) : 0;
+            toast(n ? `Added — ${n}-step follow-up plan started` : "Added", "success");
+            close();
+            window.dispatchEvent(new HashChangeEvent("hashchange"));
+          },
+        });
+      return element;
+    });
+  });
 
   // Log outreach as a "touch" and stamp last-contacted when calling/texting.
   const logTouch = () => {

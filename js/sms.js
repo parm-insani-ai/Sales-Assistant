@@ -74,6 +74,16 @@ export async function sendText(lead, body) {
     }
     store.update("texts", row.id, { status: "sent", sid: j.sid || "" });
     store.logActivity("text");
+    // A text that went out IS the follow-up: the plan's text step due today
+    // (or overdue) is done, and the customer was contacted. Without this the
+    // salesperson approves the draft and then has to go and tick a box.
+    const todayK = now.slice(0, 10);
+    store.bulk(() => {
+      store.update("leads", lead.id, { lastContacted: now });
+      store.all("tasks")
+        .filter((t) => t.leadId === lead.id && t.cadence && t.channel === "text" && !t.done && t.due && t.due <= todayK)
+        .forEach((t) => store.update("tasks", t.id, { done: true, doneBy: "text", doneAt: now }));
+    });
     return { ok: true, id: row.id };
   } catch (e) {
     const error = e.name === "AbortError" ? "Send timed out." : "Send failed — no connection.";

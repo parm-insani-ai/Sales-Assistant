@@ -8,6 +8,7 @@
 // Views and the voice agent call these instead of hand-rolling partial updates.
 
 import * as store from "./store.js";
+import { deferPlan } from "./cadence.js";
 
 // Find a lead by (case-insensitive) name — used to link records created from a
 // typed name (sales, deliveries, appointments) back to the customer.
@@ -103,11 +104,15 @@ export function afterDeliveryComplete(d) {
 }
 
 // After an appointment is booked for a lead: the pipeline moves with it.
-export function afterAppointmentBooked(leadId) {
+export function afterAppointmentBooked(leadId, when = "") {
   const lead = leadId ? store.get("leads", leadId) : null;
   if (lead && ["new", "working"].includes(lead.stage)) {
     store.update("leads", lead.id, { stage: "appointment" });
   }
+  // The plan's texts step aside for the appointment: the ones before it would
+  // only compete with the confirmation, and the ones after should wait for
+  // how it went.
+  if (lead && when) deferPlan(lead.id, String(when).slice(0, 10));
 }
 
 // One-time healing for records created before linking existed (or imported):

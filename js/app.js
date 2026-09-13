@@ -35,6 +35,7 @@ import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from "./email.js";
 import { reconcileLinks } from "./connections.js";
+import { adaptToReplies } from "./cadence.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
@@ -253,5 +254,8 @@ autoSendDueEmails().then(async (r) => {
 window.addEventListener("viniva-sync", (e) => {
   if (e.detail && e.detail.status === "synced" && e.detail.applied) {
     try { reconcileLinks(); } catch {}
+    // A customer who replied is in a conversation; their plan steps back.
+    try { adaptToReplies(); } catch {}
   }
 });
+try { adaptToReplies(); } catch {}

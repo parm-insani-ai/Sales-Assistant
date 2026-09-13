@@ -288,7 +288,7 @@ export function openAppointmentForm(existing, prefill = {}) {
             // wasn't opened from a lead) and move their pipeline stage.
             const leadId = a.leadId || leadByName(data.customerName)?.id || null;
             store.create("appointments", { ...data, title, status: "scheduled", leadId });
-            afterAppointmentBooked(leadId);
+            afterAppointmentBooked(leadId, data.when);
             toast("Appointment scheduled", "success");
           }
           close();

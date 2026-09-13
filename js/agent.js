@@ -8,7 +8,8 @@
 
 import * as store from "./store.js";
 import { navigate } from "./router.js";
-import { maybeStartCadence, startCadence } from "./cadence.js";
+import { maybeStartCadence, startCadence, planSummary } from "./cadence.js";
+import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
 import { topOpportunities, dealsForLead, equityDetail } from "./views/dealbuilder.js";
@@ -46,6 +47,16 @@ function buildContext() {
   };
 }
 
+// Everything that can be known about a customer beyond a name and a number —
+// the same fields on create, update and add_context, so a detail said at any
+// point lands in the same place. See context.js.
+const CONTEXT_PROPS = Object.fromEntries(PROFILE_FIELDS.map((f) => [f.key,
+  f.type === "list" ? { type: "array", items: { type: "string" }, description: f.hint }
+  : f.type === "money" ? { type: "number", description: f.hint + " — 'thirty' or '30k' for a car means 30000" }
+  : f.type === "enum" ? { type: "string", enum: f.values, description: f.hint }
+  : { type: "string", description: f.hint }]));
+CONTEXT_PROPS.notes = { type: "string", description: "EVERYTHING else said about them, in the salesperson's own words — wants, likes, budget, timeline, family, story, how they came in. Keep all of it; nothing is too small." };
+
 // The agent's brain lives here in the app (not on the server), so it can be
 // improved and shipped via the normal auto-update — no Supabase redeploy.
 const TOOLS = [
@@ -68,8 +79,9 @@ const TOOLS = [
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "tools", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
-  { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string" }, phone: { type: "string" }, followUp: { type: "string" } }, required: ["name"] } },
-  { name: "update_lead", description: "Update an existing customer (match by name).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" } }, required: ["name"] } },
+  { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale. Capture EVERYTHING said about them in the same call: contact details, the vehicle, and all the context fields (trim, features, new/used, budget, timeline, trade, who else, what matters) plus the whole thing in `notes`. Their follow-up plan starts automatically.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string", description: "e.g. \"Nissan Rogue\" or \"2026 Rogue SV\"" }, phone: { type: "string" }, email: { type: "string" }, followUp: { type: "string" }, ...CONTEXT_PROPS }, required: ["name"] } },
+  { name: "update_lead", description: "Update an existing customer (match by name) — contact details, stage, vehicle, and any context learned about them (same fields as create_lead).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" }, ...CONTEXT_PROPS }, required: ["name"] } },
+  { name: "add_context", description: "Record something learned about an existing customer — 'Parm said he loves the SV moonroof', 'Sara's budget is around thirty', 'Ken's wife has to sign off'. Put the structured parts in their fields and the whole remark in `notes`. Use this for ANY detail about a customer that isn't a stage change or a contact detail.", input_schema: { type: "object", properties: { customer: { type: "string" }, vehicle: { type: "string" }, ...CONTEXT_PROPS }, required: ["customer"] } },
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
   { name: "complete_task", description: "Check off an open to-do (match by words from its title — 'mark the plates thing done').", input_schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
   { name: "complete_delivery", description: "Mark a customer's delivery as delivered/handed over. Kicks off the post-delivery follow-up plan.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
@@ -102,6 +114,11 @@ function buildSystem(ctx) {
     `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
+    // What the salesperson knows about a customer is the product. Every text in
+    // the follow-up plan is written from it, so a detail dropped here is a
+    // generic message later.
+    `CONTEXT IS THE PRODUCT. When the salesperson says anything about a customer beyond a name and a number — what they want, the trim, a feature they love, new or used, a budget, a timeline, a trade-in, who else is deciding, why they're shopping, how they came in — capture ALL of it: the structured parts in the context fields AND the whole remark, in the salesperson's words, in \`notes\`. Never drop a detail and never summarise it away. "Add Parm, 902 555 1234, he's after a Rogue, loves the SV moonroof, open to new or used, wants to be around thirty" is ONE create_lead call with name, phone, vehicle "Nissan Rogue", trim "SV", features ["moonroof"], newUsed "either", budget 30000, and notes holding the sentence. A remark about someone already on file is add_context.`,
+    `A new customer's follow-up plan starts by itself — texts and calls over 90 days, each text drafted from their context and held on Home for the salesperson's OK. Say so in one clause ("follow-up plan's started, first text is waiting for your OK on Home"). Never say they need to set anything up.`,
     // The screen follows the conversation. The list tools put their results on
     // screen as tappable rows, so the spoken reply's job is to hand over to
     // what the salesperson is now looking at — not to read the list back to
@@ -554,22 +571,41 @@ export async function execTool(name, p = {}) {
     }
     case "create_lead": {
       if (!p.name) return { result: "need a name", note: "⚠ need a name for the lead" };
-      const lead = store.create("leads", { name: p.name, vehicleInterest: p.vehicle || "", phone: p.phone || "", email: p.email || "", stage: "new", source: "Voice", followUp: p.followUp || null, notes: p.notes || "" });
-      maybeStartCadence(lead.id);
-      return { result: `created lead ${lead.name}`, note: `added lead ${lead.name}` };
+      const lead = store.create("leads", { name: p.name, vehicleInterest: p.vehicle || "", phone: p.phone || "", email: p.email || "", stage: "new", source: "Voice", followUp: p.followUp || null, notes: "" });
+      // Everything else said about them, structured where it can be and kept
+      // whole in the notes either way.
+      addContext(lead.id, { ...p, note: p.notes || p.note || "" });
+      const n = maybeStartCadence(lead.id);
+      const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held on Home for the salesperson's OK — nothing sends on its own.` : "";
+      return { result: `created lead ${lead.name}.${plan}`, note: `added ${lead.name}${n ? ` — ${n}-step follow-up plan started` : ""}` };
     }
     case "update_lead": {
       const lead = findLead(p.name || p.customer);
       if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.name || p.customer}` };
       const patch = {};
-      ["phone", "email", "stage", "followUp", "notes"].forEach((k) => { if (p[k] != null && p[k] !== "") patch[k] = p[k]; });
+      ["phone", "email", "stage", "followUp"].forEach((k) => { if (p[k] != null && p[k] !== "") patch[k] = p[k]; });
       if (p.vehicle) patch.vehicleInterest = p.vehicle;
       store.update("leads", lead.id, patch);
+      // Anything learned about them is context, never an overwrite of the notes.
+      const ctx = addContext(lead.id, { ...p, vehicle: null, note: p.notes || p.note || "" });
       // Stage changes ripple: sold sets up delivery prep + retires follow-ups,
       // lost just retires them.
       if (patch.stage === "sold") afterSale(lead.id, { vehicle: p.vehicle || "" });
       else if (patch.stage === "lost") closeFollowUps(lead.id);
-      return { result: `updated ${lead.name}`, note: `updated ${lead.name}` };
+      const learned = ctx && ctx.changed.length ? ` Noted: ${ctx.changed.join(", ")}.` : "";
+      return { result: `updated ${lead.name}.${learned}`, note: `updated ${lead.name}` };
+    }
+    case "add_context": case "add_note": case "note": {
+      const lead = findLead(p.customer || p.name);
+      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      const r = addContext(lead.id, { ...p, note: p.notes || p.note || "" });
+      // Context on someone who was never worked is a reason to start.
+      const started = ["new", "working"].includes(lead.stage) ? maybeStartCadence(lead.id) : 0;
+      const what = r && r.changed.length ? r.changed.join(", ") : "nothing new";
+      return {
+        result: `noted for ${lead.name}: ${what}.${started ? ` Follow-up plan started (${started} touches); first text waiting on Home.` : ""} ${planSummary(lead.id)}`.trim(),
+        note: `noted for ${lead.name}`,
+      };
     }
     case "add_task": {
       if (!p.title) return { result: "need a task", note: "⚠ need a task" };
@@ -696,7 +732,7 @@ export async function execTool(name, p = {}) {
       const type = ["testdrive", "delivery", "call", "appointment"].includes(p.type) ? p.type : "appointment";
       const label = { appointment: "Appointment", testdrive: "Test drive", delivery: "Delivery", call: "Phone call" }[type];
       const a2 = store.create("appointments", { type, title: label, customerName: lead.name, vehicle: p.vehicle || lead.vehicleInterest || "", when: p.when || "", status: "scheduled", confirmed: false, outcome: "", leadId: lead.id, notes: "" });
-      afterAppointmentBooked(lead.id);
+      afterAppointmentBooked(lead.id, a2.when);
       return { result: `booked ${label} with ${a2.customerName} at ${a2.when}`, note: `booked ${label.toLowerCase()} with ${a2.customerName || "customer"}` };
     }
     case "appointment_outcome": case "set_outcome": {

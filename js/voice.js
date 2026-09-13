@@ -9,6 +9,7 @@ import { toast } from "./components.js";
 import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
+import { addContext } from "./context.js";
 import { agentConfigured, createAgentSession } from "./agent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
@@ -130,7 +131,10 @@ export function parseCommand(raw) {
     const followUp = parseDay(t.match(/follow ?up[\s\S]*/)?.[0] || "");
     name = titleCase(name);
     if (!name) return { action: "error" };
-    return { action: "lead", name, vehicleInterest: vehicle ? titleCase(vehicle) : "", followUp };
+    // Whatever else was said goes on the record whole. Offline, nothing can
+    // pick the trim and the budget out of the sentence — but the sentence
+    // itself is the context, and losing it is worse than not parsing it.
+    return { action: "lead", name, vehicleInterest: vehicle ? titleCase(vehicle) : "", followUp, notes: String(raw || "").trim() };
   }
 
   // 2) Add task / reminder
@@ -196,9 +200,10 @@ export function executeCommand(cmd) {
         name: cmd.name, vehicleInterest: cmd.vehicleInterest || "", stage: "new",
         source: "Voice", followUp: cmd.followUp || null, phone: "", email: "", notes: "",
       });
-      maybeStartCadence(lead.id);
+      addContext(lead.id, { note: cmd.notes || "" });
+      const n = maybeStartCadence(lead.id);
       navigate(`/leads/${lead.id}`);
-      return `Added lead ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}. Add their phone number to start texting.`;
+      return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan` : ""}. Add their phone number to start texting.`;
     }
     case "task": {
       store.create("tasks", { title: cmd.title, due: cmd.due || "", priority: "normal", done: false });
