@@ -543,10 +543,30 @@ body.typing #app, body.kb-open #app {
   text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
 }
 
-/* Three buttons on one line at phone width: Add customer · Select · By
-   opportunity. Tighter sides than a lone button, and no wrapping. */
-.lead-actions { flex-wrap: nowrap; }
-.lead-actions .btn { flex: 0 0 auto; white-space: nowrap; padding-left: 12px; padding-right: 12px; min-width: 0; }
+/* ---------- Leads toolbar ---------- */
+/* Add customer · Select · By opportunity on one line, always. A grid with
+   the columns sized to the words, so nothing wraps or falls off the end on
+   a narrow phone; a label that still can't fit is trimmed, not broken. */
+.btn-row.lead-actions {
+  display: grid;
+  grid-template-columns: 1.15fr 0.8fr 1.3fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.lead-actions .btn {
+  min-width: 0; padding: 12px 8px;
+  font-size: 0.88rem; justify-content: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lead-actions .btn-primary { box-shadow: none; }
+/* The filter chips: one scrolling line, sitting on the list they filter. */
+.lead-chips {
+  display: flex; gap: 8px; flex-wrap: nowrap;
+  overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 4px; margin-bottom: 10px;
+}
+.lead-chips::-webkit-scrollbar { display: none; }
+.lead-chips .btn { flex: 0 0 auto; }
 
 /* The end of a long list: what's shown so far, or a button for the rest. */
 .lead-more { text-align: center; padding: 10px 0 4px; min-height: 18px; }

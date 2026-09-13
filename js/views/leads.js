@@ -99,12 +99,12 @@ export function renderLeads(view, { param }) {
 
     // Selecting is a job on the plain list; the lens waits until Done.
     const ranked = opp && !selecting;
+    // Top to bottom: search, the three actions on one line, then the chips
+    // sitting directly on the list they filter. Under the lens, or while
+    // selecting, the parts that don't apply aren't drawn at all.
     wrap.innerHTML = `
       ${ranked ? "" : `<div class="searchbar">
         <input type="search" placeholder="Search leads…" value="${esc(search)}" />
-      </div>
-      <div class="btn-row" style="overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; margin-bottom:12px;">
-        ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
       </div>`}
       ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
@@ -113,10 +113,13 @@ export function renderLeads(view, { param }) {
         <button class="btn btn-ghost btn-sm" data-act="sel-done" style="flex:0 0 auto">Done</button>
       </div>
       <div class="hint" style="margin-bottom:10px">Tap leads to select. The filter chips and search narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : `
-      <div class="btn-row lead-actions" style="margin-bottom:10px">
-        <button class="btn btn-primary" data-act="add-lead" style="flex:1 1 auto">Add customer</button>
+      <div class="btn-row lead-actions">
+        <button class="btn btn-primary" data-act="add-lead">Add customer</button>
         <button class="btn btn-ghost" data-act="select">Select</button>
         <button class="btn ${ranked ? "btn-primary" : "btn-ghost"}" data-act="opp" aria-pressed="${ranked}">By opportunity</button>
+      </div>`}
+      ${ranked ? "" : `<div class="lead-chips">
+        ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}">${esc(c.label)}</button>`).join("")}
       </div>`}
       <div class="lead-list"></div>
     `;
