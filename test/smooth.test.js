@@ -9,9 +9,17 @@
 // card for every one of 2,984 customers before the first one appeared, and did
 // it again on every add, delete, undo and keystroke.
 //
+// Then, with the first paint fixed, the lag moved: tabs, scrolling, and tapping
+// into a customer all stuttered. Streaming the whole list in had left 45,000
+// nodes and 15,000 pointer listeners in the document, and Home was drawing
+// all 618 open follow-up tasks under the fold. The browser carried all of it
+// through every scroll frame and tore it all down on every tab change.
+//
 // So the properties to hold: the radar is computed once per change to what it
-// reads and not at all for unrelated changes; Home paints before it computes;
-// and a long list shows its first screenful immediately.
+// reads and not at all for unrelated changes; Home paints before it computes
+// and shows a screenful of tasks, not the book's worth; and a long list shows
+// its first screenful immediately, holds only what has been scrolled to, and
+// still reaches the end.
 const { chromium } = require("/opt/node22/lib/node_modules/playwright");
 
 (async () => {
@@ -33,6 +41,7 @@ await p.evaluate(async () => {
       vehicleInterest: ["2019 Nissan Rogue SV", "2020 Nissan Sentra", "2018 Nissan Pathfinder SL", "2021 Nissan Kicks"][i % 4],
       purchaseDate: "2021-0" + (i % 9 + 1) + "-11", currentPayment: 380 + (i % 300), payoff: 8000 + (i % 15000), currentValue: 14000 + (i % 9000), currentApr: 5.9 + (i % 4) });
     for (let i = 0; i < 61; i++) store.create("leads", { name: "Active " + i, stage: i % 2 ? "working" : "new", followUp: "2026-09-10" });
+    for (let i = 0; i < 618; i++) store.create("tasks", { leadId: "x", title: "Follow up " + i, due: "2026-09-1" + (i % 9), channel: i % 2 ? "call" : "message", done: false });
     for (let i = 0; i < 19; i++) store.create("texts", { leadId: "x", dir: "in", body: "hi", at: new Date().toISOString(), read: false });
   });
 });
@@ -88,10 +97,25 @@ console.log("\nHome:");
   if (!r.hero) fail("Home mounted without its hero");
   if (!r.rowsLater) fail("the play sheet never filled in");
   if (r.filledInMs > 3000) fail(`the play sheet took ${r.filledInMs}ms to appear`);
+
+  // A screenful of tasks, the rest behind a button that works.
+  const t = await p.evaluate(() => {
+    const rows = () => document.querySelectorAll(".tasks-slot .check-item").length;
+    const before = rows();
+    const more = document.querySelector(".tasks-slot .list-more");
+    const label = more ? more.textContent : "";
+    if (more) more.click();
+    return { before, label, after: rows(), nodes: document.querySelector("#view").querySelectorAll("*").length };
+  });
+  console.log("  tasks on Home:", JSON.stringify(t));
+  if (t.before > 12) fail(`Home drew ${t.before} tasks — the whole book's worth again`);
+  if (!/610 more/.test(t.label)) fail(`the "show more" row says "${t.label}", not how many are hidden`);
+  if (t.after <= t.before) fail("tapping the show-more row showed nothing more");
 }
 
-// --- Leads "All": the first screenful appears at once, the rest follow, and a
-// newer render cancels an older one.
+// --- Leads "All": the first screenful appears at once, the document holds
+// only what has been scrolled to, scrolling reaches the end, and a newer
+// render cancels an older one.
 console.log("\nLeads, All:");
 {
   await p.evaluate(() => { location.hash = "#/settings"; sessionStorage.setItem("leads-filter", "all"); }); await p.waitForTimeout(150);
@@ -100,19 +124,57 @@ console.log("\nLeads, All:");
     location.hash = "#/leads";
     setTimeout(() => {
       const firstPaint = { ms: Math.round(performance.now() - t0), cards: document.querySelectorAll(".lead-list .card").length };
-      const poll = () => {
-        const n = document.querySelectorAll(".lead-list .card").length;
-        if (n >= 2984 || performance.now() - t0 > 15000) return res({ firstPaint, all: n, allInMs: Math.round(performance.now() - t0) });
-        requestAnimationFrame(poll);
-      };
-      poll();
+      // Left alone (no scrolling), the list must settle well short of everything.
+      setTimeout(() => {
+        const sentinel = document.querySelector(".lead-list .lead-more");
+        res({ firstPaint, settled: document.querySelectorAll(".lead-list .card").length,
+          nodes: document.querySelector("#view").querySelectorAll("*").length, sentinel: sentinel ? sentinel.textContent : null });
+      }, 800);
     }, 0);
   }));
   console.log("  " + JSON.stringify(r));
   if (r.firstPaint.cards < 20) fail(`only ${r.firstPaint.cards} cards on first paint`);
-  if (r.firstPaint.cards >= 2984) fail("every card was built before the first paint — that's the freeze");
   if (r.firstPaint.ms > 500) fail(`first screenful took ${r.firstPaint.ms}ms`);
-  if (r.all < 2984) fail(`the list stopped at ${r.all} of 2984`);
+  if (r.settled > 400) fail(`${r.settled} cards in the document without anyone scrolling — the whole list is back in the DOM`);
+  if (!/of 2,984/.test(r.sentinel || "")) fail(`the end of the list doesn't say how many are shown: ${JSON.stringify(r.sentinel)}`);
+
+  // Scrolling to the bottom keeps bringing more, all the way to the last one.
+  const s = await p.evaluate(() => new Promise((res) => {
+    const view = document.querySelector("#view");
+    const cards = () => document.querySelectorAll(".lead-list .card").length;
+    const t0 = performance.now();
+    let steps = 0, stuck = 0, last = cards();
+    const tick = () => {
+      view.scrollTop = view.scrollHeight;
+      steps++;
+      setTimeout(() => {
+        const n = cards();
+        stuck = n === last ? stuck + 1 : 0; last = n;
+        if (n >= 2984 || stuck > 20 || performance.now() - t0 > 30000) {
+          const sentinel = document.querySelector(".lead-list .lead-more");
+          return res({ reached: n, steps, ms: Math.round(performance.now() - t0), sentinel: sentinel ? sentinel.textContent : null });
+        }
+        tick();
+      }, 60);
+    };
+    tick();
+  }));
+  console.log("  scrolled to the bottom:", JSON.stringify(s));
+  if (s.reached < 2984) fail(`scrolling stopped at ${s.reached} of 2984 — the rest of the book is unreachable`);
+  if (!/All 2,984 shown/.test(s.sentinel || "")) fail(`the end of the list doesn't say it's the end: ${JSON.stringify(s.sentinel)}`);
+
+  // Search spans the whole book, not just what was scrolled to.
+  await p.evaluate(() => { location.hash = "#/settings"; sessionStorage.setItem("leads-filter", "all"); }); await p.waitForTimeout(150);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(200);
+  const deep = await p.evaluate(() => new Promise((res) => {
+    const sb = document.querySelector('.searchbar input[type="search"]');
+    sb.value = "Customer 2900"; sb.dispatchEvent(new Event("input", { bubbles: true }));
+    setTimeout(() => res([...document.querySelectorAll(".lead-list .card .row-title")].map((n) => n.textContent)), 100);
+  }));
+  console.log("  search for a customer far down the book:", JSON.stringify(deep));
+  if (!deep.includes("Customer 2900")) fail("a customer beyond the rendered window can't be found by search");
+  await p.evaluate(() => { const sb = document.querySelector('.searchbar input[type="search"]'); sb.value = ""; sb.dispatchEvent(new Event("input", { bubbles: true })); });
+  await p.waitForTimeout(100);
 
   // Typing cancels the in-flight render instead of racing it.
   const typed = await p.evaluate(() => new Promise((res) => {

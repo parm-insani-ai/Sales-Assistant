@@ -31,12 +31,17 @@ export function openTaskForm(existing, defaults = {}) {
 }
 
 // Returns a DOM element listing open + optionally completed tasks.
-export function taskListEl({ onChange } = {}) {
+// opts.limit: how many open tasks to draw before a "show the rest" row. An
+// imported book with a follow-up cadence on every customer is six hundred open
+// tasks, and Home drew every one of them — the day's screen was mostly a task
+// list nobody scrolls, and it was most of what made Home slow to open.
+export function taskListEl({ onChange, limit = Infinity } = {}) {
   const container = document.createElement("div");
+  let cap = limit;
 
   function draw() {
     const tasks = store.all("tasks");
-    const open = tasks
+    const all = tasks
       .filter((t) => !t.done)
       .sort((a, b) => {
         const da = a.due ? daysFromToday(a.due) : Infinity;
@@ -45,6 +50,8 @@ export function taskListEl({ onChange } = {}) {
         const pr = { high: 0, normal: 1, low: 2 };
         return (pr[a.priority] ?? 1) - (pr[b.priority] ?? 1);
       });
+    const open = all.slice(0, cap);
+    const hidden = all.length - open.length;
 
     if (!open.length) {
       container.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">No open tasks. Tap + Add to create one.</div></div>`;
@@ -53,6 +60,16 @@ export function taskListEl({ onChange } = {}) {
 
     const card = document.createElement("div");
     card.className = "card";
+    let more = null;
+    if (hidden > 0) {
+      more = document.createElement("button");
+      more.type = "button";
+      more.className = "list-more";
+      more.dataset.act = "more-tasks";
+      more.textContent = `Show ${hidden.toLocaleString()} more`;
+      // A hundred at a time past a couple of hundred; otherwise the rest.
+      more.addEventListener("click", () => { cap = Math.min(all.length, cap + (hidden > 200 ? 100 : hidden)); draw(); });
+    }
     open.forEach((t, i) => {
       const row = document.createElement("div");
       row.className = "check-item";
@@ -97,6 +114,7 @@ export function taskListEl({ onChange } = {}) {
     });
     container.innerHTML = "";
     container.appendChild(card);
+    if (more) container.appendChild(more);
   }
 
   draw();

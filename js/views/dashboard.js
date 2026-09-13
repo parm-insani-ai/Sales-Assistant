@@ -195,7 +195,8 @@ export function renderDashboard(view) {
   if (up) upcomingFollowUps.forEach((l) => up.appendChild(followUpCard(l, true)));
 
   // Tasks
-  el.querySelector(".tasks-slot").appendChild(taskListEl());
+  // A screenful of tasks, not the whole book's worth — see taskListEl.
+  el.querySelector(".tasks-slot").appendChild(taskListEl({ limit: 8 }));
   el.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
 
   // Appointments today (own + external calendars)

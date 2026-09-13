@@ -492,6 +492,17 @@ body.typing #app, body.kb-open #app {
 .section-title:first-child { margin-top: 6px; }
 .section-title .muted { font-weight: 500; }
 
+/* The end of a long list: what's shown so far, or a button for the rest. */
+.lead-more { text-align: center; padding: 10px 0 4px; min-height: 18px; }
+.list-more {
+  display: block; width: 100%; margin-top: 8px;
+  padding: 11px 14px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text); font: inherit; font-size: 0.9rem; font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.list-more:active { background: var(--surface-3); }
+
 /* ---------- Rows / list items ---------- */
 .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .row-main { min-width: 0; }

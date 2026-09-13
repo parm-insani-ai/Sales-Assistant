@@ -36,7 +36,9 @@ export function renderLeads(view, { param }) {
   // Chunked list rendering — see renderList(). Declared up here because draw()
   // is invoked from handlers that can run before the later declaration line.
   let renderToken = 0;
-  const FIRST = 40, CHUNK = 120;
+  const FIRST = 40, CHUNK = 60;
+  let shown = 0;       // cards currently in the document
+  let watcher = null;  // the IntersectionObserver on the list's sentinel
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -151,7 +153,7 @@ export function renderLeads(view, { param }) {
     on('[data-act="sel-done"]', () => { selecting = false; selected.clear(); draw(); });
     on('[data-act="sel-all"]', () => {
       applyFilter().forEach((l) => selected.add(l.id));
-      renderList(); updateSelCount();
+      renderList({ keep: true }); updateSelCount();
     });
     on('[data-act="sel-del"]', async () => {
       const ids = [...selected];
@@ -199,35 +201,77 @@ export function renderLeads(view, { param }) {
     return el;
   }
 
-  // Render in chunks. "All" on an imported book is three thousand cards, and
-  // building every one before the first appeared froze the phone for seconds —
-  // and did so again on every add, delete, undo and keystroke. The first
-  // screenful goes in now; the rest arrive a frame at a time, and a newer
-  // render (a keystroke, a filter tap) cancels an older one mid-way.
-  function renderList() {
+  // The list only ever holds what has been scrolled to. "All" on an imported
+  // book is three thousand cards; streaming them in a frame at a time made the
+  // first screenful quick, but left every card in the document afterwards —
+  // 45,000 nodes and 15,000 pointer listeners for the browser to carry
+  // through every scroll, every tap, and every screen change out of here.
+  // That was the lag: not building the list, but living with it.
+  //
+  // So the first screenful goes in now, and a sentinel at the bottom of the
+  // list asks for the next chunk as it comes into view. A newer render (a
+  // keystroke, a filter tap) cancels an older one, and a re-render for a
+  // store change keeps as many cards as were already showing so the page
+  // doesn't jump back to the top under a scrolled reader.
+  function renderList({ keep = false } = {}) {
     const el = wrap.querySelector(".lead-list");
     if (!el) return;
     const filtered = applyFilter();
     const token = ++renderToken;
+    if (watcher) { watcher.disconnect(); watcher = null; }
     el.innerHTML = "";
     if (!filtered.length) {
+      shown = 0;
       el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
       return;
     }
     const card = (x) => (selecting ? selectCard(x) : leadCard(x));
+    const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : FIRST;
     const frag = document.createDocumentFragment();
     filtered.slice(0, FIRST).forEach((x) => frag.appendChild(card(x)));
     el.appendChild(frag);
-    let i = FIRST;
-    const more = () => {
-      if (token !== renderToken || !document.body.contains(el)) return;
-      const f = document.createDocumentFragment();
-      filtered.slice(i, i + CHUNK).forEach((x) => f.appendChild(card(x)));
-      el.appendChild(f);
-      i += CHUNK;
-      if (i < filtered.length) requestAnimationFrame(more);
+    let i = Math.min(FIRST, filtered.length);
+    shown = i;
+
+    const sentinel = document.createElement("div");
+    sentinel.className = "lead-more muted small";
+    const label = () => {
+      sentinel.textContent = i < filtered.length
+        ? `Showing ${i.toLocaleString()} of ${filtered.length.toLocaleString()}`
+        : (filtered.length > FIRST ? `All ${filtered.length.toLocaleString()} shown` : "");
     };
-    if (i < filtered.length) requestAnimationFrame(more);
+    const append = (n) => {
+      const f = document.createDocumentFragment();
+      filtered.slice(i, i + n).forEach((x) => f.appendChild(card(x)));
+      i = Math.min(filtered.length, i + n);
+      shown = i;
+      el.insertBefore(f, sentinel);
+      label();
+      if (i >= filtered.length && watcher) { watcher.disconnect(); watcher = null; }
+    };
+    label();
+    el.appendChild(sentinel);
+
+    // Refill to where the reader was, a frame at a time.
+    const refill = () => {
+      if (token !== renderToken || !document.body.contains(el)) return;
+      if (i < target) { append(Math.min(CHUNK, target - i)); requestAnimationFrame(refill); return; }
+      watch();
+    };
+    // Then let the scroll position drive the rest.
+    const watch = () => {
+      if (i >= filtered.length || typeof IntersectionObserver !== "function") return;
+      watcher = new IntersectionObserver((entries) => {
+        if (token !== renderToken || !document.body.contains(el)) { if (watcher) watcher.disconnect(); return; }
+        if (!entries.some((e) => e.isIntersecting)) return;
+        append(CHUNK);
+        // Re-arm: if the sentinel is still within reach after the append (a
+        // tall screen, a fast flick), the observer reports it again.
+        if (watcher) { watcher.unobserve(sentinel); watcher.observe(sentinel); }
+      }, { root: view, rootMargin: "900px 0px" });
+      watcher.observe(sentinel);
+    };
+    if (i < target) requestAnimationFrame(refill); else watch();
   }
 
   function applyFilter() {
