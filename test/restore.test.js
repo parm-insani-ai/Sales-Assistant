@@ -26,6 +26,12 @@ const p = await ctx.newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
+// Signed in, so the app opens rather than the front door.
+const signedIn = () => {
+  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+    user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
+};
+await p.addInitScript(signedIn);
 await p.goto(APP + "/#/");
 await p.waitForTimeout(500);
 
@@ -73,6 +79,7 @@ const backup = await p.evaluate(async () => {
 // first page's database.
 const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
 const p2 = await ctx2.newPage();
+await p2.addInitScript(signedIn);
 await p2.addInitScript((rec) => {
   window.__cloudConfig = rec;                 // what the server still holds
 }, backup);

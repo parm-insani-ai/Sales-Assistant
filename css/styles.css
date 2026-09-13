@@ -492,6 +492,47 @@ body.typing #app, body.kb-open #app {
 .section-title:first-child { margin-top: 6px; }
 .section-title .muted { font-weight: 500; }
 
+/* ---------- Front door ---------- */
+/* One word, one box. Sized to the visible viewport so the box stays centred
+   in what's left when the keyboard is up, rather than under it. */
+#login {
+  position: fixed; top: var(--vvtop, 0px); left: 0; right: 0;
+  height: var(--vvh, 100%);
+  z-index: 90;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  transition: opacity 0.25s;
+}
+#login.login-out { opacity: 0; pointer-events: none; }
+.login-form {
+  width: min(100%, 300px);
+  display: flex; flex-direction: column; align-items: center; gap: 22px;
+  transform: translateY(-5vh);
+}
+.login-word {
+  font-size: 2.3rem; font-weight: 780; letter-spacing: -0.045em;
+  color: var(--text); user-select: none; -webkit-user-select: none;
+}
+.login-box {
+  width: 100%; box-sizing: border-box;
+  font: inherit; font-size: 1.05rem;
+  padding: 14px 16px; text-align: center;
+  border-radius: 14px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text);
+  outline: none; -webkit-appearance: none; appearance: none;
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.login-box:focus { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.login-box::placeholder { color: var(--muted); }
+#login.busy .login-box { opacity: 0.6; }
+.login-note { min-height: 20px; font-size: 0.85rem; color: var(--muted); text-align: center; }
+.login-back {
+  background: none; border: none; padding: 0; margin: 0;
+  color: var(--muted); font: inherit; font-size: inherit;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+
 /* The end of a long list: what's shown so far, or a button for the rest. */
 .lead-more { text-align: center; padding: 10px 0 4px; min-height: 18px; }
 .list-more {

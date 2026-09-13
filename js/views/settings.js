@@ -9,6 +9,7 @@ import { icon } from "../icons.js";
 import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
 import * as backend from "../backend.js";
 import * as sync from "../sync.js";
+import { showLogin } from "../login.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
 import { viewportReport } from "../viewport.js";
@@ -601,6 +602,9 @@ function buildCloud(slot) {
     await backend.signOut();
     sync.disable();
     toast("Signed out");
+    // Signed out is the front door. Come back through it and pick up syncing.
+    await showLogin();
+    sync.enable(); sync.init(); sync.syncNow();
     rerender();
   });
   slot.querySelector("#c-auto").addEventListener("change", (e) =>

@@ -15,6 +15,8 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 await p.addInitScript(() => {
+  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+    user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
       { id: "a", name: "Cy Poe", phone: "9025553333", vehicleInterest: "2023 Nissan Frontier", stage: "working", createdAt: "x", updatedAt: "x" },

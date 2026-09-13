@@ -18,6 +18,8 @@ await p.addInitScript(() => {
   // state on reload would hide whether the cleanup is actually one-time.
   if (localStorage.getItem("seeded") === "1") return;
   localStorage.setItem("seeded", "1");
+  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+    user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
       { id: "a", name: "Ann Lee", phone: "9025551111", stage: "working", creditTier: "4", updatedAt: "2026-09-01T00:00:00.000Z" },

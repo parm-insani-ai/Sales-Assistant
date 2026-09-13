@@ -36,11 +36,18 @@ import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from "./email.js";
 import { reconcileLinks } from "./connections.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
+import * as backend from "./backend.js";
+import { showLogin } from "./login.js";
 
 // The store loads from IndexedDB, which is asynchronous. Nothing below reads
 // or writes it until it's ready — a route rendering against an empty store
 // would show a blank app for the half-second the load takes, then flicker.
 await store.ready;
+
+// Signed out means the front door, not the app. Everything after this line
+// runs only for someone who is signed in — a session already on the device,
+// or one just made at the door.
+if (!backend.isSignedIn()) await showLogin();
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
