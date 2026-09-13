@@ -54,11 +54,17 @@ function render() {
   if (reveal) {
     const sel = reveal;
     reveal = null;
-    // A frame, so the view has been laid out and has somewhere to scroll to.
-    requestAnimationFrame(() => {
-      const el = document.querySelector(sel);
-      if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
-    });
+    // A frame, so the view has been laid out and has somewhere to scroll to —
+    // and then again a little later. Some screens fill their heavier sections
+    // after first paint (Home defers the play sheet), and a scroll issued
+    // before that content exists stops short: there is nothing below the
+    // target to scroll it up against yet. scrollIntoView is idempotent, so
+    // re-issuing it once the content has arrived costs nothing when the first
+    // attempt was already right.
+    const go = () => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ block: "start", behavior: "smooth" }); };
+    requestAnimationFrame(go);
+    setTimeout(go, 80);
+    setTimeout(go, 350);
   }
 }
 

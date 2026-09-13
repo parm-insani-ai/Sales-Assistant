@@ -280,9 +280,16 @@ const listeners = new Set();
 // is read from `state` at flush time, so a record removed since it was touched
 // is written as a delete, and one touched twice is written once.
 const dirty = { records: new Set(), outbox: new Set(), kv: new Set(), rewriteAll: false, outboxClear: false };
-const touch = (c, id) => dirty.records.add(c + SEP + id);
+// Change counters, per collection and overall. Anything expensive that is
+// derived from the store — the Deal Radar over three thousand customers — can
+// be cached against these and recomputed only when an input it reads has
+// actually changed. Marking a text read must not cost a radar run.
+const gen = { all: 0 };
+export function generation(name) { return name ? (gen[name] || 0) : gen.all; }
+const bump = (name) => { gen.all++; gen[name] = (gen[name] || 0) + 1; };
+const touch = (c, id) => { dirty.records.add(c + SEP + id); bump(c); };
 const touchOutbox = (key) => dirty.outbox.add(key);
-const touchKv = (key) => dirty.kv.add(key);
+const touchKv = (key) => { dirty.kv.add(key); bump(key); };
 
 /**
  * Merge a loaded snapshot over the defaults and apply the one-time migrations.
@@ -984,11 +991,13 @@ export function importJSON(json) {
     settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
   };
   dirty.rewriteAll = true;
+  Object.keys(state).forEach((k) => bump(k));
   persist();
 }
 
 export function resetAll() {
   state = structuredClone(DEFAULT_STATE);
   dirty.rewriteAll = true;
+  Object.keys(state).forEach((k) => bump(k));
   persist();
 }

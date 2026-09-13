@@ -298,8 +298,16 @@ function lineupCandidates() {
   return out;
 }
 
+// Cached against the inputs it reads. dealsForLead() calls this once per
+// customer, and lineupCandidates() walks the whole spec library against the
+// inventory each time — so a radar run over three thousand customers rebuilt
+// the same list three thousand times.
+let candCache = { key: "", list: null };
 function candidateVehicles() {
-  return [...availableVehicles(), ...lineupCandidates()];
+  const key = `${store.generation("vehicles")}|${store.generation("specials")}`;
+  if (candCache.list && candCache.key === key) return candCache.list;
+  candCache = { key, list: [...availableVehicles(), ...lineupCandidates()] };
+  return candCache.list;
 }
 
 // New-vehicle add-ons, exactly as the store charges them: Atlantic Value
@@ -610,7 +618,30 @@ export function bestPitch(lead, method, opts = {}) {
 
 // The proactive radar: every customer who can move into a new vehicle within the
 // current payment-tolerance band, via financing or leasing, scored and ranked.
+// The scored, sorted radar, cached against what it reads: customers,
+// inventory, specials and settings. Home ran this on every visit — ~200ms on a
+// desktop, a second on a phone, for the same answer each time — and the play
+// sheet, the voice agent and the Leads "By opportunity" view all ask for it.
+// Anything else changing (a text marked read, a call logged) leaves the cache
+// alone, which is the point of per-collection counters.
+let radarCache = { key: "", rows: null, counts: null };
+function radarKey() {
+  return ["leads", "vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
+}
+
 export function topOpportunities(limit = 50, opts = {}) {
+  const key = radarKey();
+  if (radarCache.rows && radarCache.key === key) {
+    const rows = radarCache.rows.slice(0, limit);
+    return opts.withCounts ? { rows, ...radarCache.counts } : rows;
+  }
+  const full = computeOpportunities();
+  radarCache = { key, rows: full.rows, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
+  const rows = full.rows.slice(0, limit);
+  return opts.withCounts ? { rows, ...radarCache.counts } : rows;
+}
+
+function computeOpportunities() {
   const s = store.getSettings();
   const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
   // A ceiling on the monthly payment itself. The band compares against what
@@ -618,7 +649,7 @@ export function topOpportunities(limit = 50, opts = {}) {
   // a paid-off customer has no baseline. The cap applies to everyone.
   const cap = Number(s.dealMaxPayment) || 0;
   const method = s.dealMethod || "both";
-  if (!candidateVehicles().length) return opts.withCounts ? { rows: [], overBand: 0, overCap: 0, noBaseline: 0 } : [];
+  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0 };
   const out = [];
   let overBand = 0, overCap = 0, noBaseline = 0;
   store.all("leads").forEach((l) => {
@@ -635,8 +666,7 @@ export function topOpportunities(limit = 50, opts = {}) {
     out.push({ lead: l, best, score, reasons });
   });
   out.sort((a, b) => b.score - a.score);
-  const rows = out.slice(0, limit);
-  return opts.withCounts ? { rows, overBand, overCap, noBaseline } : rows;
+  return { rows: out, overBand, overCap, noBaseline };
 }
 
 function vehName(v) {

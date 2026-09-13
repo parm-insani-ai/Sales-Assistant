@@ -33,6 +33,10 @@ export function renderLeads(view, { param }) {
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
   let selecting = false;
   const selected = new Set();
+  // Chunked list rendering — see renderList(). Declared up here because draw()
+  // is invoked from handlers that can run before the later declaration line.
+  let renderToken = 0;
+  const FIRST = 40, CHUNK = 120;
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -108,7 +112,10 @@ export function renderLeads(view, { param }) {
     if (!list.length) {
       listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
     } else {
-      list.forEach((l) => listEl.appendChild(selecting ? selectCard(l) : leadCard(l)));
+      // The first render went through its own loop and built every card at
+      // once, so the chunking in renderList() only ever applied to re-renders
+      // — the one that mattered, opening "All", was the one it skipped.
+      renderList();
     }
 
     const sb = wrap.querySelector('input[type="search"]');
@@ -192,13 +199,35 @@ export function renderLeads(view, { param }) {
     return el;
   }
 
+  // Render in chunks. "All" on an imported book is three thousand cards, and
+  // building every one before the first appeared froze the phone for seconds —
+  // and did so again on every add, delete, undo and keystroke. The first
+  // screenful goes in now; the rest arrive a frame at a time, and a newer
+  // render (a keystroke, a filter tap) cancels an older one mid-way.
   function renderList() {
     const el = wrap.querySelector(".lead-list");
     if (!el) return;
     const filtered = applyFilter();
+    const token = ++renderToken;
     el.innerHTML = "";
-    if (!filtered.length) el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
-    else filtered.forEach((x) => el.appendChild(selecting ? selectCard(x) : leadCard(x)));
+    if (!filtered.length) {
+      el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
+      return;
+    }
+    const card = (x) => (selecting ? selectCard(x) : leadCard(x));
+    const frag = document.createDocumentFragment();
+    filtered.slice(0, FIRST).forEach((x) => frag.appendChild(card(x)));
+    el.appendChild(frag);
+    let i = FIRST;
+    const more = () => {
+      if (token !== renderToken || !document.body.contains(el)) return;
+      const f = document.createDocumentFragment();
+      filtered.slice(i, i + CHUNK).forEach((x) => f.appendChild(card(x)));
+      el.appendChild(f);
+      i += CHUNK;
+      if (i < filtered.length) requestAnimationFrame(more);
+    };
+    if (i < filtered.length) requestAnimationFrame(more);
   }
 
   function applyFilter() {

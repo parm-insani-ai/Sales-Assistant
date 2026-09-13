@@ -131,7 +131,16 @@ export function renderDashboard(view) {
     paintNudges();
   }, 60000);
 
+  // The play sheet is the expensive part of this screen — it runs the Deal
+  // Radar over every customer. Paint everything else first and fill it in on
+  // the next tick, so opening Home shows the day immediately instead of a
+  // blank screen for as long as the radar takes. (Cached now, so the wait is
+  // only ever paid once per change to the book; this keeps first paint quick
+  // even that once.)
   const playsSlot = el.querySelector(".plays-slot");
+  playsSlot.innerHTML = `<div class="section-title">Today's queue</div>`;
+  setTimeout(() => { if (document.body.contains(playsSlot)) paintPlays(); }, 0);
+  function paintPlays() {
   const plays = getPlays(40);
   if (!plays.length) {
     playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
@@ -178,6 +187,7 @@ export function renderDashboard(view) {
       }
     };
     box.addEventListener("entoa:played", done);
+  }
   }
 
   // Upcoming
