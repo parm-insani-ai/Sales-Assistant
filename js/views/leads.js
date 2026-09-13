@@ -27,17 +27,26 @@ export function renderLeads(view, { param }) {
   // to you, rather than the default list with that set buried in it.
   let search = sessionStorage.getItem("leads-search") || "";
   sessionStorage.removeItem("leads-search");
-  // all | active | due | opportunity | <stage>.
+  // all | active | due | <stage>.
   //
   // The chip you tapped last is the one you're on next time — a preset from a
   // stat card or the voice agent is a one-off jump to a particular set and
   // doesn't change that. "All" is the default: the whole book, with Active
   // beside it for the people still in play.
   const REMEMBER = "viniva:leads-filter";
-  const remembered = () => { try { return localStorage.getItem(REMEMBER); } catch { return null; } };
-  const remember = (f) => { try { localStorage.setItem(REMEMBER, f); } catch {} };
-  let filter = sessionStorage.getItem("leads-filter") || remembered() || "all";
+  const OPP_KEY = "viniva:leads-opp";
+  const recall = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const remember = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch {} };
+  // "By opportunity" is not a chip: it's a lens over the entire book — the
+  // same customers ranked by how ready they are to trade, each with a deal —
+  // so it sits beside Add customer and Select, and is remembered on its own.
+  // (/deals and the voice agent still arrive by presetting "opportunity".)
+  let preset = sessionStorage.getItem("leads-filter");
   sessionStorage.removeItem("leads-filter");
+  let opp = preset === "opportunity" || (!preset && recall(OPP_KEY) === "1");
+  if (preset === "opportunity") preset = null;
+  const rem = recall(REMEMBER);
+  let filter = preset || (rem && rem !== "opportunity" ? rem : null) || "all";
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
   let selecting = false;
   const selected = new Set();
@@ -85,38 +94,41 @@ export function renderLeads(view, { param }) {
       { id: "all", label: withCount("All", "all") },
       { id: "active", label: withCount("Active", "active") },
       { id: "due", label: withCount("Due follow-ups", "due") },
-      // The old Deal Radar tab: the same customers, ranked by how ready they
-      // are to trade, with a pitchable deal on each.
-      { id: "opportunity", label: "By opportunity" },
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: withCount(s.label, s.id) })),
     ];
 
-    const opp = filter === "opportunity";
+    // Selecting is a job on the plain list; the lens waits until Done.
+    const ranked = opp && !selecting;
     wrap.innerHTML = `
-      ${opp ? "" : `<div class="searchbar">
+      ${ranked ? "" : `<div class="searchbar">
         <input type="search" placeholder="Search leads…" value="${esc(search)}" />
-      </div>`}
+      </div>
       <div class="btn-row" style="overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; margin-bottom:12px;">
         ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
-      </div>
-      ${opp ? "" : selecting ? `
+      </div>`}
+      ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" data-act="sel-all" style="flex:0 0 auto">Select all shown</button>
         <button class="btn btn-danger btn-sm" data-act="sel-del" style="flex:1">${icon("trash")} Delete (<span id="sel-count">${selected.size}</span>)</button>
         <button class="btn btn-ghost btn-sm" data-act="sel-done" style="flex:0 0 auto">Done</button>
       </div>
       <div class="hint" style="margin-bottom:10px">Tap leads to select. The filter chips and search narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : `
-      <div class="btn-row" style="margin-bottom:10px; flex-wrap:nowrap">
-        <button class="btn btn-primary" data-act="add-lead" style="flex:1">${icon("plus")} Add customer</button>
-        <button class="btn btn-ghost" data-act="select" style="flex:0 0 auto">Select</button>
+      <div class="btn-row lead-actions" style="margin-bottom:10px">
+        <button class="btn btn-primary" data-act="add-lead" style="flex:1 1 auto">Add customer</button>
+        <button class="btn btn-ghost" data-act="select">Select</button>
+        <button class="btn ${ranked ? "btn-primary" : "btn-ghost"}" data-act="opp" aria-pressed="${ranked}">By opportunity</button>
       </div>`}
       <div class="lead-list"></div>
     `;
 
+    const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
+    on('[data-act="opp"]', () => { opp = !opp; remember(OPP_KEY, opp ? "1" : null); draw(); });
+
     const listEl = wrap.querySelector(".lead-list");
-    if (filter === "opportunity") {
+    if (ranked) {
       renderDeals(listEl, { embedded: true });
-      wireChips();
+      on('[data-act="add-lead"]', () => openLeadForm());
+      on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
       return;
     }
     if (!list.length) {
@@ -136,15 +148,12 @@ export function renderLeads(view, { param }) {
 
     // Switching filters re-renders only the list and updates the active chip in
     // place — rebuilding the whole view would snap the scrollable filter row
-    // (and the page) back to the top. The opportunity view needs a full redraw
-    // because it swaps in its own controls.
+    // (and the page) back to the top.
     function wireChips() {
       wrap.querySelectorAll("[data-filter]").forEach((b) =>
         b.addEventListener("click", () => {
-          const was = filter;
           filter = b.dataset.filter;
-          remember(filter);
-          if (was === "opportunity" || filter === "opportunity") { draw(); return; }
+          remember(REMEMBER, filter);
           wrap.querySelectorAll("[data-filter]").forEach((x) => {
             const active = x === b;
             x.classList.toggle("btn-primary", active);
@@ -156,7 +165,6 @@ export function renderLeads(view, { param }) {
 
     wireChips();
 
-    const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="add-lead"]', () => openLeadForm());
     on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
     on('[data-act="sel-done"]', () => { selecting = false; selected.clear(); draw(); });

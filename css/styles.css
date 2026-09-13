@@ -543,6 +543,11 @@ body.typing #app, body.kb-open #app {
   text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
 }
 
+/* Three buttons on one line at phone width: Add customer · Select · By
+   opportunity. Tighter sides than a lone button, and no wrapping. */
+.lead-actions { flex-wrap: nowrap; }
+.lead-actions .btn { flex: 0 0 auto; white-space: nowrap; padding-left: 12px; padding-right: 12px; min-width: 0; }
+
 /* The end of a long list: what's shown so far, or a button for the rest. */
 .lead-more { text-align: center; padding: 10px 0 4px; min-height: 18px; }
 .list-more {

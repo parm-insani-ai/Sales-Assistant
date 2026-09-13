@@ -230,6 +230,59 @@ console.log("\nLeads filter memory:");
   if (after.on !== "active") fail(`the jump overwrote the remembered filter (now ${after.on})`);
 }
 
+// --- "By opportunity" is a button beside Add customer and Select, not a
+// chip: a lens over the entire book, remembered on its own, and the old
+// /deals address still lands on it.
+console.log("\nBy opportunity:");
+{
+  const state = () => p.evaluate(() => {
+    const row = document.querySelector('[data-act="opp"]')?.closest(".btn-row");
+    return {
+      chip: !!document.querySelector('[data-filter="opportunity"]'),
+      row: row ? [...row.querySelectorAll("button")].map((b) => b.dataset.act) : null,
+      lit: document.querySelector('[data-act="opp"]')?.classList.contains("btn-primary"),
+      ranked: !!document.querySelector("#deals-controls"),
+      chips: !!document.querySelector("[data-filter]"),
+      cards: document.querySelectorAll(".lead-list .card").length,
+    };
+  });
+  await p.evaluate(() => { localStorage.removeItem("viniva:leads-opp"); location.hash = "#/settings"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
+  let s = await state();
+  console.log("  off:", JSON.stringify(s));
+  if (s.chip) fail("By opportunity is still a chip");
+  if (!s.row || s.row.join(",") !== "add-lead,select,opp") fail(`the button row is ${JSON.stringify(s.row)}, not Add customer · Select · By opportunity`);
+  if (s.lit || s.ranked) fail("the lens is on before anyone tapped it");
+
+  await p.evaluate(() => document.querySelector('[data-act="opp"]').click()); await p.waitForTimeout(300);
+  s = await state();
+  console.log("  on:", JSON.stringify(s));
+  if (!s.lit) fail("the button doesn't light up when the lens is on");
+  if (!s.ranked) fail("tapping By opportunity didn't show the ranked view");
+  if (s.chips) fail("the chips are still showing under the lens — it's over the whole book");
+  if (!s.row || !s.row.includes("add-lead")) fail("Add customer disappeared under the lens");
+
+  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(300);
+  s = await state();
+  console.log("  after leaving and returning:", JSON.stringify({ lit: s.lit, ranked: s.ranked }));
+  if (!s.lit || !s.ranked) fail("the lens wasn't remembered across visits");
+
+  await p.evaluate(() => document.querySelector('[data-act="opp"]').click()); await p.waitForTimeout(300);
+  s = await state();
+  console.log("  tapped again:", JSON.stringify({ lit: s.lit, ranked: s.ranked, chips: s.chips, cards: s.cards }));
+  if (s.lit || s.ranked || !s.chips || !s.cards) fail("tapping the button again didn't bring the plain list back");
+
+  await p.evaluate(() => { location.hash = "#/deals"; }); await p.waitForTimeout(400);
+  s = await state();
+  console.log("  via /deals:", JSON.stringify({ hash: await p.evaluate(() => location.hash), lit: s.lit, ranked: s.ranked }));
+  if (!s.ranked) fail("/deals no longer lands on the ranked view");
+  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(300);
+  s = await state();
+  if (s.ranked) fail("a jump via /deals switched the lens on permanently");
+}
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nsmooth.test.js FAILED" : "\nsmooth.test.js passed");
