@@ -79,6 +79,14 @@ if (!added.plan.every((s) => s.of === 13)) fail("steps don't know the plan's len
 
 // --- 2. The first text is on Home, drafted from the context, held for a tap.
 console.log("\nHome — the first text:");
+// The day-zero steps are timed (five minutes, two hours). Move the clock on
+// rather than wait: every timed step's moment has now passed.
+await p.evaluate(async () => {
+  const store = await import("/js/store.js");
+  const lead = store.all("leads").find((l) => l.name === "Parm Gill");
+  store.all("tasks").filter((t) => t.leadId === lead.id && t.readyAt)
+    .forEach((t) => store.update("tasks", t.id, { readyAt: new Date(Date.now() - 60000).toISOString() }));
+});
 await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(100);
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
 const home = await p.evaluate(() => {
@@ -86,7 +94,7 @@ const home = await p.evaluate(() => {
   return rows.filter((r) => /Parm/.test(r.title || ""));
 });
 console.log("  " + JSON.stringify(home));
-const intro = home.find((r) => /Intro text/.test(r.title));
+const intro = home.find((r) => /Welcome text/.test(r.title));
 if (!intro) fail("the intro text isn't on the day's queue");
 if (intro && intro.btn !== "Review") fail(`the intro text's button says ${JSON.stringify(intro?.btn)}, not Review`);
 if (!home.some((r) => /Intro call/.test(r.title) && r.btn === "Call")) fail("the intro call isn't on the queue as a call");
@@ -213,6 +221,70 @@ const offline = await p.evaluate(async () => {
 console.log("  " + JSON.stringify(offline));
 if (offline.action !== "lead" || offline.name !== "Dana Lee") fail("the offline parser didn't get the customer");
 if (!/wants red/.test(offline.notes || "")) fail("the offline parser dropped what was said");
+
+// --- 10. Five minutes after a customer is added, their welcome text is ready:
+// on the "right now" list, on the queue, and at the address a push opens.
+console.log("\nthe five-minute welcome text:");
+const five = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js");
+  const nudges = await import("/js/nudges.js"); const plays = await import("/js/plays.js");
+  const lead = store.create("leads", { name: "Nadia Ross", phone: "9025559876", stage: "new", source: "Voice", vehicleInterest: "Nissan Kicks" });
+  cadence.startCadence(lead.id);
+  const steps = store.all("tasks").filter((t) => t.leadId === lead.id && t.cadence).sort((a, b) => a.step - b.step);
+  const created = Date.now();
+  const readyIn = (t) => Math.round((new Date(t.readyAt).getTime() - created) / 60000);
+  const at = (mins) => created + mins * 60000;
+  const mine = (list) => list.filter((n) => /Nadia/.test(n.title));
+  return {
+    text: { readyIn: readyIn(steps[0]), label: steps[0].title }, call: { readyIn: readyIn(steps[1]) },
+    nudgeAt1: mine(nudges.getNudges({ now: at(1) })).length,
+    nudgeAt6: mine(nudges.getNudges({ now: at(6) })).map((n) => ({ title: n.title, taskId: !!n.taskId, urgency: n.urgency })),
+    queueNow: plays.getPlays(40).filter((p) => /Nadia/.test(p.title) && /text/i.test(p.title)).length,
+    taskId: steps[0].id, leadId: lead.id,
+  };
+});
+console.log("  " + JSON.stringify(five));
+if (five.text.readyIn !== 5) fail(`the welcome text is ready in ${five.text.readyIn} minutes, not 5`);
+if (!/coming in/.test(five.text.label)) fail("the welcome text isn't framed as thanks for coming in");
+if (five.nudgeAt1) fail("the welcome text was pushed before its five minutes were up");
+if (!five.nudgeAt6.length) fail("no 'welcome text is ready' after five minutes");
+if (five.nudgeAt6.length && (!five.nudgeAt6[0].taskId || five.nudgeAt6[0].urgency < 85)) fail("the ready text isn't a tappable, urgent nudge");
+if (five.queueNow) fail("the welcome text is on the day's queue before its minute");
+
+// The push notification's address: /review/<task> drafts it and opens it.
+await p.evaluate((id) => { location.hash = "#/review/" + id; }, five.taskId);
+await p.waitForTimeout(700);
+const viaPush = await p.evaluate(() => ({ hash: location.hash, compose: document.querySelector(".ib-compose textarea")?.value || "" }));
+console.log("  via the push address:", JSON.stringify({ hash: viaPush.hash, compose: viaPush.compose.slice(0, 50) + "…" }));
+if (!/^#\/inbox\//.test(viaPush.hash)) fail("the push address didn't open the conversation");
+if (!viaPush.compose) fail("the push address didn't put a draft in the box");
+
+// --- 11. An internet enquiry is a race: call, text, call inside the hour.
+const inbound = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js"); const touches = await import("/js/touches.js");
+  const lead = store.create("leads", { name: "Omar Haddad", phone: "9025550001", stage: "new", source: "Internet", vehicleInterest: "Nissan Frontier" });
+  cadence.startCadence(lead.id);
+  const steps = store.all("tasks").filter((t) => t.leadId === lead.id && t.cadence).sort((a, b) => a.step - b.step);
+  const created = Date.now();
+  const first = steps.slice(0, 3).map((t) => `${t.channel}@${Math.round((new Date(t.readyAt).getTime() - created) / 60000)}`);
+  const intro = steps.find((t) => t.channel === "text");
+  return { first, total: steps.length, template: touches.templateTouch(lead, intro) };
+});
+console.log("\ninternet enquiry, first hour:", JSON.stringify(inbound.first), "of", inbound.total);
+if (inbound.first.join(" ") !== "call@2 text@5 call@20") fail(`an internet lead's first hour should be call, text, call — got ${inbound.first.join(" ")}`);
+if (!/reaching out/.test(inbound.template)) fail("an internet lead's welcome text says 'coming in' — they haven't been in");
+
+// --- 12. Business hours travel to the server with the prefs.
+const prefs = await p.evaluate(async () => {
+  const store = await import("/js/store.js");
+  store.updateSettings({ hoursFrom: 8, hoursTo: 19, hoursDays: [1, 2, 3, 4, 5] });
+  store.publishPrefs();
+  return store.get("prefs", "me");
+});
+console.log("\nprefs:", JSON.stringify({ hoursFrom: prefs.hoursFrom, hoursTo: prefs.hoursTo, hoursDays: prefs.hoursDays }));
+if (prefs.hoursFrom !== 8 || prefs.hoursTo !== 19 || JSON.stringify(prefs.hoursDays) !== "[1,2,3,4,5]") fail("business hours don't reach the server's prefs row");
+const fnSrc = await (await fetch(APP + "/supabase/functions/voice-agent/index.ts")).text();
+if (!/inBusinessHours/.test(fnSrc) || !/touch:\$\{t\.id\}/.test(fnSrc) || !/#\/review\//.test(fnSrc)) fail("the server sweep doesn't push ready texts inside business hours");
 
 // --- 9. A sale retires the plan.
 const sold = await p.evaluate(async () => {

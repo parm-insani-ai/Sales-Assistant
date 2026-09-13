@@ -220,6 +220,16 @@ function inQuietHours(nowLocalHour: number, from: number, to: number): boolean {
                    : (nowLocalHour >= from || nowLocalHour < to);
 }
 
+// Business hours, from the app's prefs: the only time the sweep asks for an
+// OK on a message. A customer added at 8pm gets their welcome text drafted at
+// 8:05 — and the salesperson hears about it at nine the next morning.
+function inBusinessHours(localHour: number, localDow: number, cfg: any): boolean {
+  const from = Number(cfg.hoursFrom ?? 9), to = Number(cfg.hoursTo ?? 18);
+  const days: number[] = Array.isArray(cfg.hoursDays) ? cfg.hoursDays.map(Number) : [1, 2, 3, 4, 5, 6];
+  if (!days.includes(localDow)) return false;
+  return from < to ? (localHour >= from && localHour < to) : (localHour >= from || localHour < to);
+}
+
 async function handleSweep(body: any): Promise<Response> {
   const cronKey = Deno.env.get("CRON_KEY");
   if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
@@ -245,15 +255,55 @@ async function handleSweep(body: any): Promise<Response> {
     if (cfg.proactive === false) { report.push({ uid: uid.slice(0, 8), skipped: "switched off" }); continue; }
     const offset = Number(cfg.tzOffsetMinutes);
     const tzOffset = isFinite(offset) ? offset : 0;
-    const localHour = new Date(now - tzOffset * 60000).getUTCHours();
+    const localNow = new Date(now - tzOffset * 60000);
+    const localHour = localNow.getUTCHours();
+    const localDow = localNow.getUTCDay();
+    const localDay = localNow.toISOString().slice(0, 10);
     const quietFrom = Number(cfg.quietFrom ?? 21);
     const quietTo = Number(cfg.quietTo ?? 8);
     if (inQuietHours(localHour, quietFrom, quietTo)) { report.push({ uid: uid.slice(0, 8), skipped: "quiet hours" }); continue; }
+    const openForBusiness = inBusinessHours(localHour, localDow, cfg);
 
     const already = await sentNudges(uid);
     const leads = await rows("leads");
     const leadById = (id: string) => leads.find((l: any) => l.id === id) || null;
     const found: { key: string; urgency: number; title: string; body: string; url: string }[] = [];
+
+    // 0. Asking for an OK — business hours only.
+    //    A welcome text whose five minutes are up (the app drafts it; the push
+    //    opens it in the compose box), and once a day at opening, the count of
+    //    follow-up texts that are due and waiting to be read and sent.
+    if (openForBusiness) {
+      const tasks = await rows("tasks");
+      const nowISO = new Date(now).toISOString();
+      const dayAgo = new Date(now - 24 * 3600 * 1000).toISOString();
+      for (const t of tasks) {
+        if (!t.cadence || t.done || t.channel !== "text" || !t.readyAt) continue;
+        if (t.readyAt > nowISO || t.readyAt < dayAgo) continue;
+        const lead = leadById(t.leadId);
+        if (!lead || !lead.phone) continue;
+        const who = String(lead.name || "A customer").split(" ")[0];
+        found.push({
+          key: `touch:${t.id}`,
+          urgency: 92,
+          title: `${who}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is ready`,
+          body: "Drafted from what you told me — tap to read it and send.",
+          url: `./#/review/${t.id}`,
+        });
+      }
+      const dueTexts = tasks.filter((t: any) =>
+        t.cadence && !t.done && t.channel === "text" && t.due && String(t.due).slice(0, 10) <= localDay &&
+        (!t.readyAt || t.readyAt <= nowISO) && leadById(t.leadId)?.phone);
+      if (dueTexts.length) {
+        found.push({
+          key: `okday:${localDay}`,
+          urgency: 60,
+          title: `${dueTexts.length} follow-up text${dueTexts.length === 1 ? " is" : "s are"} ready for your OK`,
+          body: "Each one is written for the customer it's going to. Read, then send.",
+          url: "./#/",
+        });
+      }
+    }
 
     // 1. A customer is waiting on a reply.
     const unread = (await rows("texts")).filter((t: any) => t.dir === "in" && !t.read);

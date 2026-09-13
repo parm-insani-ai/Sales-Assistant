@@ -152,6 +152,14 @@ export function renderSettings(view) {
         <div class="field"><label>Quiet until</label><input id="s-quietto" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.quietTo ?? 8)}"></div>
       </div>
       <div class="hint" style="margin-bottom:10px">A customer waiting on a reply, an appointment about to start unconfirmed, tomorrow's delivery with prep outstanding — you'll get one notification each, never a repeat, and nothing between these hours.</div>
+      <div class="field-inline">
+        <div class="field"><label>Business hours from</label><input id="s-hoursfrom" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.hoursFrom ?? 9)}"></div>
+        <div class="field"><label>until</label><input id="s-hoursto" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.hoursTo ?? 18)}"></div>
+      </div>
+      <div class="btn-row" style="margin-bottom:8px" id="s-hoursdays">
+        ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<button type="button" class="btn btn-sm ${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i) ? "btn-primary" : "btn-ghost"}" data-day="${i}" aria-pressed="${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i)}" style="flex:1;padding-left:0;padding-right:0">${d}</button>`).join("")}
+      </div>
+      <div class="hint" style="margin-bottom:10px">Requests for your OK — a welcome text five minutes after you add someone, the day's follow-up texts — only arrive inside business hours. Anything that comes due outside them waits for opening.</div>
       <button class="btn btn-ghost btn-block" data-act="save-proactive" style="margin-bottom:8px">Save notification hours</button>
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
       <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
@@ -497,11 +505,20 @@ export function renderSettings(view) {
       proactive: el.querySelector("#s-proactive").checked,
       quietFrom: hour("#s-quietfrom", 21),
       quietTo: hour("#s-quietto", 8),
+      hoursFrom: hour("#s-hoursfrom", 9),
+      hoursTo: hour("#s-hoursto", 18),
+      hoursDays: [...el.querySelectorAll('#s-hoursdays [data-day][aria-pressed="true"]')].map((b) => Number(b.dataset.day)),
     });
     // The server only learns about this through the synced prefs record.
     store.publishPrefs();
     toast("Saved", "success");
   });
+  el.querySelectorAll("#s-hoursdays [data-day]").forEach((b) => b.addEventListener("click", () => {
+    const on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(on));
+    b.classList.toggle("btn-primary", on);
+    b.classList.toggle("btn-ghost", !on);
+  }));
 
   el.querySelector('[data-act="update"]').addEventListener("click", async () => {
     toast("Checking for updates…");

@@ -13,13 +13,17 @@ import * as store from "./store.js";
 import { agentConfigured } from "./agent.js";
 import { briefFor } from "./context.js";
 import { looksLikeMoney } from "./replies.js";
+import { isInbound } from "./cadence.js";
+import { openText } from "./sms.js";
+import { navigate } from "./router.js";
+import { smsHref } from "./utils.js";
 import { cachedShortBookingLink, bookingLink } from "./views/settings.js";
 
 const first = (name) => String(name || "there").trim().split(/\s+/)[0];
 
 // What each step is trying to do, in words the model can act on.
 const INTENTS = {
-  intro:   "This is the first text, sent the day you met or they enquired. Thank them, say you've noted exactly what they're after, and tell them the one thing you'll do next for them. Warm, specific, short.",
+  intro:   "This is the welcome text, minutes after you met them (or after they enquired — the brief says which). Thank them for coming in (or for reaching out), then prove you listened: name the specific thing they're after — the trim, the feature, new or used — and add ONE genuinely useful detail about it from the brief or common knowledge of that vehicle. Close with the one thing you'll do next for them. Warm, specific, short.",
   value:   "Day one. Give them something useful about the specific vehicle/trim/feature they asked for — a detail, an option, what to look for — and offer to show them in person. Not a sales pitch: a helpful note from someone who listened.",
   options: "Day four. Lay out two ways to get them what they want (for example new vs. used, two trims, in-stock vs. incoming) and ask which they'd rather see. No prices.",
   nudge:   "About ten days in. A light, low-pressure check-in — has anything changed, any questions — and an easy way to book.",
@@ -39,6 +43,7 @@ function systemFor(lead, task) {
 
 WHO IT'S TO
 ${briefFor(lead)}
+How they arrived: ${isInbound(lead) ? "they enquired online or by phone — they have NOT been in yet" : "they came in to the dealership in person"}
 
 WHAT THIS TEXT IS FOR (${dayN})
 ${INTENTS[task.intent] || INTENTS.nudge}
@@ -70,7 +75,7 @@ export function templateTouch(lead, task) {
   const want = p.trim ? `${car} ${p.trim}`.replace(/\s+/g, " ") : car;
   const feat = Array.isArray(p.features) && p.features.length ? p.features[0] : "";
   switch (task.intent) {
-    case "intro":   return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Great talking with you — I've got you down for a ${want}${feat ? ` with the ${feat}` : ""}. I'll keep an eye out and be in touch as soon as I have something worth seeing.`;
+    case "intro":   return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. ${isInbound(lead) ? "Thanks for reaching out" : "Thanks for coming in today"} — I've got you down for a ${want}${feat ? ` with the ${feat}` : ""}${p.newUsed === "either" ? ", new or used" : ""}. I'll keep an eye out and be in touch as soon as I have something worth seeing.`;
     case "value":   return `Hi ${fn}, ${me} here. Quick one on the ${want}${feat ? ` — the ${feat} is worth seeing in person` : ""}. Want me to set one aside for you to look at this week?`;
     case "options": return `Hi ${fn}, there are a couple of ways to get you into a ${car}${p.newUsed === "either" ? " — new or a low-km used one" : ""}. Happy to walk you through both. Which day works better, a weekday or the weekend?`;
     case "nudge":   return `Hi ${fn}, just checking in — any questions on the ${car}? No rush at all, I'm here whenever you're ready.`;
@@ -128,4 +133,22 @@ export async function draftTouch(lead, task) {
     if (!text || looksLikeMoney(text)) return fallback();
   }
   return { body: text, via: "agent" };
+}
+
+/**
+ * The "yes" path. Draft the step's text for its customer and put it in front
+ * of the salesperson: the conversation opens with the draft in the compose
+ * box (or the phone's Messages app, when there's no texting number). Called
+ * from the Home queue, the "right now" list, and a push notification's URL.
+ * Resolves true when a draft was put on screen.
+ */
+export async function reviewTouch(taskId) {
+  const task = store.get("tasks", taskId);
+  const lead = task && task.leadId ? store.get("leads", task.leadId) : null;
+  if (!task || !lead) { navigate("/"); return false; }
+  if (task.done) { navigate(lead.phone ? `/inbox/${lead.id}` : `/leads/${lead.id}`); return false; }
+  if (!lead.phone) { navigate(`/leads/${lead.id}`); return false; }
+  const { body } = await draftTouch(lead, task);
+  if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
+  return true;
 }

@@ -207,6 +207,12 @@ const DEFAULT_STATE = {
     proactive: true,
     quietFrom: 21,
     quietTo: 8,
+    // Business hours: the only time the agent asks for an OK on a message —
+    // a welcome text ready to go, the day's follow-ups. Local hours; days
+    // are 0=Sunday … 6=Saturday.
+    hoursFrom: 9,
+    hoursTo: 18,
+    hoursDays: [1, 2, 3, 4, 5, 6],
     dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
     dealMethod: "both", // "both" | "finance" | "lease"
     dealMaxPayment: 0, // $/mo ceiling on the radar; 0 = no cap
@@ -778,13 +784,18 @@ export function publishPrefs() {
     proactive: s.proactive !== false,
     quietFrom: Number(s.quietFrom ?? 21),
     quietTo: Number(s.quietTo ?? 8),
+    // Business hours: when the server may ask for an OK (a welcome text
+    // ready to send, the day's follow-ups). Local hours and weekdays (0=Sun).
+    hoursFrom: Number(s.hoursFrom ?? 9),
+    hoursTo: Number(s.hoursTo ?? 18),
+    hoursDays: Array.isArray(s.hoursDays) ? s.hoursDays.slice() : [1, 2, 3, 4, 5, 6],
     updatedAt: new Date().toISOString(),
   };
   const existing = get("prefs", "me");
   // Only write when something actually changed — this runs on every launch and
   // an unconditional write would queue a sync every time the app opened.
-  if (existing && ["tzOffsetMinutes", "proactive", "quietFrom", "quietTo"]
-    .every((k) => existing[k] === data[k])) return;
+  if (existing && ["tzOffsetMinutes", "proactive", "quietFrom", "quietTo", "hoursFrom", "hoursTo", "hoursDays"]
+    .every((k) => JSON.stringify(existing[k]) === JSON.stringify(data[k]))) return;
   if (existing) update("prefs", "me", data);
   else create("prefs", data);
 }

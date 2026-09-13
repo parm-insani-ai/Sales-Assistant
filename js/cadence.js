@@ -31,9 +31,13 @@ function addDaysISO(days, from = new Date()) {
 // ---- The patterns ----
 // intent is what the text is *for*; the drafter turns it into words for this
 // customer. Calls carry a one-line purpose for the salesperson instead.
+// `after` is minutes from the moment the customer was added: the day-zero
+// steps are timed, not just dated, because the first hour is where the
+// evidence is least ambiguous — a lead reached inside five minutes is many
+// times more likely to be contacted at all than one reached after thirty.
 export const INTEREST_PLAN = [
-  { day: 0,  channel: "text", intent: "intro",    label: "Intro text — thanks, and what you'll do for them" },
-  { day: 0,  channel: "call", intent: "intro",    label: "Intro call — confirm what they want and when" },
+  { day: 0,  after: 5,   channel: "text", intent: "intro",    label: "Welcome text — thanks for coming in, and what you noted" },
+  { day: 0,  after: 120, channel: "call", intent: "intro",    label: "Intro call — confirm what they want and when" },
   { day: 1,  channel: "text", intent: "value",    label: "Value text — something specific to what they asked for" },
   { day: 2,  channel: "call", intent: "check",    label: "Check-in call — answer questions, offer a time" },
   { day: 4,  channel: "text", intent: "options",  label: "Options text — two ways to get them there" },
@@ -47,14 +51,29 @@ export const INTEREST_PLAN = [
   { day: 90, channel: "text", intent: "nurture",  label: "90-day check-in" },
 ];
 
+// An enquiry that arrived over the internet or the phone is a race, not a
+// visit: they are shopping right now, probably at several dealers, and the
+// first store to actually reach them usually gets the appointment. So the
+// first hour is call, text, call — the sequence with the best contact rate on
+// record — and the welcome text says "thanks for reaching out".
+export const INBOUND_DAY0 = [
+  { day: 0, after: 2,  channel: "call", intent: "intro", label: "Call now — they're shopping this minute" },
+  { day: 0, after: 5,  channel: "text", intent: "intro", label: "Welcome text — thanks for reaching out, and what you noted" },
+  { day: 0, after: 20, channel: "call", intent: "intro", label: "Second call — most connects happen on the second try" },
+];
+export function isInbound(lead) {
+  return /internet|phone|web|online|text|book|email|facebook|bdc|chat/i.test(String((lead && lead.source) || ""));
+}
+
 // Which plan fits this customer. An owner already in a car is worked with the
 // salesperson's own sequence from Settings (softer, longer); anyone who came
-// in wanting a vehicle gets the interest pattern.
+// in wanting a vehicle gets the interest pattern, with the first hour shaped
+// by how they arrived.
 export function planFor(lead) {
   if (!lead) return [];
   const owner = ["sold", "delivered"].includes(lead.stage) || lead.currentPayment != null || lead.payoff != null || lead.purchaseDate;
   if (owner) return (store.getSettings().cadence || []).map((s) => ({ ...s, intent: s.intent || "nurture" }));
-  return INTEREST_PLAN;
+  return isInbound(lead) ? [...INBOUND_DAY0, ...INTEREST_PLAN.filter((s) => s.day > 0)] : INTEREST_PLAN;
 }
 
 // True if this lead already has plan tasks (so we don't duplicate them).
@@ -75,6 +94,7 @@ export function startCadence(leadId) {
   if (!lead) return 0;
   const steps = planFor(lead);
   const fn = firstName(lead.name);
+  const now = Date.now();
   let created = 0;
   store.bulk(() => {
     steps.forEach((step, i) => {
@@ -82,6 +102,8 @@ export function startCadence(leadId) {
       store.create("tasks", {
         title: `${verb} ${fn} — ${step.label}`,
         due: addDaysISO(step.day || 0),
+        // The clock time a day-zero step becomes ready; the day is not enough.
+        readyAt: step.after != null ? new Date(now + step.after * 60000).toISOString() : null,
         priority: (step.day || 0) <= 2 ? "high" : "normal",
         done: false,
         leadId,
@@ -95,6 +117,27 @@ export function startCadence(leadId) {
     });
   });
   return created;
+}
+
+// Has this step's moment arrived? Dated steps are ready on their day; timed
+// ones at their minute.
+export function isReady(task, now = Date.now()) {
+  if (!task || task.done) return false;
+  if (task.readyAt) return new Date(task.readyAt).getTime() <= now;
+  const today = new Date(now).toISOString().slice(0, 10);
+  return !!task.due && task.due <= today;
+}
+
+// Timed texts whose moment has come in the last day and that nobody has sent
+// — the welcome text five minutes after a customer was added, above all. This
+// is what the "right now" list and the server's push both ask for.
+const READY_WINDOW_MS = 24 * 3600 * 1000;
+export function readyTouches(now = Date.now()) {
+  return store.all("tasks").filter((t) => {
+    if (!t.cadence || t.done || t.channel !== "text" || !t.readyAt) return false;
+    const at = new Date(t.readyAt).getTime();
+    return at <= now && now - at < READY_WINDOW_MS;
+  }).sort((a, b) => String(a.readyAt).localeCompare(String(b.readyAt)));
 }
 
 // Called after a lead is created; starts the plan if auto-cadence is on and

@@ -36,6 +36,7 @@ import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from "./email.js";
 import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
+import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
@@ -81,6 +82,10 @@ const PAGES = {
   "/pay": { title: "Paycheck", render: renderPay },
   "/import": { title: "Import", render: renderImport },
   "/settings": { title: "Settings", render: renderSettings },
+  // Where a "your text is ready" notification lands: draft the step for its
+  // customer and open the conversation with it in the box. Not a screen of
+  // its own — it hands straight over.
+  "/review": { title: "Review", render: (view, { param }) => { reviewTouch(param); } },
 };
 
 function mount(base, ctx) {

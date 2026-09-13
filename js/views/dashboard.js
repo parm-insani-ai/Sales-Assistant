@@ -11,8 +11,7 @@ import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { getNudges } from "../nudges.js";
-import { draftTouch } from "../touches.js";
-import { openText } from "../sms.js";
+import { reviewTouch } from "../touches.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -117,7 +116,12 @@ export function renderDashboard(view) {
           <div class="row-title">${esc(n.title)}</div>
           <div class="row-sub">${esc(n.sub)}</div>
         </div><div class="row-meta">\u203a</div>`;
-      row.addEventListener("click", () => {
+      row.addEventListener("click", async () => {
+        if (n.taskId && !n.route) {
+          row.style.opacity = "0.6";
+          try { await reviewTouch(n.taskId); } finally { row.style.opacity = ""; }
+          return;
+        }
         if (n.href) { window.location.href = n.href; return; }
         if (n.route) navigate(n.route);
       });
@@ -177,16 +181,9 @@ export function renderDashboard(view) {
       // thread opens with the draft in the box; sending is their tap.
       const draft = row.querySelector("[data-play-draft]");
       if (draft) draft.addEventListener("click", async () => {
-        const task = store.get("tasks", p.taskId);
-        const lead = task && task.leadId ? store.get("leads", task.leadId) : null;
-        if (!task || !lead || !lead.phone) return navigate("/comms");
         draft.disabled = true; draft.textContent = "Drafting…";
-        try {
-          const { body } = await draftTouch(lead, task);
-          if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
-        } finally {
-          draft.disabled = false; draft.textContent = "Review";
-        }
+        try { await reviewTouch(p.taskId); }
+        finally { draft.disabled = false; draft.textContent = "Review"; }
       });
       const go = row.querySelector("[data-play-go]");
       if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
