@@ -54,14 +54,27 @@ export function renderLeads(view, { param }) {
       return (b.createdAt || "").localeCompare(a.createdAt || "");
     });
 
+    // Every chip carries its count. The default is Active, which hides
+    // delivered and lost — and an imported book of past customers is almost
+    // entirely "delivered", so a fresh install opened on 61 of 2,923 and it read
+    // as the other 2,862 having been lost. With "All 2,923" sitting beside
+    // "Active 61" the hidden rows are a number on screen, not a mystery.
+    const everyone = store.all("leads");
+    const n = {
+      active: everyone.filter((l) => !["delivered", "lost"].includes(l.stage)).length,
+      due: everyone.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0).length,
+      all: everyone.length,
+    };
+    LEAD_STAGES.forEach((st) => { n[st.id] = everyone.filter((l) => l.stage === st.id).length; });
+    const withCount = (label, id) => (n[id] == null ? label : `${label} ${n[id].toLocaleString()}`);
     const chips = [
-      { id: "active", label: "Active" },
-      { id: "due", label: "Due follow-ups" },
+      { id: "active", label: withCount("Active", "active") },
+      { id: "due", label: withCount("Due follow-ups", "due") },
       // The old Deal Radar tab: the same customers, ranked by how ready they
       // are to trade, with a pitchable deal on each.
       { id: "opportunity", label: "By opportunity" },
-      { id: "all", label: "All" },
-      ...LEAD_STAGES.map((s) => ({ id: s.id, label: s.label })),
+      { id: "all", label: withCount("All", "all") },
+      ...LEAD_STAGES.map((s) => ({ id: s.id, label: withCount(s.label, s.id) })),
     ];
 
     const opp = filter === "opportunity";

@@ -112,6 +112,11 @@ async function reconcile() {
 
 let running = null;
 let reconciledThisSession = false;
+// Rows applied from the cloud since the app opened. The Storage check uses it
+// to tell "restored from the cloud" apart from "never written" — both look
+// like loaded 0 / in memory N, and they are opposite diagnoses.
+let appliedThisSession = 0;
+export function rowsAppliedThisSession() { return appliedThisSession; }
 
 // Run a full sync cycle. Safe to call often — concurrent calls share one run.
 // { reconcile: true } forces the local↔server comparison; it also runs on the
@@ -139,6 +144,7 @@ export function syncNow(opts = {}) {
         }
       }
       const applied = await pullApply();
+      appliedThisSession += applied;
       const at = new Date().toISOString();
       setMeta({ lastSyncAt: at });
       emit("synced", { at, applied, pushed });

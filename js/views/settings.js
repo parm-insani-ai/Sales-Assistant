@@ -424,6 +424,12 @@ export function renderSettings(view) {
           ? `<div style="color:#FF9E9E">last session left ${i.expected} rows on disk, this launch found ${i.loaded} — storage was CLEARED between sessions</div>`
           : i.migratedFrom
             ? `<div style="color:#7CFFC4">moved ${i.inMemory} rows from the old ${esc(i.migratedFrom)} store into IndexedDB this launch</div>`
+          : i.expected === 0 && i.loaded === 0 && sync.rowsAppliedThisSession() > 0
+            // A fresh install that has just pulled its book back down. This
+            // read as "nothing was on disk — if it's gone next launch the
+            // write never landed", which is the opposite of what happened and
+            // sent a real data-loss scare the wrong way.
+            ? `<div style="color:#7CFFC4">fresh install — ${sync.rowsAppliedThisSession()} rows restored from the cloud this session (${i.pending ? i.pending + " still writing" : "all written to disk"})</div>`
           : i.expected === 0 && i.loaded === 0 && i.inMemory > 0
             ? `<div style="color:#FFD27C">nothing was on disk at launch; ${i.inMemory} rows are in memory now — if they're gone after a relaunch, the write never landed</div>`
             : `<div style="color:#7CFFC4">disk and memory agree (${i.loaded} loaded, ${i.inMemory} in memory)</div>`;
