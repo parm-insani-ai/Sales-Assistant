@@ -40,7 +40,7 @@ const seeded = await p.evaluate(async () => {
     warranty:  mk({ name: "War Ranty", purchaseDate: yearsAgo(2.9), payoff: 15500, currentValue: 15000 }),  // basic warranty running out
     overkm:    mk({ name: "Ove Rkm", leaseEnd: day(300), dealType: "lease", odometer: 95000, purchaseDate: yearsAgo(3.0), payoff: 15500, currentValue: 15000 }), // 31k/yr on a lease
     service:   mk({ name: "Ser Vice", notes: `AutoAlert: Flex alert\nService appt ${day(4)} — meet them in the drive`, payoff: 15500, currentValue: 15000 }),
-    opened:    mk({ name: "Ope Ned", payoff: 15500, currentValue: 15000 }),
+    opened:    mk({ name: "Ope Ned", payoff: 14500, currentValue: 15000 }),
     contacted: mk({ name: "Con Tacted", payoff: 9000, currentValue: 19500, lastContacted: iso(-3) }),     // same as Eq Uity, reached this week
     optout:    mk({ name: "Opt Out", payoff: 9000, currentValue: 19500, smsOptOut: true }),
     nodata:    { name: "No Data", phone: "9025550000", stage: "delivered", source: "Import", vehicleInterest: "2016 Honda Civic" },

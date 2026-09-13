@@ -107,9 +107,18 @@ export function estimateTradeValue(lead) {
   return d ? d.value : null;
 }
 
-// Months left on their contract — from the maturity date, or purchase date +
-// term when that's all we have.
+// Months left on their contract — from the export's count of payments left
+// (aged by the months since the export), else the maturity date, else the
+// purchase date + term when that's all we have.
 export function monthsRemaining(lead) {
+  // (num() reads a missing value as 0; here missing has to mean missing.)
+  const left = lead.paymentsLeft != null && lead.paymentsLeft !== "" && isFinite(Number(lead.paymentsLeft)) ? Number(lead.paymentsLeft) : null;
+  if (left != null) {
+    const asOf = new Date(lead.paymentsLeftAsOf || lead.updatedAt || lead.createdAt || Date.now());
+    const elapsed = isNaN(asOf) ? 0 : Math.max(0, Math.floor((Date.now() - asOf.getTime()) / (30.44 * 86400000)));
+    const m = Math.round(left - elapsed);
+    return m > 0 ? m : null;
+  }
   let end = lead.leaseEnd ? new Date(lead.leaseEnd) : null;
   if ((!end || isNaN(end)) && lead.purchaseDate && Number(lead.currentTerm)) {
     const p = new Date(lead.purchaseDate);
@@ -146,6 +155,8 @@ export function inferPayoff(lead) {
   if (lead.payoff != null && lead.payoff !== "") return null; // already known
   const pmt = num(lead.currentPayment);
   const n = monthsRemaining(lead);
+  // The export counted the payments left and they've since run out: paid off.
+  if (lead.paymentsLeft != null && lead.paymentsLeft !== "" && n == null) return 0;
   if (!pmt || !n) return null;
   return Math.round((pmt * n) / 10) * 10;
 }
@@ -160,10 +171,14 @@ export function dealInputs(lead) {
   const calcPayoff = inferPayoff(lead);
   const payoff = lead.payoff != null ? { v: lead.payoff, src: "known" }
     : calcPayoff != null ? { v: calcPayoff, src: "calc" } : { src: "missing" };
+  // The export's own equity figure, when it gave that and not a value: the
+  // value is the payoff plus it. Their appraisal beats our book estimate.
+  const impEq = lead.importedEquity != null && lead.importedEquity !== "" && isFinite(Number(lead.importedEquity)) ? Number(lead.importedEquity) : null;
   return {
     payment: lead.currentPayment != null ? { v: lead.currentPayment, src: "known" } : { src: "missing" },
     payoff,
     value: lead.currentValue != null ? { v: lead.currentValue, src: "known" }
+      : impEq != null && payoff.v != null ? { v: Math.round(payoff.v + impEq), src: "import" }
       : est != null ? { v: est, src: "book" }
       : payoff.v != null ? { v: payoff.v, src: "wash" } : { src: "missing" },
     apr: lead.currentApr != null && lead.currentApr !== "" ? { v: Number(lead.currentApr), src: "known" }
@@ -507,7 +522,7 @@ export function equityDetail(lead) {
   if (inp.value.v == null || inp.value.src === "wash") return { v: null, src: null };
   if (inp.payoff.v == null) return { v: null, src: null };
   const solid = inp.value.src === "known" && inp.payoff.src === "known";
-  return { v: Math.round(inp.value.v - inp.payoff.v), src: solid ? "known" : "est" };
+  return { v: Math.round(inp.value.v - inp.payoff.v), src: solid ? "known" : "est", valueSrc: inp.value.src, payoffSrc: inp.payoff.src };
 }
 
 function yearsOwned(iso) {
@@ -641,7 +656,7 @@ export function topOpportunities(limit = 50, opts = {}) {
     return opts.withCounts ? { rows, ...radarCache.counts } : rows;
   }
   const full = computeOpportunities();
-  radarCache = { key, rows: full.rows, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
+  radarCache = { key, rows: full.rows, others: full.others, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
   const rows = full.rows.slice(0, limit);
   return opts.withCounts ? { rows, ...radarCache.counts } : rows;
 }
@@ -654,8 +669,9 @@ function computeOpportunities() {
   // a paid-off customer has no baseline. The cap applies to everyone.
   const cap = Number(s.dealMaxPayment) || 0;
   const method = s.dealMethod || "both";
-  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0 };
+  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0, others: new Map() };
   const out = [];
+  const others = new Map();
   let overBand = 0, overCap = 0, noBaseline = 0;
   store.all("leads").forEach((l) => {
     const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
@@ -663,9 +679,12 @@ function computeOpportunities() {
     const rows = dealsForLead(l, { method });
     const best = pickPitch(rows, l);
     if (!best) return;
-    if (cap && best.monthly > cap) { overCap++; return; }
+    // The ones the radar turns away are still an answer — "the closest deal
+    // is +$210/mo, because of the negative equity" — so keep them for the
+    // read of the book (closestDeal).
+    if (cap && best.monthly > cap) { overCap++; others.set(l.id, { best, why: "cap" }); return; }
     // Only surface customers whose new payment stays within their tolerance.
-    if (best.delta != null && best.delta > band) { overBand++; return; }
+    if (best.delta != null && best.delta > band) { overBand++; others.set(l.id, { best, why: "band" }); return; }
     if (best.delta == null) noBaseline++;
     const { score, reasons } = scoreOpportunity(l, best);
     if (score <= 0) return;
@@ -675,7 +694,15 @@ function computeOpportunities() {
     out.push({ lead: l, best, score, reasons, replacement });
   });
   out.sort((a, b) => b.score - a.score);
-  return { rows: out, overBand, overCap, noBaseline };
+  return { rows: out, overBand, overCap, noBaseline, others };
+}
+
+// The closest deal for a customer the radar turned away (over the band or
+// the ceiling), with which of the two it was. Null for anyone on the radar
+// or without the data to price.
+export function closestDeal(leadId) {
+  topOpportunities(0); // make sure the cache is current
+  return (radarCache.others && radarCache.others.get(leadId)) || null;
 }
 
 function vehName(v) {

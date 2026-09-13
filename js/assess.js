@@ -15,7 +15,7 @@
 // Computed once per change to what it reads, like the radar.
 
 import * as store from "./store.js";
-import { topOpportunities, equityDetail, monthsRemaining, inferApr } from "./views/dealbuilder.js";
+import { topOpportunities, equityDetail, monthsRemaining, inferApr, closestDeal } from "./views/dealbuilder.js";
 import { daysFromToday, currency } from "./utils.js";
 import { isLikelyPrefetch } from "./plays.js";
 
@@ -147,6 +147,16 @@ function assessOne(l, ctx) {
     else if (best.delta <= 100) add(12, `+${currency(Math.round(best.delta))}/mo`, `A ${vehName(best.vehicle)} would be about ${currency(Math.round(best.delta))}/mo more.`, "a newer vehicle is within reach of their current payment");
   } else if (best) {
     add(8, null, `The natural next vehicle is a ${vehName(best.vehicle)}.`, `the natural next vehicle for them is a ${vehName(best.vehicle)}`);
+  } else {
+    // Not on the radar, but priced: say what the closest deal is and why it
+    // missed, rather than going quiet. (The payment includes any negative
+    // equity rolled in — which is usually the reason.)
+    const miss = closestDeal(l.id);
+    if (miss && miss.best) {
+      best = miss.best;
+      if (miss.why === "cap") add(0, null, `The closest deal, a ${vehName(miss.best.vehicle)}, is about ${currency(Math.round(miss.best.monthly))}/mo — over the payment ceiling.`, null);
+      else add(0, null, `The closest deal, a ${vehName(miss.best.vehicle)}, would be about ${currency(Math.round(miss.best.delta))}/mo MORE than they pay now — over the band.`, null);
+    }
   }
   if (best && best.special) add(8, `🏷 ${best.special}`, `Nissan has ${best.special} on it right now.`, `there's a manufacturer program on the ${best.vehicle.model || "next vehicle"} right now (don't quote its terms)`);
   // Say what the like-for-like costs too, so nobody pitches a Kicks to a
@@ -161,6 +171,9 @@ function assessOne(l, ctx) {
   else if (eq != null && eq >= 3000) add(20, `${eqD.src === "est" ? "~" : ""}${currency(eq)} equity`, `About ${currency(eq)} of equity in their ${l.vehicleInterest || "vehicle"}${est}.`, "their current vehicle is worth a good deal more than what's left owing on it");
   else if (eq != null && eq > 0) add(10, "Positive equity", `A little equity in their ${l.vehicleInterest || "vehicle"}${est}.`, "their current vehicle is worth more than what's left owing");
   else if (eq != null && eq < -2000) add(-8, `${currency(-eq)} upside down`, `They owe about ${currency(-eq)} more than the car is worth${est} — go gently, promise nothing.`, "they owe more than their vehicle is worth — go gently and promise nothing");
+  else if (eq != null && eq < 0) add(-3, "Slightly upside down", `They owe a little more than the car is worth${est} — about ${currency(-eq)}.`, "they owe a little more than their vehicle is worth");
+  // Say where the payoff came from when it was worked out rather than read.
+  if (eq != null && eqD.payoffSrc === "calc") why.push(`Payoff worked out as payment × ${monthsRemaining(l) || "?"} payments left.`);
   const paidOff = num(l.currentPayment) == null && (num(l.payoff) == null || num(l.payoff) === 0) && l.purchaseDate;
   if (paidOff && yearsSince(l.purchaseDate) >= 4) add(10, "Paid off", "No payment on file and years in — their car is likely paid off, which is cash in hand toward the next one.", "their current vehicle is likely paid off");
 
@@ -172,7 +185,7 @@ function assessOne(l, ctx) {
 
   // --- 4. The contract: lease maturity or months left to run.
   const months = monthsRemaining(l);
-  const leaseDeal = /lease/i.test(String(l.dealType || "")) || /deal type:\s*lease/i.test(String(l.notes || "")) || !!l.leaseEnd;
+  const leaseDeal = /lease/i.test(String(l.dealType || "")) || /deal type:\s*lease/i.test(String(l.notes || "")) || /lease/i.test(String(l.alertType || "")) || !!l.leaseEnd;
   if (months != null) {
     const what = leaseDeal ? "lease" : "contract";
     if (months <= 3) add(26, `${what === "lease" ? "Lease" : "Contract"} ends in ${months} mo`, `Their ${what} is up in about ${months} month${months === 1 ? "" : "s"} — decision time.`, `their ${what} is up within about ${months === 1 ? "a month" : months + " months"}`);
@@ -205,12 +218,16 @@ function assessOne(l, ctx) {
   else if (theirs != null && theirs > (Number(s.defaultApr) || 0) + 1) add(8, `Rate ${theirs}%`, `Carrying ${theirs}% — above today's typical ${s.defaultApr}%.`, "their current rate is above what's typical now");
 
   // --- 8. What the export flagged, and the service drive.
+  // From the fields when the import stored them, else from the notes line the
+  // older importer wrote ("AutoAlert: Flex · Priority: High · Deal type: …").
   const notes = String(l.notes || "");
-  const alert = (notes.match(/AutoAlert:\s*([^\n]+)/i) || [])[1] || String(l.alertType || "");
+  const fromNotes = (label) => ((notes.match(new RegExp(label + ":\\s*([^\\n]+)", "i")) || [])[1] || "").split(" · ")[0].trim();
+  const alert = String(l.alertType || "").trim() || fromNotes("AutoAlert");
   if (alert) add(15, `AutoAlert: ${alert.slice(0, 28)}`, `AutoAlert flagged them: ${alert}.`, "the dealership's own system flagged them as a good time to talk");
-  const pri = (notes.match(/Priority:\s*([^\n]+)/i) || [])[1] || String(l.priority || "");
+  const pri = String(l.priority || "").trim() || fromNotes("Priority");
   if (/high|hot|1\b|a\b/i.test(pri)) add(8, "High priority", `Priority: ${pri}.`, null);
-  const svc = (notes.match(/Service appt\s*(\d{4}-\d{2}-\d{2})/i) || [])[1] || null;
+  const svc = (l.serviceAppt && /^\d{4}-\d{2}-\d{2}/.test(String(l.serviceAppt)) ? String(l.serviceAppt).slice(0, 10) : null)
+    || (notes.match(/Service appt\s*(\d{4}-\d{2}-\d{2})/i) || [])[1] || null;
   const svcDays = svc ? daysFromToday(svc) : null;
   if (svcDays != null && svcDays >= 0 && svcDays <= 14) { add(14, `In service ${svcDays === 0 ? "today" : "in " + svcDays + "d"}`, `They're in the service drive on ${svc} — meet them there.`, "they'll be in for service shortly"); next = { label: `Meet them in the service drive ${svcDays === 0 ? "today" : "on " + svc}`, kind: "service" }; }
 
@@ -239,9 +256,13 @@ function assessOne(l, ctx) {
   score = Math.max(0, Math.min(100, Math.round(score)));
   const tier = null; // set once the whole book is scored — see readBook
 
-  // Heaviest reasons first; the cautions (negative weight) come last.
+  // Heaviest reasons first; the cautions (negative weight) come last — but a
+  // caution always keeps a place on the card. "Upside down" is the one thing
+  // the salesperson must not learn at the desk.
   found.sort((a, b) => b.pts - a.pts);
-  const reasons = found.filter((f) => f.chip).map((f) => f.chip);
+  const chips = found.filter((f) => f.chip);
+  const cautions = chips.filter((f) => f.pts < 0).sort((a, b) => a.pts - b.pts);
+  const reasons = [...chips.filter((f) => f.pts >= 0).slice(0, cautions.length ? 3 : 4), ...cautions.slice(0, 1)].map((f) => f.chip);
   const whyAll = [...found.filter((f) => f.sentence).map((f) => f.sentence), ...why];
   const whySafe = found.filter((f) => f.safe && f.pts > 0).map((f) => f.safe);
 
@@ -255,7 +276,7 @@ function assessOne(l, ctx) {
     else next = { label: "Nothing pressing — keep on file", kind: "none" };
   }
 
-  return { lead: l, score, tier, reasons: reasons.slice(0, 4), why: whyAll, whySafe, next, best, flags };
+  return { lead: l, score, tier, reasons, why: whyAll, whySafe, next, best, flags };
 }
 
 // The read of the whole book, cached until something it reads changes.

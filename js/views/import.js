@@ -60,6 +60,11 @@ const LEAD_TARGETS = [
   { field: "currentValue", label: "Current vehicle value", aliases: ["value", "current value", "acv", "estimated value", "trade value", "book value", "kbb", "market value", "appraised value", "wholesale value", "est value", "est trade value", "estimated trade value", "trade in value", "black book", "cbb", "cash value", "vehicle value"] },
   { field: "equity", label: "Equity", aliases: ["equity", "current equity", "positive equity", "net equity", "est equity", "estimated equity"] },
   { field: "currentApr", label: "Current APR %", aliases: ["apr", "rate", "interest rate", "current rate", "current apr", "buy rate", "int rate", "current int rate", "customer rate"] },
+  // Payments still to go. With the payment, this IS the payoff (payment ×
+  // payments left) for a customer whose export carries no payoff column —
+  // and without it, that customer's equity, positive or negative, was
+  // simply unknown. Listed before the term so "Remaining Term" comes here.
+  { field: "paymentsLeft", label: "Payments remaining", aliases: ["payments remaining", "remaining payments", "months remaining", "remaining months", "payments left", "months left", "term remaining", "remaining term", "pmts remaining", "pmts left", "payments to go", "months to maturity", "payments to maturity", "rem term", "rem pmts", "remaining", "pmts rem", "months rem"], type: "number" },
   { field: "currentTerm", label: "Contract term (months)", aliases: ["term", "loan term", "original term", "contract term", "term months", "term (months)", "finance term", "current term", "amortization"], type: "number" },
   { field: "odometer", label: "Odometer (km)", aliases: ["odometer", "mileage", "km", "kms", "kilometers", "kilometres", "miles", "current mileage", "odometer reading", "est mileage", "estimated mileage"], type: "number" },
   { field: "alertType", label: "Alert / opportunity", aliases: ["alert", "alerts", "alert type", "alert types", "opportunity", "opportunity type", "flex alert", "flex alerts", "upgrade alert", "service alert", "categories", "category"] },
@@ -239,7 +244,10 @@ function showMapping(stage, type, parsed, opts = {}) {
 }
 
 // Turn a raw CSV row into a typed record using the column mapping.
-function buildRecord(type, row, mapping) {
+// (Exported, with mergeLead and LEAD_TARGETS, so the import can be tested
+// column by column without a file picker.)
+export { LEAD_TARGETS };
+export function buildRecord(type, row, mapping) {
   const val = (field) => (mapping[field] ? (row[mapping[field]] ?? "").trim() : "");
   if (type === "vehicles") {
     return {
@@ -285,11 +293,16 @@ function buildRecord(type, row, mapping) {
 
   const purchaseDate = parseDateLoose(val("purchaseDate"));
   const currentPayment = parseNumber(val("currentPayment"));
-  const payoff = parseNumber(val("payoff"));
+  let payoff = parseNumber(val("payoff"));
   const equity = parseNumber(val("equity"));
   let currentValue = parseNumber(val("currentValue"));
-  // If value isn't given but equity is, derive it (value = payoff + equity).
+  const paymentsLeft = parseNumber(val("paymentsLeft"));
+  // Three numbers, any two of which give the third: value = payoff + equity.
   if (currentValue == null && equity != null && payoff != null) currentValue = payoff + equity;
+  if (payoff == null && equity != null && currentValue != null) payoff = currentValue - equity;
+  // (Payoff from payment × payments left, and value from that payoff + the
+  // export's equity, are worked out live — dealbuilder.js — because the
+  // count of payments left keeps falling after the export date.)
 
   // Alert/deal/service context lands in notes so the "why call them" travels
   // with the profile ("AutoAlert: Lease Maturity · Priority: Ultra High").
@@ -324,6 +337,17 @@ function buildRecord(type, row, mapping) {
     currentApr: parseNumber(val("currentApr")),
     currentTerm: parseNumber(val("currentTerm")),
     odometer: parseNumber(val("odometer")),
+    // Everything else the export knows, as fields and not only as notes, so
+    // the read of the book (assess.js) and the deal math can use it.
+    paymentsLeft,
+    paymentsLeftAsOf: paymentsLeft != null ? new Date().toISOString().slice(0, 10) : null,
+    importedEquity: equity,
+    dealType: dealType || "",
+    alertType: alertType || "",
+    priority: priority || "",
+    serviceAppt: serviceAppt || null,
+    lastService: lastService || null,
+    phone2: cleanPhone(val("phone2")) || "",
     // A booked service visit is a date with the customer — surface it as a
     // follow-up so they show on the dashboard that day.
     followUp: serviceAppt || null,
@@ -343,7 +367,7 @@ const digits = (p) => String(p || "").replace(/\D/g, "");
 //   · money / odometer  → take the newest value (a fresh export is more current)
 //   · notes             → append what's new instead of overwriting
 //   · stage/followUp/id → never touched by an import
-function mergeLead(existing, incoming) {
+export function mergeLead(existing, incoming) {
   const patch = {};
   const empty = (v) => v === "" || v == null;
 
@@ -360,9 +384,11 @@ function mergeLead(existing, incoming) {
       incoming.vehicleInterest.toLowerCase().includes(existing.vehicleInterest.toLowerCase())) {
     patch.vehicleInterest = incoming.vehicleInterest;
   }
-  ["currentPayment", "payoff", "currentValue", "currentApr", "currentTerm", "odometer"].forEach((k) => {
+  ["currentPayment", "payoff", "currentValue", "currentApr", "currentTerm", "odometer",
+   "paymentsLeft", "paymentsLeftAsOf", "importedEquity", "dealType", "alertType", "priority", "serviceAppt", "lastService"].forEach((k) => {
     if (!empty(incoming[k])) patch[k] = incoming[k];
   });
+  if (!empty(incoming.phone2) && empty(existing.phone2)) patch.phone2 = incoming.phone2;
   if (!empty(incoming.notes)) {
     const cur = String(existing.notes || "");
     if (!cur.includes(incoming.notes)) patch.notes = cur ? `${cur}\n${incoming.notes}` : incoming.notes;
