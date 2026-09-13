@@ -14,6 +14,7 @@ import { agentConfigured } from "./agent.js";
 import { briefFor } from "./context.js";
 import { looksLikeMoney } from "./replies.js";
 import { isInbound } from "./cadence.js";
+import { candidateFor } from "./prospects.js";
 import { openText } from "./sms.js";
 import { navigate } from "./router.js";
 import { smsHref } from "./utils.js";
@@ -33,6 +34,7 @@ const INTENTS = {
   check:   "A short check-in.",
   week:    "A one-week check-in.",
   twoweek: "A two-week check-in.",
+  prospect: "This is an opener to a customer who already drives something (a past customer or an imported owner) and hasn't heard from the salesperson in a while. You're reaching out because of the reasons listed under WHY. Lead with something true about THEIR situation — their vehicle, their timing — not with a pitch. Offer to work out what a move would look like properly, in person, in about ten minutes. One easy next step. Never a figure, never a promise, never 'trade values are at record highs' or any market claim.",
 };
 
 function systemFor(lead, task) {
@@ -47,7 +49,7 @@ How they arrived: ${isInbound(lead) ? "they enquired online or by phone — they
 
 WHAT THIS TEXT IS FOR (${dayN})
 ${INTENTS[task.intent] || INTENTS.nudge}
-
+${Array.isArray(task.why) && task.why.length ? `\nWHY YOU'RE REACHING OUT (true facts; use one or two, in your own words)\n${task.why.map((w) => `- ${w}`).join("\n")}\n` : ""}
 Booking link, if a time to come in is the natural next step: ${link}
 
 THE ONE RULE THAT CANNOT BEND
@@ -81,6 +83,13 @@ export function templateTouch(lead, task) {
     case "nudge":   return `Hi ${fn}, just checking in — any questions on the ${car}? No rush at all, I'm here whenever you're ready.`;
     case "fresh":   return `Hi ${fn}, ${me} here. Still keeping an eye out for the ${want} for you. Anything changed on your end, or want to come take a look at what's here now?`;
     case "month":   return `Hi ${fn}, it's ${me}. Been about a month — are you still thinking about the ${car}? Happy to help whenever the timing's right.`;
+    case "prospect": {
+      const why = Array.isArray(task.why) ? task.why.join(" ") : "";
+      const lease = /lease/.test(why);
+      const owned = lead.vehicleInterest ? `your ${lead.vehicleInterest}` : "your current vehicle";
+      if (lease) return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Your lease is coming up, and it's worth knowing your options before the clock runs down. Want to grab ten minutes this week and go through them properly?`;
+      return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Quick one — ${owned} may put you in a better spot to move than you'd think, and I'd rather show you real numbers than guess by text. Ten minutes in person, whenever suits?`;
+    }
     default:        return `Hi ${fn}, ${me} here. Just keeping in touch — when you're ready to look at a ${car}, I'm one text away.`;
   }
 }
@@ -149,6 +158,20 @@ export async function reviewTouch(taskId) {
   if (task.done) { navigate(lead.phone ? `/inbox/${lead.id}` : `/leads/${lead.id}`); return false; }
   if (!lead.phone) { navigate(`/leads/${lead.id}`); return false; }
   const { body } = await draftTouch(lead, task);
+  if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
+  return true;
+}
+
+/**
+ * The same, for a prospect the app brought up: no task, just the customer
+ * and the reasons it found. Drafts the opener and opens the conversation.
+ */
+export async function reviewProspect(leadId) {
+  const lead = store.get("leads", leadId);
+  if (!lead) { navigate("/"); return false; }
+  if (!lead.phone) { navigate(`/leads/${lead.id}`); return false; }
+  const c = candidateFor(leadId);
+  const { body } = await draftTouch(lead, { intent: "prospect", why: c ? c.why : [], step: 0 });
   if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
   return true;
 }

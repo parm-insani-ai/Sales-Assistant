@@ -7,7 +7,7 @@
 import * as store from "./store.js";
 import { smsHref, telHref, daysFromToday } from "./utils.js";
 import { getOccasions, markOccasion } from "./occasions.js";
-import { topOpportunities } from "./views/dealbuilder.js";
+import { getProspects, snoozeProspect } from "./prospects.js";
 
 const HOT_MS = 24 * 3600 * 1000;
 const first = (name) => String(name || "").trim().split(/\s+/)[0];
@@ -59,6 +59,9 @@ export function dismissToday(key) {
 }
 export function dismissPlay(p) {
   if (p.kind === "occasion" && p.leadId && p.occKey) markOccasion(p.leadId, p.occKey);
+  // "Not now" on a prospect the app brought up is a month, not a day — the
+  // book is long and they'll come round again.
+  else if (p.kind === "prospect" && p.leadId) { snoozeProspect(p.leadId); if (p.key) dismissToday(p.key); }
   else if (p.key) dismissToday(p.key);
 }
 
@@ -159,6 +162,24 @@ export function getPlays(limit = 6) {
       });
     });
 
+  // 4½. The book, worked: today's prospects — imported and past customers a
+  // car can be sold to now, chosen once a day, each with the reason and an
+  // opener drafted on tap. This is how three thousand imported rows become
+  // a handful of calls a day instead of a list nobody opens.
+  getProspects().forEach((c) => {
+    const l = c.lead;
+    const pitch = c.best && c.best.vehicle ? [c.best.vehicle.year, c.best.vehicle.make, c.best.vehicle.model, c.best.vehicle.trim].filter(Boolean).join(" ") : "";
+    const rest = c.reasons.slice(1, 3);
+    plays.push({
+      key: `pr:${l.id}:${todayK}`, leadId: l.id, prospectId: l.id,
+      rank: 65, icon: "target", kind: "prospect",
+      title: `${l.name}: ${c.reasons[0] || "worth a call"}`,
+      sub: [pitch ? `Pitch a ${pitch}` : "", ...rest].filter(Boolean).join(" · ") || "Worth reaching out to today.",
+      href: null,
+      route: l.phone ? null : `/leads/${l.id}`,
+    });
+  });
+
   // 5. Top occasion (birthday / lease maturity / anniversary).
   getOccasions().slice(0, 8).forEach((o) => {
     plays.push({
@@ -171,18 +192,9 @@ export function getPlays(limit = 6) {
     });
   });
 
-  // 6. If the sheet is still light, pull from the Deal Radar.
-  if (plays.length < limit) {
-    topOpportunities(Math.max(2, limit - plays.length)).forEach((o) => {
-      plays.push({
-        key: `rd:${o.lead.id}`,
-        rank: 40, icon: "target", kind: "radar",
-        title: `${o.lead.name} could trade up`,
-        sub: o.reasons && o.reasons.length ? o.reasons[0] : "Payment-matched vehicle in stock.",
-        route: `/leads/${o.lead.id}`,
-      });
-    });
-  }
+  // (The Deal Radar used to top the sheet up here with "could trade up" rows.
+  // Today's prospects are that, done properly: a fixed handful a day, worked
+  // through the whole book, with a reason and a drafted opener each.)
 
   return plays.filter((p) => !isDismissedToday(p.key)).sort((a, b) => b.rank - a.rank).slice(0, limit);
 }

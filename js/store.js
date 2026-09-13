@@ -201,6 +201,8 @@ const DEFAULT_STATE = {
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
     dailyTouchGoal: 20,
+    // How many of the book's best prospects Home brings up each day.
+    dailyProspects: 10,
     // Proactive notifications (the server sweep — see the Edge Function).
     // Quiet hours are local 24h; the server can't know either of these unless
     // the app tells it, which is what the synced "prefs" record is for.

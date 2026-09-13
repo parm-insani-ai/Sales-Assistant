@@ -22,6 +22,7 @@ import { smsHref, telHref } from "./utils.js";
 import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
+import { getProspects, prospectStats } from "./prospects.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
 import { openText } from "./sms.js";
@@ -76,6 +77,7 @@ const TOOLS = [
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
   { name: "get_nudges", description: "What needs attention RIGHT NOW — customers waiting on a reply, appointments about to start that aren't confirmed, appointments that have passed with no outcome, deliveries with prep outstanding, deals gone quiet. Use for 'what needs me now?', 'anything urgent?', 'am I missing anything?'. Different from get_plays: this is time-critical, that is the day's queue.", input_schema: { type: "object", properties: {} } },
+  { name: "get_prospects", description: "Today's prospects: the customers on file (imported owners, past customers) the app has picked out today because a car can be sold to them now — equity, a payment-matched deal, a lease coming due, years in the same vehicle. Use for 'who should I reach out to today', 'who can I sell a car to', 'work the book', 'who's worth a call'. Each comes with the reasons and a drafted opener the salesperson approves. Puts the list on Home.", input_schema: { type: "object", properties: {} } },
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "tools", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
@@ -106,6 +108,7 @@ function buildSystem(ctx) {
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
+    `"Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
     // they're paying currently" is one sentence for a question the app can
@@ -520,6 +523,18 @@ export async function execTool(name, p = {}) {
       const list = getNudges({ limit: 6 }).map((n) => ({ what: n.title, why: n.sub, urgency: n.urgency }));
       if (list.length) navigate("/", ".nudge-slot");
       return { result: { urgent: list, note: list.length ? "most urgent first" : "nothing time-critical right now" }, note: "" };
+    }
+    case "get_prospects": case "work_the_book": {
+      const rows = getProspects().map((c) => ({
+        customer: c.lead.name, drives: c.lead.vehicleInterest || "", reasons: c.reasons,
+        pitch: c.best && c.best.vehicle ? [c.best.vehicle.year, c.best.vehicle.make, c.best.vehicle.model, c.best.vehicle.trim].filter(Boolean).join(" ") : "",
+        canText: !!c.lead.phone,
+      }));
+      const stats = prospectStats();
+      if (rows.length) navigate("/", ".plays-slot");
+      return { result: { prospects: rows, note: rows.length
+        ? `today's ${rows.length}, best first — each on Home with a Review button that drafts the opener; ${stats.eligibleNow} more in the book with a reason`
+        : (stats.withReason ? "everyone with a reason has been reached or surfaced recently — tomorrow brings the next handful" : "nobody on file has enough data to price a deal — import an equity export") }, note: "" };
     }
     case "get_plays": {
       const plays = getPlays(6).map((p) => ({ play: p.title, why: p.sub, oneTapReady: !!p.href }));

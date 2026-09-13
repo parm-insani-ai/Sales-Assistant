@@ -95,6 +95,7 @@ export function renderSettings(view) {
     <div class="card">
       <div class="field-inline">
         <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
+        <div class="field"><label>Prospects per day</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
         <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end">
           <label style="margin-bottom:8px">Auto follow-up plan</label>
           <label class="switch"><input id="s-autocad" type="checkbox" ${s.autoCadence ? "checked" : ""}><span>Start a plan on every new lead</span></label>
@@ -242,6 +243,8 @@ export function renderSettings(view) {
   // Prospecting settings
   el.querySelector("#s-touchgoal").addEventListener("change", (e) =>
     store.updateSettings({ dailyTouchGoal: Number(e.target.value) || 0 }));
+  el.querySelector("#s-prospects").addEventListener("change", (e) =>
+    store.updateSettings({ dailyProspects: Math.max(0, Math.min(50, Number(e.target.value) || 0)) }));
   el.querySelector("#s-autocad").addEventListener("change", (e) =>
     store.updateSettings({ autoCadence: e.target.checked }));
 

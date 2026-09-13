@@ -11,7 +11,7 @@ import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { getNudges } from "../nudges.js";
-import { reviewTouch } from "../touches.js";
+import { reviewTouch, reviewProspect } from "../touches.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -167,6 +167,8 @@ export function renderDashboard(view) {
         </div>
         ${p.taskId
           ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-draft="${p.taskId}">Review</button>`
+          : p.prospectId && !p.route
+          ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-prospect="${p.prospectId}">Review</button>`
           : p.href
           ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${/^tel:/.test(p.href) ? "Call" : "Text"}</a>`
           : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}
@@ -184,6 +186,12 @@ export function renderDashboard(view) {
         draft.disabled = true; draft.textContent = "Drafting…";
         try { await reviewTouch(p.taskId); }
         finally { draft.disabled = false; draft.textContent = "Review"; }
+      });
+      const pro = row.querySelector("[data-play-prospect]");
+      if (pro) pro.addEventListener("click", async () => {
+        pro.disabled = true; pro.textContent = "Drafting…";
+        try { await reviewProspect(p.prospectId); }
+        finally { pro.disabled = false; pro.textContent = "Review"; }
       });
       const go = row.querySelector("[data-play-go]");
       if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
