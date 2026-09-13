@@ -15,7 +15,7 @@ const p = await (await b.newContext({ viewport:{width:390,height:844}, deviceSca
 const errs=[]; p.on("pageerror",e=>errs.push(e.message));
 const mins = (n) => new Date(Date.now()-n*60000).toISOString();
 await p.addInitScript(([recent, older, old2]) => {
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token:"t", refresh_token:"r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token:"t", refresh_token:"r",
     user:{ id:"00000000-0000-4000-8000-000000000001", email:"p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads:[

@@ -18,7 +18,7 @@ await p.addInitScript(() => {
   // state on reload would hide whether the cleanup is actually one-time.
   if (localStorage.getItem("seeded") === "1") return;
   localStorage.setItem("seeded", "1");
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
@@ -39,7 +39,7 @@ await p.waitForTimeout(800);
 // Persisted state now lives in IndexedDB, one record per row. Read it back the
 // way a relaunch would, rather than through the retired localStorage blob.
 const persisted = () => p.evaluate(() => new Promise((res, rej) => {
-  const r = indexedDB.open("entoa");
+  const r = indexedDB.open("entoa"); // the database keeps its original name — see store.js
   r.onsuccess = () => {
     const tx = r.result.transaction(["rows", "outbox", "kv"]);
     const rk = tx.objectStore("rows").getAllKeys(), rv = tx.objectStore("rows").getAll();

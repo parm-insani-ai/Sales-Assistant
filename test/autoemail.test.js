@@ -14,7 +14,7 @@ const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 // A customer with a follow-up email due today, and auto-send switched on.
 const seed = (emailFails) => `
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [{ id: "a", name: "Ann Lee", email: "ann@example.com", phone: "9025551111",
@@ -70,7 +70,7 @@ async function launch(emailFails) {
   console.log("\\nfirst launch, real failure — toasts:", JSON.stringify(first.toasts));
   if (!first.toasts.some((t) => /Auto-email/i.test(t)))
     fail("a genuine send failure was swallowed");
-  const storage = await first.p.evaluate(() => localStorage.getItem("entoa:autoemail-warned"));
+  const storage = await first.p.evaluate(() => localStorage.getItem("viniva:autoemail-warned"));
   await first.ctx.close();
 
   // Reopening straight away must not repeat it.
@@ -83,7 +83,7 @@ async function launch(emailFails) {
       body: JSON.stringify({ error: "Ann's address was rejected by the mail server" }) });
   });
   await p.addInitScript(seed("Ann's address was rejected by the mail server") +
-    `localStorage.setItem("entoa:autoemail-warned", ${JSON.stringify(storage)});`);
+    `localStorage.setItem("viniva:autoemail-warned", ${JSON.stringify(storage)});`);
   await p.goto(APP + "/#/");
   await p.waitForTimeout(1500);
   const again = [];

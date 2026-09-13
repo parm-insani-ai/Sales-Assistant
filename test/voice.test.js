@@ -21,7 +21,7 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 await p.addInitScript(() => {
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [{ id: "a", name: "Ann Lee", phone: "9025551111", stage: "working",
@@ -223,7 +223,7 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   if (after.sheetHeight > after.viewport / 3)
     fail(`the docked bar is ${after.sheetHeight}px tall — it's still covering the screen`);
   // The whole point, and the thing every previous version got wrong: the strip
-  // must not be ON the app. It takes the top of the screen and entoa starts
+  // must not be ON the app. It takes the top of the screen and viniva starts
   // below it — top bar, content, tab bar, all of it. Anything overlapping means
   // a row of the screen it just opened is hidden behind a bar, which is the
   // complaint that produced this in the first place.
@@ -248,7 +248,7 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   });
   console.log("  layout:", JSON.stringify(clears));
   if (!clears.atTop) fail("the strip isn't at the top of the screen");
-  if (!clears.appStartsBelow) fail("the app shell doesn't start below the strip — it's overlaying entoa");
+  if (!clears.appStartsBelow) fail("the app shell doesn't start below the strip — it's overlaying viniva");
   if (clears.behind.length)
     fail("the strip is covering part of the app: " + clears.behind.join(", "));
   if (Math.abs(clears.shellBottom - clears.screen) > 1)

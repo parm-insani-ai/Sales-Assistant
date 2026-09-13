@@ -33,7 +33,7 @@ export function renderLeads(view, { param }) {
   // stat card or the voice agent is a one-off jump to a particular set and
   // doesn't change that. "All" is the default: the whole book, with Active
   // beside it for the people still in play.
-  const REMEMBER = "entoa:leads-filter";
+  const REMEMBER = "viniva:leads-filter";
   const remembered = () => { try { return localStorage.getItem(REMEMBER); } catch { return null; } };
   const remember = (f) => { try { localStorage.setItem(REMEMBER, f); } catch {} };
   let filter = sessionStorage.getItem("leads-filter") || remembered() || "all";
@@ -546,7 +546,7 @@ function renderLeadDetail(view, id) {
   const drawEmailLog = () => {
     const box = el.querySelector(".email-log");
     const items = emailsForLead(l.id);
-    if (!items.length) { box.innerHTML = `<div class="muted small" style="margin-bottom:10px">Nothing logged yet. Emails sent from entoa land here automatically.</div>`; return; }
+    if (!items.length) { box.innerHTML = `<div class="muted small" style="margin-bottom:10px">Nothing logged yet. Emails sent from viniva land here automatically.</div>`; return; }
     box.innerHTML = items.slice(0, 12).map((e) => `
       <div class="kv" style="align-items:flex-start">
         <span class="k" style="flex:none">${e.direction === "in" ? "↓ In" : "↑ Out"}</span>

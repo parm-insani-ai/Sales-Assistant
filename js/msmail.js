@@ -14,8 +14,8 @@
 
 import * as store from "./store.js";
 
-const TOK_KEY = "entoa:msmail:tokens";
-const LAST_KEY = "entoa:msmail:last";
+const TOK_KEY = "viniva:msmail:tokens";
+const LAST_KEY = "viniva:msmail:last";
 const AUTH_BASE = "https://login.microsoftonline.com";
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SCOPE = "openid profile offline_access https://graph.microsoft.com/Mail.Read";
@@ -170,7 +170,7 @@ export function pullMailIfStale(maxAgeMin = 20) {
   const stale = !last || (Date.now() - new Date(last).getTime()) > maxAgeMin * 60000;
   if (stale && navigator.onLine !== false) {
     pullOutlookMail()
-      .then((r) => { if (r.linked) window.dispatchEvent(new CustomEvent("entoa-mail", { detail: r })); })
+      .then((r) => { if (r.linked) window.dispatchEvent(new CustomEvent("viniva-mail", { detail: r })); })
       .catch(() => {});
   }
 }

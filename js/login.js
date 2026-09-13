@@ -21,6 +21,7 @@ export function showLogin() {
           placeholder="Email" aria-label="Email" />
         <input class="login-box" name="password" type="password" autocomplete="current-password"
           enterkeyhint="go" placeholder="Password" aria-label="Password" hidden />
+        <button type="submit" class="login-go">Continue</button>
         <div class="login-note" aria-live="polite"></div>
       </form>`;
     document.body.appendChild(root);
@@ -29,27 +30,29 @@ export function showLogin() {
     const emailBox = root.querySelector('[name="email"]');
     const passBox = root.querySelector('[name="password"]');
     const note = root.querySelector(".login-note");
+    const button = root.querySelector(".login-go");
     let busy = false;
 
     const say = (html) => { note.innerHTML = html; };
     const askEmail = () => {
       passBox.hidden = true; passBox.value = "";
       emailBox.hidden = false;
+      button.textContent = "Continue";
       say("");
       emailBox.focus();
     };
     const askPassword = () => {
       emailBox.hidden = true;
       passBox.hidden = false;
+      button.textContent = "Sign in";
       // The email you gave, as the way back to it.
       say(`<button type="button" class="login-back">${esc(emailBox.value.trim())}</button>`);
       note.querySelector(".login-back").addEventListener("click", askEmail);
       passBox.focus();
     };
 
-    // Enter (or the keyboard's Go) is the only way through: there's no button.
-    // A form with two fields and no submit button doesn't submit on Enter by
-    // itself, so wire the key directly.
+    // The button, or Enter (the keyboard's Go). Wired directly rather than
+    // through the form's own submission so a stray Enter can't double-fire.
     form.addEventListener("submit", (e) => { e.preventDefault(); go(); });
     form.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
 
@@ -65,6 +68,7 @@ export function showLogin() {
       if (!password) { say("Enter your password"); return; }
       busy = true;
       root.classList.add("busy");
+      button.disabled = true;
       say("Signing in…");
       try {
         await backend.signIn(emailBox.value.trim(), password);
@@ -79,6 +83,7 @@ export function showLogin() {
         passBox.select();
       } finally {
         busy = false;
+        button.disabled = false;
         root.classList.remove("busy");
       }
     }

@@ -1,4 +1,4 @@
-// Push subscription management — the switch that turns entoa from an
+// Push subscription management — the switch that turns viniva from an
 // assistant into an agent. Once enabled, the phone's push subscription is
 // saved to the cloud (collection "push") where the Supabase function can
 // reach it: the morning play sheet, "your link just got opened", and "a
@@ -39,10 +39,10 @@ function b64uToBytes(s) {
 // Stable device id for the subscription record, so re-subscribing on the
 // same phone updates one row instead of piling up new ones.
 function deviceId() {
-  let id = localStorage.getItem("entoa:device");
+  let id = localStorage.getItem("viniva:device");
   if (!id) {
     id = "dev_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    localStorage.setItem("entoa:device", id);
+    localStorage.setItem("viniva:device", id);
   }
   return id;
 }
@@ -61,14 +61,14 @@ async function fetchServerKey() {
 export async function enablePush() {
   if (!pushSupported()) {
     throw new Error(needsInstall()
-      ? "Add entoa to your Home Screen first (Share → Add to Home Screen) — iPhone only allows notifications for installed apps."
+      ? "Add viniva to your Home Screen first (Share → Add to Home Screen) — iPhone only allows notifications for installed apps."
       : "This browser doesn't support push notifications.");
   }
   if (!backend.isSignedIn()) throw new Error("Sign in to Cloud sync first — notifications travel through it.");
   if (!agentUrl()) throw new Error("Set up the agent function first (Settings → Voice agent).");
 
   const perm = await Notification.requestPermission();
-  if (perm !== "granted") throw new Error("Notifications were declined — enable them for entoa in iOS Settings, then try again.");
+  if (perm !== "granted") throw new Error("Notifications were declined — enable them for viniva in iOS Settings, then try again.");
 
   const key = await fetchServerKey();
   const reg = await navigator.serviceWorker.ready;

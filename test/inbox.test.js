@@ -41,7 +41,7 @@ const TEXTS = [
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.addInitScript(([leads, texts]) => {
-    localStorage.setItem("entoa:auth", JSON.stringify({
+    localStorage.setItem("viniva:auth", JSON.stringify({
       access_token: "test-token", refresh_token: "test-refresh",
       user: { id: "00000000-0000-4000-8000-000000000001", email: "test@example.com" },
     }));

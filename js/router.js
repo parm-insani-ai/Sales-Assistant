@@ -50,7 +50,7 @@ function render() {
   if (handler) handler({ param, parts });
   // Anything that moves the app announces itself here, including a re-entry
   // that hashchange wouldn't report. The voice panel docks on this.
-  window.dispatchEvent(new CustomEvent("entoa-navigated", { detail: { base, param } }));
+  window.dispatchEvent(new CustomEvent("viniva-navigated", { detail: { base, param } }));
   if (reveal) {
     const sel = reveal;
     reveal = null;

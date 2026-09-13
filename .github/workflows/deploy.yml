@@ -28,7 +28,7 @@ jobs:
         run: |
           SHA="${GITHUB_SHA::12}"
           BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          sed -i "s/const CACHE = \"[^\"]*\";/const CACHE = \"entoa-${SHA}\";/" sw.js
+          sed -i "s/const CACHE = \"[^\"]*\";/const CACHE = \"viniva-${SHA}\";/" sw.js
           printf '{"version":"%s","built":"%s"}\n' "$SHA" "$BUILT" > version.json
           echo "Stamped sw.js and version.json with $SHA"
 

@@ -6,6 +6,20 @@ import { uid } from "./utils.js";
 
 const KEY = "sales-assistant:v1";
 
+// The app was called entoa, and everything it kept in localStorage — the
+// session, the sync cursor, remembered choices — was keyed under that name.
+// Carried across once, here, before any module reads a key, so the rename
+// signs nobody out and forgets nothing. The old keys are removed after the
+// copy so a later sign-out can't leave a stale session behind.
+try {
+  for (const k of Object.keys(localStorage)) {
+    if (!k.startsWith("entoa:")) continue;
+    const nk = "viniva:" + k.slice("entoa:".length);
+    if (localStorage.getItem(nk) == null) localStorage.setItem(nk, localStorage.getItem(k));
+    localStorage.removeItem(k);
+  }
+} catch { }
+
 // Batched-write state. Declared up here rather than beside bulk(): load() runs
 // at module init and can persist a migration, which happens before a `let`
 // declared further down the file exists at all.
@@ -254,6 +268,10 @@ export function stageMeta(id) {
 // removed only after IndexedDB has confirmed the write.
 // ---------------------------------------------------------------------------
 
+// The app was renamed from entoa. The database keeps the old name on purpose:
+// a new name here is a new, empty database, and a phone holding three thousand
+// customers would open on nothing until the cloud refilled it — with anything
+// not yet pushed gone for good. Nobody sees this string; leave it.
 const DB_NAME = "entoa";
 // v2: records keyed by [collection, id] in the "rows" store. v1 keyed a single
 // "records" store by the string collection + "\u0000" + id. A NUL inside a
@@ -263,7 +281,7 @@ const DB_NAME = "entoa";
 // nothing to escape.
 const DB_VERSION = 2;
 const SEP = "\u0000";                      // in-memory dirty-key separator only
-const CRUMB = "entoa:rows";                 // how many rows were on disk after the last write
+const CRUMB = "viniva:rows";                 // how many rows were on disk after the last write
 let db = null;
 let backend = "idb";                       // "idb" | "ls"
 

@@ -56,7 +56,7 @@ function buildICS(a) {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//entoa//Sales Assistant//EN",
+    "PRODID:-//viniva//Sales Assistant//EN",
     "CALSCALE:GREGORIAN",
     "BEGIN:VEVENT",
     `UID:${a.id}@entoa.ai`,
@@ -193,8 +193,8 @@ export function renderCalendar(view, { param }) {
 
   // Pull fresh external events in the background; redraw once when they arrive.
   if (feedsConfigured()) {
-    const onFeeds = () => { window.removeEventListener("entoa-calfeeds", onFeeds); drawMonth(); drawDay(); };
-    window.addEventListener("entoa-calfeeds", onFeeds);
+    const onFeeds = () => { window.removeEventListener("viniva-calfeeds", onFeeds); drawMonth(); drawDay(); };
+    window.addEventListener("viniva-calfeeds", onFeeds);
     refreshIfStale();
   }
 }

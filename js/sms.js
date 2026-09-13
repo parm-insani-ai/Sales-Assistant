@@ -104,7 +104,7 @@ export async function retryText(textId) {
 // Handing off to iMessage always had a review step before the customer got
 // anything, and silently sending on tap would quietly remove it.
 
-const PREFILL = "entoa:sms-prefill";
+const PREFILL = "viniva:sms-prefill";
 
 // (902) 555-1234 from anything ten digits or longer.
 function fmtPhone(p) {

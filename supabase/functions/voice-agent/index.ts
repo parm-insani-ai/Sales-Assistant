@@ -1,4 +1,4 @@
-// entoa's one Supabase Edge Function — four jobs, one URL:
+// viniva's one Supabase Edge Function — four jobs, one URL:
 //   POST {system, tools, messages}  → Claude relay for the voice agent.
 //   POST {email: {to, subject, text}} → send a real email via Resend
 //                                     (needs RESEND_API_KEY + EMAIL_FROM
@@ -68,7 +68,7 @@ async function proxyICS(req: Request): Promise<Response> {
 
   try {
     const upstream = await fetch(parsed.toString(), {
-      headers: { "User-Agent": "entoa-ics-proxy", "Accept": "text/calendar, text/plain, */*" },
+      headers: { "User-Agent": "viniva-ics-proxy", "Accept": "text/calendar, text/plain, */*" },
       redirect: "follow",
     });
     const body = await upstream.text();
@@ -918,7 +918,7 @@ Deno.serve(async (req: Request) => {
     if (!ensureVapid()) return json({ error: "VAPID keys not set — add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to the function's secrets" }, 500);
     const errs: string[] = [];
     const sent = await sendPush(uid, {
-      title: "entoa is live 🎉",
+      title: "viniva is live 🎉",
       body: "This is what a play will look like. The agent can reach you now.",
       tag: "test",
       url: "./#/",

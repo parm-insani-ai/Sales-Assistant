@@ -1,11 +1,11 @@
-// entoa calendar proxy — a Supabase Edge Function.
+// viniva calendar proxy — a Supabase Edge Function.
 // Browsers can't fetch calendar (.ics) feeds directly (the calendar servers
 // don't send CORS headers), so this tiny function fetches the feed server-side
 // and returns it with permissive CORS. It only fetches known calendar hosts.
 //
 // Deploy (Supabase CLI):
 //   supabase functions deploy ics-proxy --no-verify-jwt
-// Then use the printed URL as your "Calendar proxy URL" in entoa Settings.
+// Then use the printed URL as your "Calendar proxy URL" in viniva Settings.
 //
 // Usage: GET  <function-url>?url=<encoded feed url or webcal:// link>
 
@@ -51,7 +51,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const upstream = await fetch(parsed.toString(), {
-      headers: { "User-Agent": "entoa-ics-proxy", "Accept": "text/calendar, text/plain, */*" },
+      headers: { "User-Agent": "viniva-ics-proxy", "Accept": "text/calendar, text/plain, */*" },
       redirect: "follow",
     });
     const body = await upstream.text();

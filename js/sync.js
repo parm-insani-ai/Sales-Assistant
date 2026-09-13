@@ -9,7 +9,7 @@
 import * as store from "./store.js";
 import * as backend from "./backend.js";
 
-const META_KEY = "entoa:sync"; // { cursor, lastSyncAt, initializedFor }
+const META_KEY = "viniva:sync"; // { cursor, lastSyncAt, initializedFor }
 
 function meta() {
   try { return JSON.parse(localStorage.getItem(META_KEY) || "{}"); } catch { return {}; }
@@ -18,7 +18,7 @@ function setMeta(patch) {
   localStorage.setItem(META_KEY, JSON.stringify({ ...meta(), ...patch }));
 }
 function emit(status, extra = {}) {
-  window.dispatchEvent(new CustomEvent("entoa-sync", { detail: { status, ...extra } }));
+  window.dispatchEvent(new CustomEvent("viniva-sync", { detail: { status, ...extra } }));
 }
 
 export function lastSyncAt() { return meta().lastSyncAt || null; }

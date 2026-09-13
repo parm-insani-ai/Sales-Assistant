@@ -13,7 +13,7 @@ const APP = "http://127.0.0.1:8137";
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.addInitScript(() => {
     // Shortening requires a signed-in cloud account; stub one so links mint.
-    localStorage.setItem("entoa:auth", JSON.stringify({
+    localStorage.setItem("viniva:auth", JSON.stringify({
       access_token: "test-token", refresh_token: "test-refresh",
       user: { id: "00000000-0000-4000-8000-000000000001", email: "test@example.com" },
     }));

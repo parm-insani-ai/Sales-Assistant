@@ -19,7 +19,7 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 await p.addInitScript(() => {
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [], vehicles: [], settings: { salesperson: "Parm", cloudAutoSync: false },
@@ -52,7 +52,7 @@ const ROWS = 3235;
     // Writes are asynchronous now — wait for them, then count what's on disk.
     await store.flush();
     const persisted = await new Promise((res, rej) => {
-      const r = indexedDB.open("entoa");
+      const r = indexedDB.open("entoa"); // the database keeps its original name — see store.js
       r.onsuccess = () => {
         const q = r.result.transaction("rows").objectStore("rows").getAllKeys();
         q.onsuccess = () => res(q.result.filter((k) => k[0] === "leads").length);

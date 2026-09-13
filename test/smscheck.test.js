@@ -68,7 +68,7 @@ const CASES = [
       number: { owned: true, smsCapable: true, inMessagingService: false, smsUrl: "https://api.vapi.ai/twilio/sms" },
     },
     expect: [/going somewhere else/i, /api\.vapi\.ai/, /sms=1&(amp;)?u=/, /Copy this URL/],
-    forbid: [/Replies are pointed at entoa/],
+    forbid: [/Replies are pointed at viniva/],
   },
   {
     // The ambiguity this resolves: Twilio lists inbound messages as "Received"
@@ -95,7 +95,7 @@ const CASES = [
       canReportInbound: true,
       inbound: { outcome: "accepted", from: "7202", at: new Date(Date.now() - 120000).toISOString() },
     },
-    expect: [/A text has reached entoa/i, /7202/],
+    expect: [/A text has reached viniva/i, /7202/],
     forbid: [/never reached this function/i],
   },
   {
@@ -128,7 +128,7 @@ const CASES = [
       stored: { texts: 0, newest: null },
     },
     expect: [/couldn't be saved/i, /leads save failed \(401\)/, /No messages are stored/i],
-    forbid: [/A text has reached entoa/i],
+    forbid: [/A text has reached viniva/i],
   },
   {
     // Stored but not showing is a sync problem, not a delivery problem, and the
@@ -146,14 +146,14 @@ const CASES = [
     expect: [/3 messages stored/i, /hasn't pulled them/i, /Sync now/],
   },
   {
-    name: "replies correctly pointed at entoa",
+    name: "replies correctly pointed at viniva",
     reply: {
       secrets: { TWILIO_ACCOUNT_SID: GOOD_SID, TWILIO_AUTH_TOKEN: GOOD_TOK, TWILIO_FROM: GOOD_FROM },
       auth: { ok: true, accountStatus: "active", accountType: "Full", friendlyName: "O'Regan's" },
       number: { owned: true, smsCapable: true, inMessagingService: false,
         smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
     },
-    expect: [/Replies are pointed at entoa/i],
+    expect: [/Replies are pointed at viniva/i],
     forbid: [/going somewhere else/i],
   },
   {
@@ -168,7 +168,7 @@ const CASES = [
         smsUrl: "http://127.0.0.1:8137/functions/v1/voice-agent?sms=1&u=00000000-0000-4000-8000-000000000001" },
     },
     expect: [/can't report whether texts are arriving/i, /older build/i],
-    forbid: [/never reached this function/i, /A text has reached entoa/i],
+    forbid: [/never reached this function/i, /A text has reached viniva/i],
   },
   {
     name: "the number has no inbound webhook",
@@ -186,7 +186,7 @@ const CASES = [
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.addInitScript(() => {
-    localStorage.setItem("entoa:auth", JSON.stringify({
+    localStorage.setItem("viniva:auth", JSON.stringify({
       access_token: "t", refresh_token: "r",
       user: { id: "00000000-0000-4000-8000-000000000001", email: "t@e.com" },
     }));

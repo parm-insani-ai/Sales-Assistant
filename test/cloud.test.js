@@ -9,7 +9,7 @@
 //   → state.outbox = {}. Every change waiting to reach the cloud, discarded.
 //
 //   The cloud was seeded exactly once per install. signOut() cleared the auth
-//   session but not entoa:sync, so on re-sign-in `initializedFor` still matched
+//   session but not viniva:sync, so on re-sign-in `initializedFor` still matched
 //   and pushAll() never ran again — only the (now empty) queue was pushed.
 //
 // So the property to hold is not "sync pushes the queue" but: after a sync,
@@ -34,7 +34,7 @@ const errs = []; a.on("pageerror", (e) => errs.push(e.message));
 await a.addInitScript((sess) => {
   if (sessionStorage.getItem("seeded")) return;
   sessionStorage.setItem("seeded", "1");
-  localStorage.setItem("entoa:auth", JSON.stringify(sess));
+  localStorage.setItem("viniva:auth", JSON.stringify(sess));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: Array.from({ length: 61 }, (_, i) => ({ id: "old_" + i, name: "Old Customer " + i, stage: "working", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" })),
     settings: { salesperson: "Parm", cloudAutoSync: true, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" },
@@ -65,7 +65,7 @@ console.log("imported while signed out:", JSON.stringify(imported));
 // Sign back in as the same person, sync. Before the fix: initializedFor still
 // matched, the queue was empty, nothing went up.
 await a.evaluate(async (sess) => {
-  localStorage.setItem("entoa:auth", JSON.stringify(sess));
+  localStorage.setItem("viniva:auth", JSON.stringify(sess));
   const sync = await import("/js/sync.js");
   sync.enable(); await sync.syncNow();
 }, session());
@@ -92,7 +92,7 @@ p.on("pageerror", (e) => errs.push(e.message));
 await p.addInitScript((sess) => {
   if (sessionStorage.getItem("seeded")) return;
   sessionStorage.setItem("seeded", "1");
-  localStorage.setItem("entoa:auth", JSON.stringify(sess));
+  localStorage.setItem("viniva:auth", JSON.stringify(sess));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [],
     settings: { salesperson: "Parm", cloudAutoSync: true, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));
 }, session());

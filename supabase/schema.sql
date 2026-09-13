@@ -1,4 +1,4 @@
--- entoa cloud backend — database schema.
+-- viniva cloud backend — database schema.
 -- Run this once in your Supabase project: Dashboard → SQL Editor → New query →
 -- paste all of this → Run. Safe to re-run (idempotent).
 --

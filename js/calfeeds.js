@@ -7,7 +7,7 @@
 import * as store from "./store.js";
 import { parseICS } from "./ics.js";
 
-const CACHE_KEY = "entoa:calfeeds:cache"; // { [feedId]: { at, events:[...] } }
+const CACHE_KEY = "viniva:calfeeds:cache"; // { [feedId]: { at, events:[...] } }
 
 export function getFeeds() {
   return (store.getSettings().calendarFeeds || []).filter((f) => f && f.url);
@@ -106,7 +106,7 @@ export async function refreshFeeds() {
   Object.keys(cache).forEach((k) => { if (!ids.has(k)) delete cache[k]; });
 
   saveCache(cache);
-  window.dispatchEvent(new CustomEvent("entoa-calfeeds", { detail: { at: now.toISOString(), errors } }));
+  window.dispatchEvent(new CustomEvent("viniva-calfeeds", { detail: { at: now.toISOString(), errors } }));
   return { errors, at: now.toISOString() };
 }
 

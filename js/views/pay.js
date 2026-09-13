@@ -29,7 +29,7 @@ function expectedFor(p) {
 export function renderPay(view) {
   const el = document.createElement("div");
   el.innerHTML = `
-    <div class="small muted" style="margin:2px 0 12px">Log each paycheck and entoa checks it against the Sold Tracker — every deal in the pay period, front and back — so short pays get caught while the deals are still fresh.</div>
+    <div class="small muted" style="margin:2px 0 12px">Log each paycheck and viniva checks it against the Sold Tracker — every deal in the pay period, front and back — so short pays get caught while the deals are still fresh.</div>
     <div class="btn-row" style="margin-bottom:14px">
       <button class="btn btn-primary btn-block" data-act="pdf">${icon("upload")} Import stub (PDF)</button>
       <button class="btn btn-ghost btn-block" data-act="paste">${icon("edit")} Paste / type</button>

@@ -42,7 +42,7 @@ export function isLikelyPrefetch(lk) {
 // is a new sheet. Occasions are the exception — dismissing one marks it on
 // the lead permanently, same as the ✕ in Comms. Comms shares these keys, so
 // dismissing an appointment reminder there hides the matching play here too.
-const DKEY = "entoa:playdismiss";
+const DKEY = "viniva:playdismiss";
 const dToday = () => new Date().toISOString().slice(0, 10);
 function dmap() {
   try { return JSON.parse(localStorage.getItem(DKEY) || "{}"); } catch { return {}; }

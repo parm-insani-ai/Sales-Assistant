@@ -89,7 +89,7 @@ export function initPullToRefresh() {
     // Announce it. A view that wants to redraw on a manual refresh can listen,
     // and it makes "did the pull actually do anything" answerable from outside
     // this module rather than by reading it.
-    window.dispatchEvent(new CustomEvent("entoa-refresh", { detail: { ok } }));
+    window.dispatchEvent(new CustomEvent("viniva-refresh", { detail: { ok } }));
     // Hold the spinner briefly even on an instant sync. A refresh that vanishes
     // before it registers reads as "nothing happened".
     setTimeout(() => { set(0); busy = false; }, 350);

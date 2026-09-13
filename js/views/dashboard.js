@@ -173,7 +173,7 @@ export function renderDashboard(view) {
       row.querySelector("[data-play-x]").addEventListener("click", () => {
         dismissPlay(p);
         row.remove();
-        box.dispatchEvent(new CustomEvent("entoa:played"));
+        box.dispatchEvent(new CustomEvent("viniva:played"));
       });
       box.appendChild(row);
     });
@@ -186,7 +186,7 @@ export function renderDashboard(view) {
           <div class="card"><div class="muted small" style="text-align:center">Queue cleared — nice work.</div></div>`;
       }
     };
-    box.addEventListener("entoa:played", done);
+    box.addEventListener("viniva:played", done);
   }
   }
 
@@ -224,8 +224,8 @@ export function renderDashboard(view) {
   // Pull fresh external calendar events in the background; re-render once when
   // they land so today's count/list reflect them.
   if (feedsConfigured()) {
-    const onFeeds = () => { window.removeEventListener("entoa-calfeeds", onFeeds); window.dispatchEvent(new HashChangeEvent("hashchange")); };
-    window.addEventListener("entoa-calfeeds", onFeeds);
+    const onFeeds = () => { window.removeEventListener("viniva-calfeeds", onFeeds); window.dispatchEvent(new HashChangeEvent("hashchange")); };
+    window.addEventListener("viniva-calfeeds", onFeeds);
     refreshIfStale();
   }
 }

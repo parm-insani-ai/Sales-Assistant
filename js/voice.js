@@ -377,7 +377,7 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
     if (closed) return;
     closed = true;
     try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
-    window.removeEventListener("entoa-navigated", onRoute);
+    window.removeEventListener("viniva-navigated", onRoute);
     document.body.classList.remove("voice-live");
     // Give the shell its top back, or the app stays pushed down behind a strip
     // that no longer exists.
@@ -452,7 +452,7 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
   // Router event rather than hashchange: re-entering the screen you're already
   // on still puts an answer in front of you, and hashchange doesn't fire for it.
   const onRoute = () => { dock(); requestAnimationFrame(measureStrip); };
-  window.addEventListener("entoa-navigated", onRoute);
+  window.addEventListener("viniva-navigated", onRoute);
   // Pulse the waveform as dictated/typed words stream in.
   textInput.addEventListener("input", () => wave.bump(0.85));
   overlay.querySelector("#v-wave").addEventListener("click", () => textInput.focus());

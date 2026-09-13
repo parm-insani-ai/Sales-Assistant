@@ -1,5 +1,5 @@
 /* ============================================================================
-   Entoa — design system
+   Viniva — design system
    Both themes aim at calm: airy and premium in the light, settled and quiet in
    the dark. Neither uses pure black or pure white. Theme follows the device's
    colour scheme. Legacy variable names (--primary, --accent,
@@ -526,6 +526,16 @@ body.typing #app, body.kb-open #app {
 .login-box:focus { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
 .login-box::placeholder { color: var(--muted); }
 #login.busy .login-box { opacity: 0.6; }
+.login-go {
+  width: 100%; margin-top: -6px;
+  padding: 14px 16px; border-radius: 14px; border: none;
+  background: var(--brand); color: var(--brand-ink, #fff);
+  font: inherit; font-size: 1.02rem; font-weight: 650;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: filter 0.12s, opacity 0.15s;
+}
+.login-go:active { filter: brightness(0.92); }
+.login-go:disabled { opacity: 0.6; }
 .login-note { min-height: 20px; font-size: 0.85rem; color: var(--muted); text-align: center; }
 .login-back {
   background: none; border: none; padding: 0; margin: 0;
@@ -1105,7 +1115,7 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .ib-more { background: var(--surface-2); color: var(--text-2); }
 .ib-send { background: var(--brand); color: var(--brand-ink); }
 .ib-send:disabled, .ib-more:disabled { opacity: .45; cursor: default; }
-/* Talk to entoa from inside a conversation. Voice normally lives in the tab
+/* Talk to viniva from inside a conversation. Voice normally lives in the tab
    bar, which is hidden while the keyboard is up — so it went missing exactly
    when you'd want to say "ask her if Thursday works" instead of thumbing it.
    Tinted rather than filled: send is the filled button here, and two solid
@@ -1303,7 +1313,7 @@ textarea:focus, input:focus, select:focus { outline: none; }
    The bar lives at the TOP, and — this is the part that matters — it does not
    overlay anything. It takes the top of the screen and the app shell starts
    below it: the whole column, top bar included, is pushed down by the strip's
-   measured height, so nothing in entoa is ever behind it. Docked at the bottom
+   measured height, so nothing in viniva is ever behind it. Docked at the bottom
    it was still a thing sitting on top of the app, and however flush it was
    made, it covered a row of whatever screen it had just opened.
 

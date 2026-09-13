@@ -31,7 +31,7 @@ const soonWall = (() => {
 })();
 
 await p.addInitScript(([overdue, soon]) => {
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
@@ -120,7 +120,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
   await goto("#/");
   await p.evaluate(() => { document.querySelector(".view").scrollTop = 0; });
   let navigated = 0;
-  await p.evaluate(() => { window.__navs = 0; window.addEventListener("entoa-navigated", () => { window.__navs++; }); });
+  await p.evaluate(() => { window.__navs = 0; window.addEventListener("viniva-navigated", () => { window.__navs++; }); });
   await run("get_plays");
   await settle();
   navigated = await p.evaluate(() => window.__navs);

@@ -30,6 +30,7 @@ const door = () => p.evaluate(() => {
     boxes: visible.length,
     boxType: visible[0]?.type || null,
     note: login ? login.querySelector(".login-note")?.textContent.trim() : null,
+    button: login ? login.querySelector(".login-go")?.textContent.trim() : null,
     appDrawn: !!document.querySelector("#view .hero"),
     focused: document.activeElement?.className || null,
   };
@@ -45,6 +46,7 @@ if (d.boxes !== 1) fail(`${d.boxes} boxes showing — it should be exactly one`)
 if (d.boxType !== "email") fail("the first box isn't for the email");
 if (d.appDrawn) fail("the app rendered behind the door");
 if (d.focused !== "login-box") fail("the box didn't take focus");
+if (d.button !== "Continue") fail(`the button under the email box says ${JSON.stringify(d.button)}`);
 
 // --- Something that isn't an email doesn't get past the box.
 await p.keyboard.type("parm");
@@ -55,23 +57,26 @@ console.log("  not an email:", JSON.stringify({ boxType: d.boxType, note: d.note
 if (d.boxType !== "email") fail("a non-email moved on to the password");
 if (!d.note) fail("no word about why it didn't move on");
 
-// --- Email, then the same spot asks for the password.
+// --- Email, then the button, and the same spot asks for the password.
 await p.evaluate(() => { const i = document.querySelector('#login [name="email"]'); i.value = ""; });
 await p.keyboard.type("p@e.com");
-await p.keyboard.press("Enter");
+await p.click("#login .login-go");
 await p.waitForTimeout(100);
 d = await door();
-console.log("  after the email:", JSON.stringify({ boxes: d.boxes, boxType: d.boxType, note: d.note }));
+console.log("  after the email:", JSON.stringify({ boxes: d.boxes, boxType: d.boxType, note: d.note, button: d.button }));
 if (d.boxes !== 1) fail(`${d.boxes} boxes showing on the password step`);
 if (d.boxType !== "password") fail("the box didn't become the password box");
 if (!/p@e\.com/.test(d.note || "")) fail("the email you typed isn't shown on the password step");
+if (d.button !== "Sign in") fail(`the button under the password box says ${JSON.stringify(d.button)}`);
+if (d.focused !== "login-box") fail("the password box didn't take focus");
 
-// --- Password, Enter, and the app is there.
+// --- Password, the button, and the app is there. (Enter works too — the
+// not-an-email step above went through it.)
 await p.keyboard.type("secret");
-await p.keyboard.press("Enter");
+await p.click("#login .login-go");
 await p.waitForTimeout(700);
 d = await door();
-const sess = await p.evaluate(() => JSON.parse(localStorage.getItem("entoa:auth") || "null"));
+const sess = await p.evaluate(() => JSON.parse(localStorage.getItem("viniva:auth") || "null"));
 console.log("  after the password:", JSON.stringify({ shown: d.shown, appDrawn: d.appDrawn, user: sess?.user?.email }));
 if (d.shown) fail("the door is still up after signing in");
 if (!d.appDrawn) fail("the app didn't appear after signing in");
@@ -86,6 +91,35 @@ d = await door();
 console.log("reopened, signed in:", JSON.stringify({ shown: d.shown, appDrawn: d.appDrawn }));
 if (d.shown) fail("a signed-in install got the door again");
 if (!d.appDrawn) fail("a signed-in install didn't open on Home");
+
+// --- A phone from before the rename: its session was stored under the old
+// name. It must open on the app, not the door.
+{
+  const ctxOld = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+  const old = await ctxOld.newPage();
+  await old.addInitScript(() => {
+    if (sessionStorage.getItem("seeded")) return;
+    sessionStorage.setItem("seeded", "1");
+    localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+      user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
+    localStorage.setItem("entoa:leads-filter", "active");
+    localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [],
+      settings: { salesperson: "Parm", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));
+  });
+  await old.goto(APP + "/#/");
+  await old.waitForTimeout(500);
+  const r = await old.evaluate(() => ({
+    door: !!document.querySelector("#login"),
+    app: !!document.querySelector("#view .hero"),
+    carried: !!localStorage.getItem("viniva:auth") && localStorage.getItem("viniva:leads-filter") === "active",
+    oldGone: !localStorage.getItem("entoa:auth"),
+  }));
+  console.log("a phone from before the rename:", JSON.stringify(r));
+  if (r.door || !r.app) fail("the rename signed an existing install out");
+  if (!r.carried) fail("keys stored under the old name weren't carried across");
+  if (!r.oldGone) fail("the old keys were left behind");
+  await ctxOld.close();
+}
 
 // --- Signing out puts the door back.
 await p.evaluate(() => { location.hash = "#/settings"; });

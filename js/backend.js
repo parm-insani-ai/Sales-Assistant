@@ -7,7 +7,7 @@
 import * as store from "./store.js";
 import { BACKEND_DEFAULTS } from "./config.js";
 
-const AUTH_KEY = "entoa:auth"; // { access_token, refresh_token, expires_at, user }
+const AUTH_KEY = "viniva:auth"; // { access_token, refresh_token, expires_at, user }
 
 function cfg() {
   const s = store.getSettings();
@@ -119,7 +119,7 @@ export async function signOut() {
   // skipped the seed and pushed only the queue — and the queue had just been
   // emptied by signing out. That is how 2,923 imported customers lived only on
   // one phone until the app was deleted.
-  try { localStorage.removeItem("entoa:sync"); } catch { }
+  try { localStorage.removeItem("viniva:sync"); } catch { }
 }
 
 // Return a valid access token, refreshing if it's within 60s of expiry.

@@ -222,7 +222,7 @@ handleAuthRedirect()
     pullMailIfStale();
   })
   .catch((e) => toast(`Outlook: ${e.message || "sign-in failed"}`, "danger"));
-window.addEventListener("entoa-mail", (e) => {
+window.addEventListener("viniva-mail", (e) => {
   const n = e.detail && e.detail.linked;
   if (n) toast(`${n} customer email${n === 1 ? "" : "s"} filed from Outlook`, "success");
 });
@@ -241,7 +241,7 @@ autoSendDueEmails().then(async (r) => {
   // genuine send failures are worth interrupting for, and even those at most
   // once a day so one bad address doesn't nag forever.
   if (isSetupError(errs[0])) return;
-  const key = "entoa:autoemail-warned";
+  const key = "viniva:autoemail-warned";
   const last = Number(localStorage.getItem(key) || 0);
   if (Date.now() - last < 24 * 3600 * 1000) return;
   try { localStorage.setItem(key, String(Date.now())); } catch { }
@@ -250,7 +250,7 @@ autoSendDueEmails().then(async (r) => {
 
 // New synced records (e.g. a customer self-booking from the booking page) get
 // linked into the connected graph as soon as they arrive.
-window.addEventListener("entoa-sync", (e) => {
+window.addEventListener("viniva-sync", (e) => {
   if (e.detail && e.detail.status === "synced" && e.detail.applied) {
     try { reconcileLinks(); } catch {}
   }

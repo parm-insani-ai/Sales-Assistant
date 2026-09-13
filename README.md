@@ -1,6 +1,6 @@
-# entoa
+# viniva
 
-**The AI deal engine and CRM for car salespeople.** entoa is a **mobile-first Progressive Web App** — it works offline, installs to your home screen like a native app, and (in this on-device version) keeps your data on your phone with no login or server. Turn your customer database into a proactive stream of deals ready to pitch.
+**The AI deal engine and CRM for car salespeople.** viniva is a **mobile-first Progressive Web App** — it works offline, installs to your home screen like a native app, and (in this on-device version) keeps your data on your phone with no login or server. Turn your customer database into a proactive stream of deals ready to pitch.
 
 Live at **[entoa.ai](https://entoa.ai)**.
 
@@ -55,7 +55,7 @@ Now it launches full-screen like an app and works offline.
 
 ## Deploying the Supabase function
 
-The cloud half of entoa — the voice agent, short links, self-serve booking,
+The cloud half of viniva — the voice agent, short links, self-serve booking,
 push notifications, email and two-way texting — is one Edge Function. Its
 source is `supabase/functions/voice-agent/index.ts`. Whenever that file
 changes, or you add a secret, the function has to be redeployed: **secrets

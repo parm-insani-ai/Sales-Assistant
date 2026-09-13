@@ -226,7 +226,7 @@ function renderThread(view, leadId) {
     compose.innerHTML = `
       <button class="ib-round ib-more" data-act="more" aria-label="More">${icon("plus")}</button>
       <textarea id="ib-text" rows="1" placeholder="Message"></textarea>
-      <button class="ib-round ib-mic" data-act="voice" aria-label="Talk to entoa">${icon("mic")}</button>
+      <button class="ib-round ib-mic" data-act="voice" aria-label="Talk to viniva">${icon("mic")}</button>
       <button class="ib-round ib-send" data-act="send" aria-label="Send" disabled>${icon("send")}</button>`;
 
     const box = compose.querySelector("#ib-text");

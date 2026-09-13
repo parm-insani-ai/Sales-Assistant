@@ -30,7 +30,7 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 await p.addInitScript(() => {
-  localStorage.setItem("entoa:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [],
     settings: { salesperson: "Parm", cloudAutoSync: false, taxRate: 15, defaultApr: 7.9, defaultTerm: 72 } }));
@@ -204,7 +204,7 @@ console.log("\nLeads filter memory:");
     order: [...document.querySelectorAll("[data-filter]")].slice(0, 3).map((b) => b.dataset.filter),
     on: document.querySelector("[data-filter].btn-primary")?.dataset.filter,
   }));
-  await p.evaluate(() => { localStorage.removeItem("entoa:leads-filter"); location.hash = "#/settings"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { localStorage.removeItem("viniva:leads-filter"); location.hash = "#/settings"; }); await p.waitForTimeout(100);
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
   const fresh = await chips();
   console.log("  fresh:", JSON.stringify(fresh));

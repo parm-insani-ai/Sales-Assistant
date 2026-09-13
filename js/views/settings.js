@@ -156,9 +156,9 @@ export function renderSettings(view) {
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
       <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
       <button class="btn btn-ghost btn-block" data-act="storagecheck" style="margin-top:8px">${icon("help")} Storage check</button>
-      <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">entoa</div>
+      <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">viniva</div>
     </div>
-    <div class="fab-note">entoa · data lives on your device</div>
+    <div class="fab-note">viniva · data lives on your device</div>
   `;
   view.appendChild(el);
 
@@ -193,7 +193,7 @@ export function renderSettings(view) {
     else if (d.status === "offline") line.textContent = "Offline — will sync when back online";
     else if (d.status === "error") line.textContent = `Sync error: ${d.error}`;
   };
-  window.addEventListener("entoa-sync", onSyncEvt);
+  window.addEventListener("viniva-sync", onSyncEvt);
 
   el.querySelector("#s-name").addEventListener("change", (e) =>
     store.updateSettings({ salesperson: e.target.value.trim() }));
@@ -343,7 +343,7 @@ export function renderSettings(view) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url; a.download = `entoa-backup-${stamp}.json`;
+    a.href = url; a.download = `viniva-backup-${stamp}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast("Backup downloaded", "success");
@@ -382,12 +382,12 @@ export function renderSettings(view) {
   // look current — the number was right and the code was old.
   Promise.all([getVersion(), runningVersion()]).then(([v, running]) => {
     if (!verEl) return;
-    if (!v) return void (verEl.textContent = "entoa");
+    if (!v) return void (verEl.textContent = "viniva");
     const date = new Date(v.built).toLocaleDateString();
-    // The worker's cache name is "entoa-<build>"; version.json carries <build>.
-    const stale = running && running !== `entoa-${v.version}`;
+    // The worker's cache name is "viniva-<build>"; version.json carries <build>.
+    const stale = running && running !== `viniva-${v.version}`;
     if (!stale) { verEl.textContent = `Version ${v.version} · ${date}`; return; }
-    verEl.innerHTML = `Running <span class="mono">${esc(running.replace(/^entoa-/, ""))}</span> —
+    verEl.innerHTML = `Running <span class="mono">${esc(running.replace(/^viniva-/, ""))}</span> —
       <b>${esc(v.version)}</b> is available but hasn't taken over.<br>
       <button class="btn btn-sm btn-ghost" data-act="hard-refresh" style="margin-top:8px">Force update</button>`;
     verEl.querySelector('[data-act="hard-refresh"]').addEventListener("click", async () => {
@@ -436,7 +436,7 @@ export function renderSettings(view) {
             : `<div style="color:#7CFFC4">disk and memory agree (${i.loaded} loaded, ${i.inMemory} in memory)</div>`;
       const counts = Object.entries(i.counts).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") || "none";
       panel.innerHTML = `<b>storage check</b> · tap to close
-        <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))} · store ${esc(i.backend)} v${i.dbVersion}</div>
+        <div>build ${esc(String(running || "?").replace(/^viniva-/, ""))} · store ${esc(i.backend)} v${i.dbVersion}</div>
         ${verdict}
         <div>expected ${i.expected} · loaded ${i.loaded} · in memory ${i.inMemory} · pending writes ${i.pending}</div>
         <div><b>in the cloud ${esc(String(cloud))}</b> · queued for push ${store.getOutbox().length}</div>
@@ -473,7 +473,7 @@ export function renderSettings(view) {
         ? `<div style="color:#FF9E9E">web view is ${short}pt SHORTER than the screen — that strip is outside the app and no CSS reaches it (status-bar-style / reinstall)</div>`
         : `<div style="color:#7CFFC4">web view fills the screen</div>`;
       panel.innerHTML = `<b>screen check</b> · tap to close
-        <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))}${r.standalone ? " · installed" : " · browser"}</div>
+        <div>build ${esc(String(running || "?").replace(/^viniva-/, ""))}${r.standalone ? " · installed" : " · browser"}</div>
         <div><b>gap under bar ${gapBelowBar}</b> · <b>gap under app ${gapBelowApp}</b></div>
         <div>bar h ${r.barHeight} · bar btm ${r.barBottom} · app btm ${r.appBottom}</div>
         <div>viewport ${r.clientHeight} · screen ${screenPt} · dpr ${r.dpr}</div>
@@ -510,7 +510,7 @@ export function renderSettings(view) {
     // reg.update() found nothing, but the running code may still be behind — a
     // worker that failed to install leaves exactly this state.
     const [v, running] = await Promise.all([getVersion(), runningVersion()]);
-    if (v && running && running !== `entoa-${v.version}`) {
+    if (v && running && running !== `viniva-${v.version}`) {
       toast("Stuck on an old version — use Force update below", "warn");
       return;
     }
@@ -729,13 +729,13 @@ function buildEmail(slot) {
     .sort()
     .pop() || null;
   slot.innerHTML = `
-    <div class="small muted" style="margin-bottom:10px">Tap-to-email with templates already works from any customer — it opens your mail app with the message filled in. Optionally, entoa can also <b>send cadence emails automatically</b> when you open the app, so follow-ups go out without you touching them.</div>
+    <div class="small muted" style="margin-bottom:10px">Tap-to-email with templates already works from any customer — it opens your mail app with the message filled in. Optionally, viniva can also <b>send cadence emails automatically</b> when you open the app, so follow-ups go out without you touching them.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} Set up automated sending (optional)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
         <li>Create a free account at <span class="mono">resend.com</span> and verify a domain you own (so emails come from your address, not spam).</li>
         <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">RESEND_API_KEY</span> (from Resend) and <span class="mono">EMAIL_FROM</span> (like <span class="mono">Parm &lt;parm@yourdomain.com&gt;</span>).</li>
-        <li>Make sure your function has the latest entoa code, then use <b>Send a test</b> below.</li>
+        <li>Make sure your function has the latest viniva code, then use <b>Send a test</b> below.</li>
       </ol>
     </details>
     <label class="switch" style="margin-bottom:12px">
@@ -748,7 +748,7 @@ function buildEmail(slot) {
 
     <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("message")} Texting number</div>
-    <div class="small muted" style="margin-bottom:10px">Without this, texts hand off to your phone's own SMS app and replies never reach entoa. With a dedicated number, the whole conversation lives in the <b>Inbox</b> — and the agent can draft your replies. Customers see this number instead of your personal one.</div>
+    <div class="small muted" style="margin-bottom:10px">Without this, texts hand off to your phone's own SMS app and replies never reach viniva. With a dedicated number, the whole conversation lives in the <b>Inbox</b> — and the agent can draft your replies. Customers see this number instead of your personal one.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
@@ -789,11 +789,11 @@ function buildEmail(slot) {
 
     <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("mail")} Outlook inbox</div>
-    <div class="small muted" style="margin-bottom:10px">Connect your Outlook and entoa pulls customer replies into each lead's email history automatically. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
+    <div class="small muted" style="margin-bottom:10px">Connect your Outlook and viniva pulls customer replies into each lead's email history automatically. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} One-time setup (~5 min)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li>Go to <span class="mono">entra.microsoft.com</span> → <b>App registrations</b> → <b>New registration</b>. Name it "entoa".</li>
+        <li>Go to <span class="mono">entra.microsoft.com</span> → <b>App registrations</b> → <b>New registration</b>. Name it "viniva".</li>
         <li>Supported accounts: <b>any org directory and personal Microsoft accounts</b>.</li>
         <li>Redirect URI: choose platform <b>Single-page application (SPA)</b> and enter <span class="mono">${esc(location.origin + location.pathname)}</span></li>
         <li>Copy the <b>Application (client) ID</b> and paste it below, then tap Connect.</li>
@@ -850,7 +850,7 @@ function buildEmail(slot) {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sms: { u: user.id, to, body: "Test from entoa — texting is working. Reply to this and it should land in your Inbox." } }),
+        body: JSON.stringify({ sms: { u: user.id, to, body: "Test from viniva — texting is working. Reply to this and it should land in your Inbox." } }),
       });
       const j = await res.json().catch(() => ({}));
       box.innerHTML = res.ok && j.sent
@@ -943,9 +943,9 @@ function buildEmail(slot) {
             const want = `${url}?sms=1&u=${user.id}`;
             const same = d.number.smsUrl.split("&")[0].startsWith(url) && /[?&]sms=1/.test(d.number.smsUrl);
             rows.push(same
-              ? `✅ <b>Replies are pointed at entoa.</b>`
+              ? `✅ <b>Replies are pointed at viniva.</b>`
               : `❌ <b>Replies are going somewhere else.</b> This number delivers incoming texts to
-                 <span class="mono" style="word-break:break-all">${esc(d.number.smsUrl)}</span>, so nothing reaches entoa.
+                 <span class="mono" style="word-break:break-all">${esc(d.number.smsUrl)}</span>, so nothing reaches viniva.
                  In Twilio open the number → Messaging → “A message comes in” → <b>Webhook (HTTP POST)</b> and set it to:<br>
                  <span class="mono" style="word-break:break-all">${esc(want)}</span>
                  <button class="btn btn-sm btn-ghost" data-act="copy-hook" style="margin-top:8px">Copy this URL</button>
@@ -974,8 +974,8 @@ function buildEmail(slot) {
         rows.push(/write failed/.test(d.inbound.outcome || "")
           ? `❌ <b>The text arrived but couldn't be saved</b> ${esc(ago)} — ${esc(d.inbound.outcome.replace(/^write failed:\s*/, ""))}`
           : /accepted/.test(d.inbound.outcome || "")
-          ? `✅ <b>A text has reached entoa</b> — last one ${esc(ago)}${d.inbound.from ? ` from …${esc(d.inbound.from)}` : ""}.`
-          : `❌ <b>A text reached entoa and was turned away</b> (${esc(d.inbound.outcome || "rejected")}), ${esc(ago)}.
+          ? `✅ <b>A text has reached viniva</b> — last one ${esc(ago)}${d.inbound.from ? ` from …${esc(d.inbound.from)}` : ""}.`
+          : `❌ <b>A text reached viniva and was turned away</b> (${esc(d.inbound.outcome || "rejected")}), ${esc(ago)}.
              The webhook is pointed correctly — this is the signature check.${d.inbound.sawUrl ? `<br>
              <span class="muted">Twilio signed the URL it called; the function saw:</span><br>
              <span class="mono" style="word-break:break-all">${esc(d.inbound.sawUrl)}</span><br>
@@ -1014,7 +1014,7 @@ function buildEmail(slot) {
     btn.disabled = true;
     out.textContent = "Sending…";
     try {
-      await sendEmail({ to, subject: "entoa test email", text: "This is a test from entoa — automated sending is working. 🎉" });
+      await sendEmail({ to, subject: "viniva test email", text: "This is a test from viniva — automated sending is working. 🎉" });
       out.textContent = "✓ Sent! Check that inbox (and spam, the first time).";
       toast("Test email sent", "success");
     } catch (e) {
@@ -1209,8 +1209,8 @@ function buildPush(slot) {
   const render = async () => {
     const on = await pushEnabled().catch(() => false);
     slot.innerHTML = `
-      <div class="small muted" style="margin-bottom:10px">Turns entoa from an assistant into an agent: a morning "your plays today" push, an instant heads-up when a customer opens a link you sent, and a ping the moment someone books on your calendar — even with the app closed.</div>
-      ${needsInstall() ? `<div class="hint" style="margin-bottom:10px">On iPhone, first add entoa to your Home Screen (Share → Add to Home Screen) — Apple only allows notifications for installed apps.</div>` : ""}
+      <div class="small muted" style="margin-bottom:10px">Turns viniva from an assistant into an agent: a morning "your plays today" push, an instant heads-up when a customer opens a link you sent, and a ping the moment someone books on your calendar — even with the app closed.</div>
+      ${needsInstall() ? `<div class="hint" style="margin-bottom:10px">On iPhone, first add viniva to your Home Screen (Share → Add to Home Screen) — Apple only allows notifications for installed apps.</div>` : ""}
       <details class="cloud-setup" style="margin-bottom:12px">
         <summary class="strong small">${icon("help")} One-time server setup</summary>
         <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
@@ -1257,7 +1257,7 @@ function buildFeeds(slot) {
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} How to set this up</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li><b>One-time:</b> in Supabase → Edge Functions → your function, replace its code with the latest <span class="mono">supabase/functions/voice-agent/index.ts</span> from entoa and deploy. (The update adds calendar fetching to the function voice already uses.)</li>
+        <li><b>One-time:</b> in Supabase → Edge Functions → your function, replace its code with the latest <span class="mono">supabase/functions/voice-agent/index.ts</span> from viniva and deploy. (The update adds calendar fetching to the function voice already uses.)</li>
         <li><b>Google:</b> Calendar settings → your calendar → <b>Secret address in iCal format</b>.</li>
         <li><b>Apple:</b> Calendar app → share a calendar → <b>Public Calendar</b> → copy the <span class="mono">webcal://</span> link.</li>
         <li><b>Outlook:</b> Calendar → <b>Share → Publish</b> → copy the ICS link (may need IT on a work account).</li>
