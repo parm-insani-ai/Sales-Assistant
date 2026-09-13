@@ -194,6 +194,40 @@ console.log("\nLeads, All:");
   if (typed.offFilter) fail(`${typed.offFilter} cards from the cancelled render leaked into the search results`);
 }
 
+// --- The filter: All first and by default, and the chip you tapped last is
+// the one you're on when you come back — a jump from Home doesn't change it.
+console.log("\nLeads filter memory:");
+{
+  const chips = () => p.evaluate(() => ({
+    order: [...document.querySelectorAll("[data-filter]")].slice(0, 3).map((b) => b.dataset.filter),
+    on: document.querySelector("[data-filter].btn-primary")?.dataset.filter,
+  }));
+  await p.evaluate(() => { localStorage.removeItem("entoa:leads-filter"); location.hash = "#/settings"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
+  const fresh = await chips();
+  console.log("  fresh:", JSON.stringify(fresh));
+  if (fresh.order.join(",") !== "all,active,due") fail(`chips are ordered ${fresh.order.join(", ")}`);
+  if (fresh.on !== "all") fail(`the default filter is ${fresh.on}, not All`);
+
+  await p.evaluate(() => document.querySelector('[data-filter="active"]').click()); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(150);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
+  const back = await chips();
+  console.log("  after tapping Active, leaving and returning:", JSON.stringify(back));
+  if (back.on !== "active") fail(`came back on ${back.on}, not the Active chip that was tapped`);
+
+  // A stat card on Home presets "due" for one visit only.
+  await p.evaluate(() => { sessionStorage.setItem("leads-filter", "due"); location.hash = "#/"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
+  const jump = await chips();
+  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
+  const after = await chips();
+  console.log("  jump from Home to Due:", jump.on, "| next visit:", after.on);
+  if (jump.on !== "due") fail("a preset from Home didn't land on Due");
+  if (after.on !== "active") fail(`the jump overwrote the remembered filter (now ${after.on})`);
+}
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nsmooth.test.js FAILED" : "\nsmooth.test.js passed");

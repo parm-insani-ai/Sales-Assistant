@@ -27,8 +27,16 @@ export function renderLeads(view, { param }) {
   // to you, rather than the default list with that set buried in it.
   let search = sessionStorage.getItem("leads-search") || "";
   sessionStorage.removeItem("leads-search");
-  // active | due | all | <stage>.
-  let filter = sessionStorage.getItem("leads-filter") || "active";
+  // all | active | due | opportunity | <stage>.
+  //
+  // The chip you tapped last is the one you're on next time — a preset from a
+  // stat card or the voice agent is a one-off jump to a particular set and
+  // doesn't change that. "All" is the default: the whole book, with Active
+  // beside it for the people still in play.
+  const REMEMBER = "entoa:leads-filter";
+  const remembered = () => { try { return localStorage.getItem(REMEMBER); } catch { return null; } };
+  const remember = (f) => { try { localStorage.setItem(REMEMBER, f); } catch {} };
+  let filter = sessionStorage.getItem("leads-filter") || remembered() || "all";
   sessionStorage.removeItem("leads-filter");
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
   let selecting = false;
@@ -74,12 +82,12 @@ export function renderLeads(view, { param }) {
     LEAD_STAGES.forEach((st) => { n[st.id] = everyone.filter((l) => l.stage === st.id).length; });
     const withCount = (label, id) => (n[id] == null ? label : `${label} ${n[id].toLocaleString()}`);
     const chips = [
+      { id: "all", label: withCount("All", "all") },
       { id: "active", label: withCount("Active", "active") },
       { id: "due", label: withCount("Due follow-ups", "due") },
       // The old Deal Radar tab: the same customers, ranked by how ready they
       // are to trade, with a pitchable deal on each.
       { id: "opportunity", label: "By opportunity" },
-      { id: "all", label: withCount("All", "all") },
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: withCount(s.label, s.id) })),
     ];
 
@@ -135,6 +143,7 @@ export function renderLeads(view, { param }) {
         b.addEventListener("click", () => {
           const was = filter;
           filter = b.dataset.filter;
+          remember(filter);
           if (was === "opportunity" || filter === "opportunity") { draw(); return; }
           wrap.querySelectorAll("[data-filter]").forEach((x) => {
             const active = x === b;
