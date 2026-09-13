@@ -778,8 +778,12 @@ export function updateSettings(patch) {
 // while sync is turned on, so local-only users never grow it.
 let trackChanges = false;
 export function setSyncTracking(on) {
+  // Turning tracking off used to empty the outbox. Signing out is the usual
+  // way that happened, and it discarded every change waiting to reach the
+  // cloud — an entire import, if one had just been done. The queue is the
+  // record of what the cloud is still owed; it survives sign-out and goes up
+  // on the next sign-in.
   trackChanges = !!on;
-  if (!on) { state.outbox = {}; dirty.outboxClear = true; persist(); }
 }
 function markOutbox(name, id, deleted) {
   if (!trackChanges) return;

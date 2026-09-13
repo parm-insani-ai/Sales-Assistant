@@ -29,6 +29,9 @@ const MIME = {
 
 // In-memory stand-in for the links table.
 const links = new Map();
+// In-memory stand-in for the records table (cloud sync), and each POST's row count.
+const records = new Map();
+const pushes = [];
 let seq = 0;
 // Texts the app asked us to send, so a test can assert what reached "Twilio".
 const sent = [];
@@ -52,10 +55,81 @@ const server = http.createServer((req, res) => {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "*",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,HEAD,OPTIONS",
+      "Access-Control-Expose-Headers": "Content-Range",
     });
     return res.end();
   }
+
+  // --- Supabase auth stubs: enough for the app to sign out and refresh ---
+  if (url.pathname === "/auth/v1/logout") { res.writeHead(204, { "Access-Control-Allow-Origin": "*" }); return res.end(); }
+  if (url.pathname === "/auth/v1/token") {
+    // Any refresh or password grant succeeds and yields a long-lived token for
+    // a fixed test user, so a test can drive the real sign-in button.
+    return json(res, 200, { access_token: "t", refresh_token: "r", expires_in: 3600 * 24,
+      expires_at: Math.floor(Date.now() / 1000) + 86400,
+      user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } });
+  }
+
+  // --- records table (PostgREST shape) ---
+  // Keyed (user_id, id) exactly like the real primary key — the collection is
+  // NOT part of it, which is how config/"me" and prefs/"me" collided for real.
+  // The user comes from the bearer token; the stub maps every token to one user.
+  if (url.pathname === "/rest/v1/records") {
+    const uid = "00000000-0000-4000-8000-000000000001";
+    const key = (id) => uid + "|" + id;
+    const mine = () => [...records.values()].filter((r) => r.user_id === uid);
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        let rows;
+        try { rows = JSON.parse(body); } catch { return json(res, 400, { message: "bad json" }); }
+        if (!Array.isArray(rows)) rows = [rows];
+        // Postgres refuses to touch one row twice in a single INSERT ... ON
+        // CONFLICT — reproduce that, it's a real error the app has hit.
+        const seen = new Set();
+        for (const r of rows) {
+          if (seen.has(r.id)) return json(res, 400, { message: "ON CONFLICT DO UPDATE command cannot affect row a second time" });
+          seen.add(r.id);
+        }
+        const now = new Date().toISOString();
+        for (const r of rows) {
+          records.set(key(r.id), { id: r.id, user_id: uid, collection: r.collection, data: r.data || {}, deleted: !!r.deleted, updated_at: now });
+        }
+        pushes.push(rows.length);
+        res.writeHead(201, { "Access-Control-Allow-Origin": "*" });
+        return res.end();
+      });
+      return;
+    }
+    if (req.method === "GET" || req.method === "HEAD") {
+      let rows = mine();
+      // Filters the app uses.
+      for (const [k, v] of url.searchParams) {
+        if (k === "updated_at" && v.startsWith("gt.")) rows = rows.filter((r) => r.updated_at > v.slice(3));
+        if (k === "collection" && v.startsWith("eq.")) rows = rows.filter((r) => r.collection === v.slice(3));
+        if (k === "deleted" && v.startsWith("eq.")) rows = rows.filter((r) => String(r.deleted) === v.slice(3));
+      }
+      rows.sort((a, b) => a.updated_at.localeCompare(b.updated_at) || a.id.localeCompare(b.id));
+      const total = rows.length;
+      // Range pagination, and Prefer: count=exact → Content-Range with the total.
+      let from = 0, to = rows.length - 1;
+      const range = req.headers["range"];
+      if (range && /^\d+-\d+$/.test(range)) { [from, to] = range.split("-").map(Number); }
+      const page = rows.slice(from, to + 1);
+      const select = (url.searchParams.get("select") || "*").split(",").map((x) => x.trim());
+      const shaped = select.includes("*") ? page : page.map((r) => Object.fromEntries(select.map((c) => [c, r[c]])));
+      const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*",
+        "Access-Control-Expose-Headers": "Content-Range" };
+      if (/count=exact/.test(req.headers["prefer"] || "")) headers["Content-Range"] = `${from}-${Math.max(from, from + page.length - 1)}/${total}`;
+      res.writeHead(req.method === "HEAD" ? 200 : 200, headers);
+      return res.end(req.method === "HEAD" ? undefined : JSON.stringify(shaped));
+    }
+  }
+  // Test hooks for the records table.
+  if (url.pathname === "/__records") return json(res, 200, [...records.values()]);
+  if (url.pathname === "/__pushes") return json(res, 200, pushes);
 
   // --- Function stub ---
   if (url.pathname.startsWith("/functions/v1/")) {
@@ -116,6 +190,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
+    records.clear(); pushes.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false;
     return json(res, 200, { ok: true });
   }

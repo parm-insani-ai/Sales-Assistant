@@ -114,6 +114,12 @@ export async function signOut() {
     }).catch(() => {});
   }
   setSession(null);
+  // A signed-out install must not keep claiming the cloud is seeded for a
+  // user it no longer has. Left in place, the next sign-in by the same person
+  // skipped the seed and pushed only the queue — and the queue had just been
+  // emptied by signing out. That is how 2,923 imported customers lived only on
+  // one phone until the app was deleted.
+  try { localStorage.removeItem("entoa:sync"); } catch { }
 }
 
 // Return a valid access token, refreshing if it's within 60s of expiry.
@@ -180,6 +186,39 @@ export async function pushRecords(rows) {
       body: JSON.stringify(chunk),
     });
   }
+}
+
+// Every record id the server holds for this user, with the collection and
+// whether it's a tombstone. Ids only — about 60 bytes a row, so a book of
+// three thousand is a couple of hundred KB, cheap enough to do once a session.
+// This is what lets sync RECONCILE instead of trusting a one-time seed.
+export async function listRecordIds() {
+  const out = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const page = await rest(`records?select=id,collection,deleted&order=updated_at.asc`,
+      { headers: { Range: `${from}-${from + pageSize - 1}`, "Range-Unit": "items" } });
+    if (!page || !page.length) break;
+    out.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return out;
+}
+
+// How many live rows the server holds for this user, without downloading them.
+// For the Storage check: "on this phone 61, in the cloud 61" answers the
+// question that took a reinstall to ask.
+export async function countRecords() {
+  const { url, anonKey } = cfg();
+  const t = await token();
+  const res = await fetch(`${url}/rest/v1/records?select=id&deleted=eq.false`, {
+    method: "HEAD",
+    headers: { apikey: anonKey, Authorization: `Bearer ${t}`, Prefer: "count=exact", Range: "0-0", "Range-Unit": "items" },
+  });
+  if (!res.ok) throw new Error(`Server error (${res.status})`);
+  const cr = res.headers.get("Content-Range") || "";
+  const m = cr.match(/\/(\d+)$/);
+  return m ? Number(m[1]) : null;
 }
 
 // Pull every record changed on the server since `cursorISO` (exclusive),

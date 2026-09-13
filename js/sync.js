@@ -82,10 +82,41 @@ async function pullApply() {
   return applied;
 }
 
+// Make the cloud match the device, rather than trusting that it already does.
+//
+// The old model was: seed the cloud once per install, then push a queue of
+// changes. Anything that fell outside that — rows created while signed out,
+// a queue emptied by signing out, an import that predated the account — was
+// never pushed and never would be. On a phone that is the ONLY copy, so the
+// first uninstall deletes it. 2,923 customers went that way.
+//
+// This asks the server what it holds (ids only, cheap) and pushes every local
+// record it lacks. If the server holds ids this device lacks, the cursor is
+// dropped so the next pull starts from the beginning. Runs on the first sync
+// of a session, after an import, and on a manual sync — not on the 20-second
+// poll, which only needs the queue.
+async function reconcile() {
+  const remote = await backend.listRecordIds();
+  const have = new Set(remote.map((r) => r.id));
+  const missing = [];
+  store.SYNC_COLLECTIONS.forEach((coll) => {
+    store.all(coll).forEach((rec) => { if (!have.has(rec.id)) missing.push({ id: rec.id, collection: coll, data: rec, deleted: false }); });
+  });
+  if (missing.length) await backend.pushRecords(missing);
+  const localIds = new Set();
+  store.SYNC_COLLECTIONS.forEach((coll) => store.all(coll).forEach((r) => localIds.add(r.id)));
+  const unseen = remote.some((r) => !r.deleted && !localIds.has(r.id));
+  if (unseen) setMeta({ cursor: null });
+  return { pushed: missing.length, refetch: unseen };
+}
+
 let running = null;
+let reconciledThisSession = false;
 
 // Run a full sync cycle. Safe to call often — concurrent calls share one run.
-export function syncNow() {
+// { reconcile: true } forces the local↔server comparison; it also runs on the
+// first sync of every session regardless.
+export function syncNow(opts = {}) {
   if (running) return running;
   if (!backend.isConfigured() || !backend.isSignedIn()) return Promise.resolve({ skipped: true });
   if (navigator.onLine === false) { emit("offline"); return Promise.resolve({ offline: true }); }
@@ -94,17 +125,24 @@ export function syncNow() {
     emit("syncing");
     try {
       const user = backend.currentUser();
+      let pushed = 0;
       if (meta().initializedFor !== user?.id) {
         await pushAll();                 // first sync on this device/account: seed the cloud
         setMeta({ initializedFor: user?.id });
+        reconciledThisSession = true;    // a full push IS a reconcile
       } else {
         await pushOutbox();
+        if (opts.reconcile || !reconciledThisSession) {
+          const r = await reconcile();
+          pushed = r.pushed;
+          reconciledThisSession = true;
+        }
       }
       const applied = await pullApply();
       const at = new Date().toISOString();
       setMeta({ lastSyncAt: at });
-      emit("synced", { at, applied });
-      return { ok: true, applied };
+      emit("synced", { at, applied, pushed });
+      return { ok: true, applied, pushed };
     } catch (e) {
       emit("error", { error: e?.message || "Sync failed" });
       return { error: e?.message || "Sync failed" };
@@ -126,6 +164,9 @@ export async function backupNow() {
 // Turn syncing on for this session (after sign-in / configuration).
 export function enable() {
   store.setSyncTracking(true);
+  // A fresh sign-in is a fresh claim about what the cloud holds. Compare
+  // again on the next sync rather than trusting an earlier session's answer.
+  reconciledThisSession = false;
 }
 export function disable() {
   store.setSyncTracking(false);

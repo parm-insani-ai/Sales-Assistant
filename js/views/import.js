@@ -8,6 +8,7 @@ import { navigate } from "../router.js";
 import { parseCSV, autoMap, parseNumber, parseDateLoose, normalizeHeader } from "../csv.js";
 import { parseXLSX } from "../xlsx.js";
 import { startCadence } from "../cadence.js";
+import * as sync from "../sync.js";
 import { esc, num, currency } from "../utils.js";
 import { icon } from "../icons.js";
 
@@ -227,6 +228,9 @@ function showMapping(stage, type, parsed, opts = {}) {
       return;
     }
     toast(`Import complete — ${parts.join(", ")}${extra}`, "success");
+    // Send it up now, and compare against the server rather than trusting the
+    // queue alone — the rows just written must not exist only on this phone.
+    sync.syncNow({ reconcile: true });
     // Land on a filter that actually shows what was just imported — past
     // customers come in at "delivered", which the default Active filter hides.
     if (type === "leads") { try { sessionStorage.setItem("leads-filter", "all"); } catch {} }

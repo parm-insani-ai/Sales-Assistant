@@ -408,6 +408,12 @@ export function renderSettings(view) {
     panel.id = "storage-check";
     panel.className = "screen-check";
     document.body.appendChild(panel);
+    // How many rows the cloud holds — the number that took a reinstall to
+    // discover last time. Fetched once when the panel opens; null when signed out.
+    let cloud = "…";
+    if (backend.isConfigured() && backend.isSignedIn()) {
+      backend.countRecords().then((n) => { cloud = n == null ? "?" : String(n); paint(); }).catch((e) => { cloud = "error: " + (e.message || e); paint(); });
+    } else cloud = "not signed in";
     const paint = () => {
       if (!document.body.contains(panel)) return;
       const i = store.storageInfo();
@@ -426,6 +432,7 @@ export function renderSettings(view) {
         <div>build ${esc(String(running || "?").replace(/^entoa-/, ""))} · store ${esc(i.backend)} v${i.dbVersion}</div>
         ${verdict}
         <div>expected ${i.expected} · loaded ${i.loaded} · in memory ${i.inMemory} · pending writes ${i.pending}</div>
+        <div><b>in the cloud ${esc(String(cloud))}</b> · queued for push ${store.getOutbox().length}</div>
         <div>${counts}</div>
         <div>${i.migratedFrom ? "migrated from " + esc(i.migratedFrom) + " this launch" : "no migration this launch"} · old blob ${i.blobPresent ? "still present" : "gone"}</div>
         ${i.lastError ? `<div style="color:#FF9E9E">last write error: ${esc(i.lastError)}</div>` : ""}`;
