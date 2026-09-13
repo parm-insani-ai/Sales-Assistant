@@ -23,6 +23,7 @@ import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
 import { getProspects, prospectStats } from "./prospects.js";
+import { assessAll, assessment } from "./assess.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
 import { openText } from "./sms.js";
@@ -108,7 +109,7 @@ function buildSystem(ctx) {
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
-    `"Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
+    `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
     // they're paying currently" is one sentence for a question the app can
@@ -323,7 +324,11 @@ export async function execTool(name, p = {}) {
       if (p.stage) list = list.filter((l) => l.stage === p.stage);
       if (p.needsFollowUp) list = list.filter((l) => l.followUp);
       if (p.hasEquity) list = list.filter((l) => (equityOf(l) || 0) > 0);
-      const customers = list.slice(0, 15).map((l) => ({ name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", payment: l.currentPayment ?? null, equity: equityOf(l), followUp: l.followUp || null }));
+      // Best candidates first, each with why — the same order as the Leads page.
+      const rank = assessAll().byId;
+      const sc = (l) => { const a = rank.get(l.id); return a ? a.score : 0; };
+      list = list.slice().sort((a, b) => sc(b) - sc(a));
+      const customers = list.slice(0, 15).map((l) => { const a = rank.get(l.id); return { name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", payment: l.currentPayment ?? null, equity: equityOf(l), followUp: l.followUp || null, score: a ? a.score : 0, why: a ? a.reasons : [] }; });
       // Show the same set on the leads list. It already has these filters, so
       // the screen matches the answer instead of being a different list that
       // happens to contain it.
@@ -339,7 +344,11 @@ export async function execTool(name, p = {}) {
     case "get_customer": {
       const l = findLead(p.name || p.customer);
       if (!l) return { result: { found: false }, note: "" };
-      return { result: { found: true, name: l.name, phone: l.phone || "", email: l.email || "", stage: l.stage, vehicle: l.vehicleInterest || "", payment: l.currentPayment ?? null, payoff: l.payoff ?? null, value: l.currentValue ?? null, equity: equityOf(l), apr: l.currentApr ?? null, followUp: l.followUp || null, leaseEnd: l.leaseEnd || null }, note: "" };
+      const a = assessment(l.id);
+      return { result: { found: true, name: l.name, phone: l.phone || "", email: l.email || "", stage: l.stage, vehicle: l.vehicleInterest || "", payment: l.currentPayment ?? null, payoff: l.payoff ?? null, value: l.currentValue ?? null, equity: equityOf(l), apr: l.currentApr ?? null, followUp: l.followUp || null, leaseEnd: l.leaseEnd || null,
+        profile: l.profile || {}, notes: l.notes || "",
+        // The read of them: how strong a candidate, why, and the next move.
+        assessment: a ? { score: a.score, tier: a.tier ? a.tier.label : "no reason yet", why: a.why, next: a.next ? a.next.label : "" } : null }, note: "" };
     }
     case "get_appointments": {
       let list = store.all("appointments").filter((a) => a.status !== "canceled");

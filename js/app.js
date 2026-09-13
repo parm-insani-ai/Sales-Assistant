@@ -37,6 +37,7 @@ import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from ".
 import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
 import { reviewTouch } from "./touches.js";
+import { assessAll } from "./assess.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
@@ -206,6 +207,12 @@ document.getElementById("quick-add").addEventListener("click", () => {
 document.getElementById("voice-btn").addEventListener("click", () => startVoiceAssistant());
 
 startRouter();
+
+// Read the book while nothing else is happening, so the first visit to Leads
+// (sorted by that read) opens as fast as the second. It's cached until
+// something it reads changes; a cold read of three thousand people is a few
+// hundred milliseconds that shouldn't be paid on a tap.
+setTimeout(() => { try { assessAll(); } catch {} }, 2500);
 
 // Start cloud sync if it's configured and signed in (no-op otherwise).
 sync.init();

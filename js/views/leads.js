@@ -10,6 +10,9 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
+import { assessAll, assessment, bookSummary } from "../assess.js";
+import { reviewProspect } from "../touches.js";
+import { snoozeProspect } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
 import { icon } from "../icons.js";
@@ -249,6 +252,14 @@ export function renderLeads(view, { param }) {
     const card = (x) => (selecting ? selectCard(x) : leadCard(x));
     const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : FIRST;
     const frag = document.createDocumentFragment();
+    // What the read of the book found, in one line above it.
+    if (!selecting && !search && filter === "all") {
+      const b = bookSummary();
+      const summary = document.createElement("div");
+      summary.className = "lead-summary small muted";
+      summary.innerHTML = `${b.total.toLocaleString()} customers · <span class="strong" style="color:var(--danger)">${b.hot} hot</span> · <span class="strong" style="color:var(--success)">${b.strong} strong</span> · ${b.worth} worth a call — best first, with the reason on each`;
+      frag.appendChild(summary);
+    }
     filtered.slice(0, FIRST).forEach((x) => frag.appendChild(card(x)));
     el.appendChild(frag);
     let i = Math.min(FIRST, filtered.length);
@@ -303,7 +314,14 @@ export function renderLeads(view, { param }) {
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) =>
       [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase().includes(q));
+    // Best deals first. The list's job is to read the whole book and put the
+    // people a car can be sold to at the top, with the reason on the card —
+    // see assess.js. Ties go to the nearest follow-up, then the newest.
+    const rank = assessAll().byId;
+    const sc = (l) => { const a = rank.get(l.id); return a ? a.score : 0; };
     return list.slice().sort((a, b) => {
+      const d = sc(b) - sc(a);
+      if (d) return d;
       const da = a.followUp ? daysFromToday(a.followUp) : Infinity;
       const db = b.followUp ? daysFromToday(b.followUp) : Infinity;
       if (da !== db) return da - db;
@@ -324,14 +342,19 @@ function leadCard(l) {
     const cls = fuDays < 0 ? "badge-due" : fuDays === 0 ? "badge-due" : fuDays <= 2 ? "badge-soon" : "";
     fuBadge = `<span class="badge ${cls}" style="margin-left:6px">${esc(relativeDay(l.followUp))}</span>`;
   }
+  // The read of this customer: how strong, and the reasons, right on the card.
+  const a = assessment(l.id);
+  const tier = a && a.tier ? `<span class="badge ${a.tier.badge}" style="margin-right:6px">${esc(a.tier.label)}</span>` : "";
+  const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
   el.innerHTML = `
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
         <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${l.phone ? " · " + esc(phoneDisplay(l.phone)) : ""}</div>
+        ${reasons}
       </div>
       <div class="row-meta">
-        <span class="badge ${st.badge}">${esc(st.label)}</span>
+        ${tier}<span class="badge ${st.badge}">${esc(st.label)}</span>
       </div>
     </div>
     ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
@@ -468,6 +491,24 @@ function renderLeadDetail(view, id) {
       ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
     </div>
 
+    ${(() => {
+      // Why now: the read of this customer in full, and the next move.
+      const a = assessment(l.id);
+      if (!a) return "";
+      const tier = a.tier ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : `<span class="badge badge-delivered">No reason yet</span>`;
+      return `
+    <div class="section-title">Why now <span class="muted" style="font-weight:500;font-size:0.78rem">· score ${a.score}</span></div>
+    <div class="card why-card">
+      <div class="row" style="margin-bottom:${a.why.length ? 10 : 0}px"><div class="row-main"><div class="strong">${tier} ${a.next ? esc(a.next.label) : ""}</div></div></div>
+      ${a.why.length ? `<ul class="why-list">${a.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : `<div class="muted small">Nothing on file points to a deal yet — add their payment, payoff and vehicle (Their numbers) and this fills in.</div>`}
+      ${a.next && a.next.kind === "opener" && l.phone ? `
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn btn-primary" data-act="opener" style="flex:1">${icon("message")} Review the opener</button>
+        <button class="btn btn-ghost" data-act="snooze" style="flex:0 0 auto">Not now</button>
+      </div>` : ""}
+    </div>`;
+    })()}
+
     <div class="section-title">Quick stage update</div>
     <div class="card">
       <div class="btn-row">
@@ -565,6 +606,19 @@ function renderLeadDetail(view, id) {
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
+
+  const openerBtn = el.querySelector('[data-act="opener"]');
+  if (openerBtn) openerBtn.addEventListener("click", async () => {
+    openerBtn.disabled = true; openerBtn.textContent = "Drafting…";
+    try { await reviewProspect(l.id); }
+    finally { openerBtn.disabled = false; openerBtn.innerHTML = `${icon("message")} Review the opener`; }
+  });
+  const snoozeBtn = el.querySelector('[data-act="snooze"]');
+  if (snoozeBtn) snoozeBtn.addEventListener("click", () => {
+    const until = snoozeProspect(l.id);
+    toast(`Parked until ${until}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
 
   // Typed context goes the same way as spoken context: onto the record whole,
   // and if nobody has started working this person yet, that starts now.

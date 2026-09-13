@@ -16,8 +16,7 @@
 // first.
 
 import * as store from "./store.js";
-import { topOpportunities, equityDetail } from "./views/dealbuilder.js";
-import { getOccasions } from "./occasions.js";
+import { ranked } from "./assess.js";
 import { hasCadence } from "./cadence.js";
 
 const COOLDOWN_DAYS = 21;   // surfaced → not again for this long
@@ -32,8 +31,6 @@ const within = (iso, days) => {
   const t = new Date(iso).getTime();
   return isFinite(t) && Date.now() - t < days * 86400000;
 };
-const vehName = (v) => (v ? [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") : "");
-
 // Is this someone the app should bring up today?
 export function eligible(lead) {
   if (!lead || store.optedOut(lead)) return false;
@@ -48,58 +45,13 @@ export function eligible(lead) {
   return true;
 }
 
-function yearsOwned(iso) {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  return isFinite(t) ? (Date.now() - t) / (365.25 * 86400000) : null;
-}
-
-// The reasons in words a message-writer can use — true, and never a figure.
-// The chips the salesperson sees carry the numbers; these don't.
-function whyRadar(r) {
-  const why = [];
-  const l = r.lead, b = r.best;
-  if (b && b.delta != null) {
-    if (b.delta <= -20) why.push("they could move into a newer vehicle for less per month than they pay now");
-    else if (b.delta <= 50) why.push("they could move into a newer vehicle for about what they pay now");
-  }
-  const eq = equityDetail(l).v;
-  if (eq != null && eq >= 3000) why.push("their current vehicle is worth a good deal more than what's left owing on it");
-  else if (eq != null && eq > 0) why.push("their current vehicle is worth more than what's left owing");
-  else if (eq != null && eq < -2000) why.push("they owe more than their vehicle is worth — go gently and promise nothing");
-  const yrs = yearsOwned(l.purchaseDate);
-  if (yrs != null && yrs >= 3) why.push(`they've had their ${l.vehicleInterest || "vehicle"} about ${Math.floor(yrs)} years`);
-  if (b && b.special) why.push(`there's a manufacturer program on the ${b.vehicle.model || "next vehicle"} right now (don't quote its terms)`);
-  if (b && b.vehicle) why.push(`the natural next vehicle for them is a ${vehName(b.vehicle)}`);
-  return why;
-}
-function whyOccasion(o) {
-  if (o.kind === "lease1") return "their lease is up within about a month";
-  if (o.kind === "lease3") return "their lease is up in about three months — the right time to look at options";
-  if (o.kind === "lease6") return "their lease comes due in about six months";
-  if (o.kind === "anniv") return "it's around the anniversary of their purchase";
-  return o.label;
-}
-
-// Everyone with a reason, best first. Radar rows (a payment-matched deal)
-// first, with occasions layered on top — a lease coming due is a reason on
-// its own, and a stronger one when there's a deal to go with it.
+// Everyone with a reason, best first — the same read of the book the Leads
+// page is sorted by (assess.js), so Home and Leads never disagree about who
+// is worth a call. `why` is the message-writer's version: never a figure.
 export function candidates() {
-  const byId = new Map();
-  topOpportunities(Infinity).forEach((r) => {
-    byId.set(r.lead.id, { lead: r.lead, score: r.score, reasons: r.reasons.slice(), best: r.best, why: whyRadar(r), occasion: null });
-  });
-  getOccasions().forEach((o) => {
-    if (o.kind === "bday") return; // a relationship touch, not a sale
-    const bonus = o.kind === "lease1" ? 30 : o.kind === "lease3" ? 22 : o.kind === "lease6" ? 12 : 15;
-    const c = byId.get(o.lead.id) || { lead: o.lead, score: 0, reasons: [], best: null, why: [], occasion: null };
-    c.score += bonus;
-    c.reasons.unshift(o.label);
-    c.why.unshift(whyOccasion(o));
-    c.occasion = o;
-    byId.set(o.lead.id, c);
-  });
-  return [...byId.values()].filter((c) => c.score > 0).sort((a, b) => b.score - a.score);
+  return ranked()
+    .filter((a) => a.score > 0 && !a.flags.excluded)
+    .map((a) => ({ lead: a.lead, score: a.score, reasons: a.reasons, why: a.whySafe, best: a.best, next: a.next }));
 }
 
 export function candidateFor(leadId) {

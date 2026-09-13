@@ -580,7 +580,12 @@ function strength(score) {
 // equity. Replace what they drive instead, and fall back to cheapest only when
 // we can't tell what that is.
 export function bestPitch(lead, method, opts = {}) {
-  const rows = dealsForLead(lead, { method });
+  return pickPitch(dealsForLead(lead, { method }), lead, opts);
+}
+// The same choice from rows already computed — the radar prices every
+// customer once and needs both answers (closest payment, and the
+// replacement) from the one pass.
+function pickPitch(rows, lead, opts = {}) {
   if (!rows.length) return null;
   // The radar matches the payment, which is right when you're answering "what
   // can they afford". Outreach asks a different question — "what would they
@@ -655,7 +660,8 @@ function computeOpportunities() {
   store.all("leads").forEach((l) => {
     const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
     if (!hasData) return;
-    const best = bestPitch(l, method);
+    const rows = dealsForLead(l, { method });
+    const best = pickPitch(rows, l);
     if (!best) return;
     if (cap && best.monthly > cap) { overCap++; return; }
     // Only surface customers whose new payment stays within their tolerance.
@@ -663,7 +669,10 @@ function computeOpportunities() {
     if (best.delta == null) noBaseline++;
     const { score, reasons } = scoreOpportunity(l, best);
     if (score <= 0) return;
-    out.push({ lead: l, best, score, reasons });
+    // What to pitch, as opposed to what fits: the replacement for what they
+    // drive, from the same priced rows (assess.js reads it).
+    const replacement = pickPitch(rows, l, { preferReplacement: true });
+    out.push({ lead: l, best, score, reasons, replacement });
   });
   out.sort((a, b) => b.score - a.score);
   return { rows: out, overBand, overCap, noBaseline };

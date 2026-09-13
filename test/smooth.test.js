@@ -120,6 +120,15 @@ console.log("\nHome:");
 // render cancels an older one.
 console.log("\nLeads, All:");
 {
+  // The list is sorted by the read of the book (assess.js). The app warms
+  // that read shortly after launch; here the book was just seeded, so warm it
+  // the same way — and hold the cold read itself to a bound while at it.
+  const cold = await p.evaluate(async () => {
+    const a = await import("/js/assess.js");
+    const t0 = performance.now(); a.assessAll(); return Math.round(performance.now() - t0);
+  });
+  console.log("  cold read of the book:", cold, "ms");
+  if (cold > 1500) fail(`reading 2,984 people took ${cold}ms`);
   await p.evaluate(() => { location.hash = "#/settings"; sessionStorage.setItem("leads-filter", "all"); }); await p.waitForTimeout(150);
   const r = await p.evaluate(() => new Promise((res) => {
     const t0 = performance.now();
