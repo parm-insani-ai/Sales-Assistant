@@ -205,6 +205,52 @@ console.log("\nLeads, All:");
   if (typed.offFilter) fail(`${typed.offFilter} cards from the cancelled render leaked into the search results`);
 }
 
+// --- Back from a customer lands where you left off, not at the top. The
+// list is windowed, so "where you left off" means the same cards AND the
+// same scroll.
+console.log("\nback from a customer:");
+{
+  await p.evaluate(() => { location.hash = "#/settings"; sessionStorage.setItem("leads-filter", "all"); }); await p.waitForTimeout(150);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(200);
+  // Scroll a good way down and let the list catch up.
+  const before = await p.evaluate(() => new Promise((res) => {
+    const view = document.querySelector("#view");
+    let n = 0;
+    const step = () => { view.scrollTop += 2500; if (++n < 6) return setTimeout(step, 120); setTimeout(() => {
+      const cards = [...document.querySelectorAll(".lead-list .card")];
+      // Tap something that is actually on screen, as a thumb would.
+      const v = view.getBoundingClientRect();
+      const pick = cards.find((c) => { const r = c.getBoundingClientRect(); return r.top >= v.top && r.bottom <= v.bottom; }) || cards[cards.length - 1];
+      res({ top: view.scrollTop, cards: cards.length, name: pick.querySelector(".row-title").textContent });
+    }, 200); };
+    step();
+  }));
+  await p.evaluate((name) => { [...document.querySelectorAll(".lead-list .card")].find((c) => c.querySelector(".row-title").textContent === name).click(); }, before.name);
+  await p.waitForTimeout(300);
+  const onDetail = await p.evaluate(() => /^#\/leads\/lea_/.test(location.hash));
+  await p.evaluate(() => document.querySelector('[data-act="back"]').click());
+  await p.waitForTimeout(400);
+  const after = await p.evaluate((name) => {
+    const view = document.querySelector("#view");
+    const card = [...document.querySelectorAll(".lead-list .card")].find((c) => c.querySelector(".row-title").textContent === name);
+    const r = card ? card.getBoundingClientRect() : null, v = view.getBoundingClientRect();
+    return { top: view.scrollTop, cards: document.querySelectorAll(".lead-list .card").length, visible: !!r && r.bottom > v.top && r.top < v.bottom };
+  }, before.name);
+  console.log("  left at", JSON.stringify(before), "→ back at", JSON.stringify(after));
+  if (!onDetail) fail("tapping the card didn't open the customer");
+  if (before.top < 2000) fail("the test didn't scroll far enough to prove anything");
+  if (Math.abs(after.top - before.top) > 60) fail(`came back at ${after.top}, left at ${before.top}`);
+  if (after.cards < before.cards) fail(`came back with ${after.cards} cards, had ${before.cards}`);
+  if (!after.visible) fail("the customer you tapped isn't on screen when you come back");
+
+  // A fresh visit from another screen starts at the top again.
+  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(150);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(250);
+  const fresh = await p.evaluate(() => ({ top: document.querySelector("#view").scrollTop, cards: document.querySelectorAll(".lead-list .card").length }));
+  console.log("  fresh visit:", JSON.stringify(fresh));
+  if (fresh.top !== 0 || fresh.cards > 60) fail("a fresh visit didn't start at the top");
+}
+
 // --- The filter: All first and by default, and the chip you tapped last is
 // the one you're on when you come back — a jump from Home doesn't change it.
 console.log("\nLeads filter memory:");

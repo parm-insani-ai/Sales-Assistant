@@ -29,7 +29,16 @@ export function renderLeads(view, { param }) {
   // A stat card or the voice agent can preset the filter and the search
   // (one-shot each) so the list you land on is the set that was just described
   // to you, rather than the default list with that set buried in it.
-  let search = sessionStorage.getItem("leads-search") || "";
+  // Where you left off. Tapping into a customer remembers how far down the
+  // list you were (and how much of it was showing, since the list is windowed
+  // — see renderList) so coming back lands you there, not at the top.
+  const SPOT = "viniva:leads-spot";
+  let spot = null;
+  try { spot = JSON.parse(sessionStorage.getItem(SPOT) || "null"); sessionStorage.removeItem(SPOT); } catch { spot = null; }
+  const rememberSpot = () => {
+    try { sessionStorage.setItem(SPOT, JSON.stringify({ top: view.scrollTop, shown, filter, search, opp: opp && !selecting })); } catch {}
+  };
+  let search = sessionStorage.getItem("leads-search") || (spot && spot.search) || "";
   sessionStorage.removeItem("leads-search");
   // all | active | due | <stage>.
   //
@@ -51,6 +60,9 @@ export function renderLeads(view, { param }) {
   if (preset === "opportunity") preset = null;
   const rem = recall(REMEMBER);
   let filter = preset || (rem && rem !== "opportunity" ? rem : null) || "all";
+  // A jump from elsewhere (a preset) is a new list; the spot only applies to
+  // the list it was saved on.
+  if (spot && (preset || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
   let selecting = false;
   const selected = new Set();
@@ -140,6 +152,11 @@ export function renderLeads(view, { param }) {
     }
     if (!list.length) {
       listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
+    } else if (spot) {
+      // Back from a customer: put the same cards back, then the same scroll.
+      const s = spot; spot = null;
+      renderList({ restore: s.shown });
+      requestAnimationFrame(() => { view.scrollTop = s.top; });
     } else {
       // The first render went through its own loop and built every card at
       // once, so the chunking in renderList() only ever applied to re-renders
@@ -237,7 +254,8 @@ export function renderLeads(view, { param }) {
   // keystroke, a filter tap) cancels an older one, and a re-render for a
   // store change keeps as many cards as were already showing so the page
   // doesn't jump back to the top under a scrolled reader.
-  function renderList({ keep = false } = {}) {
+  // restore: how many cards to put back at once (coming back from a customer).
+  function renderList({ keep = false, restore = 0 } = {}) {
     const el = wrap.querySelector(".lead-list");
     if (!el) return;
     const filtered = applyFilter();
@@ -249,8 +267,13 @@ export function renderLeads(view, { param }) {
       el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
       return;
     }
-    const card = (x) => (selecting ? selectCard(x) : leadCard(x));
-    const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : FIRST;
+    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot));
+    // How many to put back before handing over to the scroll: the previous
+    // count on a redraw, the saved count on a return, else a screenful. On a
+    // return they go in at once — a scroll position can't be restored onto
+    // cards that don't exist yet.
+    const first = restore ? Math.max(FIRST, Math.min(restore, filtered.length)) : FIRST;
+    const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : first;
     const frag = document.createDocumentFragment();
     // What the read of the book found, in one line above it.
     if (!selecting && !search && filter === "all") {
@@ -260,9 +283,9 @@ export function renderLeads(view, { param }) {
       summary.innerHTML = `${b.total.toLocaleString()} customers · <span class="strong" style="color:var(--danger)">${b.hot} hot</span> · <span class="strong" style="color:var(--success)">${b.strong} strong</span> · ${b.worth} worth a call — best first, with the reason on each`;
       frag.appendChild(summary);
     }
-    filtered.slice(0, FIRST).forEach((x) => frag.appendChild(card(x)));
+    filtered.slice(0, first).forEach((x) => frag.appendChild(card(x)));
     el.appendChild(frag);
-    let i = Math.min(FIRST, filtered.length);
+    let i = Math.min(first, filtered.length);
     shown = i;
 
     const sentinel = document.createElement("div");
@@ -332,7 +355,7 @@ export function renderLeads(view, { param }) {
   draw();
 }
 
-function leadCard(l) {
+function leadCard(l, onOpen) {
   const el = document.createElement("div");
   el.className = "card card-tap";
   const st = stageMeta(l.stage);
@@ -359,7 +382,7 @@ function leadCard(l) {
     </div>
     ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
   `;
-  el.addEventListener("click", () => navigate(`/leads/${l.id}`));
+  el.addEventListener("click", () => { if (onOpen) onOpen(); navigate(`/leads/${l.id}`); });
   return swipeable(el, {
     onDelete: (restoreRow) => {
       const snapshot = { ...l };
