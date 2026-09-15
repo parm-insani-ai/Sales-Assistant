@@ -162,9 +162,12 @@ export function renderSettings(view) {
       </div>
       <div class="hint" style="margin-bottom:10px">Requests for your OK — a welcome text five minutes after you add someone, the day's follow-up texts — only arrive inside business hours. Anything that comes due outside them waits for opening.</div>
       <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:6px">
+        <label class="switch"><input id="s-enforce" type="checkbox" ${s.enforceConsent ? "checked" : ""}><span>Hold texts back when there's no consent on file</span></label>
+      </div>
+      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:6px">
         <label class="switch"><input id="s-consent" type="checkbox" ${s.consentAtPurchase ? "checked" : ""}><span>We take texting consent on the credit application</span></label>
       </div>
-      <div class="hint" style="margin-bottom:10px">A text to a past customer needs consent. Off: a purchase gives implied consent for two years, an enquiry for six months, and the app won't draft an opener past that — it offers a call instead, and each customer's page can record express consent. On: every purchase carries express consent that doesn't expire.</div>
+      <div class="hint" style="margin-bottom:10px">Each customer's texting consent is worked out from what's on file — express if recorded, implied for two years from a purchase and six months from an enquiry, withdrawn on STOP — and shown on their page. A STOP always stops texts. With the first switch on, the app also won't draft an opener for anyone without consent and offers a call instead. The second switch says every purchase carries express consent that doesn't expire.</div>
       <button class="btn btn-ghost btn-block" data-act="save-proactive" style="margin-bottom:8px">Save notification hours</button>
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
       <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
@@ -516,6 +519,7 @@ export function renderSettings(view) {
       hoursTo: hour("#s-hoursto", 18),
       hoursDays: [...el.querySelectorAll('#s-hoursdays [data-day][aria-pressed="true"]')].map((b) => Number(b.dataset.day)),
       consentAtPurchase: el.querySelector("#s-consent").checked,
+      enforceConsent: el.querySelector("#s-enforce").checked,
     });
     // The server only learns about this through the synced prefs record.
     store.publishPrefs();

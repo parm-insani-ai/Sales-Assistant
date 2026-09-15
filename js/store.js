@@ -222,6 +222,9 @@ const DEFAULT_STATE = {
     // application? If so, every purchase carries consent that doesn't
     // expire. Otherwise a purchase gives implied consent for two years.
     consentAtPurchase: false,
+    // Hold drafted texts back when there's no consent on file. Off, the
+    // status is still shown and logged, and only a STOP stops a text.
+    enforceConsent: false,
     dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
     dealMethod: "both", // "both" | "finance" | "lease"
     dealMaxPayment: 0, // $/mo ceiling on the radar; 0 = no cap

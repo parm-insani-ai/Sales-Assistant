@@ -26,6 +26,15 @@ const iso = (t) => new Date(t).toISOString().slice(0, 10);
  * the customer's latest inbound text and latest sale date, as ISO strings.
  */
 export function consentStatus(lead, ctx = null, now = Date.now()) {
+  const s = status(lead, ctx, now);
+  // Enforcement is a setting, off unless the salesperson turns it on. Off,
+  // the status is still worked out, shown and logged — but only a STOP
+  // holds a text back. On, no consent means no drafted opener.
+  if (!store.getSettings().enforceConsent && s.basis !== "withdrawn") s.ok = true;
+  return s;
+}
+
+function status(lead, ctx, now) {
   if (!lead) return { basis: "none", ok: false, until: null, source: "", note: "" };
   const rec = lead.consent || null;
   if (lead.smsOptOut || (rec && rec.basis === "withdrawn")) return { basis: "withdrawn", ok: false, until: null, source: lead.smsOptOut ? "they texted STOP" : "recorded", note: (rec && rec.note) || "" };

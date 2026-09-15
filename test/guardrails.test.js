@@ -27,7 +27,8 @@ await p.route("**/functions/v1/voice-agent", async (route) => {
 await p.addInitScript((agent) => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "j@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [],
-    settings: { salesperson: "Jordan Reid", dealership: "O'Regan's Nissan", cloudAutoSync: false, taxRate: 15, defaultApr: 7.9, defaultTerm: 72,
+    // Enforcement is off by default; this test switches it on to prove the gate.
+    settings: { salesperson: "Jordan Reid", dealership: "O'Regan's Nissan", cloudAutoSync: false, taxRate: 15, defaultApr: 7.9, defaultTerm: 72, enforceConsent: true,
       supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k", agentUrl: agent, smsFrom: "+19025550123" } }));
 }, AGENT);
 await p.goto(APP + "/#/settings");
@@ -107,6 +108,23 @@ const desk = await p.evaluate(async (id) => {
 }, consent.staleId);
 console.log("  consent taken at the desk:", JSON.stringify(desk));
 if (desk.on !== "express" || !/purchase/.test(desk.onSource) || desk.off !== "none") fail("the consent-at-purchase setting doesn't switch an old purchase to express and back");
+
+// Enforcement off (the default): the status is still known, but only a STOP
+// holds a text back, and the stale buyer gets the opener like anyone else.
+const relaxed = await p.evaluate(async (id) => {
+  const store = await import("/js/store.js"); const c = await import("/js/consent.js"); const a = await import("/js/assess.js"); const plays = await import("/js/plays.js");
+  store.updateSettings({ enforceConsent: false });
+  const st = c.consentStatus(store.get("leads", id));
+  const stop = c.consentStatus(store.all("leads").find((l) => l.name === "Said Stop"));
+  const x = a.assessment(id);
+  const play = plays.getPlays(40).find((p) => p.kind === "prospect" && p.leadId === id);
+  store.updateSettings({ enforceConsent: true });
+  return { basis: st.basis, ok: st.ok, stopOk: stop.ok, next: x.next && x.next.kind, chip: x.reasons.some((r) => /consent/i.test(r)), review: !!(play && play.prospectId) };
+}, consent.staleId);
+console.log("  enforcement off:", JSON.stringify(relaxed));
+if (relaxed.basis !== "none" || !relaxed.ok) fail("with enforcement off, an expired purchase should still be known as 'none' but not block");
+if (relaxed.stopOk) fail("a STOP must hold even with enforcement off");
+if (relaxed.next === "call" || relaxed.chip || !relaxed.review) fail("with enforcement off the card, the next move and Home still treat them as unreachable by text");
 
 // Trying to draft for them anyway lands on their page, with the consent card.
 await p.evaluate(async (id) => { const t = await import("/js/touches.js"); await t.reviewProspect(id); }, consent.staleId);
