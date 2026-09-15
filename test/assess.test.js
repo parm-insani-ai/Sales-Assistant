@@ -21,7 +21,7 @@ await p.addInitScript(() => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "j@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [],
-    settings: { salesperson: "Jordan Reid", dealership: "O'Regan's Nissan", cloudAutoSync: false, taxRate: 15, defaultApr: 7.9, defaultTerm: 72,
+    settings: { salesperson: "Jordan Reid", dealership: "O'Regan's Nissan", cloudAutoSync: false, taxRate: 15, defaultApr: 7.9, defaultTerm: 72, consentAtPurchase: true,
       supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k", smsFrom: "+19025550123" } }));
 });
 await p.goto(APP + "/#/settings");

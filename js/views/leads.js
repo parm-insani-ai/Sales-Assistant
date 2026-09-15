@@ -11,6 +11,7 @@ import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
 import { assessAll, assessment, bookSummary } from "../assess.js";
+import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
@@ -532,6 +533,26 @@ function renderLeadDetail(view, id) {
     </div>`;
     })()}
 
+    ${(() => {
+      // Permission to text, and a way to record it. A text to a past customer
+      // needs consent; the app won't draft one without it.
+      const c = consentStatus(l);
+      const badge = c.basis === "express" ? "badge-sold" : c.basis === "implied" ? "badge-soon" : c.basis === "withdrawn" ? "badge-lost" : "badge-due";
+      const label = c.basis === "express" ? "Express" : c.basis === "implied" ? "Implied" : c.basis === "withdrawn" ? "Withdrawn" : "None";
+      return `
+    <div class="section-title">Texting consent</div>
+    <div class="card consent-card">
+      <div class="row" style="align-items:flex-start">
+        <div class="row-main"><div class="small" style="line-height:1.45">${esc(consentLine(c))}${c.note ? ` <span class="muted">— ${esc(c.note)}</span>` : ""}</div></div>
+        <span class="badge ${badge}" style="flex:none">${label}</span>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        ${c.basis !== "express" ? `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">${icon("check")} Record express consent</button>` : ""}
+        ${c.basis !== "withdrawn" ? `<button class="btn btn-ghost btn-sm" data-act="consent-withdraw" style="flex:0 0 auto">They said stop</button>` : `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">They've said yes again</button>`}
+      </div>
+    </div>`;
+    })()}
+
     <div class="section-title">Quick stage update</div>
     <div class="card">
       <div class="btn-row">
@@ -635,6 +656,26 @@ function renderLeadDetail(view, id) {
     openerBtn.disabled = true; openerBtn.textContent = "Drafting…";
     try { await reviewProspect(l.id); }
     finally { openerBtn.disabled = false; openerBtn.innerHTML = `${icon("message")} Review the opener`; }
+  });
+  const expressBtn = el.querySelector('[data-act="consent-express"]');
+  if (expressBtn) expressBtn.addEventListener("click", () => {
+    openModal("Express consent", (close) => {
+      const { element } = buildForm(
+        [{ name: "note", label: "How they gave it", value: "", placeholder: "Asked on the phone 14 Sep · ticked the box on the credit app · replied YES", required: true }],
+        { submitLabel: "Record", onSubmit: (data) => {
+          recordConsent(l.id, { basis: "express", note: data.note });
+          toast("Consent recorded", "success"); close();
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+        } });
+      return element;
+    });
+  });
+  const withdrawBtn = el.querySelector('[data-act="consent-withdraw"]');
+  if (withdrawBtn) withdrawBtn.addEventListener("click", async () => {
+    if (!(await confirmDialog(`Stop texting ${l.name}? They'll be left out of every campaign and opener until they say yes again.`))) return;
+    recordConsent(l.id, { basis: "withdrawn", note: "recorded by hand" });
+    toast("Texting stopped");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
   const snoozeBtn = el.querySelector('[data-act="snooze"]');
   if (snoozeBtn) snoozeBtn.addEventListener("click", () => {

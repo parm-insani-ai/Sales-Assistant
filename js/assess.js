@@ -18,6 +18,7 @@ import * as store from "./store.js";
 import { topOpportunities, equityDetail, monthsRemaining, inferApr, closestDeal } from "./views/dealbuilder.js";
 import { daysFromToday, currency } from "./utils.js";
 import { isLikelyPrefetch } from "./plays.js";
+import { consentStatus } from "./consent.js";
 
 const DAY = 86400000;
 const num = (v) => (v == null || v === "" ? null : Number(v));
@@ -101,7 +102,9 @@ function readBook() {
 
   const byId = new Map();
   store.all("leads").forEach((l) => {
-    const a = assessOne(l, { s, band, now, today, radar: radar.get(l.id) || null, lastIn: lastIn.get(l.id), lastOpen: lastOpen.get(l.id), opens: opens.get(l.id) || 0, sales: salesByLead.get(l.id) || [], planned: planned.has(l.id) });
+    const sales = salesByLead.get(l.id) || [];
+    const lastSale = sales.map((x) => String(x.saleDate || x.createdAt || "")).sort().pop() || null;
+    const a = assessOne(l, { s, band, now, today, radar: radar.get(l.id) || null, lastIn: lastIn.get(l.id), lastOpen: lastOpen.get(l.id), opens: opens.get(l.id) || 0, sales, lastSale, planned: planned.has(l.id) });
     byId.set(l.id, a);
   });
   const sorted = [...byId.values()].sort((a, b) => b.score - a.score || String(b.lead.createdAt || "").localeCompare(String(a.lead.createdAt || "")));
@@ -234,6 +237,7 @@ function assessOne(l, ctx) {
   // --- 9. Engagement: they've touched something.
   const openDays = daysSince(ctx.lastOpen);
   if (openDays != null && openDays <= 7) { add(25, "Opened your link", `Opened something you sent ${openDays < 1 ? "today" : Math.round(openDays) + " day" + (Math.round(openDays) === 1 ? "" : "s") + " ago"}${ctx.opens > 1 ? ` (${ctx.opens}×)` : ""} — they're looking.`, "they recently opened something you sent them"); if (!next) next = { label: "Text now — they're looking", kind: "hot" }; }
+  // (A hot next-move that needs a text still yields to consent below.)
   const inDays = daysSince(ctx.lastIn);
   if (inDays != null && inDays <= 14) { add(20, "Texted you", `Texted you ${inDays < 1 ? "today" : Math.round(inDays) + " days ago"}.`, "they've been in touch by text recently"); if (!next) next = { label: "Reply in the conversation", kind: "reply" }; }
 
@@ -252,6 +256,18 @@ function assessOne(l, ctx) {
   if (kDays != null && kDays <= 30) add(-10, null, `In a campaign ${Math.round(kDays)} days ago.`, null);
   if (!flags.contactable) add(-20, "No phone or email", "No way to reach them on file.", null);
 
+  // --- 12. Permission to text. Without it the app won't draft an opener,
+  // so the move is a call — and the card says so.
+  const consent = consentStatus(l, { lastIn: ctx.lastIn || null, lastSale: ctx.lastSale || null }, ctx.now);
+  flags.consent = consent;
+  if (!flags.excluded && !consent.ok && l.phone) {
+    add(-12, "No texting consent", consent.until
+      ? `No consent to text — implied consent from ${consent.source} ran out ${consent.until}. Call, or record consent.`
+      : "No consent on file to text them. Call, or record consent on their page.", null);
+    // A next move that was going to be a text becomes a call.
+    if (next && ["hot", "opener", "plan"].includes(next.kind)) next = { label: `Call — ${next.label.replace(/^Text( now)?\s*—?\s*/i, "").replace(/^the opener — /, "")} (no texting consent)`, kind: "call" };
+  }
+
   if (flags.excluded) score = 0;
   score = Math.max(0, Math.min(100, Math.round(score)));
   const tier = null; // set once the whole book is scored — see readBook
@@ -261,14 +277,15 @@ function assessOne(l, ctx) {
   // the salesperson must not learn at the desk.
   found.sort((a, b) => b.pts - a.pts);
   const chips = found.filter((f) => f.chip);
-  const cautions = chips.filter((f) => f.pts < 0).sort((a, b) => a.pts - b.pts);
-  const reasons = [...chips.filter((f) => f.pts >= 0).slice(0, cautions.length ? 3 : 4), ...cautions.slice(0, 1)].map((f) => f.chip);
+  const cautions = chips.filter((f) => f.pts < 0).sort((a, b) => a.pts - b.pts).slice(0, 2);
+  const reasons = [...chips.filter((f) => f.pts >= 0).slice(0, 4 - cautions.length), ...cautions].map((f) => f.chip);
   const whyAll = [...found.filter((f) => f.sentence).map((f) => f.sentence), ...why];
   const whySafe = found.filter((f) => f.safe && f.pts > 0).map((f) => f.safe);
 
   if (!next) {
     if (flags.excluded) next = null;
     else if (flags.inPlay) next = { label: "Keep the deal moving", kind: "inplay" };
+    else if (!consent.ok && l.phone && score >= 20) next = { label: "Call — no texting consent on file", kind: "call" };
     else if (months != null && months <= 6 && leaseDeal) next = { label: "Text the lease-end opener", kind: "opener" };
     else if (best && score >= 20) next = { label: `Text the opener — pitch a ${vehName(best.vehicle)}`, kind: "opener" };
     else if (score >= 20) next = { label: "Text an opener", kind: "opener" };

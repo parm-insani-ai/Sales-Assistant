@@ -51,7 +51,7 @@ export function eligible(lead) {
 export function candidates() {
   return ranked()
     .filter((a) => a.score > 0 && !a.flags.excluded)
-    .map((a) => ({ lead: a.lead, score: a.score, reasons: a.reasons, why: a.whySafe, best: a.best, next: a.next }));
+    .map((a) => ({ lead: a.lead, score: a.score, tier: a.tier ? a.tier.label : "", reasons: a.reasons, why: a.whySafe, best: a.best, next: a.next, consent: a.flags.consent }));
 }
 
 export function candidateFor(leadId) {

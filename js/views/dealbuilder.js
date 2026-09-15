@@ -710,18 +710,22 @@ function vehName(v) {
 }
 
 // Build the ready-to-send offer text for a matched deal.
+// No figure leaves by text — not the payment, not the delta, not the program
+// terms. The offer names the vehicle and the shape of the deal; the numbers
+// happen at the desk, where a trade can be looked at and a mistake fixed in
+// person. (This used to quote the monthly. It was the one place left that did.)
 export function offerText(lead, match) {
-  const s = store.getSettings();
   const v = vehName(match.vehicle);
-  const pmt = Math.round(match.monthly);
   const intro = fillTemplate("Hi {firstName}, it's {salesperson} at {dealership}.", lead);
-  const curLine = lead.currentPayment
-    ? ` right around the $${Math.round(lead.currentPayment)}/mo you're paying now`
-    : "";
+  const cur = lead.currentPayment != null;
+  const delta = match.delta != null ? match.delta : null;
+  const shape = delta != null && delta <= -20 ? "for less per month than you're paying now"
+    : delta != null && cur ? "for close to what you're paying now"
+    : "on terms I think will surprise you";
   const trade = lead.vehicleInterest ? ` out of your ${lead.vehicleInterest}` : "";
   const how = match.method === "lease" ? " on a lease" : "";
-  const spBit = match.special ? ` — Nissan's running ${match.special} on it right now` : "";
-  return `${intro} Good news — I can likely get you into a new ${v} for about $${pmt}/mo${how},${curLine}${trade ? "," + trade : ""}${spBit}. Worth a quick look? What's your schedule like this week?`;
+  const spBit = match.special ? " — and there's a Nissan program on it right now" : "";
+  return `${intro} I think I can get you into a new ${v}${how} ${shape}${trade ? "," + trade : ""}${spBit}. Worth ten minutes to see the real numbers? What's your week like?`;
 }
 
 // ---------- Full worked deal for one option ----------

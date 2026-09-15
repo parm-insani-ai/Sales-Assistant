@@ -16,17 +16,17 @@ export function fillTemplate(text, lead) {
   // that's what they asked for; for an imported owner it's what they DRIVE —
   // which is why owner templates say {theirCar} and never "your interest in".
   const car = (lead && lead.vehicleInterest) || "";
-  const money = (n) => "$" + Math.round(Number(n)).toLocaleString("en-CA");
-  const val = lead && lead.currentValue != null ? Number(lead.currentValue) : null;
-  const payoff = lead && lead.payoff != null ? Number(lead.payoff) : null;
+  // {tradeValue}, {equity} and {payment} are kept for older custom templates,
+  // but they never resolve to a figure any more: no number leaves by text
+  // before the customer is at the desk. They read as the idea, not the amount.
   const map = {
     name,
     firstName,
     vehicle: car || "vehicle",
     theirCar: car || "your vehicle",
-    tradeValue: val != null ? money(val) : "more than you'd think",
-    equity: val != null ? money(Math.max(0, val - (payoff || 0))) : "real money",
-    payment: lead && lead.currentPayment != null ? money(lead.currentPayment) + "/mo" : "what you pay now",
+    tradeValue: "more than you might think",
+    equity: "real money",
+    payment: "what you pay now",
     salesperson: s.salesperson || "your salesperson",
     dealership: s.dealership || "the dealership",
   };

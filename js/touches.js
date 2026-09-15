@@ -18,6 +18,9 @@ import { candidateFor } from "./prospects.js";
 import { openText } from "./sms.js";
 import { navigate } from "./router.js";
 import { smsHref } from "./utils.js";
+import { toast } from "./components.js";
+import { consentStatus, consentLine } from "./consent.js";
+import { setPending } from "./outcomes.js";
 import { cachedShortBookingLink, bookingLink } from "./views/settings.js";
 
 const first = (name) => String(name || "there").trim().split(/\s+/)[0];
@@ -157,9 +160,21 @@ export async function reviewTouch(taskId) {
   if (!task || !lead) { navigate("/"); return false; }
   if (task.done) { navigate(lead.phone ? `/inbox/${lead.id}` : `/leads/${lead.id}`); return false; }
   if (!lead.phone) { navigate(`/leads/${lead.id}`); return false; }
+  if (!mayText(lead)) return false;
   const { body } = await draftTouch(lead, task);
+  setPending({ leadId: lead.id, kind: "plan", intent: task.intent || "", reasons: [], score: null, tier: "" });
   if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
   return true;
+}
+
+// No consent, no drafted text: the app won't write an opener it isn't
+// allowed to send. The customer's page says why and how to fix it.
+function mayText(lead) {
+  const c = consentStatus(lead);
+  if (c.ok) return true;
+  toast(`${String(lead.name || "They").split(" ")[0]}: ${consentLine(c)} Call instead, or record consent on their page.`, "warn");
+  navigate(`/leads/${lead.id}`);
+  return false;
 }
 
 /**
@@ -170,8 +185,10 @@ export async function reviewProspect(leadId) {
   const lead = store.get("leads", leadId);
   if (!lead) { navigate("/"); return false; }
   if (!lead.phone) { navigate(`/leads/${lead.id}`); return false; }
+  if (!mayText(lead)) return false;
   const c = candidateFor(leadId);
   const { body } = await draftTouch(lead, { intent: "prospect", why: c ? c.why : [], step: 0 });
+  setPending({ leadId: lead.id, kind: "prospect", intent: "prospect", reasons: c ? c.reasons : [], score: c ? c.score : null, tier: c && c.tier ? c.tier : "" });
   if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
   return true;
 }

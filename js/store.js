@@ -136,6 +136,9 @@ const DEFAULT_STATE = {
   config: [], // one synced row mirroring `settings`, so a reinstall gets them back
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
+  // Every opener sent, with why it was sent, so what worked can be read back
+  // later: { leadId, textId, kind, intent, reasons, score, tier, consent, at }
+  outreach: [],
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -215,6 +218,10 @@ const DEFAULT_STATE = {
     hoursFrom: 9,
     hoursTo: 18,
     hoursDays: [1, 2, 3, 4, 5, 6],
+    // Does the dealership take express texting consent on the credit
+    // application? If so, every purchase carries consent that doesn't
+    // expire. Otherwise a purchase gives implied consent for two years.
+    consentAtPurchase: false,
     dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
     dealMethod: "both", // "both" | "finance" | "lease"
     dealMaxPayment: 0, // $/mo ceiling on the radar; 0 = no cap
@@ -928,7 +935,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather

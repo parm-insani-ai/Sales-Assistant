@@ -102,7 +102,7 @@ export function getOccasions() {
       out.push({
         lead, key, kind: "anniv",
         label: `${years} year${years === 1 ? "" : "s"} since their ${s.vehicle || "purchase"}`,
-        message: fill("Hi {firstName}, hard to believe it's been {years} year{plural} with your {vehicle}! Trade values are strong right now — curious what an upgrade would look like? I can run numbers, zero pressure. — {salesperson}", lead, { years, plural: years === 1 ? "" : "s", vehicle: s.vehicle || lead.vehicleInterest || "vehicle" }),
+        message: fill("Hi {firstName}, hard to believe it's been {years} year{plural} with your {vehicle}! If you're ever curious what an upgrade would look like, I can run the numbers with you in ten minutes — zero pressure. — {salesperson}", lead, { years, plural: years === 1 ? "" : "s", vehicle: s.vehicle || lead.vehicleInterest || "vehicle" }),
         rank: 3,
       });
     });

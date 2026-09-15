@@ -9,6 +9,7 @@ import { icon } from "../icons.js";
 import { emptyState } from "../components.js";
 import { dealTotal, dealFront, dealBO } from "./soldlog.js";
 import { monthSummary } from "./goals.js";
+import { outreachReport } from "../outcomes.js";
 
 // ---- Week math ----
 export function weekStart(d = new Date()) {
@@ -187,8 +188,27 @@ export function renderCoach(view) {
     const w = weeks[0], lw = weeks[1];
     const body = el.querySelector("#co-body");
 
+    // What's working: every opener sent, and what came of it. This is the
+    // feedback loop — the reasons the app leads with are judgement until the
+    // replies and bookings say otherwise.
+    const worked = (() => {
+      const r = outreachReport({ weeks: 4 });
+      if (!store.all("outreach").length) return "";
+      const pct = (t) => (t.sent ? `${t.replyRate}%` : "—");
+      return `
+      <div class="section-title" style="margin-top:0">What's working <span class="muted">· last 4 weeks</span></div>
+      <div class="card worked-card">
+        ${r.insights.map((t) => `<div class="small" style="line-height:1.45;padding:4px 0">${esc(t)}</div>`).join("")}
+        <table class="worked-table" style="width:100%;margin-top:8px;border-collapse:collapse;font-size:0.82rem">
+          <thead><tr class="muted"><th style="text-align:left;font-weight:600">Opener led with</th><th>Sent</th><th>Replied</th><th>Booked</th><th>Sold</th></tr></thead>
+          <tbody>${r.byReason.slice(0, 8).map((x) => `<tr><td style="padding:4px 0">${esc(x.reason)}</td><td style="text-align:center">${x.sent}</td><td style="text-align:center">${x.replied} <span class="muted">(${pct(x)})</span></td><td style="text-align:center">${x.booked}</td><td style="text-align:center">${x.sold}</td></tr>`).join("")}</tbody>
+        </table>
+        <div class="small muted" style="margin-top:8px">${r.weeks.map((w) => `${w.start.slice(5)}: ${w.sent} sent, ${w.replied} replied`).join(" · ")}</div>
+      </div>`;
+    })();
+
     if (!store.all("sales").length && !store.all("appointments").length) {
-      body.innerHTML = emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
+      body.innerHTML = worked + emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
       return;
     }
 
@@ -224,8 +244,9 @@ export function renderCoach(view) {
     const toneColor = { good: "var(--brand)", warn: "var(--danger)", info: "var(--muted)" };
 
     body.innerHTML = `
+      ${worked}
       ${insights.length ? `
-      <div class="section-title" style="margin-top:0">Coach says</div>
+      <div class="section-title" style="${worked ? "" : "margin-top:0"}">Coach says</div>
       <div class="card">
         ${insights.map((i) => `
           <div class="row" style="align-items:flex-start;gap:10px;padding:7px 0">

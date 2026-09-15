@@ -170,12 +170,14 @@ export function getPlays(limit = 6) {
     const l = c.lead;
     const pitch = c.best && c.best.vehicle ? [c.best.vehicle.year, c.best.vehicle.make, c.best.vehicle.model, c.best.vehicle.trim].filter(Boolean).join(" ") : "";
     const rest = c.reasons.slice(1, 3);
+    // No consent to text: the play is a call, not a drafted opener.
+    const canText = !!l.phone && c.consent && c.consent.ok;
     plays.push({
-      key: `pr:${l.id}:${todayK}`, leadId: l.id, prospectId: l.id,
-      rank: 65, icon: "target", kind: "prospect",
+      key: `pr:${l.id}:${todayK}`, leadId: l.id, prospectId: canText ? l.id : null,
+      rank: 65, icon: canText ? "target" : "phone", kind: "prospect",
       title: `${l.name}: ${c.reasons[0] || "worth a call"}`,
-      sub: [pitch ? `Pitch a ${pitch}` : "", ...rest].filter(Boolean).join(" · ") || "Worth reaching out to today.",
-      href: null,
+      sub: [pitch ? `Pitch a ${pitch}` : "", ...rest, !canText && l.phone ? "no texting consent — call" : ""].filter(Boolean).join(" · ") || "Worth reaching out to today.",
+      href: !canText && l.phone ? telHref(l.phone) : null,
       route: l.phone ? null : `/leads/${l.id}`,
     });
   });

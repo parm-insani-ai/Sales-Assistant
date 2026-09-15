@@ -15,6 +15,8 @@ import * as backend from "./backend.js";
 import { navigate } from "./router.js";
 import { toast } from "./components.js";
 import { isLikelyPrefetch } from "./plays.js";
+import { logOutreach, takePending } from "./outcomes.js";
+import { consentStatus } from "./consent.js";
 
 // Texting needs a signed-in cloud account (to own the records), the function
 // URL (to reach Twilio), and a number configured on this account.
@@ -78,11 +80,15 @@ export async function sendText(lead, body) {
     // (or overdue) is done, and the customer was contacted. Without this the
     // salesperson approves the draft and then has to go and tick a box.
     const todayK = now.slice(0, 10);
+    // And log why it was sent, so what worked can be read back later.
+    const why = takePending(lead.id);
     store.bulk(() => {
       store.update("leads", lead.id, { lastContacted: now });
       store.all("tasks")
         .filter((t) => t.leadId === lead.id && t.cadence && t.channel === "text" && !t.done && t.due && t.due <= todayK)
         .forEach((t) => store.update("tasks", t.id, { done: true, doneBy: "text", doneAt: now }));
+      logOutreach({ leadId: lead.id, textId: row.id, kind: why ? why.kind : "manual", intent: why ? why.intent : "",
+        reasons: why ? why.reasons : [], score: why ? why.score : null, tier: why ? why.tier : "", consent: consentStatus(lead).basis });
     });
     return { ok: true, id: row.id };
   } catch (e) {
