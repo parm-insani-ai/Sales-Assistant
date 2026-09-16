@@ -87,11 +87,14 @@ await p2.goto(APP + "/#/");
 await p2.waitForTimeout(600);
 
 const gone = await p2.evaluate(async () => {
-  const store = await import("/js/store.js");
-  return { dealership: store.getSettings().dealership, docFee: store.getSettings().docFee };
+  const store = await import("/js/store.js"); const cfgMod = await import("/js/config.js");
+  return { dealership: store.getSettings().dealership, docFee: store.getSettings().docFee,
+    // The function's URL ships with the app, so a bare install already has it.
+    agentUrl: store.getSettings().agentUrl, shippedAgentUrl: cfgMod.BACKEND_DEFAULTS.agentUrl };
 });
 console.log("\nafter the wipe:", JSON.stringify(gone));
 if (gone.dealership) fail("the wipe didn't actually clear anything — the test proves nothing");
+if (!gone.agentUrl || gone.agentUrl !== gone.shippedAgentUrl) fail(`a wiped install has agentUrl ${JSON.stringify(gone.agentUrl)}, not the shipped ${gone.shippedAgentUrl}`);
 
 // Sync pulls the record down; adoptRemoteConfig folds it back into settings.
 const restored = await p2.evaluate(async () => {
@@ -144,6 +147,7 @@ if (!Array.isArray(restored.settings.deliveryChecklist) || !restored.settings.de
     return { defaults: cfgMod.BACKEND_DEFAULTS, configured: backend.isConfigured() };
   });
   console.log("\nbuild-time backend defaults:", JSON.stringify(boot.defaults), "→ configured:", boot.configured);
+  if (!/\/functions\/v1\/quick-api$/.test(boot.defaults.agentUrl || "")) fail("the shipped function URL isn't quick-api on this project");
   if (typeof boot.defaults?.url !== "string" || typeof boot.defaults?.anonKey !== "string")
     fail("there's no build-time backend default — a wiped install can't find the account");
   // Filled in, a bare install reaches the account with nothing typed.

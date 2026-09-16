@@ -3,6 +3,7 @@
 // specials, activity. Plus settings.
 
 import { uid } from "./utils.js";
+import { BACKEND_DEFAULTS } from "./config.js";
 
 const KEY = "sales-assistant:v1";
 
@@ -339,6 +340,16 @@ function hydrate(parsed) {
     ...parsed,
     settings: { ...DEFAULT_STATE.settings, ...(parsed.settings || {}) },
   };
+  // The function's URL ships with the app (config.js). An install with none
+  // saved gets it; one still pointing at the old function name on the same
+  // project is moved to the one that exists. A URL typed by hand elsewhere
+  // is left alone.
+  {
+    const cur = String(merged.settings.agentUrl || "").trim();
+    const def = BACKEND_DEFAULTS.agentUrl || "";
+    const sameProject = def && cur && cur.startsWith(def.replace(/\/functions\/v1\/.*$/, "/functions/v1/"));
+    if (def && (!cur || (sameProject && /\/voice-agent\/?$/.test(cur)))) merged.settings.agentUrl = def;
+  }
   // One-time correction: early builds shipped a 6.5% tax default. Nova Scotia
   // HST on a vehicle deal is 14%. Runs once (taxRateFixed), so a rate the
   // user sets deliberately afterwards is never overwritten.

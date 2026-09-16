@@ -698,7 +698,8 @@ function buildAgent(slot) {
         <li>Paste the function URL below.</li>
       </ol>
     </details>
-    <div class="field"><label>Voice agent URL</label><input id="ag-url" type="url" value="${esc(s.agentUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/voice-agent"></div>
+    <div class="field"><label>Voice agent URL</label><input id="ag-url" type="url" value="${esc(s.agentUrl || BACKEND_DEFAULTS.agentUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/quick-api"></div>
+    ${!s.agentUrl || s.agentUrl === BACKEND_DEFAULTS.agentUrl ? `<div class="hint" style="margin-top:-8px;margin-bottom:12px">${icon("checkline")} Filled in for you — this is your project's function. Tap Test connection to confirm.</div>` : ""}
     <div class="hint">Leave blank to use the built-in on-device commands. When set, the mic understands natural language and carries out tasks.</div>
     <button class="btn btn-sm" id="ag-test" type="button" style="margin-top:10px">Test connection</button>
     <div class="hint" id="ag-test-out"></div>

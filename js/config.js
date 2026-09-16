@@ -29,4 +29,9 @@ export const BACKEND_DEFAULTS = {
   // the dashboard hides behind a Reveal button — if you had to click to see it,
   // it's the wrong one.
   anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJnemthZmhsd2FsZGJkZmVoZnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1Mjk2NDgsImV4cCI6MjEwMjEwNTY0OH0.UUHR6DDwqWoC2B-ZWBGuwnUpZjoTxL48gXSDt6ypsNU",
+  // The one Edge Function the app talks to — voice, texting, email, pushes,
+  // links and booking all go through it. Its URL is the project URL plus the
+  // function's name, which is quick-api on this project. Same floor rule: a
+  // URL saved in Settings wins.
+  agentUrl: "https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api",
 };
