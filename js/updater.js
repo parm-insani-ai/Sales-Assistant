@@ -16,12 +16,10 @@ export function initAutoUpdate() {
     window.location.reload();
   });
 
-  window.addEventListener("load", async () => {
+  const start = async () => {
     let reg;
     try {
-      // updateViaCache:"none" → the sw.js script itself is never served from the
-      // HTTP cache, so a new deploy is always noticed.
-      reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+      reg = await registerWorker();
     } catch { return; }
     if (!reg) return; // registration unavailable (private mode, blocked SWs)
 
@@ -31,7 +29,22 @@ export function initAutoUpdate() {
     window.addEventListener("online", check);
     setInterval(check, 30 * 60 * 1000); // hourly-ish safety net
     check();
-  });
+  };
+  // The app boots through a couple of awaits (the database opening, the
+  // sign-in door) and by the time it gets here the page's load event has
+  // usually come and gone. A listener added after the fact never fires — so
+  // on a freshly installed phone the worker was never registered at all, and
+  // "Turn on notifications" waited forever for a worker that didn't exist.
+  if (document.readyState === "complete") start();
+  else window.addEventListener("load", start, { once: true });
+}
+
+// Register the worker (a no-op returning the existing registration when
+// it's already there). updateViaCache:"none" → the sw.js script itself is
+// never served from the HTTP cache, so a new deploy is always noticed.
+export function registerWorker() {
+  if (!("serviceWorker" in navigator)) return Promise.resolve(null);
+  return navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
 }
 
 // Force an update check now. Resolves true if a new worker started installing

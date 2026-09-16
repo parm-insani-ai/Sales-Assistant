@@ -42,6 +42,12 @@ import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 
+// Register the service worker and keep the app auto-updating to new deploys.
+// First, before anything that waits: the sign-in door below can hold the
+// boot for as long as it takes to type a password, and a worker registered
+// only after that is a worker a fresh install may never get.
+initAutoUpdate();
+
 // The store loads from IndexedDB, which is asynchronous. Nothing below reads
 // or writes it until it's ready — a route rendering against an empty store
 // would show a blank app for the half-second the load takes, then flicker.
@@ -216,9 +222,6 @@ setTimeout(() => { try { assessAll(); } catch {} }, 2500);
 
 // Start cloud sync if it's configured and signed in (no-op otherwise).
 sync.init();
-
-// Register the service worker and keep the app auto-updating to new deploys.
-initAutoUpdate();
 
 // Heal any pre-linking records (sales/deliveries without a customer) so old
 // data participates in the connected graph too.

@@ -9,6 +9,7 @@
 import * as store from "./store.js";
 import * as backend from "./backend.js";
 import * as sync from "./sync.js";
+import { registerWorker } from "./updater.js";
 
 const agentUrl = () => (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
 
@@ -33,8 +34,11 @@ export async function currentSubscription() {
   return reg.pushManager.getSubscription();
 }
 
-// An active worker, or a plain-language reason there isn't one yet.
+// An active worker, or a plain-language reason there isn't one yet. If the
+// worker was never registered (a fresh install whose boot missed it), this
+// registers it right here rather than waiting on a worker that isn't coming.
 async function activeRegistration() {
+  if (!(await navigator.serviceWorker.getRegistration())) await registerWorker();
   const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("The app's background worker isn't ready yet — close the app fully, reopen it, and try again.")), 8000));
   return Promise.race([navigator.serviceWorker.ready, timeout]);
 }
