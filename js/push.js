@@ -25,8 +25,18 @@ export function needsInstall() {
 
 export async function currentSubscription() {
   if (!pushSupported()) return null;
-  const reg = await navigator.serviceWorker.ready;
+  // getRegistration answers even when nothing is registered; `ready` waits
+  // for an active worker and never resolves if there isn't one — which left
+  // the Notifications card blank on a phone whose worker was mid-update.
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return null;
   return reg.pushManager.getSubscription();
+}
+
+// An active worker, or a plain-language reason there isn't one yet.
+async function activeRegistration() {
+  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("The app's background worker isn't ready yet — close the app fully, reopen it, and try again.")), 8000));
+  return Promise.race([navigator.serviceWorker.ready, timeout]);
 }
 
 function b64uToBytes(s) {
@@ -71,7 +81,7 @@ export async function enablePush() {
   if (perm !== "granted") throw new Error("Notifications were declined — enable them for viniva in iOS Settings, then try again.");
 
   const key = await fetchServerKey();
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await activeRegistration();
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(key) });

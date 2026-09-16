@@ -1237,14 +1237,20 @@ function buildBooking(slot) {
 // morning play sheet, link-open alerts, and instant booking alerts.
 function buildPush(slot) {
   const render = async () => {
-    const on = await pushEnabled().catch(() => false);
+    // Draw first, then find out. Waiting on the browser before showing
+    // anything left this card empty whenever the worker was slow to answer.
+    if (!slot.innerHTML) slot.innerHTML = `<div class="small muted">Checking this device…</div>`;
+    const on = await Promise.race([
+      pushEnabled().catch(() => false),
+      new Promise((res) => setTimeout(() => res(false), 2500)),
+    ]);
     slot.innerHTML = `
       <div class="small muted" style="margin-bottom:10px">Turns viniva from an assistant into an agent: a morning "your plays today" push, an instant heads-up when a customer opens a link you sent, and a ping the moment someone books on your calendar — even with the app closed.</div>
       ${needsInstall() ? `<div class="hint" style="margin-bottom:10px">On iPhone, first add viniva to your Home Screen (Share → Add to Home Screen) — Apple only allows notifications for installed apps.</div>` : ""}
       <details class="cloud-setup" style="margin-bottom:12px">
         <summary class="strong small">${icon("help")} One-time server setup</summary>
         <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-          <li>Re-paste the latest <span class="mono">voice-agent/index.ts</span> into your Supabase function and deploy.</li>
+          <li>Make sure your function (<span class="mono">quick-api</span>) is on the latest code from the repo and deployed.</li>
           <li>In Supabase → Edge Functions → Secrets, add <span class="mono">VAPID_PUBLIC_KEY</span> and <span class="mono">VAPID_PRIVATE_KEY</span> (ask Claude for your generated pair, or run <span class="mono">npx web-push generate-vapid-keys</span>).</li>
           <li>For the pushes while the app is closed: Supabase → SQL Editor → paste <span class="mono">supabase/cron.sql</span> from the repo → Run. It creates the two jobs (a sweep every 30 minutes, the morning sheet at 8am) pointed at your function.</li>
           <li>Come back here and tap <b>Turn on notifications</b>.</li>
