@@ -1246,7 +1246,7 @@ function buildPush(slot) {
         <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
           <li>Re-paste the latest <span class="mono">voice-agent/index.ts</span> into your Supabase function and deploy.</li>
           <li>In Supabase → Edge Functions → Secrets, add <span class="mono">VAPID_PUBLIC_KEY</span> and <span class="mono">VAPID_PRIVATE_KEY</span> (ask Claude for your generated pair, or run <span class="mono">npx web-push generate-vapid-keys</span>).</li>
-          <li>For the morning push: Supabase → Integrations → Cron → new job, schedule <span class="mono">0 11 * * *</span> (8am Halifax), HTTP request to your function URL with body <span class="mono">{"plays":1}</span>.</li>
+          <li>For the pushes while the app is closed: Supabase → SQL Editor → paste <span class="mono">supabase/cron.sql</span> from the repo → Run. It creates the two jobs (a sweep every 30 minutes, the morning sheet at 8am) pointed at your function.</li>
           <li>Come back here and tap <b>Turn on notifications</b>.</li>
         </ol>
       </details>
