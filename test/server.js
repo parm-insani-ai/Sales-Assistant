@@ -74,9 +74,12 @@ const server = http.createServer((req, res) => {
   // --- records table (PostgREST shape) ---
   // Keyed (user_id, id) exactly like the real primary key — the collection is
   // NOT part of it, which is how config/"me" and prefs/"me" collided for real.
-  // The user comes from the bearer token; the stub maps every token to one user.
+  // The user comes from the bearer token: "t2" is a second account, any other
+  // token is the fixed test user — so a test can sign two accounts into one
+  // phone and check they never see each other's rows.
   if (url.pathname === "/rest/v1/records") {
-    const uid = "00000000-0000-4000-8000-000000000001";
+    const uid = /^Bearer t2$/.test(String(req.headers["authorization"] || "").trim())
+      ? "00000000-0000-4000-8000-000000000002" : "00000000-0000-4000-8000-000000000001";
     const key = (id) => uid + "|" + id;
     const mine = () => [...records.values()].filter((r) => r.user_id === uid);
     if (req.method === "POST") {

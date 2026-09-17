@@ -10,6 +10,7 @@ import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
 import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import { showLogin } from "../login.js";
+import { claimDevice } from "../account.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
 import { viewportReport } from "../viewport.js";
@@ -201,9 +202,20 @@ export function renderSettings(view) {
   buildEmail(el.querySelector("#email-slot"));
   buildBooking(el.querySelector("#booking-slot"));
   const onSyncEvt = (e) => {
+    if (!el.isConnected) { window.removeEventListener("viniva-sync", onSyncEvt); return; }
+    const d = e.detail || {};
+    // Settings that just arrived from the cloud — a new install's first
+    // sync — are shown, not left behind fields drawn from the old ones.
+    if (d.status === "synced" && d.settings) {
+      const y = window.scrollY;
+      window.removeEventListener("viniva-sync", onSyncEvt);
+      view.replaceChildren();
+      renderSettings(view);
+      window.scrollTo(0, y);
+      return;
+    }
     const line = cloudSlot.querySelector(".cloud-status");
     if (!line) return;
-    const d = e.detail || {};
     if (d.status === "syncing") line.textContent = "Syncing…";
     else if (d.status === "synced") line.textContent = `Synced ${timeAgo(d.at)}${d.applied ? ` · ${d.applied} update${d.applied === 1 ? "" : "s"} in` : ""}`;
     else if (d.status === "offline") line.textContent = "Offline — will sync when back online";
@@ -628,12 +640,18 @@ function buildCloud(slot) {
   bindConfig();
 
   slot.querySelector('[data-c="signout"]').addEventListener("click", async () => {
+    // Anything still queued leaves for the cloud first — if the next person
+    // through the door is a different account, this book is about to go.
+    try { await sync.syncNow(); } catch { }
     await backend.signOut();
     sync.disable();
     toast("Signed out");
     // Signed out is the front door. Come back through it and pick up syncing.
-    await showLogin();
+    const user = await showLogin();
+    const switched = claimDevice(user);
     sync.enable(); sync.init(); sync.syncNow();
+    // A different account: nothing on this page is theirs. Start from Home.
+    if (switched) { location.hash = "#/"; return; }
     rerender();
   });
   slot.querySelector("#c-auto").addEventListener("change", (e) =>

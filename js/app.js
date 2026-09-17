@@ -41,6 +41,7 @@ import { assessAll } from "./assess.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
+import { claimDevice } from "./account.js";
 
 // Register the service worker and keep the app auto-updating to new deploys.
 // First, before anything that waits: the sign-in door below can hold the
@@ -57,6 +58,11 @@ await store.ready;
 // runs only for someone who is signed in — a session already on the device,
 // or one just made at the door.
 if (!backend.isSignedIn()) await showLogin();
+
+// The book on this phone belongs to whoever is signed in. A different
+// account than last time starts with an empty one — their own comes down
+// from the cloud on the first sync.
+try { claimDevice(backend.currentUser()); } catch { }
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
@@ -152,12 +158,18 @@ paintUnread();
 interceptSmsLinks();
 
 // Tell the server this device's timezone and quiet hours, so the proactive
-// sweep can notify at sensible times. No-op when nothing has changed.
-try { store.publishPrefs(); } catch { }
-// Mirror the settings to the cloud on launch, so an install that predates this
-// backs itself up the first time it opens rather than waiting for the next
-// settings edit that may never come.
-try { store.publishConfig(); } catch { }
+// sweep can notify at sensible times, and mirror the settings to the cloud,
+// so an install that predates the mirror backs itself up the first time it
+// opens rather than waiting for a settings edit that may never come.
+//
+// Not before this device's first sync for the account, though. A fresh
+// install holds only defaults, and a mirror written now would be newer than
+// the real one in the cloud — so the pull would skip the real one and the
+// push would replace it. The first sync mirrors once the pull is in.
+if (!backend.isSignedIn() || sync.initializedFor() === backend.currentUser()?.id) {
+  try { store.publishPrefs(); } catch { }
+  try { store.publishConfig(); } catch { }
+}
 
 // Track the visible viewport so the tab bar and the reply row follow the
 // keyboard instead of being left behind by it. Has to run before the first

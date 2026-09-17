@@ -8,8 +8,12 @@
 
 import * as store from "./store.js";
 import * as backend from "./backend.js";
+import * as account from "./account.js";
 
 const META_KEY = "viniva:sync"; // { cursor, lastSyncAt, initializedFor }
+
+// The account this device has completed a first sync for, if any.
+export function initializedFor() { return meta().initializedFor || null; }
 
 function meta() {
   try { return JSON.parse(localStorage.getItem(META_KEY) || "{}"); } catch { return {}; }
@@ -78,9 +82,12 @@ async function pullApply() {
   // The settings mirror arrives as an ordinary record; fold it back into the
   // live settings. This is what makes a reinstall recover the dealership name,
   // fees, goals, templates and numbers instead of asking for them all again.
-  if (store.adoptRemoteConfig()) applied++;
+  if (store.adoptRemoteConfig()) { applied++; settingsArrived = true; }
   return applied;
 }
+// Whether a pull in the current sync changed the live settings — the
+// Settings page redraws itself when that happens.
+let settingsArrived = false;
 
 // Make the cloud match the device, rather than trusting that it already does.
 //
@@ -132,9 +139,20 @@ export function syncNow(opts = {}) {
       const user = backend.currentUser();
       let pushed = 0;
       if (meta().initializedFor !== user?.id) {
-        await pushAll();                 // first sync on this device/account: seed the cloud
+        // First sync on this device for this account. The cloud goes first:
+        // a freshly installed phone holds nothing but defaults, and seeding
+        // the cloud from those overwrote the settings mirror — the one record
+        // whose whole point was to survive a reinstall. Pull, adopt, THEN push
+        // whatever this device has that the cloud doesn't.
+        appliedThisSession += await pullApply();
+        await pushAll();                 // seed the cloud with the rest
         setMeta({ initializedFor: user?.id });
         reconciledThisSession = true;    // a full push IS a reconcile
+        // Now that the account's settings are on the device, mirror what
+        // this launch would otherwise have mirrored before the pull.
+        try { store.publishConfig(); store.publishPrefs(); } catch { }
+        try { account.adoptSignInEmail(user); } catch { }
+        await pushOutbox();
       } else {
         await pushOutbox();
         if (opts.reconcile || !reconciledThisSession) {
@@ -147,8 +165,10 @@ export function syncNow(opts = {}) {
       appliedThisSession += applied;
       const at = new Date().toISOString();
       setMeta({ lastSyncAt: at });
-      emit("synced", { at, applied, pushed });
-      return { ok: true, applied, pushed };
+      const settings = settingsArrived;
+      settingsArrived = false;
+      emit("synced", { at, applied, pushed, settings });
+      return { ok: true, applied, pushed, settings };
     } catch (e) {
       emit("error", { error: e?.message || "Sync failed" });
       return { error: e?.message || "Sync failed" };

@@ -1053,3 +1053,16 @@ export function resetAll() {
   Object.keys(state).forEach((k) => bump(k));
   persist();
 }
+
+// A different account is taking over this phone: their book starts empty.
+// The phone's own wiring — which backend it talks to and whether it syncs —
+// describes the device, not the person, and stays.
+export function resetForNewOwner() {
+  const keep = {};
+  DEVICE_ONLY_SETTINGS.forEach((k) => { if (state.settings[k] !== undefined) keep[k] = state.settings[k]; });
+  state = structuredClone(DEFAULT_STATE);
+  state.settings = hydrate({ settings: keep }).settings;
+  dirty.rewriteAll = true;
+  Object.keys(state).forEach((k) => bump(k));
+  persist();
+}
