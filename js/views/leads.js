@@ -427,14 +427,30 @@ export function openContactedSheet(l, onLogged) {
       <div class="field" style="margin-top:14px"><label>When</label><input type="datetime-local" data-f="at" value="${nowLocal()}"></div>
       <div class="field" style="margin-bottom:0"><label>Anything worth remembering (optional)</label><input data-f="notes" placeholder="Left a voicemail · wants to come Saturday · asked about the SV"></div>
       <div class="hint">Tap the way you reached them. It goes on their timeline and counts as their last contact.</div>`;
-    box.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", () => {
-      const via = b.dataset.via;
-      const at = box.querySelector('[data-f="at"]').value;
-      const notes = box.querySelector('[data-f="notes"]').value.trim();
-      const rec = store.logContact(l.id, { via, at: at ? new Date(at).toISOString() : null, notes });
-      close();
-      toast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, "success");
-      if (onLogged) onLogged(rec);
+    // The picker's value is "YYYY-MM-DDTHH:mm" in local time. Read it by its
+    // parts rather than handing it to Date(): some browsers parse that form
+    // as UTC, and an unreadable value must fall back to now, not throw.
+    const localFrom = (v) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(v || ""));
+      if (!m) return null;
+      const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0);
+      return isNaN(d) ? null : d.toISOString();
+    };
+    box.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      try {
+        const via = b.dataset.via;
+        const at = localFrom(box.querySelector('[data-f="at"]').value);
+        const notes = box.querySelector('[data-f="notes"]').value.trim();
+        const rec = store.logContact(l.id, { via, at, notes });
+        close();
+        toast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, "success");
+        if (onLogged) onLogged(rec);
+      } catch (err) {
+        // Never silent: a tap that does nothing is the one thing this sheet
+        // must not do.
+        toast(`Couldn't log it — ${(err && err.message) || "try again"}. If this keeps up, close and reopen the app.`, "danger");
+      }
     }));
     return box;
   });

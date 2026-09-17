@@ -1,11 +1,12 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "viniva-v210";
+const CACHE = "viniva-v211";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./css/styles.css",
   "./js/updater.js",
+  "./js/login.js",
   "./js/agent.js",
   "./js/csv.js",
   "./js/xlsx.js",
@@ -114,8 +115,17 @@ self.addEventListener("message", (e) => {
   if (e.data === "version" && e.ports && e.ports[0]) e.ports[0].postMessage(CACHE);
 });
 
+// Every file of this build, fetched past the browser's HTTP cache. GitHub
+// Pages lets a file be reused for ten minutes, so a plain addAll right after a
+// deploy could pair a new leads.js with a ten-minute-old store.js — the app
+// then calls a function that isn't there and a tap does nothing. cache:
+// "reload" makes the set that goes into this version's cache one build.
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
@@ -126,10 +136,16 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// App code (HTML/JS/CSS) is fetched network-first so updates land on the next
-// reload — a cache-first strategy here would pin stale JavaScript in the PWA.
-// Static assets (icons/images) stay cache-first for instant loads. Both fall
-// back to cache when offline.
+// App code (HTML/JS/CSS) is served from this version's cache: one build, all
+// of it, instantly, online or off. Updates arrive as a whole — the deploy
+// stamps sw.js with a new name, the new worker fills a new cache from the
+// network at install, and the page reloads once it takes over (updater.js).
+// Code was fetched network-first before, on the theory that cache-first
+// pins stale JavaScript; with the cache named per build that is no longer
+// true, and network-first had a worse failure: two modules from two builds
+// running together in one page. Anything not in the list (a file added
+// without listing it) still goes network-first. Static assets (icons/images)
+// are cache-first for instant loads.
 self.addEventListener("fetch", (e) => {
   const { request } = e;
   if (request.method !== "GET") return;
@@ -144,26 +160,27 @@ self.addEventListener("fetch", (e) => {
 
   if (isCode) {
     e.respondWith(
-      fetch(request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
-          return res;
-        })
-        .catch(() =>
-          caches.match(request).then((c) => {
-            if (c) return c;
+      caches.open(CACHE).then((c) => c.match(request, { ignoreSearch: true })).then((hit) => {
+        if (hit) return hit;
+        return fetch(request)
+          .then((res) => {
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+            }
+            return res;
+          })
+          .catch(() => {
             // Falling back to the app shell is right for a navigation — that's
             // SPA routing. It is very wrong for a script or stylesheet: the
             // browser gets HTML where it expected JavaScript, the module throws
             // a syntax error, and the whole app fails to start with no clue
-            // why. That bites hardest right after a release adds a module an
-            // older cache has never seen. Fail the request honestly instead —
-            // the browser reports a missing script, and a reload recovers.
+            // why. Fail the request honestly instead — the browser reports a
+            // missing script, and a reload recovers.
             if (request.mode === "navigate") return caches.match("./index.html");
             return new Response("", { status: 504, statusText: "offline and not cached" });
-          })
-        )
+          });
+      })
     );
     return;
   }

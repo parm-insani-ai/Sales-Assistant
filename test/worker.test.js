@@ -54,6 +54,26 @@ const regState = (p) => p.evaluate(async () => {
   console.log("after signing in:", JSON.stringify({ app, ...after }));
   if (!app) fail("the app didn't open after signing in");
   if (!after.registered || !after.ready) fail("no active worker after signing in");
+
+  // Reopened with the worker in control: the app comes up from the worker's
+  // own copy of this build, and says which build that is.
+  const expect = /const CACHE = "([^"]+)"/.exec(require("fs").readFileSync(__dirname + "/../sw.js", "utf8"))[1];
+  await p.reload();
+  await p.waitForTimeout(900);
+  const served = await p.evaluate(async () => {
+    const { runningVersion } = await import("./js/updater.js");
+    const keys = await caches.keys();
+    const c = await caches.open(keys[0] || "none");
+    const cached = (await c.keys()).map((r) => new URL(r.url).pathname);
+    return { controlled: !!navigator.serviceWorker.controller, app: !!document.querySelector("#view .hero"),
+      running: await runningVersion(), caches: keys, hasLogin: cached.some((u) => /\/js\/login\.js$/.test(u)), n: cached.length };
+  });
+  console.log("reopened under the worker:", JSON.stringify(served));
+  if (!served.controlled) fail("the worker isn't controlling the page after a reload");
+  if (!served.app) fail("the app didn't draw when served by the worker");
+  if (served.running !== expect) fail(`the worker reports build ${served.running}, sw.js says ${expect}`);
+  if (served.caches.length !== 1 || served.caches[0] !== expect) fail(`caches on disk: ${served.caches.join(", ")} — wanted only ${expect}`);
+  if (!served.hasLogin) fail("the sign-in page's script isn't in the worker's copy of the build");
   if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
   await ctx.close();
 }
