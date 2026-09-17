@@ -19,7 +19,7 @@ import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail,
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
-  relativeDay, daysFromToday, formatDate, todayISO,
+  relativeDay, daysFromToday, formatDate, formatDateTime, todayISO,
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
@@ -385,11 +385,58 @@ function leadCard(l, onOpen) {
   `;
   el.addEventListener("click", () => { if (onOpen) onOpen(); navigate(`/leads/${l.id}`); });
   return swipeable(el, {
+    actions: [{
+      label: "Contacted", icon: "checkline", kind: "ok",
+      onTap: (closeRow, wrap) => {
+        closeRow();
+        // Redraw this one card once it's logged: the "no contact" chip and the
+        // ranking behind it just changed, and the list shouldn't say otherwise.
+        openContactedSheet(l, () => {
+          const fresh = store.get("leads", l.id);
+          if (fresh && wrap.isConnected) wrap.replaceWith(leadCard(fresh, onOpen));
+        });
+      },
+    }],
     onDelete: (restoreRow) => {
       const snapshot = { ...l };
       store.remove("leads", l.id);
       undoToast(`Deleted ${l.name}`, () => { store.restore("leads", snapshot); restoreRow(); });
     },
+  });
+}
+
+// "I reached them." Which way, and when — the when defaults to now and can be
+// moved back for a call made earlier from the desk phone.
+const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
+export function openContactedSheet(l, onLogged) {
+  const first = String(l.name || "").split(" ")[0] || "them";
+  const nowLocal = () => {
+    const d = new Date(); d.setSeconds(0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  openModal(`How did you reach ${esc(first)}?`, (close) => {
+    const box = document.createElement("div");
+    box.className = "contacted-sheet";
+    box.innerHTML = `
+      <div class="btn-row contacted-ways">
+        <button class="btn btn-ghost" data-via="call">${icon("phone")}<span>Call</span></button>
+        <button class="btn btn-ghost" data-via="text">${icon("message")}<span>Text</span></button>
+        <button class="btn btn-ghost" data-via="email">${icon("mail")}<span>Email</span></button>
+      </div>
+      <div class="field" style="margin-top:14px"><label>When</label><input type="datetime-local" data-f="at" value="${nowLocal()}"></div>
+      <div class="field" style="margin-bottom:0"><label>Anything worth remembering (optional)</label><input data-f="notes" placeholder="Left a voicemail · wants to come Saturday · asked about the SV"></div>
+      <div class="hint">Tap the way you reached them. It goes on their timeline and counts as their last contact.</div>`;
+    box.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", () => {
+      const via = b.dataset.via;
+      const at = box.querySelector('[data-f="at"]').value;
+      const notes = box.querySelector('[data-f="notes"]').value.trim();
+      const rec = store.logContact(l.id, { via, at: at ? new Date(at).toISOString() : null, notes });
+      close();
+      toast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, "success");
+      if (onLogged) onLogged(rec);
+    }));
+    return box;
   });
 }
 
@@ -566,6 +613,7 @@ function renderLeadDetail(view, id) {
       <div class="kv" data-edit="email" style="cursor:pointer"><span class="k">Email</span><span class="v">${l.email ? esc(l.email) : "Tap to add"}</span></div>
       <div class="kv" data-edit="source" style="cursor:pointer"><span class="k">Source</span><span class="v">${esc(l.source || "—")}</span></div>
       <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
+      <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
       ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
       ${(() => {
@@ -647,6 +695,8 @@ function renderLeadDetail(view, id) {
   // Tap-to-edit: any detail row opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
+  el.querySelector('[data-act="contacted"]').addEventListener("click", () =>
+    openContactedSheet(l, () => window.dispatchEvent(new HashChangeEvent("hashchange"))));
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));

@@ -965,6 +965,24 @@ export function callsFor(leadId) {
   return state.calls.filter((c) => c.leadId === leadId);
 }
 
+// A contact you made outside the app — a call from your desk phone, a text
+// from your own number, an email from Outlook — logged by hand. It lives in
+// the same collection as tapped-to-call records so the customer's timeline
+// reads as one conversation, with `via` saying which channel it was.
+export const CONTACT_VIAS = ["call", "text", "email"];
+export function logContact(leadId, { via = "call", at = null, notes = "" } = {}) {
+  if (!CONTACT_VIAS.includes(via)) via = "call";
+  const when = at && !isNaN(new Date(at)) ? new Date(at).toISOString() : new Date().toISOString();
+  const rec = create("calls", { leadId, dir: "out", via, at: when, outcome: "reached", notes, logged: true });
+  const lead = get("leads", leadId);
+  // The newest contact is the last one, whichever order they were logged in.
+  if (lead && (!lead.lastContacted || when >= lead.lastContacted)) {
+    update("leads", leadId, { lastContacted: when, lastContactVia: via });
+  }
+  logActivity("touch");
+  return rec;
+}
+
 // --- Links ---
 // Every short link the salesperson has sent that belongs to this customer.
 // Attribution comes from meta.leadId, stamped when the link is minted.

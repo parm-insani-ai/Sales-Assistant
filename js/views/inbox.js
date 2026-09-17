@@ -24,6 +24,14 @@ export function renderInbox(view, { param } = {}) {
   navigate("/comms");
 }
 
+// A tapped call reads "You called"; a contact logged by hand says how.
+function contactLine(c) {
+  if (c.dir === "in") return "They called you";
+  if (c.via === "text") return "You texted them (logged)";
+  if (c.via === "email") return "You emailed them (logged)";
+  return c.logged ? "You called them (logged)" : "You called";
+}
+
 function clock(iso) {
   const t = new Date(iso);
   return isNaN(t) ? "" : t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -140,8 +148,9 @@ function renderThread(view, leadId) {
       if (item.type === "call") {
         const c = document.createElement("div");
         c.className = "chat-event";
-        c.innerHTML = `${item.rec.dir === "in" ? "They called you" : "You called"}${
-          item.rec.outcome ? ` · ${esc(item.rec.outcome)}` : ""} · ${esc(clock(item.at))}`;
+        c.innerHTML = `${contactLine(item.rec)}${
+          item.rec.outcome && !item.rec.logged ? ` · ${esc(item.rec.outcome)}` : ""}${
+          item.rec.notes ? ` · ${esc(item.rec.notes)}` : ""} · ${esc(clock(item.at))}`;
         wrap.appendChild(c);
         return;
       }

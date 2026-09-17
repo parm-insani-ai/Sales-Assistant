@@ -74,7 +74,10 @@ function preview(t) {
     const body = String(last.rec.body || "").replace(/\s+/g, " ").slice(0, 68);
     return `${last.rec.dir === "out" ? "You: " : ""}${body}`;
   }
-  if (last.type === "call") return `${last.rec.dir === "in" ? "Called you" : "You called"}${last.rec.outcome ? ` · ${last.rec.outcome}` : ""}`;
+  if (last.type === "call") {
+    const how = last.rec.dir === "in" ? "Called you" : last.rec.via === "text" ? "You texted" : last.rec.via === "email" ? "You emailed" : "You called";
+    return `${how}${last.rec.notes ? ` · ${last.rec.notes}` : last.rec.outcome && !last.rec.logged ? ` · ${last.rec.outcome}` : ""}`;
+  }
   if (last.type === "open") {
     const n = Number(last.rec.opens) || 1;
     const what = /book/i.test(last.rec.kind || "") ? "your booking page" : "the vehicle page";
