@@ -14,6 +14,12 @@ import { claimDevice } from "../account.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
 import { viewportReport } from "../viewport.js";
+
+// What the page-level catcher in index.html wrote down.
+function recentErrors() {
+  try { return JSON.parse(localStorage.getItem("viniva:errors") || "[]"); } catch { return []; }
+}
+function clearErrors() { try { localStorage.removeItem("viniva:errors"); } catch { } }
 import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured } from "../email.js";
 import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
@@ -472,11 +478,27 @@ export function renderSettings(view) {
         <div><b>in the cloud ${esc(String(cloud))}</b> · queued for push ${store.getOutbox().length}</div>
         <div>${counts}</div>
         <div>${i.migratedFrom ? "migrated from " + esc(i.migratedFrom) + " this launch" : "no migration this launch"} · old blob ${i.blobPresent ? "still present" : "gone"}</div>
-        ${i.lastError ? `<div style="color:#FF9E9E">last write error: ${esc(i.lastError)}</div>` : ""}`;
+        ${i.lastError ? `<div style="color:#FF9E9E">last write error: ${esc(i.lastError)}</div>` : ""}
+        ${(() => {
+          const errs = recentErrors();
+          if (!errs.length) return `<div style="color:#7CFFC4">no errors recorded on this device</div>`;
+          return `<div style="margin-top:6px"><b>recent errors (${errs.length})</b></div>` + errs.slice(-6).reverse().map((e) =>
+            `<div style="color:#FF9E9E">${esc(e.at.slice(5, 16).replace("T", " "))} ${esc(e.kind)} ${esc(e.hash || "")}: ${esc(e.msg)}${e.src ? ` <span style="opacity:.7">(${esc(e.src.split("/").slice(-1)[0])})</span>` : ""}</div>`).join("");
+        })()}
+        <div style="margin-top:8px"><button type="button" class="btn btn-sm" data-act="copy-report">Copy this report</button> · <button type="button" class="btn btn-sm btn-ghost" data-act="clear-errors">Clear errors</button></div>`;
+      panel.querySelector('[data-act="copy-report"]').addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const text = [`viniva report · build ${String(running || "?").replace(/^viniva-/, "")}`, navigator.userAgent,
+          `standalone ${window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true} · controlled ${!!navigator.serviceWorker?.controller}`,
+          panel.innerText].join("\n");
+        try { await navigator.clipboard.writeText(text); toast("Report copied — paste it into the chat", "success"); }
+        catch { toast("Couldn't copy — take a screenshot instead", "danger"); }
+      });
+      panel.querySelector('[data-act="clear-errors"]').addEventListener("click", (ev) => { ev.stopPropagation(); clearErrors(); paint(); });
     };
     paint();
     const tick = setInterval(() => { if (!document.body.contains(panel)) clearInterval(tick); else paint(); }, 2000);
-    panel.addEventListener("click", () => { panel.remove(); clearInterval(tick); });
+    panel.addEventListener("click", (ev) => { if (ev.target.closest("button")) return; panel.remove(); clearInterval(tick); });
   });
   // Screen check. When the layout is wrong on a phone that can't be attached to
   // a debugger, these are the numbers that decide it — whether the keyboard was

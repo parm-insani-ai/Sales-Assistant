@@ -59,7 +59,8 @@ await p.waitForTimeout(250);
 const sheet = await p.evaluate(() => {
   const m = document.querySelector(".modal");
   return m ? { title: m.querySelector("h2").textContent, ways: [...m.querySelectorAll("[data-via]")].map((b) => b.dataset.via),
-    when: m.querySelector('[data-f="at"]')?.value || "", notes: !!m.querySelector('[data-f="notes"]') } : null;
+    when: m.querySelector('[data-f="at"]')?.value || "", whenHidden: m.querySelector("[data-when]")?.hidden, notes: !!m.querySelector('[data-f="notes"]'),
+    focused: /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "") ? document.activeElement.tagName + ":" + (document.activeElement.type || "") : "nothing" } : null;
 });
 console.log("the sheet:", JSON.stringify(sheet));
 if (!sheet) fail("tapping Contacted opened nothing");
@@ -67,7 +68,18 @@ else {
   if (!/Ann/.test(sheet.title)) fail("the sheet doesn't say who");
   if (sheet.ways.join() !== "call,text,email") fail(`the ways are ${sheet.ways.join()}, not call, text, email`);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(sheet.when)) fail("the time isn't filled in with now");
+  if (!sheet.whenHidden) fail("the time picker is showing before anyone asked for it");
+  // On a phone, a focused date field opens the system picker over the sheet
+  // and the three buttons can't be tapped. Nothing may take focus here.
+  if (sheet.focused !== "nothing") fail(`something took focus when the sheet opened: ${sheet.focused}`);
 }
+// The time is there when asked for.
+await p.click('.modal [data-act="change-when"]');
+await p.waitForTimeout(100);
+const whenShown = await p.evaluate(() => ({ shown: !document.querySelector(".modal [data-when]").hidden, focused: document.activeElement?.type || "" }));
+console.log("after 'Change the time':", JSON.stringify(whenShown));
+if (!whenShown.shown) fail("'Change the time' didn't reveal the picker");
+if (whenShown.focused !== "datetime-local") fail("the picker wasn't focused once asked for");
 
 // --- "Text", with a note.
 await p.fill('.modal [data-f="notes"]', "Wants to come Saturday");

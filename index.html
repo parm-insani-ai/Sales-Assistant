@@ -28,6 +28,29 @@
   <link rel="icon" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="stylesheet" href="./css/styles.css" />
   <title>viniva</title>
+  <!-- Keep the last few errors. A phone can't be attached to a debugger, and
+       "nothing happens when I tap" has to be answerable from Settings →
+       Storage check. Runs before any module so a script that fails to load
+       is caught too. -->
+  <script>
+    (function () {
+      var K = "viniva:errors";
+      function keep(kind, msg, src) {
+        try {
+          var l = JSON.parse(localStorage.getItem(K) || "[]");
+          l.push({ at: new Date().toISOString(), kind: kind, msg: String(msg || "").slice(0, 300), src: String(src || "").slice(0, 200), hash: location.hash });
+          localStorage.setItem(K, JSON.stringify(l.slice(-20)));
+        } catch (e) {}
+      }
+      window.addEventListener("error", function (e) {
+        if (e && e.target && e.target !== window && (e.target.src || e.target.href)) { keep("load", "failed to load", e.target.src || e.target.href); return; }
+        keep("error", e.message || (e.error && e.error.message), (e.filename || "") + ":" + (e.lineno || ""));
+      }, true);
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e && e.reason; keep("promise", (r && r.message) || r, (r && r.stack) || "");
+      });
+    })();
+  </script>
 </head>
 <body>
   <div id="app">

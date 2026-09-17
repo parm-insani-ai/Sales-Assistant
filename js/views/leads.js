@@ -420,13 +420,23 @@ export function openContactedSheet(l, onLogged) {
     box.className = "contacted-sheet";
     box.innerHTML = `
       <div class="btn-row contacted-ways">
-        <button class="btn btn-ghost" data-via="call">${icon("phone")}<span>Call</span></button>
-        <button class="btn btn-ghost" data-via="text">${icon("message")}<span>Text</span></button>
-        <button class="btn btn-ghost" data-via="email">${icon("mail")}<span>Email</span></button>
+        <button type="button" class="btn btn-ghost" data-via="call">${icon("phone")}<span>Call</span></button>
+        <button type="button" class="btn btn-ghost" data-via="text">${icon("message")}<span>Text</span></button>
+        <button type="button" class="btn btn-ghost" data-via="email">${icon("mail")}<span>Email</span></button>
       </div>
-      <div class="field" style="margin-top:14px"><label>When</label><input type="datetime-local" data-f="at" value="${nowLocal()}"></div>
-      <div class="field" style="margin-bottom:0"><label>Anything worth remembering (optional)</label><input data-f="notes" placeholder="Left a voicemail · wants to come Saturday · asked about the SV"></div>
+      <div class="small muted contacted-when" style="margin-top:12px">Logged as <b>just now</b> · <button type="button" class="btn btn-ghost btn-sm" data-act="change-when">Change the time</button></div>
+      <div class="field" data-when hidden style="margin-top:10px"><label>When</label><input type="datetime-local" data-f="at" value="${nowLocal()}"></div>
+      <div class="field" style="margin-top:12px;margin-bottom:0"><label>Anything worth remembering (optional)</label><input data-f="notes" placeholder="Left a voicemail · wants to come Saturday · asked about the SV"></div>
       <div class="hint">Tap the way you reached them. It goes on their timeline and counts as their last contact.</div>`;
+    // The time stays out of the way until asked for: a date picker that opens
+    // on its own the moment the sheet appears is a sheet whose buttons can't
+    // be tapped.
+    box.querySelector('[data-act="change-when"]').addEventListener("click", () => {
+      box.querySelector(".contacted-when").hidden = true;
+      const f = box.querySelector("[data-when]");
+      f.hidden = false;
+      f.querySelector("input").focus();
+    });
     // The picker's value is "YYYY-MM-DDTHH:mm" in local time. Read it by its
     // parts rather than handing it to Date(): some browsers parse that form
     // as UTC, and an unreadable value must fall back to now, not throw.
@@ -440,7 +450,8 @@ export function openContactedSheet(l, onLogged) {
       ev.preventDefault();
       try {
         const via = b.dataset.via;
-        const at = localFrom(box.querySelector('[data-f="at"]').value);
+        const whenField = box.querySelector("[data-when]");
+        const at = whenField.hidden ? null : localFrom(whenField.querySelector("input").value);
         const notes = box.querySelector('[data-f="notes"]').value.trim();
         const rec = store.logContact(l.id, { via, at, notes });
         close();
@@ -453,7 +464,7 @@ export function openContactedSheet(l, onLogged) {
       }
     }));
     return box;
-  });
+  }, { focus: false });
 }
 
 // --- Add / edit form ---

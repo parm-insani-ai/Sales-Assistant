@@ -15,7 +15,7 @@ export function closeAllModals() {
   openSheets.clear();
 }
 
-export function openModal(title, render, { onClose } = {}) {
+export function openModal(title, render, { onClose, focus = true } = {}) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
 
@@ -55,7 +55,7 @@ export function openModal(title, render, { onClose } = {}) {
   modalRoot().appendChild(backdrop);
 
   // Focus first input for quick entry.
-  const first = modal.querySelector("input, select, textarea");
+  const first = focus ? modal.querySelector("input, select, textarea") : null;
   if (first) setTimeout(() => first.focus(), 60);
 
   return close;
