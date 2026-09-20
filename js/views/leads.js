@@ -370,12 +370,15 @@ function leadCard(l, onOpen) {
   const a = assessment(l.id);
   const tier = a && a.tier ? `<span class="badge ${a.tier.badge}" style="margin-right:6px">${esc(a.tier.label)}</span>` : "";
   const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
+  // The last contact, on the card — so logging one is visibly registered.
+  const contact = l.lastContacted
+    ? `<div class="row-contact">${icon("checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")} ${esc(formatDateTime(l.lastContacted))}</div>` : "";
   el.innerHTML = `
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
         <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${l.phone ? " · " + esc(phoneDisplay(l.phone)) : ""}</div>
-        ${reasons}
+        ${reasons}${contact}
       </div>
       <div class="row-meta">
         ${tier}<span class="badge ${st.badge}">${esc(st.label)}</span>
@@ -446,10 +449,11 @@ export function openContactedSheet(l, onLogged) {
       const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0);
       return isNaN(d) ? null : d.toISOString();
     };
-    box.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", (ev) => {
-      ev.preventDefault();
+    let done = false;
+    const log = (via) => {
+      if (done) return;
+      done = true;
       try {
-        const via = b.dataset.via;
         const whenField = box.querySelector("[data-when]");
         const at = whenField.hidden ? null : localFrom(whenField.querySelector("input").value);
         const notes = box.querySelector('[data-f="notes"]').value.trim();
@@ -459,10 +463,22 @@ export function openContactedSheet(l, onLogged) {
         if (onLogged) onLogged(rec);
       } catch (err) {
         // Never silent: a tap that does nothing is the one thing this sheet
-        // must not do.
+        // must not do. And the sheet stays usable for another try.
+        done = false;
         toast(`Couldn't log it — ${(err && err.message) || "try again"}. If this keeps up, close and reopen the app.`, "danger");
       }
-    }));
+    };
+    // A tap is taken from whichever arrives first: the pointer lifting on the
+    // button, or the click the browser makes of it. One phone browser was
+    // showing the sheet and swallowing the click; the lift still comes through.
+    box.querySelectorAll("[data-via]").forEach((b) => {
+      let sx = 0, sy = 0;
+      b.addEventListener("pointerdown", (ev) => { sx = ev.clientX; sy = ev.clientY; });
+      b.addEventListener("pointerup", (ev) => {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 12) log(b.dataset.via);
+      });
+      b.addEventListener("click", (ev) => { ev.preventDefault(); log(b.dataset.via); });
+    });
     return box;
   }, { focus: false });
 }

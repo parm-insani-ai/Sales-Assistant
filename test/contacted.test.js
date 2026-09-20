@@ -105,6 +105,7 @@ if (logged.calls.length !== 1 || logged.calls[0].via !== "text" || logged.calls[
 if (!logged.timeline.includes("call")) fail("the contact isn't on the timeline");
 if (!/Texted Ann Example/.test(logged.toast)) fail(`the toast says ${JSON.stringify(logged.toast)}`);
 if (/No contact/.test(logged.cardChip)) fail("the card still says no contact after logging one");
+if (!/Texted/.test(logged.cardChip)) fail("the card doesn't show the contact that was just logged");
 
 // --- Their page shows it, and the row logs another.
 await p.evaluate(() => { location.hash = "#/leads/lead_ann"; });
