@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl, invKmFromSpecs, invSlim, invPlatformSpecsUrl };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -145,6 +145,15 @@ if (lib.invServicesOrigin(stubHtml) !== "https://oserv3.example.com") fail("the 
 if (lib.invServicesOrigin("<html></html>") !== "") fail("a page without a stub invented a platform");
 const pu = lib.invPlatformVehicleUrl("https://oserv3.example.com", "2HKRS6H98RH210868", "https://x.com/inventory/a/");
 if (!/^https:\/\/oserv3\.example\.com\/api\/vehicle-inventory-details-screen-widget\/\?load-vehicle-request\.query\.vin=2HKRS6H98RH210868&do-load-vehicle-request=1&app\.referrer=https%3A%2F%2Fx\.com/.test(pu)) fail("the platform URL is wrong: " + pu);
+
+// --- 5g. Kilometres from the specs widget, whatever shape it answers in.
+if (lib.invKmFromSpecs({ specs: [{ label: "Odometer", value: "24,350 km" }] }) !== 24350) fail("km from a labelled spec");
+if (lib.invKmFromSpecs({ vehicle: { odometerKm: 41200 } }) !== 41200) fail("km from a named number");
+if (lib.invKmFromSpecs({ html: "<table><tr><td>Stock #</td><td>NIP1879</td></tr><tr><td>Kilometres</td><td>24,350 km</td></tr></table>" }) !== 24350) fail("km from html");
+if (lib.invKmFromSpecs({ html: "<p>No specs</p>" }) !== null) fail("no km invented");
+const slim = lib.invSlim({ a: "x".repeat(400), b: { c: [1, 2, 3, 4, 5, 6, 7, 8] } });
+if (slim.a.length !== 161 || slim.b.c.length !== 6) fail("slim didn't cut: " + JSON.stringify(slim));
+if (!/vehicle-summary-specs-widget\/\?load-vehicle-summary-specs-request\.vin=ABC&do-load-vehicle-summary-specs-request=1/.test(lib.invPlatformSpecsUrl("https://o.example.com", "ABC", "https://x.com/", "vin"))) fail("specs url");
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");

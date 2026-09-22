@@ -496,7 +496,7 @@ function invFromPlatformVehicle(v, url) {
     make: name(g("vehicleModel.vehicleMake")) || name(info.make) || "", model: name(v.vehicleModel) || name(info.model) || "",
     trim: String(v.trimDescription || name(info.trim) || name(g("vinDetails.vehicleTrim")) || ""),
     price: invNum(v.price) || invNum(v.basePrice) || null, wasPrice: invNum(v.previousPrice) || null, mileage,
-    color: name(info.exteriorColor) || name(g("vinDetails.exteriorVehicleColor")) || "", interiorColor: name(info.interiorColor) || "",
+    color: name(g("vinDetails.exteriorVehicleColor")) || name(info.exteriorColor) || "", interiorColor: name(info.interiorColor) || "",
     bodyStyle: name(v.vehicleBodyStyleGroup) || name(info.bodyStyle) || "",
     condition: /new/i.test(condType) ? "New" : condType ? "Used" : "",
     certified: !!(Number(category.certified) || Number(category.manufacturerCertified)), demo: !!Number(v.demo),
@@ -507,8 +507,29 @@ function invFromPlatformVehicle(v, url) {
   if (!rec.vin && !rec.stock) return null;
   return rec;
 }
+// Kilometres from the platform's summary-specs answer, whatever shape it
+// takes: a named number anywhere in it, or "24,350 km" in its HTML.
+function invKmFromSpecs(resp) {
+  if (!resp) return null;
+  if (typeof resp === "object") { const n = invDeepFind(resp, /odometer|mileage|kilomet/i, "number"); if (n) return n; }
+  const text = invText(typeof resp === "string" ? resp : JSON.stringify(resp).replace(/\\"/g, '"').replace(/\\\//g, "/"));
+  const m = /(?:odometer|mileage|kilomet\w*)[^0-9]{0,40}?(\d[\d,]{0,8})/i.exec(text) || /(\d[\d,]{1,8})\s*km\b/i.exec(text);
+  return m ? invNum(m[1]) : null;
+}
+// A raw answer with its long strings cut, for the report.
+function invSlim(x, depth) {
+  depth = depth || 0;
+  if (typeof x === "string") return x.length > 160 ? x.slice(0, 160) + "…" : x;
+  if (!x || typeof x !== "object" || depth > 5) return x;
+  if (Array.isArray(x)) return x.slice(0, 6).map((v) => invSlim(v, depth + 1));
+  const out = {}; Object.keys(x).forEach((k) => { out[k] = invSlim(x[k], depth + 1); }); return out;
+}
 // The platform's origin, from the page's own data stub.
 function invServicesOrigin(html) { const m = /"servicesWebsite":\{"origin":"([^"]+)"/.exec(String(html || "").replace(/\\\//g, "/")); return m ? m[1] : ""; }
+const INV_SPECS_VARIANTS = ["vin", "vehicle.vin", "query.vin", "vehicle-vin", "query.vehicle.vin"];
+function invPlatformSpecsUrl(services, vin, referrer, variant) {
+  return `${services.replace(/\/$/, "")}/api/vehicle-summary-specs-widget/?load-vehicle-summary-specs-request.${variant}=${encodeURIComponent(vin)}&do-load-vehicle-summary-specs-request=1&app.referrer=${encodeURIComponent(referrer || "")}`;
+}
 function invPlatformVehicleUrl(services, vin, referrer) {
   return `${services.replace(/\/$/, "")}/api/vehicle-inventory-details-screen-widget/?load-vehicle-request.query.vin=${encodeURIComponent(vin)}&do-load-vehicle-request=1&app.referrer=${encodeURIComponent(referrer || "")}`;
 }
@@ -722,25 +743,59 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
   if (services && all.size) {
     const targets = [...all.values()].filter((v) => v.vin);
     const plat: any = { origin: services, asked: targets.length, answered: 0, priced: 0, withKm: 0, failed: 0 };
-    let sampleRaw: any = null;
+    let sampleRaw: any = null, unpricedRaw: any = null;
+    const platHeaders = (ref: string) => ({ "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": ref, "Origin": origin });
     await fetchMany(targets, 6, async (v) => {
       if (Date.now() - started > BUDGET_MS) { plat.failed++; report.complete = false; return; }
       try {
-        const r = await fetch(invPlatformVehicleUrl(services, v.vin, v.url || url), { headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": v.url || url, "Origin": origin } });
+        const r = await fetch(invPlatformVehicleUrl(services, v.vin, v.url || url), { headers: platHeaders(v.url || url) });
         if (!r.ok) { plat.failed++; return; }
         const j = await r.json();
         const raw = j && j.loadVehicleResponse && j.loadVehicleResponse.vehicle;
         const rec = invFromPlatformVehicle(raw, v.url);
         if (!rec) { plat.failed++; return; }
         if (!sampleRaw) sampleRaw = raw;
-        plat.answered++; if (rec.price) plat.priced++; if (rec.mileage) plat.withKm++;
+        if (!rec.price && !unpricedRaw) unpricedRaw = raw;
+        plat.answered++; if (rec.price) plat.priced++;
         Object.keys(rec).forEach((k) => { if (rec[k] != null && rec[k] !== "" && rec[k] !== false) v[k] = rec[k]; });
         v.via = "platform";
       } catch (_) { plat.failed++; }
     });
+    // The kilometres live in the summary-specs widget. Its request shape is
+    // found on the first vehicle and then used for the rest.
+    const specsTargets = targets.filter((v) => v.via === "platform" && !v.mileage);
+    if (specsTargets.length && Date.now() - started < BUDGET_MS) {
+      const probeV = specsTargets[0];
+      let variant = "", firstSpecs: any = null;
+      for (const cand of INV_SPECS_VARIANTS) {
+        try {
+          const r = await fetch(invPlatformSpecsUrl(services, probeV.vin, probeV.url || url, cand), { headers: platHeaders(probeV.url || url) });
+          const body = await r.text();
+          let j: any = null; try { j = JSON.parse(body); } catch (_) { /* not JSON */ }
+          const resp = j && (j.loadSummarySpecsResponse || j.loadVehicleSummarySpecsResponse || j.loadResponse);
+          plat.specsTries = plat.specsTries || {}; plat.specsTries[cand] = { status: r.status, bytes: body.length, keys: j && typeof j === "object" ? Object.keys(j).slice(0, 8) : [] };
+          if (resp && JSON.stringify(resp).length > 60) { variant = cand; firstSpecs = resp; break; }
+        } catch (_) { /* next */ }
+      }
+      plat.specsVariant = variant || null;
+      if (probe && firstSpecs) plat.specsSample = JSON.stringify(invSlim(firstSpecs)).slice(0, 1800);
+      if (variant) {
+        await fetchMany(specsTargets, 6, async (v) => {
+          if (Date.now() - started > BUDGET_MS) { report.complete = false; return; }
+          try {
+            const r = await fetch(invPlatformSpecsUrl(services, v.vin, v.url || url, variant), { headers: platHeaders(v.url || url) });
+            if (!r.ok) return;
+            const j = await r.json();
+            const km = invKmFromSpecs(j && (j.loadSummarySpecsResponse || j.loadVehicleSummarySpecsResponse || j.loadResponse));
+            if (km) { v.mileage = km; plat.withKm++; }
+          } catch (_) { /* leave the kilometres blank */ }
+        });
+      }
+    }
     if (!report.complete && !report.warnings.includes("stopped at the time budget — the rest come next run")) report.warnings.push("stopped at the time budget — the rest come next run");
     report.platform = plat;
-    if (probe && sampleRaw) report.platformSample = JSON.stringify(sampleRaw).slice(0, 2500);
+    if (probe && sampleRaw) report.platformSample = JSON.stringify(invSlim(sampleRaw)).slice(0, 2500);
+    if (probe && unpricedRaw) report.platformUnpricedSample = JSON.stringify(invSlim(unpricedRaw)).slice(0, 2500);
   }
   report.found = all.size;
   report.via = {} as Record<string, number>;
