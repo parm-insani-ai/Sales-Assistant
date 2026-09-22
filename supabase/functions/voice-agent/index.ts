@@ -256,9 +256,13 @@ function invSplitName(name) {
   const rest = m[3].trim().split(/\s+/);
   return { year: Number(m[1]), make: m[2], model: rest[0], trim: rest.slice(1).join(" ") };
 }
+function invNorm(k) { return String(k || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 function invFirst(obj, keys) {
   if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) { const kk = Object.keys(obj).find((x) => x.toLowerCase() === k.toLowerCase()); if (kk && obj[kk] != null && obj[kk] !== "") return obj[kk]; }
+  const names = Object.keys(obj);
+  // Exact first, then a key that ends with the name ("vehicle_year", "vehicleMake", "Stock Number").
+  for (const k of keys) { const kk = names.find((x) => invNorm(x) === invNorm(k)); if (kk && obj[kk] != null && obj[kk] !== "" && typeof obj[kk] !== "object") return obj[kk]; }
+  for (const k of keys) { const kk = names.find((x) => invNorm(x).endsWith(invNorm(k)) && invNorm(x) !== invNorm(k)); if (kk && obj[kk] != null && obj[kk] !== "" && typeof obj[kk] !== "object") return obj[kk]; }
   return null;
 }
 function invFromJsonLd(html, out) {
@@ -310,9 +314,17 @@ function invFromScripts(html, out) {
       for (let k = start; k < js.length && k < start + 40000; k++) { const c = js[k]; if (c === "{") depth++; else if (c === "}") { depth--; if (depth === 0) { end = k; break; } } }
       if (end < 0) continue;
       const raw = js.slice(start, end + 1);
-      let obj = null;
-      try { obj = JSON.parse(raw); } catch (e) { try { obj = JSON.parse(raw.replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":').replace(/'/g, '"')); } catch (e2) { obj = null; } }
+      const parse = (txt) => { try { return JSON.parse(txt); } catch (e) { try { return JSON.parse(txt.replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":').replace(/'/g, '"')); } catch (e2) { return null; } } };
+      let obj = parse(raw);
       if (!obj) continue;
+      // A VIN on its own (an analytics push, say): the object around it may
+      // hold the rest. Walk out one level and read both.
+      if (!invFirst(obj, ["make", "model", "year", "price"])) {
+        let d2 = 0, s2 = -1;
+        for (let k = start - 1; k >= 0 && k > start - 20000; k--) { const c = js[k]; if (c === "}") d2++; else if (c === "{") { if (d2 === 0) { s2 = k; break; } d2--; } }
+        if (s2 >= 0) { d2 = 0; let e2 = -1; for (let k = s2; k < js.length && k < s2 + 60000; k++) { const c = js[k]; if (c === "{") d2++; else if (c === "}") { d2--; if (d2 === 0) { e2 = k; break; } } }
+          if (e2 > 0) { const outer = parse(js.slice(s2, e2 + 1)); if (outer) { const flat = {}; const walk = (o, depth) => { if (!o || typeof o !== "object" || depth > 3) return; Object.keys(o).forEach((k) => { if (o[k] && typeof o[k] === "object" && !Array.isArray(o[k])) walk(o[k], depth + 1); else if (flat[k] == null) flat[k] = o[k]; }); }; walk(outer, 0); obj = Object.assign(flat, obj); } } }
+      }
       const g = (keys) => invFirst(obj, keys);
       const name = String(g(["title", "name", "vehicleTitle", "heading", "displayName"]) || "");
       const split = invSplitName(name) || {};
@@ -362,11 +374,38 @@ function invFromHtml(html, out) {
       url: href ? href[1] : "", photo: img ? img[1] : "", via: "html" });
   });
 }
-function parseInventoryHtml(html) {
+// One vehicle's own page: the title says what it is, the metas and the text
+// say the rest. Used when a page is known to be about a single vehicle.
+function invFromPageMeta(html, pageUrl, out) {
+  const h = String(html || "");
+  const meta = (name) => { const m = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]+content=["']([^"']*)["']`, "i").exec(h) || new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${name}["']`, "i").exec(h); return m ? invDecode(m[1]) : ""; };
+  const title = invDecode((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(h) || [])[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+    || meta("og:title") || invDecode((/<title>([^<]*)/i.exec(h) || [])[1] || "");
+  const clean = title.replace(/\s*[|\-–—]\s*(O'?Regan|Nissan Halifax|Inventory|New|Used|Pre-?Owned)[^|]*$/i, "").replace(/\s*[|]\s*.*$/, "").trim();
+  const split = invSplitName(clean) || {};
+  const text = invText(h);
+  const vinInUrl = (/[A-HJ-NPR-Z0-9]{17}/.exec(String(pageUrl || "")) || [])[0] || "";
+  const vins = new Set((text.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) || []).filter(invLooksVin));
+  const scriptVins = new Set((h.match(/["']?vin["']?\s*:\s*["']([A-HJ-NPR-Z0-9]{17})["']/gi) || []).map((x) => x.slice(-18, -1)).filter(invLooksVin));
+  const vin = vinInUrl || (vins.size === 1 ? [...vins][0] : scriptVins.size === 1 ? [...scriptVins][0] : "");
+  const price = /(?:\$|price[^$]{0,20}\$)\s?([\d,]{4,9})/i.exec(text);
+  const km = /([\d,]{1,7})\s*(?:km|kms|kilomet)/i.exec(text);
+  const stock = /stock\s*(?:#|no\.?|number)?\s*:?\s*([A-Z0-9-]{3,})/i.exec(text);
+  const cond = invCondition(String(pageUrl || "") + " " + title + " " + text.slice(0, 600));
+  const rec = { vin, stock: stock ? stock[1] : "", year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
+    price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "", via: "page" };
+  // The address as a last resort for the year and make: /used/2024-mazda-cx-5-gs-l-p12345/
+  if (!rec.year || !rec.make) { const u = /\/((?:19|20)\d{2})-([a-z]+)-([a-z0-9-]+)/i.exec(String(pageUrl || "")); if (u) { rec.year = rec.year || Number(u[1]); rec.make = rec.make || u[2][0].toUpperCase() + u[2].slice(1); } }
+  if (rec.vin || rec.stock || (rec.make && rec.model)) out.push(rec);
+}
+function parseInventoryHtml(html, opts) {
+  const single = !!(opts && opts.single);
   const found = []; invFromJsonLd(html, found); invFromScripts(html, found); invFromHtml(html, found);
+  if (single) invFromPageMeta(html, opts.url, found);
   const byKey = new Map(); const order = [];
+  // On a single vehicle's page everything found is that one vehicle, VIN or not.
   found.forEach((r) => {
-    const key = r.vin || (r.stock ? "stock:" + r.stock : ""); if (!key) return;
+    const key = single ? "one" : r.vin || (r.stock ? "stock:" + r.stock : ""); if (!key) return;
     const have = byKey.get(key);
     if (!have) { byKey.set(key, Object.assign({}, r)); order.push(key); return; }
     Object.keys(r).forEach((k) => { if ((have[k] == null || have[k] === "") && r[k] != null && r[k] !== "") have[k] = r[k]; });
@@ -486,7 +525,7 @@ async function crawlInventory(url: string, probe: boolean) {
       let html: string;
       try { html = await fetchSitePage(u); } catch (_) { failed++; return; }
       fetched++;
-      const got = parseInventoryHtml(html);
+      const got = parseInventoryHtml(html, { single: true, url: u });
       if (got.length) { parsed++; add(got.slice(0, 1), u); }
     });
     report.vehiclePagesRead = fetched; report.vehiclePagesWithAVehicle = parsed; report.vehiclePagesFailed = failed;

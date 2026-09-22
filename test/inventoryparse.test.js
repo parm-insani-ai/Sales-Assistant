@@ -83,6 +83,24 @@ const locs = lib.invSitemapLocs(sm).filter(lib.invVdpLike);
 console.log("vehicle pages from a sitemap:", JSON.stringify(locs));
 if (locs.length !== 2) fail(`sitemap: ${locs.length} vehicle pages, wanted 2 (not the index, not contact)`);
 
+// --- 5c. One vehicle's own page, itself a shell: the VIN sits alone in an
+// analytics push; the title, the metas and the visible text carry the rest.
+const vdp = `<html><head><title>2024 Mazda CX-5 GS-L AWD | O'Regan's Nissan Halifax</title>
+<meta property="og:title" content="2024 Mazda CX-5 GS-L AWD"><meta property="og:image" content="https://cdn.example/p12345-1.jpg">
+<script>window.dataLayer = window.dataLayer || []; dataLayer.push({"event":"vdp_view","vehicle":{"vin":"JM3KFBCM5R0123456","vehicle_year":"2024","vehicle_make":"Mazda","vehicle_model":"CX-5","vehicle_trim":"GS-L AWD","vehicle_price":"32995","vehicle_odometer":"41,200","vehicle_condition":"used","stock_number":"P12345"}});</script>
+</head><body><div id="vdp"></div><div class="specs">Stock #: P12345 · 41,200 km · Pre-Owned</div><div class="price">$32,995</div></body></html>`;
+const one = lib.parseInventoryHtml(vdp, { single: true, url: "https://www.example.com/inventory/used/2024-mazda-cx-5-gs-l-awd-p12345/" });
+console.log("a vehicle's own page →", JSON.stringify(one));
+if (one.length !== 1) fail(`a vehicle page gave ${one.length} vehicles, wanted exactly 1`);
+const cx5 = one[0] || {};
+if (cx5.vin !== "JM3KFBCM5R0123456" || cx5.year !== 2024 || cx5.make !== "Mazda" || cx5.model !== "CX-5" || !/^GS-L/.test(cx5.trim) || cx5.price !== 32995 || cx5.mileage !== 41200 || cx5.stock !== "P12345" || cx5.condition !== "Used" || !/p12345-1\.jpg/.test(cx5.photo)) fail("the vehicle page didn't read right: " + JSON.stringify(cx5));
+// The same page with only the VIN in the push and nothing else in scripts.
+const bare = vdp.replace(/"vehicle_year"[\s\S]*?"stock_number":"P12345"/, '"x":1');
+const two = lib.parseInventoryHtml(bare, { single: true, url: "https://www.example.com/inventory/used/2024-mazda-cx-5-gs-l-awd-p12345/" });
+console.log("…with the VIN alone in the push →", JSON.stringify(two[0] || null));
+const b2 = two[0] || {};
+if (b2.vin !== "JM3KFBCM5R0123456" || b2.year !== 2024 || b2.make !== "Mazda" || b2.model !== "CX-5" || b2.price !== 32995 || b2.mileage !== 41200 || b2.stock !== "P12345" || b2.condition !== "Used") fail("the title/text fallback didn't fill the vehicle: " + JSON.stringify(b2));
+
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");
 if (none.length) fail("an empty page produced vehicles");
