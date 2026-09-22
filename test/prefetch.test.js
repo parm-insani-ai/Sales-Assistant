@@ -1,8 +1,8 @@
 // A link preview fired on delivery must not read as the customer engaging —
 // but a genuine fast open, or any second open, must still count.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const b = await launch();
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   const now = Date.now();

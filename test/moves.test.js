@@ -1,11 +1,11 @@
 // A note is not filed and forgotten. Each thing it says becomes a move:
 // booked, found, drafted, dated — taken right away, shown back, undoable.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
 await fetch(APP + "/__reset");
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
 const p = await ctx.newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));

@@ -862,6 +862,10 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .swipe-act-note { background: var(--primary); }
 .swipe-act-done { background: var(--muted); }
 
+/* Safari on an iPhone: a second copy of the app. Said once per visit. */
+.install-note { display: flex; align-items: center; gap: 10px; margin: 0 16px 8px; padding: 10px 12px; border-radius: 12px; background: #fff4d6; color: #5a3d00; font-size: 0.82rem; line-height: 1.35; }
+.install-note .btn { flex: none; }
+
 /* The word in the top bar: Saving… / Saved / Syncing… / Synced. */
 .save-state { flex: none; font-size: 0.72rem; font-weight: 600; color: var(--muted); padding: 4px 9px; border-radius: 999px; background: var(--surface-2, rgba(127,127,127,0.12)); white-space: nowrap; transition: opacity .3s; }
 .save-state-ok { color: var(--success); }

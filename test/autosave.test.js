@@ -2,12 +2,12 @@
 // moment it's taken and reaches the cloud within a breath — and the top bar
 // says so. A logged contact survives an immediate reload, an immediate
 // close, and a sync round trip to a fresh install.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
 await fetch(APP + "/__reset");
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 const FAR = Math.floor(Date.now() / 1000) + 86400;
 const seed = ({ far }) => {

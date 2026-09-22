@@ -5,11 +5,11 @@
 // The ordering is the load-bearing part. A reply means a person is waiting; a
 // link open means they're reading right now and don't know you can see it.
 // Both beat recency, and getting that wrong makes the screen worth nothing.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP="http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath:"/opt/pw-browsers/chromium" });
+const b = await launch();
 const p = await (await b.newContext({ viewport:{width:390,height:844}, deviceScaleFactor:2,
   colorScheme:"dark", serviceWorkers:"block" })).newPage();
 const errs=[]; p.on("pageerror",e=>errs.push(e.message));

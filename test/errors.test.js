@@ -2,11 +2,11 @@
 // itself has to be able to say why: every uncaught error is written down on
 // the device, and Settings → Storage check shows the last of them with a
 // button that copies the whole report.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
 const p = await ctx.newPage();
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };

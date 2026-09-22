@@ -2,7 +2,7 @@
 // response, and the salesperson sends it. Also the two rules that protect a
 // real customer — an opt-out is honoured everywhere, and no figure is ever
 // texted out.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 const APP = "http://127.0.0.1:8137";
 
 // Drafting lives behind the + in the reply bar now, so the sheet has to be
@@ -37,7 +37,7 @@ const TEXTS = [
 
 (async () => {
   await fetch(APP + "/__reset");
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const b = await launch();
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.addInitScript(([leads, texts]) => {

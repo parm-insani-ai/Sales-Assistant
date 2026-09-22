@@ -11,11 +11,11 @@
 // A headless browser has no keyboard, so the test drives the same signal iOS
 // sends — a visualViewport that is suddenly much shorter than window.innerHeight
 // — and checks the app moves the right things out of the way.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2,
   colorScheme: "dark", serviceWorkers: "block", hasTouch: true })).newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));

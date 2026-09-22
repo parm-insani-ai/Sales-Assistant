@@ -43,6 +43,7 @@ import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 import { claimDevice } from "./account.js";
 import { initSaveState } from "./savestate.js";
+import { needsInstall } from "./push.js";
 
 // Register the service worker and keep the app auto-updating to new deploys.
 // First, before anything that waits: the sign-in door below can hold the
@@ -157,6 +158,22 @@ paintUnread();
 // conversation instead of handing off to the phone's messaging app — otherwise
 // the customer's reply goes to a personal inbox the agent can't see.
 interceptSmsLinks();
+
+// In Safari on an iPhone, viniva is a second copy: iOS gives Safari and the
+// Home Screen app separate storage, so a contact logged here shows up in
+// the other only once it syncs — which reads as "it didn't save". Say so,
+// once per visit, and point at the one copy that also gets notifications.
+if (needsInstall()) {
+  try {
+    if (!sessionStorage.getItem("viniva:safari-note")) {
+      const note = document.createElement("div");
+      note.className = "install-note";
+      note.innerHTML = `<div><b>You're in Safari.</b> This is a separate copy of viniva from the Home Screen app — use the Home Screen icon so there's one. Not added yet? Share → Add to Home Screen.</div><button type="button" class="btn btn-ghost btn-sm">Got it</button>`;
+      note.querySelector("button").addEventListener("click", () => { note.remove(); try { sessionStorage.setItem("viniva:safari-note", "1"); } catch { } });
+      document.getElementById("app").insertBefore(note, document.getElementById("view"));
+    }
+  } catch { }
+}
 
 // Tell the server this device's timezone and quiet hours, so the proactive
 // sweep can notify at sensible times, and mirror the settings to the cloud,

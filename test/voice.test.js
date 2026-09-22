@@ -10,11 +10,11 @@
 // SpeechRecognition that the app can't tell from the real one. That's the right
 // level to test at: what matters is that the panel keeps listening, keeps
 // context, waits for its own voice to stop, and knows when it's been dismissed.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const p = await (await b.newContext({ viewport: { width: 390, height: 844 },
   colorScheme: "dark", serviceWorkers: "block" })).newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));

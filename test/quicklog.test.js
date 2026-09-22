@@ -3,12 +3,12 @@
 // Leads page does once on the way in — and on three thousand customers that
 // is the pause between the tap and the card. Now the write is one batch and
 // the card re-reads one customer against the book already read.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
 await fetch(APP + "/__reset"); // the stub cloud keeps rows between runs
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
 const p = await ctx.newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));

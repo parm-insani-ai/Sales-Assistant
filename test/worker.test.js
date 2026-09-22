@@ -3,11 +3,11 @@
 // load event — and the worker must still end up registered, because
 // notifications can't be turned on without one. Runs with service workers
 // allowed (Chromium permits them on 127.0.0.1).
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 const regState = (p) => p.evaluate(async () => {

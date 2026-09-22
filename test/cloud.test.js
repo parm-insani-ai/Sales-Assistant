@@ -14,12 +14,12 @@
 //
 // So the property to hold is not "sync pushes the queue" but: after a sync,
 // the cloud holds everything the device holds, however the rows got there.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
 const USER = "00000000-0000-4000-8000-000000000001";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await fetch(APP + "/__reset");
 

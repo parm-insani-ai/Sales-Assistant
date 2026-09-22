@@ -3,12 +3,12 @@
 //
 // The load-bearing rule: no pricing may reach the customer. This test asserts
 // it on both the drafted text and the invite page payload.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 const APP = "http://127.0.0.1:8137";
 
 (async () => {
   await fetch(APP + "/__reset"); // links accumulate in the stub across runs
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const b = await launch();
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.addInitScript(() => {

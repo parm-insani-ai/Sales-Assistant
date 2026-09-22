@@ -5,12 +5,12 @@
 // phone that belonged to someone else's account starts clean when a
 // different account signs in: their customers and their settings do not
 // become yours, and yours never land in their account.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
 await fetch(APP + "/__reset");
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 const ONE = "00000000-0000-4000-8000-000000000001";
 const TWO = "00000000-0000-4000-8000-000000000002";

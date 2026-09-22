@@ -8,11 +8,11 @@
 // The rules that matter here are the ones that keep this from becoming a second
 // to-do list: a nudge has to be time-critical, have one obvious action, and
 // disappear on its own once handled. These check exactly that.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await launch();
 const p = await (await b.newContext({ viewport: { width: 390, height: 844 },
   colorScheme: "dark", serviceWorkers: "block" })).newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));

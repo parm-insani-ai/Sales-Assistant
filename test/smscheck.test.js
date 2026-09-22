@@ -1,7 +1,7 @@
 // The setup check has one job: when texting doesn't work, say which of the
 // three secrets is wrong and why — without ever showing a secret. These are the
 // misconfigurations that actually happen, and what the salesperson must read.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch } = require("./browser.js");
 const APP = "http://127.0.0.1:8137";
 
 const GOOD_SID = { set: true, length: 34, hasWhitespace: false, hasQuotes: false, startsWith: "AC", looksRight: true };
@@ -182,7 +182,7 @@ const CASES = [
 ];
 
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+  const b = await launch();
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.addInitScript(() => {

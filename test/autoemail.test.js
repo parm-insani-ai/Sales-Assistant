@@ -5,11 +5,11 @@
 // how a red banner ended up covering the dashboard every single time the app
 // opened. A standing condition belongs next to the switch it's about, not in
 // a toast.
-const { chromium } = require("/opt/node22/lib/node_modules/playwright");
+const { launch: openBrowser } = require("./browser.js");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const b = await openBrowser();
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 
 // A customer with a follow-up email due today, and auto-send switched on.
