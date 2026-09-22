@@ -644,24 +644,52 @@ function pickPitch(rows, lead, opts = {}) {
 // sheet, the voice agent and the Leads "By opportunity" view all ask for it.
 // Anything else changing (a text marked read, a call logged) leaves the cache
 // alone, which is the point of per-collection counters.
-let radarCache = { key: "", rows: null, counts: null };
-function radarKey() {
-  return ["leads", "vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
+//
+// A customer's price depends on their own numbers and on the inventory,
+// specials and settings — not on any other customer. So when only customers
+// changed (a contact logged, a note added, a stage moved), the radar keeps
+// every customer whose record is unchanged and re-prices only the ones
+// that changed: one deal run instead of three thousand. Inventory, specials
+// or settings changing re-prices everyone, as it must.
+let radarCache = { global: "", leads: -1, rows: null, counts: null, others: null, per: null };
+function radarGlobalKey() {
+  return ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
 }
 
 export function topOpportunities(limit = 50, opts = {}) {
-  const key = radarKey();
-  if (radarCache.rows && radarCache.key === key) {
-    const rows = radarCache.rows.slice(0, limit);
-    return opts.withCounts ? { rows, ...radarCache.counts } : rows;
+  const global = radarGlobalKey(), leads = store.generation("leads");
+  if (!radarCache.rows || radarCache.global !== global || radarCache.leads !== leads) {
+    const full = computeOpportunities(radarCache.global === global ? radarCache.per : null);
+    radarCache = { global, leads, rows: full.rows, others: full.others, per: full.per, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
   }
-  const full = computeOpportunities();
-  radarCache = { key, rows: full.rows, others: full.others, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
-  const rows = full.rows.slice(0, limit);
+  const rows = radarCache.rows.slice(0, limit);
   return opts.withCounts ? { rows, ...radarCache.counts } : rows;
 }
 
-function computeOpportunities() {
+// One customer, priced. `kind` says where they landed: on the radar (row),
+// turned away over the ceiling or the band (other), priced but not worth
+// showing, or not priceable at all.
+function priceOne(l, { band, cap, method }) {
+  const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
+  if (!hasData) return { kind: "none" };
+  const rows = dealsForLead(l, { method });
+  const best = pickPitch(rows, l);
+  if (!best) return { kind: "none" };
+  // The ones the radar turns away are still an answer — "the closest deal
+  // is +$210/mo, because of the negative equity" — so keep them for the
+  // read of the book (closestDeal).
+  if (cap && best.monthly > cap) return { kind: "cap", other: { best, why: "cap" } };
+  // Only surface customers whose new payment stays within their tolerance.
+  if (best.delta != null && best.delta > band) return { kind: "band", other: { best, why: "band" } };
+  const { score, reasons } = scoreOpportunity(l, best);
+  if (score <= 0) return { kind: "quiet", noBaseline: best.delta == null };
+  // What to pitch, as opposed to what fits: the replacement for what they
+  // drive, from the same priced rows (assess.js reads it).
+  const replacement = pickPitch(rows, l, { preferReplacement: true });
+  return { kind: "row", noBaseline: best.delta == null, row: { lead: l, best, score, reasons, replacement } };
+}
+
+function computeOpportunities(prev) {
   const s = store.getSettings();
   const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
   // A ceiling on the monthly payment itself. The band compares against what
@@ -669,32 +697,24 @@ function computeOpportunities() {
   // a paid-off customer has no baseline. The cap applies to everyone.
   const cap = Number(s.dealMaxPayment) || 0;
   const method = s.dealMethod || "both";
-  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0, others: new Map() };
+  const per = new Map();
+  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0, others: new Map(), per };
   const out = [];
   const others = new Map();
   let overBand = 0, overCap = 0, noBaseline = 0;
   store.all("leads").forEach((l) => {
-    const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
-    if (!hasData) return;
-    const rows = dealsForLead(l, { method });
-    const best = pickPitch(rows, l);
-    if (!best) return;
-    // The ones the radar turns away are still an answer — "the closest deal
-    // is +$210/mo, because of the negative equity" — so keep them for the
-    // read of the book (closestDeal).
-    if (cap && best.monthly > cap) { overCap++; others.set(l.id, { best, why: "cap" }); return; }
-    // Only surface customers whose new payment stays within their tolerance.
-    if (best.delta != null && best.delta > band) { overBand++; others.set(l.id, { best, why: "band" }); return; }
-    if (best.delta == null) noBaseline++;
-    const { score, reasons } = scoreOpportunity(l, best);
-    if (score <= 0) return;
-    // What to pitch, as opposed to what fits: the replacement for what they
-    // drive, from the same priced rows (assess.js reads it).
-    const replacement = pickPitch(rows, l, { preferReplacement: true });
-    out.push({ lead: l, best, score, reasons, replacement });
+    const was = prev && prev.get(l.id);
+    // Same record as last time: same price. (A row carries the lead object;
+    // it is the same object when nothing about it changed.)
+    const r = was && was.stamp === l.updatedAt ? was.r : priceOne(l, { band, cap, method });
+    per.set(l.id, { stamp: l.updatedAt, r });
+    if (r.kind === "cap") { overCap++; others.set(l.id, r.other); }
+    else if (r.kind === "band") { overBand++; others.set(l.id, r.other); }
+    else if (r.kind === "row") { if (r.noBaseline) noBaseline++; out.push(r.row.lead === l ? r.row : { ...r.row, lead: l }); }
+    else if (r.kind === "quiet" && r.noBaseline) noBaseline++;
   });
   out.sort((a, b) => b.score - a.score);
-  return { rows: out, overBand, overCap, noBaseline, others };
+  return { rows: out, overBand, overCap, noBaseline, others, per };
 }
 
 // The closest deal for a customer the radar turned away (over the band or

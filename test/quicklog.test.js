@@ -50,6 +50,30 @@ if (t.log > 40) fail(`logging took ${t.log}ms — it should be a single cheap wr
 if (t.quick > 40) fail(`one card's read took ${t.quick}ms — it should not re-read the book`);
 if (t.quick * 10 > t.full && t.full > 50) fail(`the quick read (${t.quick}ms) isn't much quicker than the full one (${t.full}ms)`);
 
+// After one customer changes, the full read and the radar re-read only that
+// customer — every screen that asks for the whole book (Leads, Home, a
+// customer's page) comes up at once instead of after a pause.
+const incr = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const assess = await import("/js/assess.js"); const deals = await import("/js/views/dealbuilder.js");
+  assess.assessAll(); deals.topOpportunities(50);
+  const before = assess.assessment("lead_9");
+  const scoreBefore = assess.assessment("lead_11").score;
+  store.logContact("lead_11", { via: "call" });
+  const a0 = performance.now(); const all = assess.assessAll(); const readMs = performance.now() - a0;
+  const r0 = performance.now(); deals.topOpportunities(50); const radarMs = performance.now() - r0;
+  const after = assess.assessment("lead_9");
+  const changed = assess.assessment("lead_11");
+  return { readMs: Math.round(readMs * 10) / 10, radarMs: Math.round(radarMs * 10) / 10, n: all.byId.size,
+    untouchedSame: before === after || (before.score === after.score && before.reasons.join() === after.reasons.join()),
+    changedReread: changed.lead.lastContactVia === "call" && !changed.reasons.some((x) => /No contact/.test(x)), scoreBefore, scoreAfter: changed.score };
+});
+console.log("after one customer changes:", JSON.stringify(incr));
+if (incr.readMs > 80) fail(`re-reading the book after one change took ${incr.readMs}ms — it should re-read one customer`);
+if (incr.radarMs > 80) fail(`the radar after one change took ${incr.radarMs}ms — it should re-price one customer`);
+if (!incr.untouchedSame) fail("an untouched customer's read changed");
+if (!incr.changedReread) fail("the changed customer wasn't re-read");
+if (incr.n < 3000) fail("the book came back short");
+
 // The tap itself, on the list: from the button to the redrawn card.
 const tap = await p.evaluate(() => {
   const wrap = document.querySelector(".swipe-wrap");

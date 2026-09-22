@@ -69,12 +69,12 @@ function cutsFor(sorted) {
 }
 
 // The whole book, read once. Returns a Map leadId -> assessment.
-let cache = { key: "", byId: null, sorted: null, cuts: null, one: null };
+let cache = { key: "", byId: null, sorted: null, cuts: null, one: null, per: null, global: "" };
 function cacheKey() {
   return ["leads", "vehicles", "specials", "settings", "texts", "links", "sales", "tasks"].map((n) => store.generation(n)).join("|");
 }
 
-function readBook() {
+function readBook(prev) {
   const s = store.getSettings();
   const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
   const now = Date.now();
@@ -113,12 +113,29 @@ function readBook() {
     const lastSale = sales.map((x) => String(x.saleDate || x.createdAt || "")).sort().pop() || null;
     return assessOne(l, { s, band, now, today, radar: radar.get(l.id) || null, miss: misses.get(l.id) || null, lastIn: lastIn.get(l.id), lastOpen: lastOpen.get(l.id), opens: opens.get(l.id) || 0, sales, lastSale, planned: planned.has(l.id) });
   };
+  // A customer's read depends on their record and their own signals — the
+  // last text in, the last link opened, whether a plan is running, their
+  // sales — and on the radar's price for them. When inventory, specials and
+  // settings are as they were, a customer whose record and signals are as
+  // they were reads the same, so the previous read is kept and only the
+  // changed ones are read again. Logging one contact re-reads one customer.
+  const sigOf = (l) => [l.updatedAt, lastIn.get(l.id) || "", lastOpen.get(l.id) || "", opens.get(l.id) || 0, planned.has(l.id) ? 1 : 0,
+    (salesByLead.get(l.id) || []).length, radar.has(l.id) ? radar.get(l.id).best && radar.get(l.id).best.monthly : (misses.get(l.id) || {}).why || ""].join("|");
+  const global = ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
+  const reuse = prev && prev.global === global ? prev.per : null;
+  const per = new Map();
   const byId = new Map();
-  store.all("leads").forEach((l) => byId.set(l.id, one(l)));
+  store.all("leads").forEach((l) => {
+    const sig = sigOf(l);
+    const was = reuse && reuse.get(l.id);
+    const a = was && was.sig === sig ? (was.a.lead === l ? was.a : { ...was.a, lead: l }) : one(l);
+    per.set(l.id, { sig, a });
+    byId.set(l.id, a);
+  });
   const sorted = [...byId.values()].sort((a, b) => b.score - a.score || String(b.lead.createdAt || "").localeCompare(String(a.lead.createdAt || "")));
   const cuts = cutsFor(sorted);
   sorted.forEach((a) => { a.tier = tierOf(a.score, cuts); });
-  return { byId, sorted, cuts, one };
+  return { byId, sorted, cuts, one, per, global };
 }
 
 function assessOne(l, ctx) {
@@ -308,8 +325,8 @@ function assessOne(l, ctx) {
 export function assessAll() {
   const key = cacheKey();
   if (cache.byId && cache.key === key) return cache;
-  const r = readBook();
-  cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one };
+  const r = readBook(cache.per ? cache : null);
+  cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one, per: r.per, global: r.global };
   return cache;
 }
 
