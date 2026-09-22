@@ -233,42 +233,72 @@ export function emptyState(iconName, title, sub) {
     ${sub ? `<div class="small">${escapeText(sub)}</div>` : ""}</div>`;
 }
 
-// --- Swipe to delete ---
-// iOS-style: wrap a list card/row so sliding it left reveals a red Delete
-// button; tapping that button is the confirmation. Returns the wrapper to
-// append in place of the element. Vertical scrolling is untouched (we only
-// claim the gesture once the movement is clearly horizontal).
+// --- Swipe to reveal ---
+// iOS-style: wrap a list card/row so sliding it left reveals buttons behind
+// it. Delete is the red one on the far right; `actions` are any others, laid
+// out to its left in order. Returns the wrapper to append in place of the
+// element. Vertical scrolling is untouched (the gesture is claimed only once
+// the movement is clearly horizontal).
+//
+//   actions: [{ label, icon, kind: "ok", onTap(api) }]
+//   api.close()        slide the row back and put the first tray back
+//   api.expand(list)   swap the tray for a second set of buttons — a follow-up
+//                      question, like which way — and reveal all of them
+//   api.wrap           the wrapper, for redrawing the row afterwards
+//
+// Everything a follow-up needs lives in the tray on purpose: it is outside the
+// sliding element, so none of the drag handling can swallow a tap on it.
 let closeOpenSwipe = null;
-// Swipe a row left to reveal buttons behind it. `onDelete` is the red one on
-// the far right; `actions` are any others, laid out to its left in order:
-//   actions: [{ label, icon, kind: "ok", onTap(closeRow) }]
 export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {}) {
   const wrap = document.createElement("div");
   wrap.className = "swipe-wrap" + (el.classList.contains("card") ? " swipe-wrap-card" : "");
   const tray = document.createElement("div");
   tray.className = "swipe-tray";
-  const acts = actions.map((a) => {
+  const button = (a) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = `swipe-act${a.kind ? ` swipe-act-${a.kind}` : ""}`;
     b.innerHTML = `${icon(a.icon || "check")}<span>${escapeText(a.label)}</span>`;
-    tray.appendChild(b);
-    return { btn: b, onTap: a.onTap };
-  });
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "swipe-act swipe-del";
-  btn.innerHTML = `${icon("trash")}<span>${escapeText(label)}</span>`;
+    return b;
+  };
+  const first = actions.map((a) => ({ btn: button(a), onTap: a.onTap }));
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "swipe-act swipe-del";
+  del.innerHTML = `${icon("trash")}<span>${escapeText(label)}</span>`;
+  const firstTray = () => tray.replaceChildren(...first.map((a) => a.btn), del);
+  firstTray();
   el.classList.add("swipe-card");
-  tray.appendChild(btn);
   wrap.appendChild(tray);
   wrap.appendChild(el);
 
-  const W = 92 * (1 + acts.length); // revealed width
+  const BTN = 92; // each button's width
+  const baseW = BTN * (1 + first.length);
+  let W = baseW; // revealed width right now
   let startX = 0, startY = 0, dx = 0, horiz = null, tracking = false, open = false, moved = false;
 
   const setX = (x) => { el.style.transform = x ? `translate3d(${x}px,0,0)` : ""; };
-  const closeRow = () => { open = false; dx = 0; setX(0); if (closeOpenSwipe === closeRow) closeOpenSwipe = null; };
+  const closeRow = () => {
+    open = false; dx = 0; moved = false;
+    setX(0);
+    if (W !== baseW) { W = baseW; firstTray(); }
+    if (closeOpenSwipe === closeRow) closeOpenSwipe = null;
+  };
+  const api = {
+    close: closeRow,
+    wrap,
+    expand(list) {
+      tray.replaceChildren(...list.map((a) => {
+        const b = button(a);
+        b.addEventListener("click", () => { if (a.onTap) a.onTap(api); });
+        return b;
+      }));
+      W = BTN * list.length;
+      open = true; dx = -W;
+      setX(-W);
+      closeOpenSwipe = closeRow;
+    },
+  };
 
   el.addEventListener("pointerdown", (e) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -299,6 +329,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
     if (!horiz) return;
     open = dx < -W / 2;
     setX(open ? -W : 0);
+    if (!open && W !== baseW) { W = baseW; firstTray(); }
     closeOpenSwipe = open ? closeRow : (closeOpenSwipe === closeRow ? null : closeOpenSwipe);
   };
   el.addEventListener("pointerup", finish);
@@ -314,10 +345,8 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
     }
   }, true);
 
-  acts.forEach(({ btn: b, onTap }) => b.addEventListener("click", () => {
-    if (onTap) onTap(closeRow, wrap);
-  }));
-  btn.addEventListener("click", () => {
+  first.forEach(({ btn: b, onTap }) => b.addEventListener("click", () => { if (onTap) onTap(api); }));
+  del.addEventListener("click", () => {
     closeRow();
     // Remember where the row sat so an Undo can slot it right back.
     const parent = wrap.parentNode, next = wrap.nextSibling;

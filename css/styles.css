@@ -852,10 +852,11 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 /* Rows inside a card (tasks) need padding so the slide doesn't look cramped. */
 .swipe-wrap .check-item { padding-left: 2px; padding-right: 2px; }
 
-/* The "how did you reach them" sheet: three equal ways, big enough to hit. */
-.contacted-ways { flex-wrap: nowrap; }
-.contacted-ways .btn { flex: 1 1 0; flex-direction: column; gap: 6px; padding: 14px 6px; font-size: 0.9rem; }
-.contacted-ways .btn .ico { width: 22px; height: 22px; }
+/* "Which way?" under a customer's Last contacted row. */
+.contact-ways { display: flex; gap: 8px; padding: 8px 0 10px; }
+.contact-ways .btn { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 4px; }
+.contact-ways .btn .ico { width: 18px; height: 18px; }
+.contact-ways [data-act="cancel"] { flex: 0 0 auto; }
 
 /* ---------- Checklist ---------- */
 .check-item {

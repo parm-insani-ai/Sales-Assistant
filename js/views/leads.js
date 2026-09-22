@@ -359,6 +359,7 @@ export function renderLeads(view, { param }) {
 function leadCard(l, onOpen) {
   const el = document.createElement("div");
   el.className = "card card-tap";
+  el.dataset.leadId = l.id;
   const st = stageMeta(l.stage);
   const fuDays = l.followUp ? daysFromToday(l.followUp) : null;
   let fuBadge = "";
@@ -390,15 +391,22 @@ function leadCard(l, onOpen) {
   return swipeable(el, {
     actions: [{
       label: "Contacted", icon: "checkline", kind: "ok",
-      onTap: (closeRow, wrap) => {
-        closeRow();
-        // Redraw this one card once it's logged: the "no contact" chip and the
-        // ranking behind it just changed, and the list shouldn't say otherwise.
-        openContactedSheet(l, () => {
-          const fresh = store.get("leads", l.id);
-          if (fresh && wrap.isConnected) wrap.replaceWith(leadCard(fresh, onOpen));
-        });
-      },
+      // Tapping it turns the tray into the question — Call, Text or Email —
+      // right there behind the card. No sheet, no field to focus, nothing
+      // that a phone could put in front of the buttons.
+      onTap: (api) => api.expand(WAYS.map((w) => ({
+        label: w.label, icon: w.icon, kind: "ok",
+        onTap: () => {
+          api.close();
+          // Redraw whichever card is showing this customer now — after the
+          // first redraw the original wrapper is gone, and Undo comes later.
+          logContactFor(l, w.via, () => {
+            const fresh = store.get("leads", l.id);
+            const cur = document.querySelector(`.swipe-card[data-lead-id="${CSS.escape(l.id)}"]`)?.closest(".swipe-wrap");
+            if (fresh && cur) cur.replaceWith(leadCard(fresh, onOpen));
+          });
+        },
+      }))),
     }],
     onDelete: (restoreRow) => {
       const snapshot = { ...l };
@@ -408,79 +416,46 @@ function leadCard(l, onOpen) {
   });
 }
 
-// "I reached them." Which way, and when — the when defaults to now and can be
-// moved back for a call made earlier from the desk phone.
+// The three ways to reach someone, and what a logged one is called.
+const WAYS = [
+  { via: "call", label: "Call", icon: "phone" },
+  { via: "text", label: "Text", icon: "message" },
+  { via: "email", label: "Email", icon: "mail" },
+];
 const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
-export function openContactedSheet(l, onLogged) {
-  const first = String(l.name || "").split(" ")[0] || "them";
-  const nowLocal = () => {
-    const d = new Date(); d.setSeconds(0, 0);
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-  openModal(`How did you reach ${esc(first)}?`, (close) => {
-    const box = document.createElement("div");
-    box.className = "contacted-sheet";
-    box.innerHTML = `
-      <div class="btn-row contacted-ways">
-        <button type="button" class="btn btn-ghost" data-via="call">${icon("phone")}<span>Call</span></button>
-        <button type="button" class="btn btn-ghost" data-via="text">${icon("message")}<span>Text</span></button>
-        <button type="button" class="btn btn-ghost" data-via="email">${icon("mail")}<span>Email</span></button>
-      </div>
-      <div class="small muted contacted-when" style="margin-top:12px">Logged as <b>just now</b> · <button type="button" class="btn btn-ghost btn-sm" data-act="change-when">Change the time</button></div>
-      <div class="field" data-when hidden style="margin-top:10px"><label>When</label><input type="datetime-local" data-f="at" value="${nowLocal()}"></div>
-      <div class="field" style="margin-top:12px;margin-bottom:0"><label>Anything worth remembering (optional)</label><input data-f="notes" placeholder="Left a voicemail · wants to come Saturday · asked about the SV"></div>
-      <div class="hint">Tap the way you reached them. It goes on their timeline and counts as their last contact.</div>`;
-    // The time stays out of the way until asked for: a date picker that opens
-    // on its own the moment the sheet appears is a sheet whose buttons can't
-    // be tapped.
-    box.querySelector('[data-act="change-when"]').addEventListener("click", () => {
-      box.querySelector(".contacted-when").hidden = true;
-      const f = box.querySelector("[data-when]");
-      f.hidden = false;
-      f.querySelector("input").focus();
-    });
-    // The picker's value is "YYYY-MM-DDTHH:mm" in local time. Read it by its
-    // parts rather than handing it to Date(): some browsers parse that form
-    // as UTC, and an unreadable value must fall back to now, not throw.
-    const localFrom = (v) => {
-      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(v || ""));
-      if (!m) return null;
-      const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0);
-      return isNaN(d) ? null : d.toISOString();
-    };
-    let done = false;
-    const log = (via) => {
-      if (done) return;
-      done = true;
-      try {
-        const whenField = box.querySelector("[data-when]");
-        const at = whenField.hidden ? null : localFrom(whenField.querySelector("input").value);
-        const notes = box.querySelector('[data-f="notes"]').value.trim();
-        const rec = store.logContact(l.id, { via, at, notes });
-        close();
-        toast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, "success");
-        if (onLogged) onLogged(rec);
-      } catch (err) {
-        // Never silent: a tap that does nothing is the one thing this sheet
-        // must not do. And the sheet stays usable for another try.
-        done = false;
-        toast(`Couldn't log it — ${(err && err.message) || "try again"}. If this keeps up, close and reopen the app.`, "danger");
-      }
-    };
-    // A tap is taken from whichever arrives first: the pointer lifting on the
-    // button, or the click the browser makes of it. One phone browser was
-    // showing the sheet and swallowing the click; the lift still comes through.
-    box.querySelectorAll("[data-via]").forEach((b) => {
-      let sx = 0, sy = 0;
-      b.addEventListener("pointerdown", (ev) => { sx = ev.clientX; sy = ev.clientY; });
-      b.addEventListener("pointerup", (ev) => {
-        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 12) log(b.dataset.via);
-      });
-      b.addEventListener("click", (ev) => { ev.preventDefault(); log(b.dataset.via); });
-    });
-    return box;
-  }, { focus: false });
+
+// Log that you reached them, now, this way. The date and time are the moment
+// of the tap. Says so, offers Undo, and calls back so the view can redraw.
+function logContactFor(l, via, onChange) {
+  const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia };
+  let rec;
+  try {
+    rec = store.logContact(l.id, { via });
+  } catch (err) {
+    toast(`Couldn't log it — ${(err && err.message) || "try again"}`, "danger");
+    return null;
+  }
+  if (onChange) onChange(rec);
+  undoToast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, () => {
+    store.undoContact(rec.id, l.id, prev);
+    if (onChange) onChange(null);
+  });
+  return rec;
+}
+
+// The same question, inline, for the customer's page: a row of buttons that
+// appears under "Last contacted" when that row is tapped.
+function contactWays(l, onDone) {
+  const row = document.createElement("div");
+  row.className = "contact-ways";
+  row.innerHTML = WAYS.map((w) => `<button type="button" class="btn btn-ghost" data-via="${w.via}">${icon(w.icon)}<span>${w.label}</span></button>`).join("")
+    + `<button type="button" class="btn btn-ghost" data-act="cancel">Cancel</button>`;
+  row.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", () => {
+    row.remove();
+    logContactFor(l, b.dataset.via, onDone);
+  }));
+  row.querySelector('[data-act="cancel"]').addEventListener("click", () => row.remove());
+  return row;
 }
 
 // --- Add / edit form ---
@@ -738,8 +713,12 @@ function renderLeadDetail(view, id) {
   // Tap-to-edit: any detail row opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
-  el.querySelector('[data-act="contacted"]').addEventListener("click", () =>
-    openContactedSheet(l, () => window.dispatchEvent(new HashChangeEvent("hashchange"))));
+  el.querySelector('[data-act="contacted"]').addEventListener("click", (ev) => {
+    const kv = ev.currentTarget;
+    const existing = kv.nextElementSibling;
+    if (existing && existing.classList.contains("contact-ways")) { existing.remove(); return; }
+    kv.after(contactWays(l, () => window.dispatchEvent(new HashChangeEvent("hashchange"))));
+  });
 
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));

@@ -983,6 +983,15 @@ export function logContact(leadId, { via = "call", at = null, notes = "" } = {})
   return rec;
 }
 
+// Take a logged contact back: the record goes, and the customer's last
+// contact returns to what it was before (`prev` from before the log).
+export function undoContact(recId, leadId, prev = {}) {
+  if (get("calls", recId)) remove("calls", recId);
+  if (get("leads", leadId)) {
+    update("leads", leadId, { lastContacted: prev.lastContacted || null, lastContactVia: prev.lastContactVia || null });
+  }
+}
+
 // --- Links ---
 // Every short link the salesperson has sent that belongs to this customer.
 // Attribution comes from meta.leadId, stamped when the link is minted.
