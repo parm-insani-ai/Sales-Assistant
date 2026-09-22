@@ -188,6 +188,32 @@ const row = () => p.evaluate(() => {
   const kv = [...document.querySelectorAll(".kv")].find((k) => /Last contacted/.test(k.textContent));
   return { value: kv ? kv.querySelector(".v").textContent.trim() : null, ways: [...document.querySelectorAll(".contact-ways [data-via]")].map((b) => b.dataset.via).join(), sheet: !!document.querySelector(".modal") };
 });
+// Context comes first: under the name, on the first screen, before Why now.
+const first = await p.evaluate(() => {
+  const titles = [...document.querySelectorAll(".section-title")].map((t) => t.textContent.trim().split(" ")[0]);
+  const ctx = [...document.querySelectorAll(".section-title")].find((t) => /^Context/.test(t.textContent));
+  return { titles: titles.slice(0, 3), top: ctx ? Math.round(ctx.getBoundingClientRect().top) : null, addBtn: !!document.querySelector('[data-act="add-context"]') };
+});
+console.log("page order:", JSON.stringify(first));
+if (first.titles[0] !== "Context") fail(`the first section is ${first.titles[0]}, not Context`);
+if (first.top == null || first.top > 400) fail(`Context sits ${first.top}px down — it should be visible without scrolling`);
+// Add context is the same listening panel; saving adds a dated note.
+await p.click('[data-act="add-context"]');
+await p.waitForTimeout(900);
+const addPanel = await p.evaluate(() => !!document.querySelector(".note-panel textarea") && !document.querySelector(".modal"));
+if (!addPanel) fail("Add context didn't show the note panel inline");
+await p.fill(".note-panel textarea", "Loves the SV moonroof");
+await p.click('.note-panel [data-act="save"]');
+await p.waitForTimeout(500);
+const added = await p.evaluate(async () => {
+  const store = await import("/js/store.js");
+  const card = [...document.querySelectorAll(".section-title")].find((t) => /^Context/.test(t.textContent))?.nextElementSibling;
+  return { notes: store.get("leads", "lead_ann").notes || "", shown: card ? card.textContent : "", plan: store.all("tasks").filter((t) => t.leadId === "lead_ann" && t.cadence && !t.done).length };
+});
+console.log("after Add context:", JSON.stringify({ notes: added.notes.split("\n").length + " lines", shown: /moonroof/.test(added.shown), plan: added.plan }));
+if (!/Loves the SV moonroof/.test(added.notes)) fail("the note wasn't added to the profile");
+if (!/moonroof/.test(added.shown)) fail("the Context card doesn't show the new note");
+if (!added.plan) fail("adding context didn't start the follow-up plan for a new customer");
 let r = await row();
 console.log("on their page:", JSON.stringify(r));
 if (!r.value || !/call/.test(r.value) || /Tap to log/.test(r.value)) fail("the page doesn't show the last contact");

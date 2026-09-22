@@ -499,11 +499,15 @@ function notePanel(l, rec, onDone) {
     const note = box.value.trim() || heard;
     if (!note) { say("Nothing to save yet — say it or type it."); box.focus(); return; }
     try {
+      let started = 0;
       store.bulk(() => {
         addContext(l.id, { note });
         if (rec && store.get("calls", rec.id)) store.update("calls", rec.id, { notes: note });
+        // Context is what the follow-up plan is written from; the first of
+        // it starts the plan, for a customer still being worked.
+        if (["new", "working"].includes(l.stage)) started = maybeStartCadence(l.id) || 0;
       });
-      toast("Noted", "success");
+      toast(started ? `Noted — ${started}-step follow-up plan started` : "Noted", "success");
       finish(true);
     } catch (err) {
       toast(`Couldn't save — ${(err && err.message) || "try again"}`, "danger");
@@ -654,6 +658,22 @@ function renderLeadDetail(view, id) {
     </div>
 
     ${(() => {
+      // What we know about them — first, under the name, before anything has
+      // to be scrolled past: the structured facts, then the notes as spoken.
+      // Every text in the plan is written from this card.
+      const lines = profileLines(l);
+      return `
+    <div class="section-title">Context <span class="muted" style="font-weight:500;font-size:0.78rem">· every follow-up is written from this</span></div>
+    <div class="card">
+      ${lines.map((x) => `<div class="kv"><span class="k">${esc(x.label)}</span><span class="v">${esc(x.value)}</span></div>`).join("")}
+      ${l.notes
+        ? `<div data-edit="notes" style="white-space:pre-wrap;cursor:pointer;${lines.length ? "margin-top:10px;padding-top:10px;border-top:1px solid var(--border)" : ""}">${esc(l.notes)}</div>`
+        : `<div class="muted small">Nothing yet. Tell the voice agent about them, or add it here — what they want, what they love, budget, timeline, who else decides.</div>`}
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-context" style="margin-top:12px">${icon("mic")} Add context</button>
+    </div>`;
+    })()}
+
+    ${(() => {
       // Why now: the read of this customer in full, and the next move.
       const a = assessment(l.id);
       if (!a) return "";
@@ -718,20 +738,6 @@ function renderLeadDetail(view, id) {
 
     <div id="deal-slot"></div>
 
-    ${(() => {
-      // What we know about them — the structured facts, then the notes as
-      // spoken. Every text in the plan is written from this card.
-      const lines = profileLines(l);
-      return `
-    <div class="section-title">Context <span class="muted" style="font-weight:500;font-size:0.78rem">· every follow-up is written from this</span></div>
-    <div class="card">
-      ${lines.map((x) => `<div class="kv"><span class="k">${esc(x.label)}</span><span class="v">${esc(x.value)}</span></div>`).join("")}
-      ${l.notes
-        ? `<div data-edit="notes" style="white-space:pre-wrap;cursor:pointer;${lines.length ? "margin-top:10px;padding-top:10px;border-top:1px solid var(--border)" : ""}">${esc(l.notes)}</div>`
-        : `<div class="muted small">Nothing yet. Tell the voice agent about them, or add it here — what they want, what they love, budget, timeline, who else decides.</div>`}
-      <button class="btn btn-ghost btn-sm btn-block" data-act="add-context" style="margin-top:12px">${icon("plus")} Add context</button>
-    </div>`;
-    })()}
 
     ${(() => {
       const steps = planSteps(l.id);
@@ -831,23 +837,16 @@ function renderLeadDetail(view, id) {
 
   // Typed context goes the same way as spoken context: onto the record whole,
   // and if nobody has started working this person yet, that starts now.
-  el.querySelector('[data-act="add-context"]').addEventListener("click", () => {
-    openModal("Add context", (close) => {
-      const { element } = buildForm(
-        [{ name: "note", label: "What did you learn?", value: "", type: "textarea", required: true,
-           placeholder: "Loves the SV moonroof, open to new or used, wants to be around thirty, wife has to sign off…" }],
-        {
-          submitLabel: "Add",
-          onSubmit: (data) => {
-            addContext(l.id, { note: data.note });
-            const n = ["new", "working"].includes(l.stage) ? maybeStartCadence(l.id) : 0;
-            toast(n ? `Added — ${n}-step follow-up plan started` : "Added", "success");
-            close();
-            window.dispatchEvent(new HashChangeEvent("hashchange"));
-          },
-        });
-      return element;
-    });
+  el.querySelector('[data-act="add-context"]').addEventListener("click", (ev) => {
+    // Say it. The panel that follows a logged contact, here without one;
+    // Save adds the note and starts the follow-up plan if there isn't one.
+    const btn = ev.currentTarget;
+    if (btn.nextElementSibling && btn.nextElementSibling.classList.contains("note-panel")) return;
+    btn.hidden = true;
+    btn.after(notePanel(l, null, (saved) => {
+      btn.hidden = false;
+      if (saved) window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }));
   });
 
   // Log outreach as a "touch" and stamp last-contacted when calling/texting.
