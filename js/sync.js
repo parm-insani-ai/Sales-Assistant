@@ -137,14 +137,15 @@ export function syncNow(opts = {}) {
     emit("syncing");
     try {
       const user = backend.currentUser();
-      let pushed = 0;
+      let pushed = 0, firstApplied = 0;
       if (meta().initializedFor !== user?.id) {
         // First sync on this device for this account. The cloud goes first:
         // a freshly installed phone holds nothing but defaults, and seeding
         // the cloud from those overwrote the settings mirror — the one record
         // whose whole point was to survive a reinstall. Pull, adopt, THEN push
         // whatever this device has that the cloud doesn't.
-        appliedThisSession += await pullApply();
+        firstApplied = await pullApply();
+        appliedThisSession += firstApplied;
         await pushAll();                 // seed the cloud with the rest
         setMeta({ initializedFor: user?.id });
         reconciledThisSession = true;    // a full push IS a reconcile
@@ -161,8 +162,10 @@ export function syncNow(opts = {}) {
           reconciledThisSession = true;
         }
       }
-      const applied = await pullApply();
-      appliedThisSession += applied;
+      // What this sync brought in, first pull included — a page that is
+      // open during a fresh install's first sync redraws on it.
+      const applied = await pullApply() + firstApplied;
+      appliedThisSession += applied - firstApplied;
       const at = new Date().toISOString();
       setMeta({ lastSyncAt: at });
       const settings = settingsArrived;
@@ -201,7 +204,8 @@ export function disable() {
 let debounce;
 function scheduleSync() {
   clearTimeout(debounce);
-  debounce = setTimeout(() => syncNow(), 2500);
+  // Under a second: the top bar says "syncing…" and it should be true soon.
+  debounce = setTimeout(() => syncNow(), 800);
 }
 
 // How often to look for anything that arrived from the outside while the app
@@ -228,7 +232,9 @@ export function init() {
   // visibilitychange rather than focus: on iOS a home-screen PWA reliably
   // reports visibility, and often doesn't fire focus at all.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
+    // Going to the background: push what's queued now, while the page can
+    // still make a request — a phone may not come back for hours.
+    if (document.visibilityState === "hidden") { clearTimeout(debounce); if (store.getOutbox().length) syncNow(); return; }
     if (store.getSettings().cloudAutoSync) syncNow();
   });
   clearInterval(poll);

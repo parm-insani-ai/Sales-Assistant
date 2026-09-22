@@ -13,9 +13,9 @@ import { addContext, profileLines } from "../context.js";
 import { assessAll, assessment, assessQuick, bookSummary } from "../assess.js";
 import { dictate } from "../dictate.js";
 import { nextMoves, undoMove } from "../moves.js";
-import { taskListEl } from "./tasks.js";
+import { openTaskForm } from "./tasks.js";
 import { consentStatus, consentLine, recordConsent } from "../consent.js";
-import { reviewProspect } from "../touches.js";
+import { reviewProspect, reviewTouch } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
@@ -458,6 +458,8 @@ function logContactFor(l, via, onChange) {
     return null;
   }
   if (onChange) onChange(rec);
+  // On disk before anyone walks away. A failed write is said out loud.
+  store.flush().then(() => { const err = store.saveError(); if (err) toast(`Not saved — this phone's storage refused the write (${err.message || err}).`, "danger"); });
   undoToast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, () => {
     store.undoContact(rec.id, l.id, prev);
     if (onChange) onChange(null);
@@ -520,6 +522,73 @@ function notePanel(l, rec, onDone) {
   return panel;
 }
 
+// The customer's Next moves card: what's booked, what's drafted and waiting
+// for an OK, what to call about, what to do — soonest first, each one a
+// thing to tap. Empty, it offers the two moves that start everything.
+function movesCard(l) {
+  const box = document.createElement("div");
+  box.className = "card nm-card";
+  const draw = () => {
+    const today = todayISO();
+    const appts = store.all("appointments")
+      .filter((a) => a.leadId === l.id && a.status !== "cancelled" && !a.outcome && String(a.when || "").slice(0, 10) >= today)
+      .sort((a, b) => String(a.when).localeCompare(String(b.when)));
+    const pr = { high: 0, normal: 1, low: 2 };
+    const tasks = store.all("tasks").filter((t) => t.leadId === l.id && !t.done)
+      .sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")) || (pr[a.priority] ?? 1) - (pr[b.priority] ?? 1))
+      .slice(0, 8);
+    if (!appts.length && !tasks.length) {
+      const canPlan = !["sold", "delivered", "lost"].includes(l.stage) && !hasCadence(l.id);
+      box.innerHTML = `
+        <div class="muted small" style="margin-bottom:10px">Nothing set up yet. Add context above and the app works out the moves — or start with one of these.</div>
+        <div class="btn-row">
+          ${canPlan ? `<button type="button" class="btn btn-primary btn-sm" data-act="plan" style="flex:1">${icon("target")} Start the follow-up plan</button>` : ""}
+          <button type="button" class="btn btn-ghost btn-sm" data-act="book" style="flex:1">${icon("calendar")} Book a visit</button>
+        </div>`;
+      const plan = box.querySelector('[data-act="plan"]');
+      if (plan) plan.addEventListener("click", () => { const n = startCadence(l.id); toast(n ? `${n}-step plan started — the first text is being drafted` : "Couldn't start a plan", n ? "success" : "danger"); draw(); });
+      box.querySelector('[data-act="book"]').addEventListener("click", () => openAppointmentForm(null, { customerName: l.name, vehicle: l.vehicleInterest || "", leadId: l.id }));
+      return;
+    }
+    const strip = (t) => t.title.replace(/^(Text|Call|Email) \S+ — /, "");
+    const rows = [
+      ...appts.map((a) => ({ key: "a:" + a.id, ico: "calendar", title: `${a.type === "testdrive" ? "Test drive" : a.title || "Appointment"} · ${formatDateTime(a.when)}`, sub: a.confirmed ? "Confirmed" : "Not confirmed yet", act: "appt", a })),
+      ...tasks.map((t) => ({ key: "t:" + t.id, ico: t.channel === "text" ? "message" : t.channel === "call" ? "phone" : t.channel === "email" ? "mail" : t.source === "context" ? "sparkles" : "check",
+        title: t.cadence ? strip(t) : t.title, sub: t.due ? relativeDay(t.due) + (t.cadence ? " · from the plan" : t.source === "context" ? " · from your context" : "") : "", act: t.cadence && t.channel === "text" ? "review" : t.channel === "call" && l.phone ? "call" : "task", t })),
+    ];
+    box.innerHTML = rows.map((r, i) => `
+      <div class="nm-row" data-i="${i}">
+        <span class="nm-ico">${icon(r.ico)}</span>
+        <div class="nm-main"><div class="nm-t">${esc(r.title)}</div>${r.sub ? `<div class="nm-s">${esc(r.sub)}</div>` : ""}</div>
+        ${r.act === "review" ? `<button type="button" class="btn btn-primary btn-sm" data-act="review">Review</button>` : ""}
+        ${r.act === "call" ? `<a class="btn btn-success btn-sm" data-act="call" href="${telHref(l.phone)}">${icon("phone")} Call</a>` : ""}
+        ${r.act === "appt" ? `<button type="button" class="btn btn-ghost btn-sm" data-act="appt">Open</button>` : `<button type="button" class="btn btn-ghost btn-sm" data-act="done" aria-label="Done">${icon("check")}</button>`}
+      </div>`).join("");
+    const complete = (t) => {
+      store.bulk(() => {
+        store.update("tasks", t.id, { done: true });
+        if (t.cadence || t.channel) { store.logActivity("touch"); store.update("leads", l.id, { lastContacted: new Date().toISOString() }); }
+      });
+      toast("Done", "success");
+      draw();
+    };
+    box.querySelectorAll(".nm-row").forEach((rowEl) => {
+      const r = rows[Number(rowEl.dataset.i)];
+      const on = (sel, fn) => { const n = rowEl.querySelector(sel); if (n) n.addEventListener("click", fn); };
+      on('[data-act="review"]', async (ev) => { ev.currentTarget.disabled = true; try { await reviewTouch(r.t.id); } finally { ev.currentTarget.disabled = false; } });
+      on('[data-act="call"]', () => { store.logCall(l.id, {}); });
+      on('[data-act="done"]', () => complete(r.t));
+      on('[data-act="appt"]', () => openAppointmentForm(r.a));
+      const main = rowEl.querySelector(".nm-main");
+      if (r.act === "task" || r.act === "call") main.addEventListener("click", () => openTaskForm(r.t));
+      else if (r.act === "review") main.addEventListener("click", () => reviewTouch(r.t.id));
+      else if (r.act === "appt") main.addEventListener("click", () => openAppointmentForm(r.a));
+    });
+  };
+  draw();
+  return box;
+}
+
 // "Here's what I did with that." Each move on its own line, with the
 // detail under it; any that made something can be taken back on the spot.
 const MOVE_ICON = { appointment: "calendar", text: "message", stock: "car", budget: "dollar", people: "users", trade: "tag", objection: "compare", later: "clock", finance: "file", referral: "users", plan: "target", task: "check" };
@@ -533,6 +602,7 @@ function movesEl(l, moves, onDone) {
       <div class="move" data-i="${i}">
         <span class="move-ico">${icon(MOVE_ICON[m.kind] || "check")}</span>
         <div class="move-main"><div class="move-t">${esc(m.title)}</div>${m.detail ? `<div class="move-d">${esc(m.detail)}</div>` : ""}</div>
+        ${m.kind === "text" && m.taskId ? `<button type="button" class="btn btn-primary btn-sm" data-act="review">Review</button>` : ""}
         ${m.taskId || m.appointmentId ? `<button type="button" class="btn btn-ghost btn-sm" data-act="undo">Undo</button>` : ""}
       </div>`).join("")}
     <div class="btn-row" style="margin-top:8px">
@@ -545,6 +615,11 @@ function movesEl(l, moves, onDone) {
     undoMove(m);
     row.classList.add("move-undone");
     b.remove();
+  }));
+  box.querySelectorAll('[data-act="review"]').forEach((b) => b.addEventListener("click", async () => {
+    const m = moves[Number(b.closest(".move").dataset.i)];
+    b.disabled = true;
+    try { await reviewTouch(m.taskId); } finally { b.disabled = false; }
   }));
   box.querySelector('[data-act="ok"]').addEventListener("click", () => { box.remove(); if (onDone) onDone(); });
   const home = box.querySelector('[data-act="home"]');
@@ -832,8 +907,27 @@ function renderLeadDetail(view, id) {
   el.querySelectorAll("[data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
   // The customer's own to-do list: the moves made from their context, and
-  // the plan's next steps, soonest first. Ticking one off is done here.
-  el.querySelector("#moves-slot").appendChild(taskListEl({ leadId: l.id, limit: 6, empty: "Nothing set up yet — add context and the app works out the next moves." }));
+  // the plan's next steps, soonest first — each one something to act on.
+  el.querySelector("#moves-slot").appendChild(movesCard(l));
+
+  // A sync that changes this customer — their record, a contact, a step —
+  // redraws the page in place, keeping the scroll. A fresh install opening
+  // straight onto a customer sees them fill in rather than stay blank.
+  const drawnAt = [l.updatedAt, store.generation("calls"), store.generation("tasks"), store.generation("appointments")].join("|");
+  const onSynced = (e) => {
+    if (!el.isConnected) { window.removeEventListener("viniva-sync", onSynced); return; }
+    const d = e.detail || {};
+    if (d.status !== "synced" || !d.applied) return;
+    const now = store.get("leads", id);
+    const key = [now && now.updatedAt, store.generation("calls"), store.generation("tasks"), store.generation("appointments")].join("|");
+    if (key === drawnAt) return;
+    window.removeEventListener("viniva-sync", onSynced);
+    const y = view.scrollTop;
+    view.replaceChildren();
+    renderLeadDetail(view, id);
+    view.scrollTop = y;
+  };
+  window.addEventListener("viniva-sync", onSynced);
 
   el.querySelector('[data-act="contacted"]').addEventListener("click", (ev) => {
     const kv = ev.currentTarget;

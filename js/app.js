@@ -42,6 +42,7 @@ import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 import { claimDevice } from "./account.js";
+import { initSaveState } from "./savestate.js";
 
 // Register the service worker and keep the app auto-updating to new deploys.
 // First, before anything that waits: the sign-in door below can hold the
@@ -234,6 +235,8 @@ setTimeout(() => { try { assessAll(); } catch {} }, 2500);
 
 // Start cloud sync if it's configured and signed in (no-op otherwise).
 sync.init();
+// And the word in the top bar that says every action is saved and synced.
+initSaveState();
 
 // Heal any pre-linking records (sales/deliveries without a customer) so old
 // data participates in the connected graph too.
