@@ -862,6 +862,18 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .swipe-act-note { background: var(--primary); }
 .swipe-act-done { background: var(--muted); }
 
+/* What the app did with a note: one line per move. */
+.moves { padding: 2px 0; }
+.moves-title { font-weight: 700; font-size: 0.92rem; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.moves-title .ico { width: 16px; height: 16px; color: var(--primary); }
+.move { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+.move-ico { flex: none; width: 22px; height: 22px; border-radius: 6px; background: var(--success); color: #fff; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.move-ico .ico { width: 13px; height: 13px; }
+.move-main { flex: 1; min-width: 0; }
+.move-t { font-weight: 600; font-size: 0.88rem; line-height: 1.3; }
+.move-d { color: var(--muted); font-size: 0.8rem; line-height: 1.35; margin-top: 2px; }
+.move-undone { opacity: 0.45; text-decoration: line-through; }
+
 /* "Which way?" under a customer's Last contacted row. */
 .contact-ways { display: flex; gap: 8px; padding: 8px 0 10px; }
 .contact-ways .btn { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 4px; }

@@ -12,6 +12,8 @@ import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } f
 import { addContext, profileLines } from "../context.js";
 import { assessAll, assessment, assessQuick, bookSummary } from "../assess.js";
 import { dictate } from "../dictate.js";
+import { nextMoves, undoMove } from "../moves.js";
+import { taskListEl } from "./tasks.js";
 import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
@@ -499,16 +501,17 @@ function notePanel(l, rec, onDone) {
     const note = box.value.trim() || heard;
     if (!note) { say("Nothing to save yet — say it or type it."); box.focus(); return; }
     try {
-      let started = 0;
       store.bulk(() => {
         addContext(l.id, { note });
         if (rec && store.get("calls", rec.id)) store.update("calls", rec.id, { notes: note });
-        // Context is what the follow-up plan is written from; the first of
-        // it starts the plan, for a customer still being worked.
-        if (["new", "working"].includes(l.stage)) started = maybeStartCadence(l.id) || 0;
       });
-      toast(started ? `Noted — ${started}-step follow-up plan started` : "Noted", "success");
-      finish(true);
+      // What the app does with it: booked, found, drafted, dated — taken
+      // now and shown back where the panel was.
+      const { moves } = nextMoves(l.id, note);
+      panel.replaceWith(movesEl(l, moves, () => { if (onDone) onDone(true); }));
+      try { d.stop(); } catch { }
+      // The moves stay up long enough to read, then the view carries on.
+      setTimeout(() => { if (onDone) onDone(true); }, 7000);
     } catch (err) {
       toast(`Couldn't save — ${(err && err.message) || "try again"}`, "danger");
     }
@@ -516,6 +519,39 @@ function notePanel(l, rec, onDone) {
   panel.querySelector('[data-act="cancel"]').addEventListener("click", () => finish(false));
   return panel;
 }
+
+// "Here's what I did with that." Each move on its own line, with the
+// detail under it; any that made something can be taken back on the spot.
+const MOVE_ICON = { appointment: "calendar", text: "message", stock: "car", budget: "dollar", people: "users", trade: "tag", objection: "compare", later: "clock", finance: "file", referral: "users", plan: "target", task: "check" };
+function movesEl(l, moves, onDone) {
+  const box = document.createElement("div");
+  box.className = "moves";
+  ["pointerdown", "click"].forEach((t) => box.addEventListener(t, (ev) => ev.stopPropagation()));
+  box.innerHTML = `
+    <div class="moves-title">${icon("sparkles")} Next moves for ${esc(first(l.name))}</div>
+    ${moves.map((m, i) => `
+      <div class="move" data-i="${i}">
+        <span class="move-ico">${icon(MOVE_ICON[m.kind] || "check")}</span>
+        <div class="move-main"><div class="move-t">${esc(m.title)}</div>${m.detail ? `<div class="move-d">${esc(m.detail)}</div>` : ""}</div>
+        ${m.taskId || m.appointmentId ? `<button type="button" class="btn btn-ghost btn-sm" data-act="undo">Undo</button>` : ""}
+      </div>`).join("")}
+    <div class="btn-row" style="margin-top:8px">
+      ${moves.some((m) => m.kind === "text") ? `<button type="button" class="btn btn-primary btn-sm" data-act="home" style="flex:1">${icon("message")} Review the texts</button>` : ""}
+      <button type="button" class="btn btn-ghost btn-sm" data-act="ok" style="flex:1">OK</button>
+    </div>`;
+  box.querySelectorAll('[data-act="undo"]').forEach((b) => b.addEventListener("click", () => {
+    const row = b.closest(".move");
+    const m = moves[Number(row.dataset.i)];
+    undoMove(m);
+    row.classList.add("move-undone");
+    b.remove();
+  }));
+  box.querySelector('[data-act="ok"]').addEventListener("click", () => { box.remove(); if (onDone) onDone(); });
+  const home = box.querySelector('[data-act="home"]');
+  if (home) home.addEventListener("click", () => { box.remove(); navigate("/"); });
+  return box;
+}
+const first = (name) => String(name || "there").trim().split(/\s+/)[0];
 
 // The same question, inline, for the customer's page: a row of buttons that
 // appears under "Last contacted" when that row is tapped. After the tap, the
@@ -673,6 +709,9 @@ function renderLeadDetail(view, id) {
     </div>`;
     })()}
 
+    <div class="section-title">Next moves <span class="muted" style="font-weight:500;font-size:0.78rem">· what the app set up from the context</span></div>
+    <div id="moves-slot"></div>
+
     ${(() => {
       // Why now: the read of this customer in full, and the next move.
       const a = assessment(l.id);
@@ -792,6 +831,10 @@ function renderLeadDetail(view, id) {
   // Tap-to-edit: any detail row opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
+  // The customer's own to-do list: the moves made from their context, and
+  // the plan's next steps, soonest first. Ticking one off is done here.
+  el.querySelector("#moves-slot").appendChild(taskListEl({ leadId: l.id, limit: 6, empty: "Nothing set up yet — add context and the app works out the next moves." }));
+
   el.querySelector('[data-act="contacted"]').addEventListener("click", (ev) => {
     const kv = ev.currentTarget;
     const existing = kv.nextElementSibling;

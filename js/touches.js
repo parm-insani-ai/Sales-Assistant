@@ -37,6 +37,8 @@ const INTENTS = {
   check:   "A short check-in.",
   week:    "A one-week check-in.",
   twoweek: "A two-week check-in.",
+  confirm: "They said they're coming in (the WHY says when). Confirm it warmly in one or two lines — the day and time in words, what you'll have ready for them (the vehicle they wanted, if it's on file), and that they can just reply if anything changes. If someone else is involved in the decision (the brief says who), say they're welcome too.",
+  stock:   "The WHY names what's in stock right now that matches what they wanted. Tell them, plainly and specifically — the model and trim, how many, a detail they cared about — and offer to hold one to look at. No prices, no urgency tricks; the stock is the news.",
   prospect: "This is an opener to a customer who already drives something (a past customer or an imported owner) and hasn't heard from the salesperson in a while. You're reaching out because of the reasons listed under WHY. Lead with something true about THEIR situation — their vehicle, their timing — not with a pitch. Offer to work out what a move would look like properly, in person, in about ten minutes. One easy next step. Never a figure, never a promise, never 'trade values are at record highs' or any market claim.",
 };
 

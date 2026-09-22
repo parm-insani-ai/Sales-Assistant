@@ -22,7 +22,7 @@ import * as store from "./store.js";
 function firstName(name) {
   return String(name || "there").trim().split(/\s+/)[0];
 }
-function addDaysISO(days, from = new Date()) {
+export function addDaysISO(days, from = new Date()) {
   const d = new Date(from);
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);

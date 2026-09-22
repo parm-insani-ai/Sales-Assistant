@@ -166,6 +166,12 @@ await p.waitForTimeout(150);
 if (!/#\/leads$/.test(await p.evaluate(() => location.hash))) fail("tapping inside the panel opened the customer");
 await p.click('.note-panel [data-act="save"]');
 await p.waitForTimeout(400);
+// What the app did with it comes back where the panel was; OK it.
+const movesShown = await p.evaluate(() => !!document.querySelector(".swipe-card .moves"));
+console.log("moves shown in the card:", movesShown);
+if (!movesShown) fail("the moves didn't show where the panel was");
+await p.click('.moves [data-act="ok"]');
+await p.waitForTimeout(300);
 const noted = await p.evaluate(async () => {
   const store = await import("/js/store.js");
   const l = store.get("leads", "lead_ann");
@@ -179,7 +185,7 @@ if (!/^\d{4}-\d{2}-\d{2} — Wants/.test(noted.notes)) fail("the note isn't date
 if (!/Wants to come Saturday/.test(noted.call)) fail("the note isn't on the contact record");
 if (!noted.panelGone) fail("the panel stayed up after saving");
 if (!/^Called /.test(noted.card)) fail("the card didn't come back showing the call");
-if (!/Noted/.test(noted.toast)) fail("no confirmation");
+// The moves block is the confirmation now; a toast would be noise on top.
 
 // --- Their page: the row shows it and logs another, inline.
 await p.evaluate(() => { location.hash = "#/leads/lead_ann"; });
@@ -204,6 +210,8 @@ const addPanel = await p.evaluate(() => !!document.querySelector(".note-panel te
 if (!addPanel) fail("Add context didn't show the note panel inline");
 await p.fill(".note-panel textarea", "Loves the SV moonroof");
 await p.click('.note-panel [data-act="save"]');
+await p.waitForTimeout(400);
+await p.click('.moves [data-act="ok"]');
 await p.waitForTimeout(500);
 const added = await p.evaluate(async () => {
   const store = await import("/js/store.js");
@@ -230,6 +238,8 @@ console.log("page shows the note panel after Email:", pagePanel);
 if (!pagePanel) fail("the page didn't offer a note after logging");
 await p.fill(".note-panel textarea", "Sent the brochure");
 await p.click('.note-panel [data-act="save"]');
+await p.waitForTimeout(400);
+await p.click('.moves [data-act="ok"]');
 await p.waitForTimeout(400);
 r = await row();
 const n = await p.evaluate(async () => (await import("/js/store.js")).callsFor("lead_ann").length);

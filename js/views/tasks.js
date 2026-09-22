@@ -35,14 +35,14 @@ export function openTaskForm(existing, defaults = {}) {
 // imported book with a follow-up cadence on every customer is six hundred open
 // tasks, and Home drew every one of them — the day's screen was mostly a task
 // list nobody scrolls, and it was most of what made Home slow to open.
-export function taskListEl({ onChange, limit = Infinity } = {}) {
+export function taskListEl({ onChange, limit = Infinity, leadId = null, empty = "No open tasks. Tap + Add to create one." } = {}) {
   const container = document.createElement("div");
   let cap = limit;
 
   function draw() {
     const tasks = store.all("tasks");
     const all = tasks
-      .filter((t) => !t.done)
+      .filter((t) => !t.done && (!leadId || t.leadId === leadId))
       .sort((a, b) => {
         const da = a.due ? daysFromToday(a.due) : Infinity;
         const db = b.due ? daysFromToday(b.due) : Infinity;
@@ -54,7 +54,7 @@ export function taskListEl({ onChange, limit = Infinity } = {}) {
     const hidden = all.length - open.length;
 
     if (!open.length) {
-      container.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">No open tasks. Tap + Add to create one.</div></div>`;
+      container.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">${empty}</div></div>`;
       return;
     }
 
