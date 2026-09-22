@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -66,6 +66,22 @@ if (lib.invPageParam(html) !== "pg") fail(`pagination param from bare HTML: ${li
 const mixed = jsonld.replace("</body>", `<div>2026 Nissan Rogue SV Stock #: R26011 VIN 5N1BT3BB1SC123456 $38,995 <span>Sunroof</span> 14 km</div></body>`);
 const d = lib.parseInventoryHtml(mixed);
 if (d.length !== 2) fail(`merging: ${d.length} vehicles, wanted 2 (the same VIN twice is one)`);
+
+// --- 5b. A shell page: the vehicles are on their own pages, found through
+// the site's links and its sitemap.
+const shell = `<html><head><script src="/assets/app.js"></script><script>var cfg={apiBase:"https://www.example.com/api/v2/inventory/search"};</script></head><body>
+<nav><a href="/inventory/">Inventory</a><a href="/inventory/?do-search=1&search.vehicle-inventory-type-ids.0=1">New</a></nav>
+<div id="srp"></div><a href="/inventory/2026-nissan-rogue-sv-r26011/">quick link</a><a href="/about-us/">About</a></body></html>`;
+const links = lib.invLinks(shell, "https://www.example.com/inventory/?do-search=1");
+console.log("vehicle-page links from a shell:", JSON.stringify(links));
+if (links.length !== 1 || !/2026-nissan-rogue-sv-r26011/.test(links[0])) fail("the vehicle page link wasn't picked out of the shell (and nothing else)");
+const hints = lib.invApiHints(shell);
+if (!hints.some((h) => /api\/v2\/inventory\/search/.test(h))) fail("the API hint wasn't found: " + JSON.stringify(hints));
+if (!lib.invScripts(shell).includes("/assets/app.js")) fail("the script list is wrong");
+const sm = `<?xml version="1.0"?><urlset><url><loc>https://www.example.com/inventory/</loc></url><url><loc>https://www.example.com/inventory/2021-nissan-rogue-sl-p4411/</loc></url><url><loc>https://www.example.com/used/2019-altima-sv-1N4BL4DV5KC111222/</loc></url><url><loc>https://www.example.com/contact-us/</loc></url></urlset>`;
+const locs = lib.invSitemapLocs(sm).filter(lib.invVdpLike);
+console.log("vehicle pages from a sitemap:", JSON.stringify(locs));
+if (locs.length !== 2) fail(`sitemap: ${locs.length} vehicle pages, wanted 2 (not the index, not contact)`);
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");

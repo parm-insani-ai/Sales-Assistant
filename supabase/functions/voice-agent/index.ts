@@ -373,6 +373,29 @@ function parseInventoryHtml(html) {
   });
   return order.map((k) => byKey.get(k));
 }
+// Sitemap <loc>s, and which of a site's links look like one vehicle's page.
+function invSitemapLocs(xml) { const out = []; const re = /<loc>\s*([^<\s]+)\s*<\/loc>/gi; let m; while ((m = re.exec(String(xml || "")))) out.push(invDecode(m[1])); return out; }
+function invVdpLike(u) {
+  const s = String(u || "");
+  if (!/^https?:\/\//i.test(s) || /\?/.test(s)) return false;
+  if (/\/(inventory|vehicles?|new|used|pre-?owned|certified|vdp|details?|listing)\/[^/]*[a-z0-9][^/]*/i.test(s) && !/\/(inventory|vehicles?|new|used|pre-?owned|certified)\/?$/i.test(s)) return true;
+  return /[A-HJ-NPR-Z0-9]{17}/.test(s);
+}
+function invLinks(html, base) {
+  const out = new Set(); const re = /href=["']([^"'#]+)["']/gi; let m;
+  while ((m = re.exec(String(html || "")))) { let u = invDecode(m[1]); try { u = new URL(u, base).toString(); } catch (e) { continue; } if (invVdpLike(u)) out.add(u.split("#")[0]); }
+  return [...out];
+}
+function invApiHints(html) {
+  const out = new Set(); const re = /["'`]((?:https?:)?\/\/?[^"'`\s]*(?:api|json|graphql|ajax|inventory|vehicles|search)[^"'`\s]*)["'`]/gi; let m;
+  while ((m = re.exec(String(html || "")))) { const u = m[1]; if (!/\.(css|js|png|jpg|jpeg|webp|svg|woff2?|ico)(\?|$)/i.test(u)) out.add(u.slice(0, 160)); if (out.size >= 25) break; }
+  return [...out];
+}
+function invScripts(html) {
+  const out = []; const re = /<script[^>]+src=["']([^"']+)["']/gi; let m;
+  while ((m = re.exec(String(html || "")))) { out.push(invDecode(m[1]).slice(0, 160)); if (out.length >= 20) break; }
+  return out;
+}
 function invPageParam(html) { const m = /[?&](page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/i.exec(String(html)); return m ? m[1] : null; }
 function invPageCount(html) { let max = 1; const re = /[?&](?:page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/gi; let m; while ((m = re.exec(String(html)))) max = Math.max(max, Number(m[1])); return Math.min(max, 60); }
 // === inventory parser end ===
@@ -390,43 +413,102 @@ async function fetchSitePage(url: string): Promise<string> {
 }
 function withPage(url: string, name: string, n: number): string { const u = new URL(url); u.searchParams.set(name, String(n)); return u.toString(); }
 
+async function fetchMany<T>(items: T[], limit: number, fn: (x: T) => Promise<void>) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => { while (i < items.length) { const x = items[i++]; await fn(x); } });
+  await Promise.all(workers);
+}
+
 async function crawlInventory(url: string, probe: boolean) {
+  const started = Date.now();
+  const BUDGET_MS = 100000; // leave headroom under the function's wall clock
   const first = await fetchSitePage(url);
+  const origin = new URL(url).origin;
   const report: any = {
-    url, pages: 1, bytes: first.length, title: ((/<title>([^<]*)/i.exec(first) || [])[1] || "").trim().slice(0, 80),
+    url, mode: "search-page", pages: 1, bytes: first.length, title: ((/<title>([^<]*)/i.exec(first) || [])[1] || "").trim().slice(0, 80),
     jsonLdBlocks: (first.match(/application\/ld\+json/gi) || []).length,
-    vinsInPage: new Set(first.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) || []).size, warnings: [] as string[],
+    vinsInPage: new Set(first.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) || []).size, warnings: [] as string[], complete: true,
   };
   const all = new Map<string, any>();
-  const add = (list: any[]) => list.forEach((v) => {
+  const add = (list: any[], from?: string) => list.forEach((v) => {
+    if (from && !v.url) v.url = from;
     if (v.url && !/^https?:/i.test(v.url)) { try { v.url = new URL(v.url, url).toString(); } catch (_) { /* leave it */ } }
     if (v.photo && !/^https?:/i.test(v.photo)) { try { v.photo = new URL(v.photo, url).toString(); } catch (_) { /* leave it */ } }
     const k = v.vin || "stock:" + v.stock; if (!all.has(k)) all.set(k, v);
   });
   add(parseInventoryHtml(first));
-  const param = invPageParam(first) || "page";
-  const declared = invPageCount(first);
-  report.pageParam = param; report.pagesDeclared = declared;
-  // Page on until a page adds nothing — past the end, or a site that ignores
-  // the parameter and hands back page one again.
-  for (let n = 2; n <= 60; n++) {
-    let html: string;
-    try { html = await fetchSitePage(withPage(url, param, n)); } catch (e) { report.warnings.push(`page ${n}: ${(e as Error).message}`); break; }
-    const before = all.size; add(parseInventoryHtml(html)); report.pages = n;
-    if (all.size === before) { report.pages = n - 1; break; }
+
+  if (all.size) {
+    // The search page carries the vehicles: page on until a page adds nothing.
+    const param = invPageParam(first) || "page";
+    report.pageParam = param; report.pagesDeclared = invPageCount(first);
+    for (let n = 2; n <= 60; n++) {
+      if (Date.now() - started > BUDGET_MS) { report.warnings.push("stopped at the time budget"); report.complete = false; break; }
+      let html: string;
+      try { html = await fetchSitePage(withPage(url, param, n)); } catch (e) { report.warnings.push(`page ${n}: ${(e as Error).message}`); break; }
+      const before = all.size; add(parseInventoryHtml(html)); report.pages = n;
+      if (all.size === before) { report.pages = n - 1; break; }
+    }
+  } else {
+    // A shell: the list is drawn by script after the page loads, so the
+    // vehicles aren't in it. Each vehicle's own page is, though — for the
+    // search engines — so gather those pages from the site's links and its
+    // sitemaps and read them one by one.
+    report.mode = "vehicle-pages";
+    const vdps = new Set<string>(invLinks(first, url).filter((u) => u.startsWith(origin)));
+    const sitemaps: string[] = [];
+    try {
+      const robots = await fetchSitePage(origin + "/robots.txt");
+      (robots.match(/^\s*sitemap:\s*(\S+)/gim) || []).forEach((l) => sitemaps.push(l.replace(/^\s*sitemap:\s*/i, "").trim()));
+    } catch (_) { /* no robots.txt */ }
+    ["/sitemap.xml", "/sitemap_index.xml", "/sitemap-index.xml", "/sitemap-vehicles.xml", "/vehicle-sitemap.xml", "/inventory-sitemap.xml", "/sitemap/inventory.xml"].forEach((p) => sitemaps.push(origin + p));
+    const tried: string[] = [];
+    const seenMaps = new Set<string>();
+    const queue = [...new Set(sitemaps)];
+    while (queue.length && tried.length < 14) {
+      const sm = queue.shift() as string;
+      if (seenMaps.has(sm)) continue; seenMaps.add(sm);
+      let xml: string;
+      try { xml = await fetchSitePage(sm); } catch (_) { continue; }
+      tried.push(sm);
+      const locs = invSitemapLocs(xml);
+      locs.forEach((u) => {
+        if (/\.xml(\?|$)/i.test(u)) { if (/vehicle|inventory|vdp|listing|used|new/i.test(u) || locs.length <= 30) queue.push(u); }
+        else if (invVdpLike(u) && u.startsWith(origin)) vdps.add(u);
+      });
+    }
+    report.sitemapsRead = tried;
+    report.vehiclePagesFound = vdps.size;
+    const list = [...vdps].slice(0, 400);
+    let fetched = 0, parsed = 0, failed = 0;
+    await fetchMany(list, 6, async (u) => {
+      if (Date.now() - started > BUDGET_MS) { report.complete = false; return; }
+      let html: string;
+      try { html = await fetchSitePage(u); } catch (_) { failed++; return; }
+      fetched++;
+      const got = parseInventoryHtml(html);
+      if (got.length) { parsed++; add(got.slice(0, 1), u); }
+    });
+    report.vehiclePagesRead = fetched; report.vehiclePagesWithAVehicle = parsed; report.vehiclePagesFailed = failed;
+    if (!report.complete) report.warnings.push("stopped at the time budget — the rest come next run");
+    // What the search page is made of, for fitting the reader by hand.
+    report.scripts = invScripts(first);
+    report.apiHints = invApiHints(first);
   }
   report.found = all.size;
   report.via = {} as Record<string, number>;
   for (const v of all.values()) report.via[v.via] = (report.via[v.via] || 0) + 1;
   report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, mileage: v.mileage, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via }));
   if (probe || !all.size) report.snippet = invText(first).slice(0, 500);
+  report.seconds = Math.round((Date.now() - started) / 100) / 10;
   return { vehicles: [...all.values()], report };
 }
 
 // Bring the user's vehicles collection in line with the lot. Unchanged units
 // are left alone so the phone's sync isn't churned; units no longer on the
 // site are marked sold rather than deleted, so deals that named them survive.
-async function writeInventory(uid: string, vehicles: any[]) {
+async function writeInventory(uid: string, vehicles: any[], complete = true) {
+  if (!vehicles.length) return { added: 0, updated: 0, removed: 0, skipped: 0, unchanged: 0, onFile: null, note: "nothing read — the lot on file was left as it was" };
   const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data`;
   const r = await fetch(sbUrl(q), { headers: sbHeaders() });
   const existing: any[] = r.ok ? await r.json() : [];
@@ -455,6 +537,7 @@ async function writeInventory(uid: string, vehicles: any[]) {
     rows.push({ id, user_id: uid, collection: "vehicles", data, deleted: false });
   }
   for (const [id, was] of byId) {
+    if (!complete) break; // a partial read says nothing about who's gone
     if (was.source !== "web" || seen.has(id) || was.status === "sold") continue;
     removed++;
     rows.push({ id, user_id: uid, collection: "vehicles", data: { ...was, status: "sold", updatedAt: now, goneAt: now }, deleted: false });
@@ -491,7 +574,7 @@ async function handleInventory(body: any): Promise<Response> {
     if (!/^https?:\/\//i.test(url)) { results.push({ uid: uid.slice(0, 8), error: "No store inventory URL in Settings → Dealer inventory sites." }); continue; }
     try {
       const { vehicles, report } = await crawlInventory(url, !!req.probe);
-      const write = await writeInventory(uid, vehicles);
+      const write = await writeInventory(uid, vehicles, report.complete !== false);
       results.push({ uid: uid.slice(0, 8), ...report, ...write, at: new Date().toISOString() });
     } catch (e) {
       results.push({ uid: uid.slice(0, 8), url, error: String((e as Error)?.message || e) });
