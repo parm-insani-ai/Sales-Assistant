@@ -20,7 +20,7 @@ import { topOpportunities, equityDetail, bestPitch } from "./dealbuilder.js";
 import { findSpec, comparePayload, compareLink } from "./compare.js";
 import { shortenLink } from "../shortlink.js";
 import { allTemplates, recommendTemplate, fillTemplate } from "./messages.js";
-import { bookingLink, cachedShortBookingLink } from "./settings.js";
+import { bookingLink, cachedShortBookingLink } from "../bookinglink.js";
 import * as backend from "../backend.js";
 import { sendText, smsReady } from "../sms.js";
 

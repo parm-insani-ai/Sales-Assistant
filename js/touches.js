@@ -10,7 +10,7 @@
 // draft that contains one anyway is rewritten or replaced.
 
 import * as store from "./store.js";
-import { agentConfigured } from "./agent.js";
+import { agentConfigured } from "./agentcfg.js";
 import { briefFor } from "./context.js";
 import { looksLikeMoney } from "./replies.js";
 import { isInbound } from "./cadence.js";
@@ -21,7 +21,7 @@ import { smsHref } from "./utils.js";
 import { toast } from "./components.js";
 import { consentStatus, consentLine } from "./consent.js";
 import { setPending } from "./outcomes.js";
-import { cachedShortBookingLink, bookingLink } from "./views/settings.js";
+import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
 
 const first = (name) => String(name || "there").trim().split(/\s+/)[0];
 

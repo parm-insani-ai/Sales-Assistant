@@ -12,9 +12,9 @@
 // mechanism.
 
 import * as store from "./store.js";
-import { agentConfigured } from "./agent.js";
+import { agentConfigured } from "./agentcfg.js";
 import { bestPitch, equityDetail } from "./views/dealbuilder.js";
-import { cachedShortBookingLink, bookingLink } from "./views/settings.js";
+import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
 
 export function draftingAvailable() {
   return agentConfigured();

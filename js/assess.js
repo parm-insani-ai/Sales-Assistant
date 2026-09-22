@@ -15,7 +15,8 @@
 // Computed once per change to what it reads, like the radar.
 
 import * as store from "./store.js";
-import { topOpportunities, equityDetail, monthsRemaining, inferApr, closestDeal } from "./views/dealbuilder.js";
+import { topOpportunities, equityDetail, monthsRemaining, inferApr, closestDeal, warmRadar, radarCheap, radarContentKey, stripLead, rejoinLead } from "./views/dealbuilder.js";
+import { cacheGet, cacheSet } from "./cachedb.js";
 import { daysFromToday, currency } from "./utils.js";
 import { isLikelyPrefetch } from "./plays.js";
 import { consentStatus } from "./consent.js";
@@ -74,7 +75,7 @@ function cacheKey() {
   return ["leads", "vehicles", "specials", "settings", "texts", "links", "sales", "tasks"].map((n) => store.generation(n)).join("|");
 }
 
-function readBook(prev) {
+function bookContext(prev) {
   const s = store.getSettings();
   const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
   const now = Date.now();
@@ -123,19 +124,109 @@ function readBook(prev) {
     (salesByLead.get(l.id) || []).length, radar.has(l.id) ? radar.get(l.id).best && radar.get(l.id).best.monthly : (misses.get(l.id) || {}).why || ""].join("|");
   const global = ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
   const reuse = prev && prev.global === global ? prev.per : null;
-  const per = new Map();
-  const byId = new Map();
-  store.all("leads").forEach((l) => {
-    const sig = sigOf(l);
-    const was = reuse && reuse.get(l.id);
-    const a = was && was.sig === sig ? (was.a.lead === l ? was.a : { ...was.a, lead: l }) : one(l);
-    per.set(l.id, { sig, a });
-    byId.set(l.id, a);
-  });
+  return { one, sigOf, reuse, global };
+}
+// One customer through the context: last read reused when nothing they
+// depend on changed, else read again.
+function readOne(ctx, l, per, byId) {
+  const sig = ctx.sigOf(l);
+  const was = ctx.reuse && ctx.reuse.get(l.id);
+  const a = was && was.sig === sig ? (was.a.lead === l ? was.a : { ...was.a, lead: l }) : (bookStats.read++, ctx.one(l));
+  per.set(l.id, { sig, a });
+  byId.set(l.id, a);
+}
+function finishBook(ctx, per, byId) {
   const sorted = [...byId.values()].sort((a, b) => b.score - a.score || String(b.lead.createdAt || "").localeCompare(String(a.lead.createdAt || "")));
   const cuts = cutsFor(sorted);
   sorted.forEach((a) => { a.tier = tierOf(a.score, cuts); });
-  return { byId, sorted, cuts, one, per, global };
+  return { byId, sorted, cuts, one: ctx.one, per, global: ctx.global };
+}
+function readBook(prev) {
+  const ctx = bookContext(prev);
+  const per = new Map(), byId = new Map();
+  store.all("leads").forEach((l) => readOne(ctx, l, per, byId));
+  return finishBook(ctx, per, byId);
+}
+const yieldToScreen = () => new Promise((r) => (window.requestIdleCallback ? window.requestIdleCallback(r, { timeout: 60 }) : setTimeout(r, 0)));
+async function readBookAsync(prev, onProgress) {
+  const ctx = bookContext(prev);
+  const per = new Map(), byId = new Map();
+  const leads = store.all("leads");
+  let sliceStart = performance.now(), done = 0;
+  for (const l of leads) {
+    readOne(ctx, l, per, byId);
+    done++;
+    if (performance.now() - sliceStart > 24) {
+      if (onProgress) { try { onProgress(done, leads.length, "book"); } catch { /* optional */ } }
+      await yieldToScreen();
+      sliceStart = performance.now();
+    }
+  }
+  return finishBook(ctx, per, byId);
+}
+
+export const bookStats = { read: 0, warmRuns: 0, syncRuns: 0, restored: 0, warming: false };
+
+// The read of the book kept for the next launch: each customer's read under
+// the signature it was read with, so a relaunch with the same lot re-reads
+// nobody whose record and signals are as they were.
+let rememberTimer = null;
+function rememberBook() {
+  if (!cache.per) return;
+  clearTimeout(rememberTimer);
+  rememberTimer = setTimeout(() => {
+    try {
+      const per = [];
+      cache.per.forEach((v, id) => per.push([id, v.sig, stripLead(v.a)]));
+      cacheSet("book", { key: radarContentKey(), at: Date.now(), per }).catch(() => {});
+    } catch { /* a convenience */ }
+  }, 1500);
+}
+async function restoreBook() {
+  if (bookStats.restored || cache.per) return null;
+  bookStats.restored = 1;
+  try {
+    const saved = await cacheGet("book");
+    if (!saved || saved.key !== radarContentKey()) return null;
+    const byId = new Map(store.all("leads").map((l) => [l.id, l]));
+    const per = new Map();
+    saved.per.forEach(([id, sig, a]) => { if (byId.has(id)) per.set(id, { sig, a: rejoinLead(a, byId) }); });
+    return per;
+  } catch { return null; }
+}
+
+// Is the read current, or a tick away from it? A read exists and the lot,
+// the specials and the settings are as they were: whoever changed since is
+// re-read in place. Nothing read yet, or a lot that changed, is the case
+// that warms in the background.
+export function bookCheap() {
+  return !!cache.byId && cache.global === ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|") && radarCheap();
+}
+
+// Bring the read of the book up to date without holding the screen: the
+// radar first (a slice at a time), then every customer, a slice at a time.
+// Repeated calls share one run; resolves when the read is current.
+let warming = null;
+export function warmBook(onProgress) {
+  if (cache.byId && cache.key === cacheKey()) return Promise.resolve();
+  if (warming) return warming;
+  warming = (async () => {
+    bookStats.warming = true;
+    await warmRadar(onProgress);
+    const restored = await restoreBook();
+    if (restored && !cache.per) cache = { ...cache, per: restored, global: ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|") };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const key = cacheKey();
+      const r = await readBookAsync(cache.per ? cache : null, onProgress);
+      if (key !== cacheKey()) { cache = { ...cache, per: r.per, global: r.global }; continue; }
+      cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one, per: r.per, global: r.global };
+      break;
+    }
+    bookStats.warmRuns++;
+    rememberBook();
+    try { window.dispatchEvent(new CustomEvent("viniva-book", { detail: { customers: cache.sorted ? cache.sorted.length : 0 } })); } catch { /* no window */ }
+  })().finally(() => { warming = null; bookStats.warming = false; });
+  return warming;
 }
 
 function assessOne(l, ctx) {
@@ -327,6 +418,8 @@ export function assessAll() {
   if (cache.byId && cache.key === key) return cache;
   const r = readBook(cache.per ? cache : null);
   cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one, per: r.per, global: r.global };
+  bookStats.syncRuns++;
+  rememberBook();
   return cache;
 }
 

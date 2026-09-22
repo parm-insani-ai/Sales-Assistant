@@ -12,7 +12,7 @@ import { toast, openModal } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, telHref } from "../utils.js";
 import { sendText, retryText, smsBlocker, takePrefill, timelineFor, linkIsHot } from "../sms.js";
-import { bookingLinkForLead } from "./settings.js";
+import { bookingLinkForLead } from "../bookinglink.js";
 import { draftReply, draftingAvailable } from "../replies.js";
 import { startVoiceAssistant } from "../voice.js";
 

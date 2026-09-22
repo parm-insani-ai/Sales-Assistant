@@ -10,7 +10,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
-import { assessAll, assessment, assessQuick, bookSummary } from "../assess.js";
+import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook } from "../assess.js";
 import { dictate } from "../dictate.js";
 import { nextMoves, undoMove } from "../moves.js";
 import { openTaskForm } from "./tasks.js";
@@ -18,7 +18,7 @@ import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect, reviewTouch } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals, radarCheap, warmRadar } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
@@ -27,16 +27,25 @@ import {
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
 
+// The words a customer can be found by, lowercased once per record rather
+// than once per keystroke per customer.
+const HAY = new WeakMap();
+function haystack(l) {
+  let h = HAY.get(l);
+  if (h == null) { h = [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase(); HAY.set(l, h); }
+  return h;
+}
+
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
   // The list is ordered by the radar's read of the book. When that read
   // isn't current, warm it a slice at a time and draw once it is, rather
   // than pricing three thousand customers inside the tap.
-  if (!radarCheap()) {
+  if (!bookCheap()) {
     view.innerHTML = `<div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
     const prog = view.querySelector(".radar-progress");
     const again = () => { if (!view.isConnected) return; view.innerHTML = ""; renderLeads(view, { param }); };
-    warmRadar((done, total) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${Math.round(done / total * 100)}%`; }).then(again, again);
+    warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; }).then(again, again);
     return;
   }
 
@@ -96,8 +105,7 @@ export function renderLeads(view, { param }) {
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
-    if (q) list = list.filter((l) =>
-      [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase().includes(q));
+    if (q) list = list.filter((l) => haystack(l).includes(q));
 
     // Sort: overdue follow-ups first, then by follow-up date, then newest.
     list = list.slice().sort((a, b) => {
@@ -179,9 +187,13 @@ export function renderLeads(view, { param }) {
     }
 
     const sb = wrap.querySelector('input[type="search"]');
+    let searchTimer = null;
     if (sb) sb.addEventListener("input", (e) => {
       search = e.target.value;
-      renderList(); // re-render only the list for smoother typing
+      // A breath after the last keystroke, then one redraw of the list —
+      // not a redraw per key over three thousand customers.
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { if (wrap.isConnected) renderList(); }, 90);
     });
 
     // Switching filters re-renders only the list and updates the active chip in
@@ -297,9 +309,13 @@ export function renderLeads(view, { param }) {
       summary.innerHTML = `${b.total.toLocaleString()} customers · <span class="strong" style="color:var(--danger)">${b.hot} hot</span> · <span class="strong" style="color:var(--success)">${b.strong} strong</span> · ${b.worth} worth a call — best first, with the reason on each`;
       frag.appendChild(summary);
     }
-    filtered.slice(0, first).forEach((x) => frag.appendChild(card(x)));
+    // The top of the screen this frame, the rest of the first screenful
+    // next frame: half the work before the first paint, so the list is on
+    // screen sooner and a tap on the first card lands sooner.
+    const now = restore ? first : Math.min(first, 20);
+    filtered.slice(0, now).forEach((x) => frag.appendChild(card(x)));
     el.appendChild(frag);
-    let i = Math.min(first, filtered.length);
+    let i = Math.min(now, filtered.length);
     shown = i;
 
     const sentinel = document.createElement("div");
@@ -324,7 +340,7 @@ export function renderLeads(view, { param }) {
     // Refill to where the reader was, a frame at a time.
     const refill = () => {
       if (token !== renderToken || !document.body.contains(el)) return;
-      if (i < target) { append(Math.min(CHUNK, target - i)); requestAnimationFrame(refill); return; }
+      if (i < Math.max(first, target)) { append(Math.min(CHUNK, Math.max(first, target) - i)); requestAnimationFrame(refill); return; }
       watch();
     };
     // Then let the scroll position drive the rest.
@@ -349,8 +365,7 @@ export function renderLeads(view, { param }) {
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
-    if (q) list = list.filter((l) =>
-      [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase().includes(q));
+    if (q) list = list.filter((l) => haystack(l).includes(q));
     // Best deals first. The list's job is to read the whole book and put the
     // people a car can be sold to at the top, with the reason on the card —
     // see assess.js. Ties go to the nearest follow-up, then the newest.

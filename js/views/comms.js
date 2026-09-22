@@ -139,8 +139,25 @@ export function renderComms(view) {
 
     const list = document.createElement("div");
     list.className = "conv-list";
-    threads.forEach((t) => list.appendChild(convRow(t)));
+    // A screenful now; the rest as the scroll reaches them. Four hundred
+    // conversations drawn at once was the pause on the way into this screen.
+    const FIRST = 25, CHUNK = 40;
+    let i = 0;
+    const append = (n) => { const f = document.createDocumentFragment(); threads.slice(i, i + n).forEach((t) => f.appendChild(convRow(t))); i = Math.min(threads.length, i + n); list.appendChild(f); };
+    append(FIRST);
     box.appendChild(list);
+    if (i < threads.length) {
+      const more = document.createElement("div");
+      more.className = "muted small";
+      more.style.cssText = "text-align:center;padding:10px";
+      const label = () => { more.textContent = i < threads.length ? `Showing ${i} of ${threads.length}` : ""; };
+      label();
+      box.appendChild(more);
+      if (typeof IntersectionObserver === "function") {
+        const w = new IntersectionObserver((entries) => { if (!entries.some((e) => e.isIntersecting)) return; append(CHUNK); label(); if (i >= threads.length) w.disconnect(); });
+        w.observe(more);
+      } else { more.addEventListener("click", () => { append(CHUNK); label(); }); }
+    }
   }
 
   // One conversation, the way a messages list has always drawn one: who,

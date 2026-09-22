@@ -11,7 +11,7 @@ import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { getNudges } from "../nudges.js";
-import { radarCheap, warmRadar } from "./dealbuilder.js";
+import { bookCheap, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
 
 export function renderDashboard(view) {
@@ -151,12 +151,12 @@ export function renderDashboard(view) {
   // runs a slice at a time in the background, and the queue says so instead
   // of the whole screen going stiff until it's done.
   const readyPlays = () => { if (document.body.contains(playsSlot)) paintPlays(); };
-  if (radarCheap()) setTimeout(readyPlays, 0);
+  if (bookCheap()) setTimeout(readyPlays, 0);
   else {
     playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
       <div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
     const prog = playsSlot.querySelector(".radar-progress");
-    warmRadar((done, total) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${Math.round(done / total * 100)}%`; })
+    warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; })
       .then(readyPlays, readyPlays);
   }
   function paintPlays() {

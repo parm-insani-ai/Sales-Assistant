@@ -74,7 +74,9 @@ const after = await p.evaluate(async () => {
 console.log("after the warm-up:", JSON.stringify(after));
 // One warm run prices the book; Home then stamps today's prospects, and the
 // catch-up for those few is the one synchronous run allowed.
-if (after.stats.warmRuns !== 1 || after.stats.syncRuns > 1) fail("the radar didn't warm in the background, or something forced it synchronously: " + JSON.stringify(after.stats));
+// (A second, cheap warm run may follow: Home stamps today's prospects, and
+// the idle re-read at launch + 2.5s brings the radar back up to date.)
+if (after.stats.warmRuns < 1 || after.stats.warmRuns > 2 || after.stats.syncRuns > 1) fail("the radar didn't warm in the background, or something forced it synchronously: " + JSON.stringify(after.stats));
 if (after.stats.priced < 700 || after.stats.priced > 720) fail("the book was priced more than once, or not at all: " + JSON.stringify(after.stats));
 if (!/Today's queue/.test(after.slot || "") || /Reading the book/.test(after.slot || "")) fail("the queue didn't fill after the warm-up: " + after.slot);
 if (after.long.length && after.long[0] > 400) fail(`a task held the main thread ${after.long[0]}ms during the warm-up: ${JSON.stringify(after.long)}`);

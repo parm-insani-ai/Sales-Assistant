@@ -19,7 +19,7 @@ import { getOccasions } from "./occasions.js";
 import { computeDeal } from "./views/calculator.js";
 import { sendEmail, logEmail } from "./email.js";
 import { smsHref, telHref } from "./utils.js";
-import { bookingLink, cachedShortBookingLink } from "./views/settings.js";
+import { bookingLink, cachedShortBookingLink } from "./bookinglink.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
 import { getProspects, prospectStats } from "./prospects.js";
@@ -38,9 +38,7 @@ export function showLotOnScreen(res) {
   navigate("/inventory");
 }
 
-export function agentConfigured() {
-  return !!(store.getSettings().agentUrl || "").trim();
-}
+export { agentConfigured } from "./agentcfg.js";
 
 function buildContext() {
   const now = new Date();

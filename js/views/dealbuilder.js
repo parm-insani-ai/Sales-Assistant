@@ -710,7 +710,7 @@ export function radarCheap() {
 // What the radar's answer depends on, as content rather than in-memory
 // counters (which restart at zero every launch): the lot, the specials,
 // the deal settings, and whose phone this is.
-function radarContentKey() {
+export function radarContentKey() {
   const s = store.getSettings();
   const deal = ["dealMatchBand", "dealMaxPayment", "dealMethod", "defaultApr", "defaultTerm", "taxRate", "docFee", "avpRogue", "avpOther", "feeFreight", "feeAirTax", "feeTireLevy", "feePlateReg", "tradeMarginPct", "tradeRecon", "leaseRates", "residuals", "leaseMoneyFactor"].map((k) => `${k}=${JSON.stringify(s[k] ?? null)}`).join(";");
   // Sorted: the store hands records back in a different order after a
@@ -726,14 +726,14 @@ export function radarDebug() { return { rows: radarCache.rows ? radarCache.rows.
 
 // Serialise the per-customer prices for the next launch. A row carries the
 // customer object; only the id is stored and the record is rejoined on load.
-function stripLead(x) {
+export function stripLead(x) {
   if (!x || typeof x !== "object") return x;
   if (Array.isArray(x)) return x.map(stripLead);
   const out = {};
   for (const k of Object.keys(x)) out[k] = k === "lead" && x[k] && x[k].id ? { __leadId: x[k].id } : stripLead(x[k]);
   return out;
 }
-function rejoinLead(x, byId) {
+export function rejoinLead(x, byId) {
   if (!x || typeof x !== "object") return x;
   if (Array.isArray(x)) return x.map((y) => rejoinLead(y, byId));
   if (x.__leadId) return byId.get(x.__leadId) || null;

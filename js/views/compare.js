@@ -9,7 +9,7 @@ import { openModal, buildForm, toast, emptyState } from "../components.js";
 import { currency, esc, num } from "../utils.js";
 import { icon } from "../icons.js";
 import { SPEC_LIBRARY, SPEC_DISCLAIMER } from "../specs.js";
-import { bookingLink, cachedShortBookingLink } from "./settings.js";
+import { bookingLink, cachedShortBookingLink } from "../bookinglink.js";
 import * as backend from "../backend.js";
 import { shortenLink } from "../shortlink.js";
 

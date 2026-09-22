@@ -10,34 +10,36 @@ import { icon } from "./icons.js";
 import { renderDashboard } from "./views/dashboard.js";
 import { renderLeads, openLeadForm } from "./views/leads.js";
 import { renderInventory, openVehicleForm } from "./views/inventory.js";
-import { renderCalculator } from "./views/calculator.js";
-import { renderDeliveries, openDeliveryForm } from "./views/deliveries.js";
-import { renderSettings } from "./views/settings.js";
 import { openTaskForm } from "./views/tasks.js";
 import { renderCalendar, openAppointmentForm } from "./views/calendar.js";
-import { renderGoals, openSaleForm } from "./views/goals.js";
-import { renderImport } from "./views/import.js";
-import { openDealerSearch } from "./views/dealer.js";
-import { renderProspecting } from "./views/prospecting.js";
-import { renderTools, TOOL_LINKS, toolGrid } from "./views/tools.js";
-import { renderCampaign } from "./views/campaign.js";
-import { openReferralCapture } from "./views/referrals.js";
-import { renderSpiffs, openSpifForm } from "./views/spiffs.js";
-import { renderSpecials } from "./views/specials.js";
-import { renderCompare } from "./views/compare.js";
-import { renderComms } from "./views/comms.js";
-import { renderInbox } from "./views/inbox.js";
-import { renderSoldLog, openDealForm } from "./views/soldlog.js";
-import { renderCoach } from "./views/coach.js";
-import { renderPay } from "./views/pay.js";
-import { startVoiceAssistant } from "./voice.js";
+import { warmBook } from "./assess.js";
+
+// Screens off Home's path — and the voice assistant with every tool it can
+// call — load the first time they're opened, not at launch. A launch used to
+// parse a megabyte of script for screens that weren't on it; the phone's
+// first paint carries only what Home, Leads and Inventory need. Each loader
+// names its file literally so the build cache and the asset check see it.
+const LOADERS = {
+  calculator: () => import("./views/calculator.js"), deliveries: () => import("./views/deliveries.js"), settings: () => import("./views/settings.js"),
+  goals: () => import("./views/goals.js"), imp: () => import("./views/import.js"), dealer: () => import("./views/dealer.js"), prospecting: () => import("./views/prospecting.js"),
+  tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
+  specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
+  soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
+};
+// A screen: rendered once its module is here, unless the user has moved on.
+let mountToken = 0;
+const lazyView = (mod, name) => (view, ctx) => { const token = mountToken; LOADERS[mod]().then((m) => { if (token === mountToken && view.isConnected) m[name](view, ctx); }); };
+// An opener: the form or tool, once its module is here.
+const lazyFn = (mod, name) => (...args) => LOADERS[mod]().then((m) => m[name](...args));
+const openDeliveryForm = lazyFn("deliveries", "openDeliveryForm"), openSaleForm = lazyFn("goals", "openSaleForm"), openDealerSearch = lazyFn("dealer", "openDealerSearch");
+const openReferralCapture = lazyFn("referrals", "openReferralCapture"), openSpifForm = lazyFn("spiffs", "openSpifForm"), openDealForm = lazyFn("soldlog", "openDealForm");
+const startVoiceAssistant = lazyFn("voice", "startVoiceAssistant");
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from "./email.js";
 import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
 import { reviewTouch } from "./touches.js";
-import { assessAll } from "./assess.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
@@ -73,12 +75,12 @@ const PAGES = {
   "/": { title: "Dashboard", render: renderDashboard },
   "/leads": { title: "Leads", render: renderLeads },
   "/inventory": { title: "Inventory", render: renderInventory },
-  "/calculator": { title: "Deal Calculator", render: renderCalculator },
-  "/deliveries": { title: "Deliveries", render: renderDeliveries },
+  "/calculator": { title: "Deal Calculator", render: lazyView("calculator", "renderCalculator") },
+  "/deliveries": { title: "Deliveries", render: lazyView("deliveries", "renderDeliveries") },
   "/calendar": { title: "Calendar", render: renderCalendar },
-  "/goals": { title: "Goals & Commission", render: renderGoals },
-  "/tools": { title: "Tools", render: renderTools },
-  "/campaign": { title: "Campaign", render: renderCampaign },
+  "/goals": { title: "Goals & Commission", render: lazyView("goals", "renderGoals") },
+  "/tools": { title: "Tools", render: lazyView("tools", "renderTools") },
+  "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
   // Retired surfaces. The daily call list is the Home queue now, and the Deal
   // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
   // old notifications, voice commands and bookmarks still land somewhere sane.
@@ -87,16 +89,16 @@ const PAGES = {
     sessionStorage.setItem("leads-filter", "opportunity");
     navigate("/leads");
   } },
-  "/spiffs": { title: "SPIF Organizer", render: renderSpiffs },
-  "/specials": { title: "Monthly Specials", render: renderSpecials },
-  "/compare": { title: "Compare Vehicles", render: renderCompare },
-  "/comms": { title: "Communication", render: renderComms },
-  "/inbox": { title: "Inbox", render: renderInbox },
-  "/soldlog": { title: "Sold Tracker", render: renderSoldLog },
-  "/coach": { title: "Sales Coach", render: renderCoach },
-  "/pay": { title: "Paycheck", render: renderPay },
-  "/import": { title: "Import", render: renderImport },
-  "/settings": { title: "Settings", render: renderSettings },
+  "/spiffs": { title: "SPIF Organizer", render: lazyView("spiffs", "renderSpiffs") },
+  "/specials": { title: "Monthly Specials", render: lazyView("specials", "renderSpecials") },
+  "/compare": { title: "Compare Vehicles", render: lazyView("compare", "renderCompare") },
+  "/comms": { title: "Communication", render: lazyView("comms", "renderComms") },
+  "/inbox": { title: "Inbox", render: lazyView("inbox", "renderInbox") },
+  "/soldlog": { title: "Sold Tracker", render: lazyView("soldlog", "renderSoldLog") },
+  "/coach": { title: "Sales Coach", render: lazyView("coach", "renderCoach") },
+  "/pay": { title: "Paycheck", render: lazyView("pay", "renderPay") },
+  "/import": { title: "Import", render: lazyView("imp", "renderImport") },
+  "/settings": { title: "Settings", render: lazyView("settings", "renderSettings") },
   // Where a "your text is ready" notification lands: draft the step for its
   // customer and open the conversation with it in the box. Not a screen of
   // its own — it hands straight over.
@@ -105,6 +107,7 @@ const PAGES = {
 
 function mount(base, ctx) {
   const page = PAGES[base] || PAGES["/"];
+  mountToken++;
   view.innerHTML = "";
   // The view is the scroll container, so resetting it IS resetting the page.
   view.className = "view";
@@ -221,7 +224,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
 
-  openModal("Quick add", (close) => {
+  LOADERS.tools().then((tools) => openModal("Quick add", (close) => {
     const wrap = document.createElement("div");
     const section = (label, items) => {
       const title = document.createElement("div");
@@ -230,12 +233,12 @@ document.getElementById("quick-add").addEventListener("click", () => {
       else title.style.marginTop = "0";
       title.textContent = label;
       wrap.appendChild(title);
-      wrap.appendChild(toolGrid(items, close));
+      wrap.appendChild(tools.toolGrid(items, close));
     };
     section("Add new", keys.map((k) => byKey[k]));
-    section("Tools", TOOL_LINKS);
+    section("Tools", tools.TOOL_LINKS);
     return wrap;
-  });
+  }));
 });
 
 // Wrapped, not passed directly: the click event would arrive as the options
@@ -248,7 +251,7 @@ startRouter();
 // (sorted by that read) opens as fast as the second. It's cached until
 // something it reads changes; a cold read of three thousand people is a few
 // hundred milliseconds that shouldn't be paid on a tap.
-setTimeout(() => { try { assessAll(); } catch {} }, 2500);
+setTimeout(() => { try { warmBook(); } catch {} }, 2500);
 
 // Start cloud sync if it's configured and signed in (no-op otherwise).
 sync.init();
