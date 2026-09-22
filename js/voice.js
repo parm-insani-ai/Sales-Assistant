@@ -10,7 +10,8 @@ import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
-import { agentConfigured, createAgentSession } from "./agent.js";
+import { agentConfigured, createAgentSession, showLotOnScreen } from "./agent.js";
+import { answerLot } from "./lot.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -166,6 +167,12 @@ export function parseCommand(raw) {
     return { action: "appointment", type, customerName: name, when };
   }
 
+  // 5a) A question about the lot — answered from the lot, on the device.
+  {
+    const lot = answerLot(store.all("vehicles"), raw);
+    if (lot && lot.filters.confidence >= 1) return { action: "lot", text: raw };
+  }
+
   // 5) Dealer inventory search
   if (/\b(find|search|look for|show me)\b.*\b(car|vehicle|truck|suv|sedan|used|new|rogue|pathfinder|frontier|kicks|altima|sentra|titan|murano|maxima|versa|armada)\b/.test(t)
       || /\bsearch (the )?(network|store|inventory)\b/.test(t)) {
@@ -227,6 +234,12 @@ export function executeCommand(cmd) {
       });
       navigate(`/calendar/${a.id}`);
       return `Scheduled a ${label.toLowerCase()}${cmd.customerName ? " with " + cmd.customerName : ""}`;
+    }
+    case "lot": {
+      const res = answerLot(store.all("vehicles"), cmd.text);
+      if (!res) return null;
+      showLotOnScreen(res);
+      return res.answer;
     }
     case "search":
       openDealerSearch({ vehicleInterest: cmd.query });
@@ -564,7 +577,13 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
     let reply = "";
     let ok = true;
     const agent = agentSession();
-    if (agent) {
+    // A question about the lot is answered here, from the lot, before any
+    // network — the count and the website's price are exact, and instant.
+    const lotCmd = parseCommand(said);
+    if (lotCmd.action === "lot") {
+      reply = executeCommand(lotCmd) || "";
+    }
+    if (reply) { /* answered on the device */ } else if (agent) {
       setStatus("Thinking\u2026");
       wave.set("thinking");
       try {

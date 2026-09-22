@@ -18,6 +18,12 @@ export function renderInventory(view, { param }) {
   const vehicles = store.all("vehicles");
   let search = "";
   let filter = "available"; // available | new | used | all | hold | sold
+  // A question answered out loud ("any Rogue SVs?") lands here as the exact
+  // units it counted, with the question as the chip — the screen shows what
+  // the voice just said.
+  let pick = null;
+  try { pick = JSON.parse(sessionStorage.getItem("inventory-pick") || "null"); sessionStorage.removeItem("inventory-pick"); } catch { pick = null; }
+  if (pick && !(Array.isArray(pick.ids) && pick.ids.length)) pick = null;
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -25,6 +31,7 @@ export function renderInventory(view, { param }) {
   function list() {
     const q = search.toLowerCase();
     let out = vehicles;
+    if (pick) { const ids = new Set(pick.ids); out = out.filter((v) => ids.has(v.id)); return q ? out.filter((v) => [v.year, v.make, v.model, v.trim, v.color, v.stock, v.vin].join(" ").toLowerCase().includes(q)) : out; }
     if (filter === "new" || filter === "used") out = out.filter((v) => (v.status || "available") === "available" && isNew(v) === (filter === "new"));
     else if (filter !== "all") out = out.filter((v) => (v.status || "available") === filter);
     if (q) out = out.filter((v) =>
@@ -47,7 +54,8 @@ export function renderInventory(view, { param }) {
         <input type="search" placeholder="Search year, make, model, stock #…" value="${esc(search)}" />
       </div>
       <div class="btn-row" style="overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; margin-bottom:6px;">
-        ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
+        ${pick ? `<button class="btn btn-sm btn-primary" data-act="unpick" style="flex:0 0 auto" title="Show the whole lot">${esc(pick.label || "From your question")} ×</button>` : ""}
+        ${chips.map((c) => `<button class="btn btn-sm ${!pick && filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" style="flex:0 0 auto">${esc(c.label)}</button>`).join("")}
       </div>
       <div class="veh-list"></div>
     `;
@@ -75,7 +83,9 @@ export function renderInventory(view, { param }) {
       else items2.forEach((v) => el.appendChild(vehicleCard(v)));
     });
     wrap.querySelectorAll("[data-filter]").forEach((b) =>
-      b.addEventListener("click", () => { filter = b.dataset.filter; draw(); }));
+      b.addEventListener("click", () => { pick = null; filter = b.dataset.filter; draw(); }));
+    const un = wrap.querySelector('[data-act="unpick"]');
+    if (un) un.addEventListener("click", () => { pick = null; draw(); });
   }
 
   draw();

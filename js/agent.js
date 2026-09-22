@@ -28,6 +28,15 @@ import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
+import { answerLot, lotSummary } from "./lot.js";
+
+// Put the units a lot answer counted on the Inventory screen, under the
+// question as a chip, so the spoken sentence hands over to what's on screen.
+export function showLotOnScreen(res) {
+  if (!res || !res.matches || !res.matches.length) return;
+  try { sessionStorage.setItem("inventory-pick", JSON.stringify({ ids: res.matches.map((v) => v.id), label: res.label })); } catch { /* the answer still gets spoken */ }
+  navigate("/inventory");
+}
 
 export function agentConfigured() {
   return !!(store.getSettings().agentUrl || "").trim();
@@ -42,6 +51,7 @@ function buildContext() {
     nowTime: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
     salesperson: store.getSettings().salesperson || "",
     counts: { leads: store.all("leads").length, appointments: store.all("appointments").length },
+    lot: lotSummary(store.all("vehicles")),
     // The proper nouns the speech engine is most likely to have mangled. The
     // model repairing "centra" into "Sentra" from context is far more reliable
     // than any distance metric, but only if it knows what the candidates are.
@@ -98,7 +108,8 @@ const TOOLS = [
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
-  { name: "search_inventory", description: "Search the dealership's live inventory for a vehicle in stock. NOT for comparing models against each other — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "lot_lookup", description: "ANY question about what's on the lot — answered from the store's own inventory with the WEBSITE'S prices and kilometres. 'Do we have any Rogue SVs?', 'how many used Rogues?', 'what's the Civic Sport going for?', 'how many kilometres on stock NHP1868?', 'cheapest used SUV under thirty?', 'any hybrids?', 'anything black under 25?'. Pass the salesperson's words as `question`; add structured filters only when they help. Returns the count, the matching units (price, km, stock, colour, arrival date) and a ready spoken `answer` — read the answer back as is; the units are already on screen.", input_schema: { type: "object", properties: { question: { type: "string", description: "the salesperson's own words" }, condition: { type: "string", enum: ["New", "Used"] }, maxPrice: { type: "number" }, minPrice: { type: "number" }, maxKm: { type: "number" }, stock: { type: "string" }, sort: { type: "string", enum: ["price", "priceDesc", "km", "year"] }, ask: { type: "string", enum: ["count", "price", "km", "cheapest", "priciest", "newest", "list"] } }, required: ["question"] } },
+  { name: "search_inventory", description: "Search the wider O'Regan's dealer NETWORK (other stores) for a used vehicle — only when the salesperson asks about the network or other stores. Questions about OUR lot are lot_lookup. NOT for comparing models against each other — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
 
@@ -110,6 +121,7 @@ function buildSystem(ctx) {
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
     `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
+    `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
     // they're paying currently" is one sentence for a question the app can
@@ -131,6 +143,7 @@ function buildSystem(ctx) {
     `The app FOLLOWS you: a tool that returns a list of people or jobs also puts that list on the salesperson's screen, with one-tap text and call buttons on every row. So do NOT read a list aloud. Name at most the top one or two and hand over to the screen — "Lynn and Mark are your hottest, both one tap away" — because they're already looking at it.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
+    ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
     // Everything the user "says" reached here through speech recognition, and
     // saying so changes how the model reads a garbled sentence: as something to
     // repair from context rather than as a strange request to query.
@@ -782,6 +795,17 @@ export async function execTool(name, p = {}) {
       if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.name || p.customer}` };
       startCadence(lead.id);
       return { result: "started", note: `started follow-up plan for ${lead.name}` };
+    }
+    case "lot_lookup": case "lot": case "inventory_lookup": {
+      const hints = { condition: p.condition || "", maxPrice: p.maxPrice || null, minPrice: p.minPrice || null, maxKm: p.maxKm || null, stock: p.stock ? String(p.stock).toUpperCase() : "", sort: p.sort || "", ask: p.ask || "" };
+      const res = answerLot(store.all("vehicles"), p.question || p.query || "the lot", hints);
+      if (!res) {
+        const all = store.all("vehicles").filter((v) => (v.status || "available") === "available");
+        return { result: { count: all.length, answer: all.length ? lotSummary(all) : "There's nothing on the lot in the app yet — Settings → Dealer inventory sites → Import the lot now." }, note: "" };
+      }
+      showLotOnScreen(res);
+      const units = res.matches.slice(0, 8).map((v) => ({ id: v.id, vehicle: [v.year, v.make, v.model, v.trim].filter(Boolean).join(" "), price: v.price, wasPrice: v.wasPrice || null, km: v.mileage, stock: v.stock || "", color: v.color || "", condition: v.condition || "", certified: !!v.certified, arrives: v.inventoryDate && String(v.inventoryDate).slice(0, 10) > new Date().toISOString().slice(0, 10) ? String(v.inventoryDate).slice(0, 10) : "" }));
+      return { result: { count: res.count, asked: res.label, answer: res.answer, widened: !!res.widened, units, more: Math.max(0, res.count - units.length), prices: "the website's exact prices" }, note: res.count ? `${res.count} on screen` : "" };
     }
     case "search_inventory": case "find_vehicle": {
       openDealerSearch({ vehicleInterest: p.query || p.vehicle || "" });

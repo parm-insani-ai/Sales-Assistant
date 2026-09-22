@@ -205,8 +205,24 @@ function financeBase(lead, down) {
   };
 }
 
+// The website's price is the price. A new unit the site hasn't priced yet
+// (an incoming order, say) is still a real unit on the lot, so it is priced
+// at its catalogue MSRP for the trim and says so — never silently.
+function catalogueMsrp(v) {
+  if (!/new/i.test(String(v.condition || "")) || !/nissan/i.test(String(v.make || ""))) return null;
+  const model = String(v.model || "").toLowerCase().trim();
+  const x = SPEC_LIBRARY.find((e) => e.make === "Nissan" && String(e.label).replace(/^\d{4}\s+/, "").replace(/^Nissan\s+/i, "").replace(/\s*\(.*\)$/, "").toLowerCase() === model);
+  if (!x) return null;
+  const first = String(v.trim || "").toLowerCase().split(/[\s/,]+/)[0];
+  const row = Array.isArray(x.trims) && first ? x.trims.find((t) => String(t.name).toLowerCase().split(/[\s/,]+/)[0] === first) : null;
+  return (row && row.msrp) || x.msrp || null;
+}
 function availableVehicles() {
-  return store.all("vehicles").filter((v) => (v.status || "available") === "available" && v.price != null);
+  return store.all("vehicles").filter((v) => (v.status || "available") === "available").map((v) => {
+    if (v.price != null) return v.priceSource ? v : { ...v, priceSource: v.source === "web" ? "site" : "entered" };
+    const msrp = catalogueMsrp(v);
+    return msrp ? { ...v, price: msrp, priceSource: "msrp" } : v;
+  }).filter((v) => v.price != null);
 }
 
 // ---- Incentives: the Monthly Specials feed the deal math ----
@@ -794,7 +810,7 @@ export function openDealDetail(lead, m) {
       const feeFor = add.nonTaxable;
       const d = computeDeal({ price: v.price - cash + add.taxable, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, fees: feeFor, taxRate: s.taxRate, apr, term });
       breakdown = [
-        kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
+        kv(v.lineup ? "MSRP" : v.priceSource === "msrp" ? "MSRP (no website price yet)" : v.priceSource === "site" ? "Website price" : "Vehicle price", currency(v.price)),
         addonRows,
         cash ? kv("Nissan cash 🏷", "− " + currency(cash)) : "",
         kv("Trade-in value", "− " + currency(tradeVal) + tradeTag),
@@ -828,7 +844,7 @@ export function openDealDetail(lead, m) {
       const l = m.residual != null ? { residual: m.residual }
         : computeLease({ price: v.price + add.taxable, fees: add.nonTaxable, down: mDown, tradeAllowance: tradeVal, tradePayoff: payoffVal, term, residualPct: resPct, taxRate: s.taxRate, apr, msrp: v.price });
       breakdown = [
-        kv(v.lineup ? "MSRP" : "Vehicle price", currency(v.price)),
+        kv(v.lineup ? "MSRP" : v.priceSource === "msrp" ? "MSRP (no website price yet)" : v.priceSource === "site" ? "Website price" : "Vehicle price", currency(v.price)),
         addonRows,
         lcash ? kv("Nissan lease cash 🏷", "− " + currency(lcash)) : "",
         mDown ? kv("Cash down", "− " + currency(mDown)) : "",
