@@ -15,13 +15,15 @@
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
--- Every 30 minutes: the sweep. A welcome text whose five minutes are up, a
--- customer waiting on a reply, an appointment about to start unconfirmed,
--- tomorrow's delivery with prep outstanding — pushed inside business hours,
--- each at most once.
+-- Every 10 minutes: the sweep. A welcome text whose five minutes are up, a
+-- move whose clock time has come (the call again at 10:30, the trade to
+-- appraise before the visit), a customer waiting on a reply, an appointment
+-- about to start unconfirmed, tomorrow's delivery with prep outstanding —
+-- pushed inside business hours, each at most once. Ten minutes so a move
+-- timed for 10:30 is on your phone by 10:40, not 11:00.
 select cron.schedule(
   'viniva-sweep',
-  '*/30 * * * *',
+  '*/10 * * * *',
   $$
   select net.http_post(
     url     := 'https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api',

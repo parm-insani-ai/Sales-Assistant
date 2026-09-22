@@ -291,6 +291,25 @@ async function handleSweep(body: any): Promise<Response> {
           url: `./#/review/${t.id}`,
         });
       }
+      // A timed move whose moment has come — the call again at 10:30, the
+      // time to pin down, the trade to appraise before the visit — is a
+      // push at that moment, once, to the customer's page. Texts are above
+      // (they open the draft); this is everything else with a clock time.
+      for (const t of tasks) {
+        if (t.done || !t.readyAt || t.channel === "text") continue;
+        if (!(t.source === "context" || t.channel === "call" || t.cadence)) continue;
+        if (t.readyAt > nowISO || t.readyAt < dayAgo) continue;
+        const lead = leadById(t.leadId);
+        const who = lead ? String(lead.name || "A customer").split(" ")[0] : "";
+        const what = String(t.title || "").replace(/^(Call|Text|Email) \S+ — /, "");
+        found.push({
+          key: `move:${t.id}`,
+          urgency: t.channel === "call" ? 88 : 80,
+          title: t.channel === "call" ? `Time to call ${who || "them"}` : `${who ? who + ": " : ""}${what.slice(0, 60)}`,
+          body: t.channel === "call" ? what.slice(0, 90) : (Array.isArray(t.why) && t.why[0] ? String(t.why[0]).slice(0, 90) : "On your list for now — tap to open them."),
+          url: lead ? `./#/leads/${lead.id}` : "./#/",
+        });
+      }
       const dueTexts = tasks.filter((t: any) =>
         t.cadence && !t.done && t.channel === "text" && t.due && String(t.due).slice(0, 10) <= localDay &&
         (!t.readyAt || t.readyAt <= nowISO) && leadById(t.leadId)?.phone);
