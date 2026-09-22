@@ -532,7 +532,7 @@ function invPriceFromArea(resp) {
   while ((x = re.exec(text))) { const n = invNum(x[1]); if (n >= 5000 && (!best || n > best)) best = n; }
   return best;
 }
-const INV_AREA_VARIANTS = ["load-request.vehicle-vin", "load-price-area-request.vehicle-vin", "load-payment-request.vehicle-vin", "load-vehicle-price-area-request.vehicle-vin", "load-request.vin"];
+const INV_AREA_VARIANTS = ["load-vehicle-price-area-request.vehicle-vin", "load-request.vehicle-vin", "load-price-area-request.vehicle-vin", "load-request.vin"];
 function invPlatformAreaUrl(services, vin, referrer, variant) {
   const prefix = variant.split(".")[0];
   return `${services.replace(/\/$/, "")}/api/vehicle-price-area-widget/?${variant}=${encodeURIComponent(vin)}&do-${prefix}=1&${prefix}.ok=1&app.referrer=${encodeURIComponent(referrer || "")}`;
@@ -831,7 +831,9 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
           const price = resp ? invPriceFromArea(resp) : null;
           plat.areaTries[cand] = { status: r.status, bytes: body.length, keys: keys.slice(0, 8), price };
           if (resp && probe && !plat.areaSample) plat.areaSample = JSON.stringify(invSlim(resp)).slice(0, 1800);
-          if (price) { variant = cand; break; }
+          // An answer with no price means the site shows none for this unit
+          // (an incoming order, say) — there is nothing more to ask for.
+          if (resp) { if (price) variant = cand; else plat.areaNote = "the site shows no price for the first unpriced unit"; break; }
         } catch (_) { /* next */ }
       }
       plat.areaVariant = variant || null;

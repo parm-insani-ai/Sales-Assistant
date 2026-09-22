@@ -17,7 +17,7 @@ export function renderInventory(view, { param }) {
 
   const vehicles = store.all("vehicles");
   let search = "";
-  let filter = "available"; // available | all | hold | sold
+  let filter = "available"; // available | new | used | all | hold | sold
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -25,7 +25,8 @@ export function renderInventory(view, { param }) {
   function list() {
     const q = search.toLowerCase();
     let out = vehicles;
-    if (filter !== "all") out = out.filter((v) => (v.status || "available") === filter);
+    if (filter === "new" || filter === "used") out = out.filter((v) => (v.status || "available") === "available" && isNew(v) === (filter === "new"));
+    else if (filter !== "all") out = out.filter((v) => (v.status || "available") === filter);
     if (q) out = out.filter((v) =>
       [v.year, v.make, v.model, v.trim, v.color, v.stock, v.vin].join(" ").toLowerCase().includes(q));
     return out;
@@ -34,6 +35,8 @@ export function renderInventory(view, { param }) {
   function draw() {
     const chips = [
       { id: "available", label: "Available" },
+      { id: "new", label: "New" },
+      { id: "used", label: "Used" },
       { id: "hold", label: "On Hold" },
       { id: "sold", label: "Sold" },
       { id: "all", label: "All" },
@@ -78,6 +81,19 @@ export function renderInventory(view, { param }) {
   draw();
 }
 
+function isNew(v) { return /^new$/i.test(v.condition || ""); }
+// An incoming unit: the lot date is still ahead of today.
+function arrives(v) {
+  const d = String(v.inventoryDate || "").slice(0, 10);
+  if (!d || d <= new Date().toISOString().slice(0, 10)) return "";
+  const dt = new Date(d + "T12:00:00");
+  return "Arrives " + dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function priceLine(v) {
+  if (v.price == null) return isNew(v) ? '<span class="muted">No price yet</span>' : "—";
+  const was = v.wasPrice != null && v.wasPrice > v.price ? `<div class="muted" style="text-decoration:line-through;font-size:.8em">${currency(v.wasPrice)}</div>` : "";
+  return currency(v.price) + was;
+}
 function statusBadge(status) {
   const s = status || "available";
   const map = { available: "badge-available", hold: "badge-hold", sold: "badge-sold" };
@@ -93,11 +109,11 @@ function vehicleCard(v) {
       <div class="row-main">
         <div class="row-title">${esc(vehicleName(v))}</div>
         <div class="row-sub">
-          ${v.stock ? "Stock #" + esc(v.stock) : ""}${v.stock && v.mileage != null ? " · " : ""}${v.mileage != null ? num(v.mileage) + " mi" : ""}${v.color ? " · " + esc(v.color) : ""}
+          ${[v.stock ? "Stock #" + esc(v.stock) : "", isNew(v) ? "New" : v.certified ? "Certified" : "", v.mileage != null ? num(v.mileage) + " km" : "", v.color ? esc(v.color) : "", arrives(v)].filter(Boolean).join(" · ")}
         </div>
       </div>
       <div class="row-meta">
-        <div class="strong mono">${v.price != null ? currency(v.price) : "—"}</div>
+        <div class="strong mono">${priceLine(v)}</div>
         <div style="margin-top:4px">${statusBadge(v.status)}</div>
       </div>
     </div>
@@ -159,17 +175,28 @@ function renderVehicleDetail(view, id) {
         <div class="row-main"><div class="row-title" style="font-size:1.3rem">${esc(vehicleName(v))}</div></div>
         ${statusBadge(v.status)}
       </div>
-      <div class="stat-value mono" style="margin-top:12px">${v.price != null ? currency(v.price) : "Price not set"}</div>
+      <div class="stat-value mono" style="margin-top:12px">${v.price != null ? currency(v.price) : isNew(v) ? "No price yet" : "Price not set"}</div>
+      ${v.wasPrice != null && v.price != null && v.wasPrice > v.price ? `<div class="muted">Was ${currency(v.wasPrice)}</div>` : ""}
+      ${arrives(v) ? `<div class="muted" style="margin-top:4px">${arrives(v)}</div>` : ""}
     </div>
 
     <div class="section-title">Specs</div>
     <div class="card">
       <div class="kv"><span class="k">Stock #</span><span class="v">${esc(v.stock || "—")}</span></div>
       <div class="kv"><span class="k">VIN</span><span class="v">${esc(v.vin || "—")}</span></div>
-      <div class="kv"><span class="k">Mileage</span><span class="v">${v.mileage != null ? num(v.mileage) + " mi" : "—"}</span></div>
-      <div class="kv"><span class="k">Color</span><span class="v">${esc(v.color || "—")}</span></div>
+      <div class="kv"><span class="k">Condition</span><span class="v">${esc([v.condition || "Used", v.certified ? "Certified" : "", v.demo ? "Demo" : ""].filter(Boolean).join(" · "))}</span></div>
+      <div class="kv"><span class="k">Kilometres</span><span class="v">${v.mileage != null ? num(v.mileage) + " km" : "—"}</span></div>
+      <div class="kv"><span class="k">Color</span><span class="v">${esc(v.color || "—")}${v.interiorColor ? ` <span class="muted">· ${esc(v.interiorColor)} interior</span>` : ""}</span></div>
+      ${v.bodyStyle ? `<div class="kv"><span class="k">Body</span><span class="v">${esc(v.bodyStyle)}</span></div>` : ""}
+      ${v.drivetrain ? `<div class="kv"><span class="k">Drive</span><span class="v">${esc(v.drivetrain)}</span></div>` : ""}
+      ${v.fuel || v.fuelType ? `<div class="kv"><span class="k">Fuel</span><span class="v">${esc(v.fuel || v.fuelType)}</span></div>` : ""}
+      ${v.engine ? `<div class="kv"><span class="k">Engine</span><span class="v">${esc(v.engine)}</span></div>` : ""}
+      ${v.transmission ? `<div class="kv"><span class="k">Transmission</span><span class="v">${esc(v.transmission)}</span></div>` : ""}
+      ${v.inventoryDate ? `<div class="kv"><span class="k">${arrives(v) ? "Arrives" : "On the lot since"}</span><span class="v">${esc(String(v.inventoryDate).slice(0, 10))}</span></div>` : ""}
     </div>
+    ${v.description ? `<div class="section-title">Highlights</div><div class="card"><div style="white-space:pre-wrap">${esc(v.description)}</div></div>` : ""}
     ${v.notes ? `<div class="section-title">Notes</div><div class="card"><div style="white-space:pre-wrap">${esc(v.notes)}</div></div>` : ""}
+    ${v.url ? `<a class="btn btn-ghost btn-block" href="${esc(v.url)}" target="_blank" rel="noopener" style="margin-top:10px">${icon("search")} View on the website</a>` : ""}
 
     <div class="section-title">Actions</div>
     <div class="card">
