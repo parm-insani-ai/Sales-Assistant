@@ -605,6 +605,20 @@ async function crawlInventory(url: string, probe: boolean) {
       // tried with the first vehicle's VIN and stock.
       report.asJson = { search: await asJson(url) };
       if (fp) report.asJson.vehiclePage = await asJson(fp.url);
+      // The platform's own API, asked with nothing, tends to say what it wants.
+      const services = (/"servicesWebsite":\{"origin":"([^"]+)"/.exec(first.replace(/\\\//g, "/")) || [])[1] || "https://oserv3.oreganscdn.com";
+      report.servicesOrigin = services;
+      report.platformTries = {};
+      if (fp) {
+        const tries = [
+          `${services}/api/`, `${services}/api/vehicle-deal-widget/`, `${services}/api/vehicle-media/`,
+          `${services}/api/vehicle-deal-widget/?vehicle.vin=${fp.vin}&website.origin=${encodeURIComponent(origin)}`,
+          `${services}/api/vehicle-media/?vehicle.vin=${fp.vin}&website.origin=${encodeURIComponent(origin)}`,
+          `${services}/api/vehicle-deal-widget/?vin=${fp.vin}&origin=${encodeURIComponent(origin)}`,
+          `${services}/widget-sandbox/?sandbox.remote-origin=${encodeURIComponent(origin)}`,
+        ];
+        for (const t of tries) { if (Date.now() - started > BUDGET_MS + 20000) break; report.platformTries[t.replace(services, "")] = await asJson(t); }
+      }
       // The search page's own data stub — it may name where the list comes from.
       report.searchStub = ((first.match(/<script\b[^>]*>\s*(if\s*\(!self\.App\)[\s\S]*?)<\/script>/i) || [])[1] || "").slice(0, 2500);
       const own = report.scripts.filter((s: string) => /^\/|oregan/i.test(s) && /app|website|services/i.test(s)).slice(0, 3);
@@ -617,8 +631,16 @@ async function crawlInventory(url: string, probe: boolean) {
           while ((m = re.exec(js)) && hits.size < 40) if (!/\.(css|png|jpg|jpeg|webp|svg|woff2?|ico)(\?|$)/i.test(m[1])) hits.add(m[1]);
           // Where the bundle talks to the server: the code around each fetch /
           // XHR / ajax call, and every path-like string it holds.
-          const calls: string[] = []; const cr = /\b(fetch\(|XMLHttpRequest|\.ajax\(|\.getJSON\(|\.post\(|\.get\(|application\/json|do-search|X-Requested-With)/g; let c: RegExpExecArray | null;
-          while ((c = cr.exec(js)) && calls.length < 14) { calls.push(js.slice(Math.max(0, c.index - 220), c.index + 260).replace(/\s+/g, " ")); cr.lastIndex = c.index + 400; }
+          // The code around the words that matter on this platform: the
+          // details screen, the deal/media widgets, the price and odometer
+          // fields, and the JSON loader that fills them.
+          const calls: string[] = [];
+          const TOKENS = ["WfeInventoryDetailsScreen", "vehicle-deal-widget", "vehicle-media/", "JsonLoader", "PriceValue", "Odometer", "pendingData", "uiData", "api/", "requestDefaults", "vehicle.vin", "vehicleVin", "widget-sandbox", "remote-origin"];
+          for (const tok of TOKENS) {
+            let from = 0, n = 0;
+            while (n < 3) { const at = js.indexOf(tok, from); if (at < 0) break; calls.push(tok + " → " + js.slice(Math.max(0, at - 260), at + 340).replace(/\s+/g, " ")); from = at + tok.length + 600; n++; }
+            if (calls.length >= 36) break;
+          }
           const paths = new Set<string>(); const pr = /["'`](\/[A-Za-z0-9_\-./]{3,80}\/?(?:\?[^"'`\s]{0,80})?)["'`]/g; let p: RegExpExecArray | null;
           while ((p = pr.exec(js)) && paths.size < 90) if (!/\.(css|png|jpg|jpeg|webp|svg|woff2?|ico|js|html)(\?|$)/i.test(p[1]) && !/^\/\//.test(p[1])) paths.add(p[1]);
           report.bundleHints[s] = { bytes: js.length, paths: [...hits], calls, allPaths: [...paths] };
