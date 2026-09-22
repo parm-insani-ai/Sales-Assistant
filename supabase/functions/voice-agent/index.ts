@@ -610,14 +610,30 @@ async function crawlInventory(url: string, probe: boolean) {
       report.servicesOrigin = services;
       report.platformTries = {};
       if (fp) {
-        const tries = [
-          `${services}/api/`, `${services}/api/vehicle-deal-widget/`, `${services}/api/vehicle-media/`,
-          `${services}/api/vehicle-deal-widget/?vehicle.vin=${fp.vin}&website.origin=${encodeURIComponent(origin)}`,
-          `${services}/api/vehicle-media/?vehicle.vin=${fp.vin}&website.origin=${encodeURIComponent(origin)}`,
-          `${services}/api/vehicle-deal-widget/?vin=${fp.vin}&origin=${encodeURIComponent(origin)}`,
-          `${services}/widget-sandbox/?sandbox.remote-origin=${encodeURIComponent(origin)}`,
+        // A widget answers a bare GET with its installer, so a name is
+        // confirmed cheaply; the vehicle load follows the sibling widgets'
+        // convention: <prefix>.query.vin=… plus do-<prefix>=1.
+        const asJsonFull = async (u: string) => {
+          try {
+            const r = await fetch(u, { headers: { "Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": fp.url, "Origin": origin }, redirect: "follow" });
+            const body = await r.text(); let keys: string[] = [];
+            try { const j = JSON.parse(body); keys = j && typeof j === "object" ? Object.keys(j).slice(0, 20) : []; } catch (_) { /* not JSON */ }
+            return { status: r.status, type: (r.headers.get("content-type") || "").slice(0, 40), bytes: body.length, keys, head: body.slice(0, 1200).replace(/\s+/g, " ") };
+          } catch (e) { return { error: (e as Error).message }; }
+        };
+        const widgets = ["vehicle-inventory-details-screen-widget", "vehicle-inventory-details-widget", "vehicle-inventory-search-screen-widget", "vehicle-inventory-search-results-widget", "vehicle-inventory-search-controls-widget", "vehicle-price-area-widget"];
+        for (const w of widgets) { if (Date.now() - started > BUDGET_MS + 20000) break; const r: any = await asJsonFull(`${services}/api/${w}/`); r.head = String(r.head || "").slice(0, 300); report.platformTries["install " + w] = r; }
+        const ref = `&app.referrer=${encodeURIComponent(fp.url)}`;
+        const loads = [
+          `${services}/api/vehicle-inventory-details-screen-widget/?load-vehicle-request.query.vin=${fp.vin}&do-load-vehicle-request=1&load-vehicle-request.ok=1${ref}`,
+          `${services}/api/vehicle-inventory-details-screen-widget/?load-request.query.vin=${fp.vin}&do-load-request=1&load-request.ok=1${ref}`,
+          `${services}/api/vehicle-inventory-details-screen-widget/?vehicle-request.query.vin=${fp.vin}&do-vehicle-request=1&vehicle-request.ok=1${ref}`,
+          `${services}/api/vehicle-inventory-details-screen-widget/?query.vin=${fp.vin}&do-load=1${ref}`,
+          `${services}/api/vehicle-price-area-widget/?load-request.vehicle-vin=${fp.vin}&do-load-request=1&load-request.ok=1${ref}`,
+          `${services}/api/vehicle-inventory-search-results-widget/?search-request.search.vehicle-inventory-type-ids.0=-1&do-search-request=1&search-request.ok=1${ref}`,
+          `${services}/api/vehicle-inventory-search-results-widget/?search.vehicle-inventory-type-ids.0=-1&do-search=1${ref}`,
         ];
-        for (const t of tries) { if (Date.now() - started > BUDGET_MS + 20000) break; report.platformTries[t.replace(services, "")] = await asJson(t); }
+        for (const t of loads) { if (Date.now() - started > BUDGET_MS + 25000) break; report.platformTries[t.replace(services, "")] = await asJsonFull(t); }
       }
       // The search page's own data stub — it may name where the list comes from.
       report.searchStub = ((first.match(/<script\b[^>]*>\s*(if\s*\(!self\.App\)[\s\S]*?)<\/script>/i) || [])[1] || "").slice(0, 2500);
@@ -635,12 +651,18 @@ async function crawlInventory(url: string, probe: boolean) {
           // details screen, the deal/media widgets, the price and odometer
           // fields, and the JSON loader that fills them.
           const calls: string[] = [];
-          const TOKENS = ["WfeInventoryDetailsScreen", "vehicle-deal-widget", "vehicle-media/", "JsonLoader", "PriceValue", "Odometer", "pendingData", "uiData", "api/", "requestDefaults", "vehicle.vin", "vehicleVin", "widget-sandbox", "remote-origin"];
+          const TOKENS = ["_loadVehicle", "odometer", "vehicle-inventory-details", "vehicle-inventory-search", "search-results", "doSearch", "vehicle-price-area", "getAsArray(\"vehicles", "load-request"];
           for (const tok of TOKENS) {
             let from = 0, n = 0;
-            while (n < 3) { const at = js.indexOf(tok, from); if (at < 0) break; calls.push(tok + " → " + js.slice(Math.max(0, at - 260), at + 340).replace(/\s+/g, " ")); from = at + tok.length + 600; n++; }
-            if (calls.length >= 36) break;
+            while (n < 3) { const at = js.indexOf(tok, from); if (at < 0) break; calls.push(tok + " → " + js.slice(Math.max(0, at - 300), at + 500).replace(/\s+/g, " ")); from = at + tok.length + 800; n++; }
+            if (calls.length >= 27) break;
           }
+          // Every widget name, query prefix and query key the bundle uses.
+          const names = new Set<string>(); const nr = /apiCall:"([^"]+)"/g; let nm: RegExpExecArray | null; while ((nm = nr.exec(js))) names.add(nm[1]);
+          const prefixes = new Set<string>(); const xr = /objectToQuery\([^,()]+,"([^"]+)"\)/g; while ((nm = xr.exec(js))) prefixes.add(nm[1]);
+          const keys = new Set<string>(); const kr = /query\["([^"]+)"\]\s*=/g; while ((nm = kr.exec(js))) keys.add(nm[1]);
+          const responses = new Set<string>(); const rr = /response\.([A-Za-z]+)/g; while ((nm = rr.exec(js)) && responses.size < 40) responses.add(nm[1]);
+          (report.bundleWords = report.bundleWords || {})[s] = { widgets: [...names], prefixes: [...prefixes], keys: [...keys], responses: [...responses] };
           const paths = new Set<string>(); const pr = /["'`](\/[A-Za-z0-9_\-./]{3,80}\/?(?:\?[^"'`\s]{0,80})?)["'`]/g; let p: RegExpExecArray | null;
           while ((p = pr.exec(js)) && paths.size < 90) if (!/\.(css|png|jpg|jpeg|webp|svg|woff2?|ico|js|html)(\?|$)/i.test(p[1]) && !/^\/\//.test(p[1])) paths.add(p[1]);
           report.bundleHints[s] = { bytes: js.length, paths: [...hits], calls, allPaths: [...paths] };
