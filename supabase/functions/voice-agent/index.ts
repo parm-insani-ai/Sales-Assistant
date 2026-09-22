@@ -475,8 +475,15 @@ function invPageProbe(html, url) {
   while ((m = re.exec(h)) && ctx.length < 2) ctx.push(h.slice(Math.max(0, m.index - 400), m.index + 300).replace(/\s+/g, " "));
   const inline = []; const sr = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi; let s;
   while ((s = sr.exec(h))) { if (!/\bsrc=/i.test(s[1]) && s[2].trim()) inline.push({ bytes: s[2].length, head: s[2].trim().slice(0, 160).replace(/\s+/g, " ") }); if (inline.length >= 12) break; }
+  // The page's own data stub, whole, and the HTML around any price-like word.
+  const stub = (h.match(/<script\b[^>]*>\s*(if\s*\(!self\.App\)[\s\S]*?)<\/script>/i) || [])[1] || "";
+  const around = []; const ar = /\b(was|price|pricing|odometer|kilomet|mileage|\bkm\b|msrp)/gi; let a;
+  while ((a = ar.exec(h)) && around.length < 6) { around.push(h.slice(Math.max(0, a.index - 150), a.index + 200).replace(/\s+/g, " ")); ar.lastIndex = a.index + 300; }
+  const metas = (h.match(/<meta[^>]+(?:name|property)=["'][^"']+["']/gi) || []).map((x) => (/(?:name|property)=["']([^"']+)/i.exec(x) || [])[1]).filter(Boolean).slice(0, 30);
+  const noscript = invText((h.match(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi) || []).join(" ")).slice(0, 300);
   return {
     url: String(url || ""), title: invDecode((/<title>([^<]*)/i.exec(h) || [])[1] || "").slice(0, 160),
+    stub: stub.slice(0, 2500), around, metas, noscript,
     h1: invDecode(((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(h) || [])[1] || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").slice(0, 160),
     og: { title: meta("og:title"), description: meta("og:description"), image: meta("og:image") },
     textSnippet: invText(h).slice(0, 700), vinContexts: ctx, inlineScripts: inline, apiHints: invApiHints(h), dataAttrs: (h.match(/data-(?:vin|stock|vehicle|year|make|model|price|trim)[a-z-]*=["'][^"']{0,60}["']/gi) || []).slice(0, 15),
@@ -597,17 +604,9 @@ async function crawlInventory(url: string, probe: boolean) {
       // The same pages asked for as JSON, and the API paths the bundle named,
       // tried with the first vehicle's VIN and stock.
       report.asJson = { search: await asJson(url) };
-      if (fp) {
-        report.asJson.vehiclePage = await asJson(fp.url);
-        const tries: string[] = [];
-        for (const path of ["/api/vehicle-deal-widget/", "/api/vehicle-media/", "/api/vehicle-main-photo-widget/", "/api/vehicle-specials-widget/"]) {
-          tries.push(`${origin}${path}?vin=${fp.vin}`);
-          if (fp.stock) tries.push(`${origin}${path}?stock=${encodeURIComponent(fp.stock)}`);
-        }
-        tries.push(`${origin}/api/vehicles/?vin=${fp.vin}`, `${origin}/api/vehicle/${fp.vin}/`, `${origin}/api/inventory/?vin=${fp.vin}`, `${origin}/inventory/?do-search=1&search.vin=${fp.vin}`);
-        report.apiTries = {};
-        for (const t of tries.slice(0, 12)) { if (Date.now() - started > BUDGET_MS + 20000) break; report.apiTries[t.replace(origin, "")] = await asJson(t); }
-      }
+      if (fp) report.asJson.vehiclePage = await asJson(fp.url);
+      // The search page's own data stub — it may name where the list comes from.
+      report.searchStub = ((first.match(/<script\b[^>]*>\s*(if\s*\(!self\.App\)[\s\S]*?)<\/script>/i) || [])[1] || "").slice(0, 2500);
       const own = report.scripts.filter((s: string) => /^\/|oregan/i.test(s) && /app|website|services/i.test(s)).slice(0, 3);
       report.bundleHints = {};
       for (const s of own) {
@@ -616,7 +615,13 @@ async function crawlInventory(url: string, probe: boolean) {
           const js = await fetchSitePage(new URL(s, origin).toString());
           const hits = new Set<string>(); const re = /["'`]((?:\/|https?:\/\/)[^"'`\s]{3,120}(?:api|json|vehicle|inventory|search|vdp|srp|listing)[^"'`\s]{0,80})["'`]/gi; let m: RegExpExecArray | null;
           while ((m = re.exec(js)) && hits.size < 40) if (!/\.(css|png|jpg|jpeg|webp|svg|woff2?|ico)(\?|$)/i.test(m[1])) hits.add(m[1]);
-          report.bundleHints[s] = { bytes: js.length, paths: [...hits] };
+          // Where the bundle talks to the server: the code around each fetch /
+          // XHR / ajax call, and every path-like string it holds.
+          const calls: string[] = []; const cr = /\b(fetch\(|XMLHttpRequest|\.ajax\(|\.getJSON\(|\.post\(|\.get\(|application\/json|do-search|X-Requested-With)/g; let c: RegExpExecArray | null;
+          while ((c = cr.exec(js)) && calls.length < 14) { calls.push(js.slice(Math.max(0, c.index - 220), c.index + 260).replace(/\s+/g, " ")); cr.lastIndex = c.index + 400; }
+          const paths = new Set<string>(); const pr = /["'`](\/[A-Za-z0-9_\-./]{3,80}\/?(?:\?[^"'`\s]{0,80})?)["'`]/g; let p: RegExpExecArray | null;
+          while ((p = pr.exec(js)) && paths.size < 90) if (!/\.(css|png|jpg|jpeg|webp|svg|woff2?|ico|js|html)(\?|$)/i.test(p[1]) && !/^\/\//.test(p[1])) paths.add(p[1]);
+          report.bundleHints[s] = { bytes: js.length, paths: [...hits], calls, allPaths: [...paths] };
         } catch (e) { report.bundleHints[s] = { error: (e as Error).message }; }
       }
     }
