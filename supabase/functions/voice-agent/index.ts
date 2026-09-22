@@ -494,7 +494,7 @@ function invFromPlatformVehicle(v, url) {
     vin: String(v.vin || "").toUpperCase(), stock: String(v.stockNumber || v.stock || ""),
     year: invNum(v.vehicleYear) || invNum(g("vehicleModelYear.theYear.name")) || null,
     make: name(g("vehicleModel.vehicleMake")) || name(info.make) || "", model: name(v.vehicleModel) || name(info.model) || "",
-    trim: String(v.trimDescription || name(info.trim) || name(g("vinDetails.vehicleTrim")) || ""),
+    trim: [v.trimDescription, name(g("vinDetails.vehicleTrim")), name(info.trim)].map((x) => String(x || "")).find((x) => x && !/^(unknown|n\/a|none)$/i.test(x)) || "",
     price: invNum(v.price) || invNum(v.basePrice) || null, wasPrice: invNum(v.previousPrice) || null, mileage,
     color: name(g("vinDetails.exteriorVehicleColor")) || name(info.exteriorColor) || "", interiorColor: name(info.interiorColor) || "",
     bodyStyle: name(v.vehicleBodyStyleGroup) || name(info.bodyStyle) || "",
@@ -515,6 +515,27 @@ function invKmFromSpecs(resp) {
   const text = invText(typeof resp === "string" ? resp : JSON.stringify(resp).replace(/\\"/g, '"').replace(/\\\//g, "/"));
   const m = /(?:odometer|mileage|kilomet\w*)[^0-9]{0,40}?(\d[\d,]{0,8})/i.exec(text) || /(\d[\d,]{1,8})\s*km\b/i.exec(text);
   return m ? invNum(m[1]) : null;
+}
+// A price from the platform's price-area answer for a new vehicle: a named
+// number first (MSRP, price, total — never a payment), then "MSRP $52,998"
+// in its HTML, then the largest dollar figure that isn't a payment.
+function invPriceFromArea(resp) {
+  if (!resp) return null;
+  if (typeof resp === "object") {
+    const n = invDeepFind(resp, /^(?!.*payment)(?=.*(msrp|sellingprice|salePrice|price|total)).*$/i, "number");
+    if (n && n >= 5000) return n;
+  }
+  const text = invText(typeof resp === "string" ? resp : JSON.stringify(resp).replace(/\\"/g, '"').replace(/\\\//g, "/"));
+  const m = /(?:msrp|price|from|starting)[^$]{0,40}\$\s?(\d[\d,]{3,8})/i.exec(text);
+  if (m && invNum(m[1]) >= 5000) return invNum(m[1]);
+  let best = null; const re = /\$\s?(\d[\d,]{3,8})/g; let x;
+  while ((x = re.exec(text))) { const n = invNum(x[1]); if (n >= 5000 && (!best || n > best)) best = n; }
+  return best;
+}
+const INV_AREA_VARIANTS = ["load-request.vehicle-vin", "load-price-area-request.vehicle-vin", "load-payment-request.vehicle-vin", "load-vehicle-price-area-request.vehicle-vin", "load-request.vin"];
+function invPlatformAreaUrl(services, vin, referrer, variant) {
+  const prefix = variant.split(".")[0];
+  return `${services.replace(/\/$/, "")}/api/vehicle-price-area-widget/?${variant}=${encodeURIComponent(vin)}&do-${prefix}=1&${prefix}.ok=1&app.referrer=${encodeURIComponent(referrer || "")}`;
 }
 // A raw answer with its long strings cut, for the report.
 function invSlim(x, depth) {
@@ -792,8 +813,58 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
         });
       }
     }
+    // New units carry no price in the vehicle answer; the page prices them
+    // through the price-area widget. Its request shape is found on the first
+    // unpriced vehicle and then used for the rest.
+    const unpriced = targets.filter((v) => v.via === "platform" && !v.price);
+    if (unpriced.length && Date.now() - started < BUDGET_MS) {
+      const probeV = unpriced[0];
+      let variant = "";
+      plat.areaTries = {};
+      for (const cand of INV_AREA_VARIANTS) {
+        try {
+          const r = await fetch(invPlatformAreaUrl(services, probeV.vin, probeV.url || url, cand), { headers: platHeaders(probeV.url || url) });
+          const body = await r.text();
+          let j: any = null; try { j = JSON.parse(body); } catch (_) { /* not JSON */ }
+          const keys = j && typeof j === "object" ? Object.keys(j) : [];
+          const resp = j && keys.filter((k) => /response/i.test(k) && !/^do/i.test(k)).map((k) => j[k]).find((x) => x && JSON.stringify(x).length > 60);
+          const price = resp ? invPriceFromArea(resp) : null;
+          plat.areaTries[cand] = { status: r.status, bytes: body.length, keys: keys.slice(0, 8), price };
+          if (resp && probe && !plat.areaSample) plat.areaSample = JSON.stringify(invSlim(resp)).slice(0, 1800);
+          if (price) { variant = cand; break; }
+        } catch (_) { /* next */ }
+      }
+      plat.areaVariant = variant || null;
+      if (variant) {
+        await fetchMany(unpriced, 6, async (v) => {
+          if (Date.now() - started > BUDGET_MS) { report.complete = false; return; }
+          try {
+            const r = await fetch(invPlatformAreaUrl(services, v.vin, v.url || url, variant), { headers: platHeaders(v.url || url) });
+            if (!r.ok) return;
+            const j = await r.json();
+            const resp = Object.keys(j || {}).filter((k) => /response/i.test(k) && !/^do/i.test(k)).map((k) => j[k]).find((x) => x && JSON.stringify(x).length > 60);
+            const price = invPriceFromArea(resp);
+            if (price) { v.price = price; plat.priced++; }
+          } catch (_) { /* leave the price blank */ }
+        });
+      }
+    }
     if (!report.complete && !report.warnings.includes("stopped at the time budget — the rest come next run")) report.warnings.push("stopped at the time budget — the rest come next run");
     report.platform = plat;
+    if (probe && unpriced.length && !plat.areaVariant) {
+      try {
+        const bundle = invScripts(first).find((x) => /bundles\/website/.test(x));
+        if (bundle) {
+          const js = await fetchSitePage(new URL(bundle, origin).toString());
+          const windows: string[] = [];
+          for (const tok of ["ovpawArea", "loadPaymentResponse", "price-area-widget/", "_loadPriceArea", "do-load-payment", "vehicleVin:"]) {
+            let from = 0, n = 0;
+            while (n < 2) { const at = js.indexOf(tok, from); if (at < 0) break; windows.push(tok + " → " + js.slice(Math.max(0, at - 350), at + 450).replace(/\s+/g, " ")); from = at + tok.length + 900; n++; }
+          }
+          plat.areaCode = windows;
+        }
+      } catch (_) { /* the bundle is only for the report */ }
+    }
     if (probe && sampleRaw) report.platformSample = JSON.stringify(invSlim(sampleRaw)).slice(0, 2500);
     if (probe && unpricedRaw) report.platformUnpricedSample = JSON.stringify(invSlim(unpricedRaw)).slice(0, 2500);
   }

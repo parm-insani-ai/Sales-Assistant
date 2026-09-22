@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl, invKmFromSpecs, invSlim, invPlatformSpecsUrl };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl, invKmFromSpecs, invSlim, invPlatformSpecsUrl, invPriceFromArea, invPlatformAreaUrl };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -154,6 +154,17 @@ if (lib.invKmFromSpecs({ html: "<p>No specs</p>" }) !== null) fail("no km invent
 const slim = lib.invSlim({ a: "x".repeat(400), b: { c: [1, 2, 3, 4, 5, 6, 7, 8] } });
 if (slim.a.length !== 161 || slim.b.c.length !== 6) fail("slim didn't cut: " + JSON.stringify(slim));
 if (!/vehicle-summary-specs-widget\/\?load-vehicle-summary-specs-request\.vin=ABC&do-load-vehicle-summary-specs-request=1/.test(lib.invPlatformSpecsUrl("https://o.example.com", "ABC", "https://x.com/", "vin"))) fail("specs url");
+
+// --- 5h. A new unit: the trim comes from the VIN when the description is UNKNOWN; the price from the price area.
+const newUnit = JSON.parse(JSON.stringify(platform)); newUnit.price = null; newUnit.basePrice = null; newUnit.previousPrice = null; newUnit.trimDescription = "UNKNOWN";
+newUnit.vinDetails.vehicleTrim = { id: 1, name: "SV+" }; newUnit.vehicleInventoryType = { id: 1, name: "New" }; newUnit.vehicleCategory = null;
+const nu = lib.invFromPlatformVehicle(newUnit, "https://x.com/inventory/New-2027-Nissan-Ariya-SV-794371/");
+if (nu.trim !== "SV+" || nu.price !== null || nu.condition !== "New" || nu.certified !== false) fail("the new unit didn't read right: " + JSON.stringify(nu));
+if (lib.invPriceFromArea({ payment: { amount: 289, frequency: "bi-weekly" }, msrp: 52998 }) !== 52998) fail("price from a named msrp");
+if (lib.invPriceFromArea({ html: "<div class='ovpawPayment'>$289 bi-weekly</div><div class='ovpawPrice'>MSRP <span>$52,998</span></div>" }) !== 52998) fail("price from html");
+if (lib.invPriceFromArea({ html: "<div>$1,234 /mo</div><div>$61,500</div>" }) !== 61500) fail("largest dollar figure that isn't a payment");
+if (lib.invPriceFromArea({ html: "<div>Call for pricing</div>" }) !== null) fail("no price invented");
+if (!/vehicle-price-area-widget\/\?load-request\.vehicle-vin=ABC&do-load-request=1&load-request\.ok=1/.test(lib.invPlatformAreaUrl("https://o.example.com", "ABC", "https://x.com/", "load-request.vehicle-vin"))) fail("area url");
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");
