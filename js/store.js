@@ -235,7 +235,7 @@ const DEFAULT_STATE = {
     // site is pre-filtered to Used to match the "used only from other stores"
     // rule. All editable in Settings so this works for any dealer group.
     storeSiteName: "My store",
-    storeSiteUrl: "https://www.oregansnissanhalifax.com/inventory/?do-search=1",
+    storeSiteUrl: "https://www.oregansnissanhalifax.com/inventory/?do-search=1&search.vehicle-inventory-type-ids.0=-1",
     networkSiteName: "O'Regan's network",
     networkSiteUrl: "https://www.oregans.com/inventory/?do-search=1",
     networkUsedSuffix: "&search.vehicle-inventory-type-ids.0=2",
@@ -349,6 +349,12 @@ function hydrate(parsed) {
     const def = BACKEND_DEFAULTS.agentUrl || "";
     const sameProject = def && cur && cur.startsWith(def.replace(/\/functions\/v1\/.*$/, "/functions/v1/"));
     if (def && (!cur || (sameProject && /\/voice-agent\/?$/.test(cur)))) merged.settings.agentUrl = def;
+  }
+  // The store URL used to stop at do-search=1; the whole lot (new and used) is
+  // the -1 filter. An install still on the old default moves to it; a URL
+  // typed by hand is left alone.
+  if (merged.settings.storeSiteUrl === "https://www.oregansnissanhalifax.com/inventory/?do-search=1") {
+    merged.settings.storeSiteUrl = DEFAULT_STATE.settings.storeSiteUrl;
   }
   // One-time correction: early builds shipped a 6.5% tax default. Nova Scotia
   // HST on a vehicle deal is 14%. Runs once (taxRateFixed), so a rate the

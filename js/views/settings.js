@@ -129,6 +129,17 @@ export function renderSettings(view) {
       <div class="field"><label>Network — inventory URL</label><input id="d-net-url" type="url" value="${esc(s.networkSiteUrl || "")}" placeholder="https://…/inventory/"></div>
       <div class="field" style="margin-bottom:0"><label>Network “used only” filter</label><input id="d-net-suffix" value="${esc(s.networkUsedSuffix || "")}" placeholder="&search.vehicle-inventory-type-ids.0=2"></div>
       <div class="hint">Advanced: the query string appended to the network URL to show only used vehicles.</div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div class="strong small" style="margin-bottom:4px">The lot, in the app</div>
+        <div class="small muted" style="margin-bottom:10px">Every morning at 7 the store's inventory page is read into Inventory: new units added, prices and mileage updated, units gone marked sold. That's what the stock moves, the deal radar and the drafted texts match against.</div>
+        <button type="button" class="btn btn-primary btn-block" id="inv-import">${icon("car")} Import the lot now</button>
+        <div class="small muted" id="inv-status" style="margin-top:8px">${(() => {
+          const r = s.lastInventoryImport;
+          if (!r || !r.at) return "Not imported yet.";
+          return `Last import ${esc(timeAgo(r.at))}: ${r.found} on the site · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.onFile} on file`;
+        })()}</div>
+        <button type="button" class="btn btn-ghost btn-sm" id="inv-copy" style="margin-top:8px" hidden>Copy the import report</button>
+      </div>
     </div>
 
     <div class="section-title">Message templates</div>
@@ -239,6 +250,46 @@ export function renderSettings(view) {
     store.updateSettings({ contactEmail: e.target.value.trim() }));
   el.querySelector("#s-review").addEventListener("change", (e) =>
     store.updateSettings({ reviewLink: e.target.value.trim() }));
+
+  // Import the lot: the function reads the store's site and writes the
+  // vehicles; a sync brings them down; the line under the button says what
+  // happened, and the report can be copied when the site reads badly.
+  let lastReport = null;
+  el.querySelector("#inv-import").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget, line = el.querySelector("#inv-status"), copy = el.querySelector("#inv-copy");
+    const user = backend.currentUser();
+    const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
+    if (!user) { toast("Sign in to Cloud sync first", "danger"); return; }
+    if (!url) { toast("Set up the agent function first (Settings → Voice agent)", "danger"); return; }
+    btn.disabled = true; line.textContent = "Reading the site… this takes a moment for a big lot.";
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inventory: { u: user.id, probe: 1 } }) });
+      const r = await res.json().catch(() => ({}));
+      lastReport = r;
+      if (!res.ok || r.error) {
+        const msg = r.error || `The function answered ${res.status}`;
+        line.textContent = /Agent failed|Bad JSON|not found/i.test(msg) ? "The function doesn't have the inventory import yet — paste the latest code into quick-api and deploy." : msg;
+        copy.hidden = false;
+        toast("Import failed", "danger");
+        return;
+      }
+      store.updateSettings({ lastInventoryImport: { at: r.at || new Date().toISOString(), found: r.found || 0, added: r.added || 0, updated: r.updated || 0, removed: r.removed || 0, onFile: r.onFile || 0 } });
+      line.textContent = r.found
+        ? `${r.found} on the site · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.onFile} on file · ${r.pages} page${r.pages === 1 ? "" : "s"}`
+        : "The site was read but no vehicles were found on it — copy the report and send it over.";
+      copy.hidden = false;
+      toast(r.found ? `${r.found} vehicles read — syncing them down` : "Nothing found", r.found ? "success" : "danger");
+      sync.syncNow({ reconcile: true });
+    } catch (e) {
+      line.textContent = `Couldn't reach the function: ${(e && e.message) || e}`;
+      toast("Import failed", "danger");
+    } finally { btn.disabled = false; }
+  });
+  el.querySelector("#inv-copy").addEventListener("click", async () => {
+    const text = "viniva inventory import report\n" + JSON.stringify(lastReport, null, 2);
+    try { await navigator.clipboard.writeText(text); toast("Report copied — paste it into the chat", "success"); }
+    catch { toast("Couldn't copy — take a screenshot of Settings instead", "danger"); }
+  });
 
   const dealerBind = { "d-store-name": "storeSiteName", "d-store-url": "storeSiteUrl", "d-net-name": "networkSiteName", "d-net-url": "networkSiteUrl", "d-net-suffix": "networkUsedSuffix" };
   Object.entries(dealerBind).forEach(([id, key]) =>

@@ -230,6 +230,276 @@ function inBusinessHours(localHour: number, localDow: number, cfg: any): boolean
   return from < to ? (localHour >= from && localHour < to) : (localHour >= from || localHour < to);
 }
 
+// ---- Inventory import: the lot, from the store's own website ----------------
+// The website is the one place the lot is always current. Once a day (and on
+// demand from Settings) the search page is fetched, every vehicle on it is
+// read, and the vehicles collection is brought in line: new units added,
+// prices and mileage updated, units gone from the site marked sold. The app
+// pulls them down on its next sync like any other record.
+//
+// The reader tries three things on each page, best first: the structured
+// data dealer sites publish for search engines (JSON-LD Vehicle/Car/Product),
+// the inline JSON many sites ship for their own scripts (any object with a
+// "vin"), and finally the HTML itself around every 17-character VIN. The
+// probe report says which one produced what, so a site that reads badly can
+// be fixed from the report rather than by guessing.
+//
+// === inventory parser (plain JS — test/inventoryparse.test.js runs this block in node) ===
+function invDecode(s) { return String(s || "").replace(/&amp;/g, "&").replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(Number(n))).trim(); }
+function invText(html) { return invDecode(String(html || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " "); }
+function invNum(v) { if (v == null) return null; const n = Number(String(v).replace(/[^0-9.]/g, "")); return isFinite(n) && n > 0 ? n : null; }
+function invLooksVin(v) { return /^[A-HJ-NPR-Z0-9]{17}$/.test(String(v || "")) && /\d/.test(v) && /[A-Z]/.test(v); }
+function invCondition(s) { const t = String(s || "").toLowerCase(); if (/usedcondition|refurbish|\bused\b|pre-?owned|certified|\bcpo\b|\bdemo\b/.test(t)) return "Used"; if (/newcondition|\bnew\b/.test(t)) return "New"; return ""; }
+function invSplitName(name) {
+  const m = /^\s*((?:19|20)\d{2})\s+([A-Za-z-]+)\s+(.+)$/.exec(String(name || "").trim());
+  if (!m) return null;
+  const rest = m[3].trim().split(/\s+/);
+  return { year: Number(m[1]), make: m[2], model: rest[0], trim: rest.slice(1).join(" ") };
+}
+function invFirst(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of keys) { const kk = Object.keys(obj).find((x) => x.toLowerCase() === k.toLowerCase()); if (kk && obj[kk] != null && obj[kk] !== "") return obj[kk]; }
+  return null;
+}
+function invFromJsonLd(html, out) {
+  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi; let m;
+  while ((m = re.exec(html))) {
+    let data; try { data = JSON.parse(m[1].trim()); } catch (e) { continue; }
+    const items = [];
+    const walk = (x) => {
+      if (!x) return;
+      if (Array.isArray(x)) return x.forEach(walk);
+      if (typeof x !== "object") return;
+      const t = Array.isArray(x["@type"]) ? x["@type"].join(" ") : String(x["@type"] || "");
+      if (/Vehicle|Car\b|Product/i.test(t)) items.push(x);
+      ["@graph", "itemListElement", "item", "mainEntity", "offers"].forEach((k) => { if (x[k] && typeof x[k] === "object") walk(x[k]); });
+    };
+    walk(data);
+    items.forEach((x) => {
+      const vin = String(x.vehicleIdentificationNumber || x.vin || "").toUpperCase();
+      const name = String(x.name || "");
+      const split = invSplitName(name) || {};
+      const offers = Array.isArray(x.offers) ? x.offers[0] || {} : x.offers || {};
+      const brand = x.brand && typeof x.brand === "object" ? x.brand.name : x.brand;
+      const image = Array.isArray(x.image) ? x.image[0] : x.image && typeof x.image === "object" ? x.image.url : x.image;
+      const rec = {
+        vin: invLooksVin(vin) ? vin : "", stock: String(x.sku || x.stockNumber || ""),
+        year: Number(x.vehicleModelDate || x.modelDate || x.productionDate || split.year) || null,
+        make: String(brand || x.manufacturer || split.make || ""), model: String(x.model || split.model || ""),
+        trim: String(x.vehicleConfiguration || x.trim || split.trim || ""),
+        price: invNum(offers.price || (offers.priceSpecification && offers.priceSpecification.price) || x.price),
+        mileage: invNum(x.mileageFromOdometer && typeof x.mileageFromOdometer === "object" ? x.mileageFromOdometer.value : x.mileageFromOdometer),
+        color: String(x.color || ""), bodyStyle: String(x.bodyType || ""),
+        condition: invCondition(String(x.itemCondition || offers.itemCondition || "") + " " + name),
+        url: String(x.url || offers.url || ""), photo: String(image || ""), via: "jsonld",
+      };
+      if (rec.vin || (rec.make && rec.model)) out.push(rec);
+    });
+  }
+}
+function invFromScripts(html, out) {
+  const re = /<script\b[^>]*>([\s\S]*?)<\/script>/gi; let m;
+  while ((m = re.exec(html))) {
+    const js = m[1]; if (!/vin/i.test(js) || /ld\+json/i.test(m[0])) continue;
+    const vr = /["']?vin["']?\s*:\s*["']([A-HJ-NPR-Z0-9]{17})["']/gi; let v;
+    while ((v = vr.exec(js))) {
+      let depth = 0, start = -1;
+      for (let k = v.index; k >= 0 && k > v.index - 20000; k--) { const c = js[k]; if (c === "}") depth++; else if (c === "{") { if (depth === 0) { start = k; break; } depth--; } }
+      if (start < 0) continue;
+      depth = 0; let end = -1;
+      for (let k = start; k < js.length && k < start + 40000; k++) { const c = js[k]; if (c === "{") depth++; else if (c === "}") { depth--; if (depth === 0) { end = k; break; } } }
+      if (end < 0) continue;
+      const raw = js.slice(start, end + 1);
+      let obj = null;
+      try { obj = JSON.parse(raw); } catch (e) { try { obj = JSON.parse(raw.replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":').replace(/'/g, '"')); } catch (e2) { obj = null; } }
+      if (!obj) continue;
+      const g = (keys) => invFirst(obj, keys);
+      const name = String(g(["title", "name", "vehicleTitle", "heading", "displayName"]) || "");
+      const split = invSplitName(name) || {};
+      const isNew = g(["isNew", "new"]);
+      const rec = {
+        vin: String(g(["vin"]) || "").toUpperCase(), stock: String(g(["stock", "stockNumber", "stock_number", "stockNo", "stocknum", "sku"]) || ""),
+        year: Number(g(["year", "modelYear", "model_year"]) || split.year) || null,
+        make: String(g(["make", "brand", "manufacturer"]) || split.make || ""), model: String(g(["model"]) || split.model || ""),
+        trim: String(g(["trim", "series", "trimLevel", "trim_level"]) || split.trim || ""),
+        price: invNum(g(["price", "salePrice", "sellingPrice", "internetPrice", "askingPrice", "finalPrice", "msrp", "listPrice"])),
+        mileage: invNum(g(["mileage", "odometer", "kilometers", "kilometres", "km", "kms"])),
+        color: String(g(["exteriorColor", "exterior_color", "extColor", "color", "colour"]) || ""),
+        bodyStyle: String(g(["bodyStyle", "body_style", "bodyType", "body"]) || ""),
+        condition: typeof isNew === "boolean" ? (isNew ? "New" : "Used") : invCondition(String(g(["condition", "type", "vehicleType", "inventoryType", "new_used", "stockType", "vehicle_type"]) || "") + " " + name),
+        url: String(g(["url", "link", "href", "vdpUrl", "detailUrl", "permalink", "vdp"]) || ""),
+        photo: String(g(["image", "photo", "imageUrl", "thumbnail", "mainImage", "primaryPhoto"]) || ""), via: "script",
+      };
+      if (invLooksVin(rec.vin)) out.push(rec);
+    }
+  }
+}
+function invFromHtml(html, out) {
+  const body = String(html).replace(/<script[\s\S]*?<\/script>/gi, " ");
+  // Every VIN's position first, so each card's window runs from halfway to
+  // the previous VIN to halfway to the next — one card, not its neighbours.
+  const hits = []; const re = /\b([A-HJ-NPR-Z0-9]{17})\b/g; let m; const seen = new Set();
+  while ((m = re.exec(body))) { if (invLooksVin(m[1]) && !seen.has(m[1])) { seen.add(m[1]); hits.push({ vin: m[1], at: m.index }); } }
+  hits.forEach((h, i) => {
+    const vin = h.vin;
+    const prev = i > 0 ? hits[i - 1].at : -1, next = i + 1 < hits.length ? hits[i + 1].at : body.length;
+    const from = Math.max(prev < 0 ? 0 : Math.floor((prev + h.at) / 2), h.at - 3000);
+    const to = Math.min(Math.floor((h.at + next) / 2), h.at + 3000);
+    const chunk = body.slice(from, to);
+    const text = invText(chunk);
+    const title = /\b((?:19|20)\d{2})\s+([A-Z][A-Za-z-]+)\s+([A-Z0-9][A-Za-z0-9-]*)((?:\s+[A-Za-z0-9.+-]+){0,4})/.exec(text);
+    const price = /\$\s?([\d,]{4,9})/.exec(text);
+    const km = /([\d,]{1,7})\s*(?:km|kms|kilomet)/i.exec(text);
+    const stock = /stock\s*(?:#|no\.?|number)?\s*:?\s*([A-Z0-9-]{3,})/i.exec(text);
+    const href = /href=["']([^"']*(?:vehicle|inventory|vdp|detail)[^"']*)["']/i.exec(chunk);
+    const img = /<img[^>]+(?:data-src|src)=["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/i.exec(chunk);
+    // The trim is what follows the model, up to the first word that isn't
+    // part of a trim — a badge, a price, a label.
+    const trimWords = []; const STOPS = /^(pre-?owned|new|used|certified|cpo|demo|stock|vin|price|km|kms|for|sale|call|from|only|starting|was|now|\$.*|[\d,]+)$/i;
+    if (title) for (const w of title[4].trim().split(/\s+/)) { if (!w || STOPS.test(w)) break; trimWords.push(w); }
+    out.push({ vin, stock: stock ? stock[1] : "", year: title ? Number(title[1]) : null, make: title ? title[2] : "", model: title ? title[3] : "", trim: trimWords.join(" "),
+      price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: invCondition(text.slice(0, 800)),
+      url: href ? href[1] : "", photo: img ? img[1] : "", via: "html" });
+  });
+}
+function parseInventoryHtml(html) {
+  const found = []; invFromJsonLd(html, found); invFromScripts(html, found); invFromHtml(html, found);
+  const byKey = new Map(); const order = [];
+  found.forEach((r) => {
+    const key = r.vin || (r.stock ? "stock:" + r.stock : ""); if (!key) return;
+    const have = byKey.get(key);
+    if (!have) { byKey.set(key, Object.assign({}, r)); order.push(key); return; }
+    Object.keys(r).forEach((k) => { if ((have[k] == null || have[k] === "") && r[k] != null && r[k] !== "") have[k] = r[k]; });
+  });
+  return order.map((k) => byKey.get(k));
+}
+function invPageParam(html) { const m = /[?&](page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/i.exec(String(html)); return m ? m[1] : null; }
+function invPageCount(html) { let max = 1; const re = /[?&](?:page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/gi; let m; while ((m = re.exec(String(html)))) max = Math.max(max, Number(m[1])); return Math.min(max, 60); }
+// === inventory parser end ===
+
+async function fetchSitePage(url: string): Promise<string> {
+  const r = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Accept": "text/html,application/xhtml+xml,*/*;q=0.8", "Accept-Language": "en-CA,en;q=0.9",
+    },
+    redirect: "follow",
+  });
+  if (!r.ok) throw new Error(`the site answered ${r.status}`);
+  return await r.text();
+}
+function withPage(url: string, name: string, n: number): string { const u = new URL(url); u.searchParams.set(name, String(n)); return u.toString(); }
+
+async function crawlInventory(url: string, probe: boolean) {
+  const first = await fetchSitePage(url);
+  const report: any = {
+    url, pages: 1, bytes: first.length, title: ((/<title>([^<]*)/i.exec(first) || [])[1] || "").trim().slice(0, 80),
+    jsonLdBlocks: (first.match(/application\/ld\+json/gi) || []).length,
+    vinsInPage: new Set(first.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) || []).size, warnings: [] as string[],
+  };
+  const all = new Map<string, any>();
+  const add = (list: any[]) => list.forEach((v) => {
+    if (v.url && !/^https?:/i.test(v.url)) { try { v.url = new URL(v.url, url).toString(); } catch (_) { /* leave it */ } }
+    if (v.photo && !/^https?:/i.test(v.photo)) { try { v.photo = new URL(v.photo, url).toString(); } catch (_) { /* leave it */ } }
+    const k = v.vin || "stock:" + v.stock; if (!all.has(k)) all.set(k, v);
+  });
+  add(parseInventoryHtml(first));
+  const param = invPageParam(first) || "page";
+  const declared = invPageCount(first);
+  report.pageParam = param; report.pagesDeclared = declared;
+  // Page on until a page adds nothing — past the end, or a site that ignores
+  // the parameter and hands back page one again.
+  for (let n = 2; n <= 60; n++) {
+    let html: string;
+    try { html = await fetchSitePage(withPage(url, param, n)); } catch (e) { report.warnings.push(`page ${n}: ${(e as Error).message}`); break; }
+    const before = all.size; add(parseInventoryHtml(html)); report.pages = n;
+    if (all.size === before) { report.pages = n - 1; break; }
+  }
+  report.found = all.size;
+  report.via = {} as Record<string, number>;
+  for (const v of all.values()) report.via[v.via] = (report.via[v.via] || 0) + 1;
+  report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, mileage: v.mileage, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via }));
+  if (probe || !all.size) report.snippet = invText(first).slice(0, 500);
+  return { vehicles: [...all.values()], report };
+}
+
+// Bring the user's vehicles collection in line with the lot. Unchanged units
+// are left alone so the phone's sync isn't churned; units no longer on the
+// site are marked sold rather than deleted, so deals that named them survive.
+async function writeInventory(uid: string, vehicles: any[]) {
+  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data`;
+  const r = await fetch(sbUrl(q), { headers: sbHeaders() });
+  const existing: any[] = r.ok ? await r.json() : [];
+  const byId = new Map<string, any>(existing.map((x) => [x.id, x.data || {}]));
+  const now = new Date().toISOString();
+  const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0;
+  const seen = new Set<string>();
+  const KEYS = ["year", "make", "model", "trim", "price", "mileage", "color", "stock", "condition", "status", "url", "photo", "bodyStyle"];
+  for (const v of vehicles) {
+    const id = "web_" + (v.vin || ("stk_" + String(v.stock).replace(/[^A-Za-z0-9]/g, "")));
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const was = byId.get(id) || null;
+    const keep = (k: string, val: any) => (val != null && val !== "" ? val : was ? was[k] : (typeof val === "number" ? null : ""));
+    const data: any = {
+      ...(was || {}), id,
+      year: keep("year", v.year) || null, make: keep("make", v.make), model: keep("model", v.model), trim: keep("trim", v.trim),
+      price: v.price != null ? v.price : was ? was.price : null, mileage: v.mileage != null ? v.mileage : was ? was.mileage : null,
+      color: keep("color", v.color), stock: keep("stock", v.stock), vin: keep("vin", v.vin), condition: keep("condition", v.condition),
+      bodyStyle: keep("bodyStyle", v.bodyStyle), url: keep("url", v.url), photo: keep("photo", v.photo),
+      status: "available", source: "web", seenAt: now, updatedAt: now, createdAt: (was && was.createdAt) || now,
+    };
+    if (!data.make || !data.model) { skipped++; continue; }
+    if (was && KEYS.every((k) => String(was[k] ?? "") === String(data[k] ?? ""))) continue;
+    if (was) updated++; else added++;
+    rows.push({ id, user_id: uid, collection: "vehicles", data, deleted: false });
+  }
+  for (const [id, was] of byId) {
+    if (was.source !== "web" || seen.has(id) || was.status === "sold") continue;
+    removed++;
+    rows.push({ id, user_id: uid, collection: "vehicles", data: { ...was, status: "sold", updatedAt: now, goneAt: now }, deleted: false });
+  }
+  for (let i = 0; i < rows.length; i += 200) {
+    const res = await fetch(sbUrl("/records?on_conflict=user_id,id"), {
+      method: "POST", headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(rows.slice(i, i + 200)),
+    });
+    if (!res.ok) throw new Error(`vehicle save failed (${res.status})`);
+  }
+  return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added };
+}
+
+// {inventory: 1} from the daily job: every user whose Settings name a store
+// URL. {inventory: {u, url?, probe?}} from Settings: that user, now.
+async function handleInventory(body: any): Promise<Response> {
+  const req = body.inventory && typeof body.inventory === "object" ? body.inventory : {};
+  const cronKey = Deno.env.get("CRON_KEY");
+  if (!req.u && cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  let users: string[] = [];
+  if (req.u) {
+    if (!/^[0-9a-f-]{36}$/.test(String(req.u))) return json({ error: "bad user" }, 400);
+    users = [String(req.u)];
+  } else {
+    const res = await fetch(sbUrl(`/records?collection=eq.config&deleted=eq.false&select=user_id,data`), { headers: sbHeaders() });
+    if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
+    users = ((await res.json()) as any[]).filter((r) => r.data && r.data.storeSiteUrl).map((r) => r.user_id);
+  }
+  const results: any[] = [];
+  for (const uid of users) {
+    const cfgRes = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.config&deleted=eq.false&select=data&limit=1`), { headers: sbHeaders() });
+    const cfg = cfgRes.ok ? ((((await cfgRes.json()) as any[])[0] || {}).data || {}) : {};
+    const url = String(req.url || cfg.storeSiteUrl || "").trim();
+    if (!/^https?:\/\//i.test(url)) { results.push({ uid: uid.slice(0, 8), error: "No store inventory URL in Settings → Dealer inventory sites." }); continue; }
+    try {
+      const { vehicles, report } = await crawlInventory(url, !!req.probe);
+      const write = await writeInventory(uid, vehicles);
+      results.push({ uid: uid.slice(0, 8), ...report, ...write, at: new Date().toISOString() });
+    } catch (e) {
+      results.push({ uid: uid.slice(0, 8), url, error: String((e as Error)?.message || e) });
+    }
+  }
+  return json(req.u ? (results[0] || { error: "nothing to do" }) : { results });
+}
+
 async function handleSweep(body: any): Promise<Response> {
   const cronKey = Deno.env.get("CRON_KEY");
   if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
@@ -975,6 +1245,7 @@ Deno.serve(async (req: Request) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+  if (body.inventory) return handleInventory(body);
   if (body.smscheck) return handleSmsCheck(body);
   if (body.sms) return handleSendSms(body);
   if (body.book) return handleBook(body);

@@ -46,6 +46,22 @@ select cron.schedule(
   $$
 );
 
+-- Once a day at 7am Halifax: the lot, from the store's website into the app.
+-- New units added, prices and mileage updated, units gone from the site
+-- marked sold. Settings → Dealer inventory sites → Import the lot now does
+-- the same on demand.
+select cron.schedule(
+  'viniva-inventory',
+  '0 10 * * *',
+  $$
+  select net.http_post(
+    url     := 'https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api',
+    headers := '{"Content-Type": "application/json"}'::jsonb,
+    body    := '{"inventory": 1}'::jsonb
+  );
+  $$
+);
+
 -- To check they exist:   select jobname, schedule from cron.job;
 -- To see recent runs:    select * from cron.job_run_details order by start_time desc limit 10;
 -- To remove one:         select cron.unschedule('viniva-sweep');

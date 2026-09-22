@@ -166,6 +166,20 @@ const server = http.createServer((req, res) => {
       if (Array.isArray(msg.messages)) {
         return json(res, 200, { content: [{ type: "text", text: draft }], stop_reason: "end_turn" });
       }
+      // The inventory import: pretend the store's site had three units, and
+      // write them where a sync will find them.
+      if (msg.inventory) {
+        const uid = "00000000-0000-4000-8000-000000000001";
+        const now = new Date().toISOString();
+        const lot = [
+          { id: "web_1N4BL4BV5RC000001", year: 2026, make: "Nissan", model: "Rogue", trim: "SV", price: 38995, mileage: 12, color: "Gun Metallic", stock: "R2601", vin: "1N4BL4BV5RC000001", condition: "New", status: "available", source: "web", url: "https://example.test/vehicle/1", photo: "", seenAt: now, updatedAt: now, createdAt: now },
+          { id: "web_5N1AT3AA0RC000002", year: 2025, make: "Nissan", model: "Kicks", trim: "SR", price: 29450, mileage: 8, color: "Blue", stock: "K2502", vin: "5N1AT3AA0RC000002", condition: "New", status: "available", source: "web", url: "https://example.test/vehicle/2", photo: "", seenAt: now, updatedAt: now, createdAt: now },
+          { id: "web_JN8AT3CB0MW000003", year: 2021, make: "Nissan", model: "Rogue", trim: "SL", price: 27900, mileage: 61000, color: "White", stock: "P4411", vin: "JN8AT3CB0MW000003", condition: "Used", status: "available", source: "web", url: "https://example.test/vehicle/3", photo: "", seenAt: now, updatedAt: now, createdAt: now },
+        ];
+        lot.forEach((v) => records.set(uid + "|" + v.id, { id: v.id, user_id: uid, collection: "vehicles", data: v, deleted: false, updated_at: now }));
+        return json(res, 200, { uid: uid.slice(0, 8), url: msg.inventory.url || "https://example.test/inventory/", pages: 2, found: 3, added: 3, updated: 0, removed: 0, skipped: 0, onFile: 3, via: { jsonld: 3 }, at: now,
+          sample: lot.slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price })) });
+      }
       if (msg.shorten) {
         const c = "t" + (++seq).toString(36).padStart(6, "0");
         links.set(c, {
