@@ -257,6 +257,11 @@ function invSplitName(name) {
   return { year: Number(m[1]), make: m[2], model: rest[0], trim: rest.slice(1).join(" ") };
 }
 function invNorm(k) { return String(k || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+// "Stock #: A1900", "Stock No. A1900", "Stock: A1900" — never "stock photos".
+function invStock(text) {
+  const m = /stock\s*(?:#|no\.?|number|id)\s*:?\s*([A-Z0-9-]{3,})/i.exec(text) || /stock\s*:\s*([A-Z0-9-]{3,})/i.exec(text) || /stock\s+([A-Z]*\d[A-Z0-9-]{2,})/i.exec(text);
+  return m && !/^(photo|image|pic)/i.test(m[1]) && /\d/.test(m[1]) ? m[1] : "";
+}
 function invFirst(obj, keys) {
   if (!obj || typeof obj !== "object") return null;
   const names = Object.keys(obj);
@@ -362,14 +367,14 @@ function invFromHtml(html, out) {
     const title = /\b((?:19|20)\d{2})\s+([A-Z][A-Za-z-]+)\s+([A-Z0-9][A-Za-z0-9-]*)((?:\s+[A-Za-z0-9.+-]+){0,4})/.exec(text);
     const price = /\$\s?([\d,]{4,9})/.exec(text);
     const km = /([\d,]{1,7})\s*(?:km|kms|kilomet)/i.exec(text);
-    const stock = /stock\s*(?:#|no\.?|number)?\s*:?\s*([A-Z0-9-]{3,})/i.exec(text);
+    const stock = invStock(text);
     const href = /href=["']([^"']*(?:vehicle|inventory|vdp|detail)[^"']*)["']/i.exec(chunk);
     const img = /<img[^>]+(?:data-src|src)=["']([^"']+\.(?:jpg|jpeg|png|webp)[^"']*)["']/i.exec(chunk);
     // The trim is what follows the model, up to the first word that isn't
     // part of a trim — a badge, a price, a label.
     const trimWords = []; const STOPS = /^(pre-?owned|new|used|certified|cpo|demo|stock|vin|price|km|kms|for|sale|call|from|only|starting|was|now|\$.*|[\d,]+)$/i;
     if (title) for (const w of title[4].trim().split(/\s+/)) { if (!w || STOPS.test(w)) break; trimWords.push(w); }
-    out.push({ vin, stock: stock ? stock[1] : "", year: title ? Number(title[1]) : null, make: title ? title[2] : "", model: title ? title[3] : "", trim: trimWords.join(" "),
+    out.push({ vin, stock, year: title ? Number(title[1]) : null, make: title ? title[2] : "", model: title ? title[3] : "", trim: trimWords.join(" "),
       price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: invCondition(text.slice(0, 800)),
       url: href ? href[1] : "", photo: img ? img[1] : "", via: "html" });
   });
@@ -390,9 +395,9 @@ function invFromPageMeta(html, pageUrl, out) {
   const vin = vinInUrl || (vins.size === 1 ? [...vins][0] : scriptVins.size === 1 ? [...scriptVins][0] : "");
   const price = /(?:\$|price[^$]{0,20}\$)\s?([\d,]{4,9})/i.exec(text);
   const km = /([\d,]{1,7})\s*(?:km|kms|kilomet)/i.exec(text);
-  const stock = /stock\s*(?:#|no\.?|number)?\s*:?\s*([A-Z0-9-]{3,})/i.exec(text);
+  const stock = invStock(text);
   const cond = invCondition(String(pageUrl || "") + " " + title + " " + text.slice(0, 600));
-  const rec = { vin, stock: stock ? stock[1] : "", year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
+  const rec = { vin, stock, year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
     price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "", via: "page" };
   // The address as a last resort for the year and make: /used/2024-mazda-cx-5-gs-l-p12345/
   if (!rec.year || !rec.make) { const u = /\/((?:19|20)\d{2})-([a-z]+)-([a-z0-9-]+)/i.exec(String(pageUrl || "")); if (u) { rec.year = rec.year || Number(u[1]); rec.make = rec.make || u[2][0].toUpperCase() + u[2].slice(1); } }
@@ -434,6 +439,22 @@ function invScripts(html) {
   const out = []; const re = /<script[^>]+src=["']([^"']+)["']/gi; let m;
   while ((m = re.exec(String(html || "")))) { out.push(invDecode(m[1]).slice(0, 160)); if (out.length >= 20) break; }
   return out;
+}
+// What one vehicle's page is made of — for fitting the reader to a site that
+// reads badly, from the report rather than by guessing.
+function invPageProbe(html, url) {
+  const h = String(html || "");
+  const meta = (name) => { const m = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]+content=["']([^"']*)["']`, "i").exec(h); return m ? invDecode(m[1]).slice(0, 200) : ""; };
+  const ctx = []; const re = /["']?vin["']?\s*:\s*["']([A-HJ-NPR-Z0-9]{17})["']/gi; let m;
+  while ((m = re.exec(h)) && ctx.length < 2) ctx.push(h.slice(Math.max(0, m.index - 400), m.index + 300).replace(/\s+/g, " "));
+  const inline = []; const sr = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi; let s;
+  while ((s = sr.exec(h))) { if (!/\bsrc=/i.test(s[1]) && s[2].trim()) inline.push({ bytes: s[2].length, head: s[2].trim().slice(0, 160).replace(/\s+/g, " ") }); if (inline.length >= 12) break; }
+  return {
+    url: String(url || ""), title: invDecode((/<title>([^<]*)/i.exec(h) || [])[1] || "").slice(0, 160),
+    h1: invDecode(((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(h) || [])[1] || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").slice(0, 160),
+    og: { title: meta("og:title"), description: meta("og:description"), image: meta("og:image") },
+    textSnippet: invText(h).slice(0, 700), vinContexts: ctx, inlineScripts: inline, apiHints: invApiHints(h), dataAttrs: (h.match(/data-(?:vin|stock|vehicle|year|make|model|price|trim)[a-z-]*=["'][^"']{0,60}["']/gi) || []).slice(0, 15),
+  };
 }
 function invPageParam(html) { const m = /[?&](page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/i.exec(String(html)); return m ? m[1] : null; }
 function invPageCount(html) { let max = 1; const re = /[?&](?:page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/gi; let m; while ((m = re.exec(String(html)))) max = Math.max(max, Number(m[1])); return Math.min(max, 60); }
@@ -520,11 +541,13 @@ async function crawlInventory(url: string, probe: boolean) {
     report.vehiclePagesFound = vdps.size;
     const list = [...vdps].slice(0, 400);
     let fetched = 0, parsed = 0, failed = 0;
+    let firstPage: { url: string; html: string } | null = null;
     await fetchMany(list, 6, async (u) => {
       if (Date.now() - started > BUDGET_MS) { report.complete = false; return; }
       let html: string;
       try { html = await fetchSitePage(u); } catch (_) { failed++; return; }
       fetched++;
+      if (!firstPage) firstPage = { url: u, html };
       const got = parseInventoryHtml(html, { single: true, url: u });
       if (got.length) { parsed++; add(got.slice(0, 1), u); }
     });
@@ -533,11 +556,35 @@ async function crawlInventory(url: string, probe: boolean) {
     // What the search page is made of, for fitting the reader by hand.
     report.scripts = invScripts(first);
     report.apiHints = invApiHints(first);
+    report.vehiclePagesSample = list.slice(0, 3);
+    if (probe) {
+      // One vehicle page inside out, the same page asked for as JSON, and the
+      // site's own app bundle's API paths — enough to fit the reader blind.
+      if (firstPage) report.vehiclePage = invPageProbe(firstPage.html, firstPage.url);
+      if (firstPage) {
+        try {
+          const r = await fetch(firstPage.url, { headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
+          const body = await r.text();
+          report.vehiclePageAsJson = { status: r.status, type: r.headers.get("content-type") || "", head: body.slice(0, 300).replace(/\s+/g, " ") };
+        } catch (e) { report.vehiclePageAsJson = { error: (e as Error).message }; }
+      }
+      const own = report.scripts.filter((s: string) => /^\/|oregan/i.test(s) && /app|website|services/i.test(s)).slice(0, 3);
+      report.bundleHints = {};
+      for (const s of own) {
+        if (Date.now() - started > BUDGET_MS + 15000) break;
+        try {
+          const js = await fetchSitePage(new URL(s, origin).toString());
+          const hits = new Set<string>(); const re = /["'`]((?:\/|https?:\/\/)[^"'`\s]{3,120}(?:api|json|vehicle|inventory|search|vdp|srp|listing)[^"'`\s]{0,80})["'`]/gi; let m: RegExpExecArray | null;
+          while ((m = re.exec(js)) && hits.size < 40) if (!/\.(css|png|jpg|jpeg|webp|svg|woff2?|ico)(\?|$)/i.test(m[1])) hits.add(m[1]);
+          report.bundleHints[s] = { bytes: js.length, paths: [...hits] };
+        } catch (e) { report.bundleHints[s] = { error: (e as Error).message }; }
+      }
+    }
   }
   report.found = all.size;
   report.via = {} as Record<string, number>;
   for (const v of all.values()) report.via[v.via] = (report.via[v.via] || 0) + 1;
-  report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, mileage: v.mileage, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via }));
+  report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, mileage: v.mileage, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via, url: v.url }));
   if (probe || !all.size) report.snippet = invText(first).slice(0, 500);
   report.seconds = Math.round((Date.now() - started) / 100) / 10;
   return { vehicles: [...all.values()], report };

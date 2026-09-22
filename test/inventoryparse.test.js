@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -100,6 +100,18 @@ const two = lib.parseInventoryHtml(bare, { single: true, url: "https://www.examp
 console.log("…with the VIN alone in the push →", JSON.stringify(two[0] || null));
 const b2 = two[0] || {};
 if (b2.vin !== "JM3KFBCM5R0123456" || b2.year !== 2024 || b2.make !== "Mazda" || b2.model !== "CX-5" || b2.price !== 32995 || b2.mileage !== 41200 || b2.stock !== "P12345" || b2.condition !== "Used") fail("the title/text fallback didn't fill the vehicle: " + JSON.stringify(b2));
+
+// --- 5d. "Stock photos" is not a stock number; a shell page's VIN-only push reads nothing but the VIN.
+const shellVdp = `<html><head><title>Inventory - Example Nissan</title><meta property="og:title" content="Inventory - Example Nissan"></head>
+<body><div id="app"></div><p>Photos are stock photos and may not match.</p>
+<script>dataLayer.push({"event":"vdp","vehicle":{"vin":"2HKRS6H90SH000111"}});</script></body></html>`;
+const sh = lib.parseInventoryHtml(shellVdp, { single: true, url: "https://www.example.com/inventory/used/2HKRS6H90SH000111/" });
+console.log("a shell page →", JSON.stringify(sh[0] || null));
+if (!sh[0] || sh[0].vin !== "2HKRS6H90SH000111" || sh[0].stock !== "" || sh[0].make !== "") fail("the shell page invented fields: " + JSON.stringify(sh[0]));
+if (lib.invStock("Stock #: A1900 · 48,300 km") !== "A1900" || lib.invStock("Stock No. R26011") !== "R26011" || lib.invStock("stock photos") !== "" || lib.invStock("Stock: K2610") !== "K2610") fail("the stock reader is off");
+const probe = lib.invPageProbe(shellVdp, "https://www.example.com/inventory/used/2HKRS6H90SH000111/");
+console.log("the probe →", JSON.stringify(probe).slice(0, 300));
+if (!/Example Nissan/.test(probe.title) || probe.vinContexts.length !== 1 || probe.inlineScripts.length !== 1 || !/stock photos/.test(probe.textSnippet)) fail("the probe missed the page's parts: " + JSON.stringify(probe));
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");
