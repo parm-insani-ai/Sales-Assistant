@@ -18,7 +18,7 @@ import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect, reviewTouch } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals, radarCheap, warmRadar } from "./dealbuilder.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
@@ -29,6 +29,16 @@ import { afterSale, closeFollowUps } from "../connections.js";
 
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
+  // The list is ordered by the radar's read of the book. When that read
+  // isn't current, warm it a slice at a time and draw once it is, rather
+  // than pricing three thousand customers inside the tap.
+  if (!radarCheap()) {
+    view.innerHTML = `<div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
+    const prog = view.querySelector(".radar-progress");
+    const again = () => { if (!view.isConnected) return; view.innerHTML = ""; renderLeads(view, { param }); };
+    warmRadar((done, total) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${Math.round(done / total * 100)}%`; }).then(again, again);
+    return;
+  }
 
   // A stat card or the voice agent can preset the filter and the search
   // (one-shot each) so the list you land on is the set that was just described

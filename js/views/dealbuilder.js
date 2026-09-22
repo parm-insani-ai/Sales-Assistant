@@ -15,6 +15,7 @@ import { fillTemplate } from "./messages.js";
 import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday, paymentDelta } from "../utils.js";
 export { paymentDelta };
 import { SPEC_LIBRARY } from "../specs.js";
+import { cacheGet, cacheSet, fingerprint } from "../cachedb.js";
 import { findSpec, queueCompare } from "./compare.js";
 import { openLeadForm } from "./leads.js";
 
@@ -507,8 +508,15 @@ function optionsForVehicle(lead, v, opts = {}) {
 export function dealsForLead(lead, opts = {}) {
   const cur = lead.currentPayment != null ? lead.currentPayment : null;
   const rows = [];
+  // Twelve new Rogue SVs at the same price are one deal, not twelve: the
+  // options depend on the vehicle's price, model, trim, year and condition
+  // and on nothing else about the unit, so identical units share one run.
+  const memo = new Map();
   candidateVehicles().forEach((v) => {
-    optionsForVehicle(lead, v, opts).forEach((o) => rows.push({ ...o, delta: cur != null ? o.monthly - cur : null }));
+    const sig = `${v.year}|${v.make}|${v.model}|${v.trim}|${v.price}|${v.condition}|${v.lineup ? 1 : 0}`;
+    let opts1 = memo.get(sig);
+    if (!opts1) { opts1 = optionsForVehicle(lead, v, opts); memo.set(sig, opts1); }
+    opts1.forEach((o) => rows.push({ ...o, vehicle: v, delta: cur != null ? o.monthly - cur : null }));
   });
   rows.sort((a, b) => (cur != null ? Math.abs(a.delta) - Math.abs(b.delta) : a.monthly - b.monthly));
   return rows;
@@ -677,9 +685,154 @@ export function topOpportunities(limit = 50, opts = {}) {
   if (!radarCache.rows || radarCache.global !== global || radarCache.leads !== leads) {
     const full = computeOpportunities(radarCache.global === global ? radarCache.per : null);
     radarCache = { global, leads, rows: full.rows, others: full.others, per: full.per, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
+    radarStats.syncRuns++;
+    rememberRadar();
   }
   const rows = radarCache.rows.slice(0, limit);
   return opts.withCounts ? { rows, ...radarCache.counts } : rows;
+}
+
+// Is the radar's answer current for what's on file right now? Screens ask
+// this before they lean on it: when it isn't, they paint without it and
+// warm it in the background rather than freezing while it computes.
+export function radarCurrent() {
+  return !!radarCache.rows && radarCache.global === radarGlobalKey() && radarCache.leads === store.generation("leads");
+}
+// Current, or close enough to catch up in one tick: an answer exists and
+// only customers changed since (a contact logged, today's prospects
+// stamped), so bringing it up to date re-prices a handful, not the book.
+// A lot, a special or a setting that changed means everyone again — that
+// is the case that warms in the background.
+export function radarCheap() {
+  return !!radarCache.rows && radarCache.global === radarGlobalKey();
+}
+
+// What the radar's answer depends on, as content rather than in-memory
+// counters (which restart at zero every launch): the lot, the specials,
+// the deal settings, and whose phone this is.
+function radarContentKey() {
+  const s = store.getSettings();
+  const deal = ["dealMatchBand", "dealMaxPayment", "dealMethod", "defaultApr", "defaultTerm", "taxRate", "docFee", "avpRogue", "avpOther", "feeFreight", "feeAirTax", "feeTireLevy", "feePlateReg", "tradeMarginPct", "tradeRecon", "leaseRates", "residuals", "leaseMoneyFactor"].map((k) => `${k}=${JSON.stringify(s[k] ?? null)}`).join(";");
+  // Sorted: the store hands records back in a different order after a
+  // relaunch than the order they were saved in.
+  const lot = store.all("vehicles").map((v) => `${v.id}|${v.price}|${v.status}|${v.condition}|${v.trim}|${v.year}|${v.model}`).sort().join(",");
+  const sp = store.all("specials").map((x) => JSON.stringify(x)).sort().join(",");
+  let owner = ""; try { owner = localStorage.getItem("viniva:owner") || ""; } catch { /* no owner */ }
+  return "radar:v1:" + fingerprint(owner) + ":" + fingerprint(deal) + ":" + fingerprint(lot) + ":" + fingerprint(sp);
+}
+
+export const radarStats = { syncRuns: 0, warmRuns: 0, priced: 0, restored: 0, warming: false, attempts: 0 };
+export function radarDebug() { return { rows: radarCache.rows ? radarCache.rows.length : null, global: radarCache.global, leads: radarCache.leads, genLeads: store.generation("leads"), genGlobal: radarGlobalKey(), per: radarCache.per ? radarCache.per.size : 0 }; }
+
+// Serialise the per-customer prices for the next launch. A row carries the
+// customer object; only the id is stored and the record is rejoined on load.
+function stripLead(x) {
+  if (!x || typeof x !== "object") return x;
+  if (Array.isArray(x)) return x.map(stripLead);
+  const out = {};
+  for (const k of Object.keys(x)) out[k] = k === "lead" && x[k] && x[k].id ? { __leadId: x[k].id } : stripLead(x[k]);
+  return out;
+}
+function rejoinLead(x, byId) {
+  if (!x || typeof x !== "object") return x;
+  if (Array.isArray(x)) return x.map((y) => rejoinLead(y, byId));
+  if (x.__leadId) return byId.get(x.__leadId) || null;
+  const out = {};
+  for (const k of Object.keys(x)) out[k] = rejoinLead(x[k], byId);
+  return out;
+}
+let rememberTimer = null;
+function rememberRadar() {
+  if (!radarCache.per) return;
+  clearTimeout(rememberTimer);
+  rememberTimer = setTimeout(() => {
+    try {
+      const key = radarContentKey();
+      const per = [];
+      radarCache.per.forEach((v, id) => per.push([id, v.stamp, stripLead(v.r)]));
+      cacheSet("radar", { key, at: Date.now(), per }).catch(() => {});
+    } catch { /* the cache is a convenience */ }
+  }, 1500);
+}
+async function restoreRadar() {
+  if (radarStats.restored || radarCache.per) return null;
+  radarStats.restored = 1;
+  try {
+    const saved = await cacheGet("radar");
+    if (!saved || saved.key !== radarContentKey()) return null;
+    const byId = new Map(store.all("leads").map((l) => [l.id, l]));
+    const per = new Map();
+    saved.per.forEach(([id, stamp, r]) => { if (byId.has(id)) per.set(id, { stamp, r: rejoinLead(r, byId) }); });
+    return per;
+  } catch { return null; }
+}
+
+// Price the book a slice at a time, yielding to the screen between slices,
+// so a tap lands while the radar is still working. Resolves when the radar
+// is current. Repeated calls share one run.
+let warming = null;
+const yieldToScreen = () => new Promise((r) => (window.requestIdleCallback ? window.requestIdleCallback(r, { timeout: 60 }) : setTimeout(r, 0)));
+export function warmRadar(onProgress) {
+  if (radarCurrent()) return Promise.resolve();
+  if (warming) return warming;
+  warming = (async () => {
+    radarStats.warming = true;
+    // Last launch's prices, when the lot and the settings are as they were:
+    // a customer whose record hasn't changed is not priced again.
+    const restored = await restoreRadar();
+    if (restored && !radarCache.per) radarCache = { ...radarCache, per: restored, global: radarGlobalKey(), rows: radarCache.rows };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      radarStats.attempts++;
+      const global = radarGlobalKey(), leads = store.generation("leads");
+      const prev = radarCache.global === global ? radarCache.per : null;
+      const full = await computeOpportunitiesAsync(prev, onProgress);
+      // The book moved underneath (a sync landed): price what changed and go again.
+      if (global !== radarGlobalKey() || leads !== store.generation("leads")) {
+        radarCache = { global, leads: -1, rows: radarCache.rows || [], others: full.others, per: full.per, counts: radarCache.counts };
+        continue;
+      }
+      radarCache = { global, leads, rows: full.rows, others: full.others, per: full.per, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
+      break;
+    }
+    radarStats.warmRuns++;
+    rememberRadar();
+    try { window.dispatchEvent(new CustomEvent("viniva-radar", { detail: { rows: radarCache.rows ? radarCache.rows.length : 0 } })); } catch { /* no window */ }
+  })().finally(() => { warming = null; radarStats.warming = false; });
+  return warming;
+}
+
+async function computeOpportunitiesAsync(prev, onProgress) {
+  const s = store.getSettings();
+  const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
+  const cap = Number(s.dealMaxPayment) || 0;
+  const method = s.dealMethod || "both";
+  const per = new Map();
+  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0, others: new Map(), per };
+  const out = [];
+  const others = new Map();
+  let overBand = 0, overCap = 0, noBaseline = 0;
+  const leads = store.all("leads");
+  let sliceStart = performance.now(), done = 0;
+  for (const l of leads) {
+    const was = prev && prev.get(l.id);
+    let r;
+    if (was && was.stamp === l.updatedAt) r = was.r;
+    else { r = priceOne(l, { band, cap, method }); radarStats.priced++; }
+    per.set(l.id, { stamp: l.updatedAt, r });
+    if (r.kind === "cap") { overCap++; others.set(l.id, r.other); }
+    else if (r.kind === "band") { overBand++; others.set(l.id, r.other); }
+    else if (r.kind === "row") { if (r.noBaseline) noBaseline++; out.push(r.row.lead === l ? r.row : { ...r.row, lead: l }); }
+    else if (r.kind === "quiet" && r.noBaseline) noBaseline++;
+    done++;
+    // About a frame and a half of work, then let the screen breathe.
+    if (performance.now() - sliceStart > 24) {
+      if (onProgress) { try { onProgress(done, leads.length); } catch { /* progress is optional */ } }
+      await yieldToScreen();
+      sliceStart = performance.now();
+    }
+  }
+  out.sort((a, b) => b.score - a.score);
+  return { rows: out, overBand, overCap, noBaseline, others, per };
 }
 
 // One customer, priced. `kind` says where they landed: on the radar (row),

@@ -35,6 +35,8 @@ export function claimDevice(user) {
   if (was && was !== user.id) {
     store.resetForNewOwner();
     PER_ACCOUNT_KEYS.forEach((k) => { try { localStorage.removeItem(k); } catch { } });
+    // The radar's remembered prices are the last account's customers too.
+    import("./cachedb.js").then((m) => m.cacheClear()).catch(() => {});
     cleared = true;
   }
   try { localStorage.setItem(OWNER, user.id); } catch { }

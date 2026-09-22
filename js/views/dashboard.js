@@ -11,6 +11,7 @@ import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { getNudges } from "../nudges.js";
+import { radarCheap, warmRadar } from "./dealbuilder.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
 
 export function renderDashboard(view) {
@@ -145,7 +146,19 @@ export function renderDashboard(view) {
   // even that once.)
   const playsSlot = el.querySelector(".plays-slot");
   playsSlot.innerHTML = `<div class="section-title">Today's queue</div>`;
-  setTimeout(() => { if (document.body.contains(playsSlot)) paintPlays(); }, 0);
+  // The radar prices every customer against every unit on the lot. When its
+  // answer isn't current — first launch, a lot that changed overnight — that
+  // runs a slice at a time in the background, and the queue says so instead
+  // of the whole screen going stiff until it's done.
+  const readyPlays = () => { if (document.body.contains(playsSlot)) paintPlays(); };
+  if (radarCheap()) setTimeout(readyPlays, 0);
+  else {
+    playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
+      <div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
+    const prog = playsSlot.querySelector(".radar-progress");
+    warmRadar((done, total) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${Math.round(done / total * 100)}%`; })
+      .then(readyPlays, readyPlays);
+  }
   function paintPlays() {
   const plays = getPlays(40);
   if (!plays.length) {

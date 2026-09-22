@@ -12,7 +12,7 @@ import { maybeStartCadence, startCadence, planSummary } from "./cadence.js";
 import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
-import { topOpportunities, dealsForLead, equityDetail } from "./views/dealbuilder.js";
+import { topOpportunities, dealsForLead, equityDetail, warmRadar } from "./views/dealbuilder.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
 import { afterSale, afterAppointmentBooked, afterDeliveryComplete, closeFollowUps } from "./connections.js";
 import { getOccasions } from "./occasions.js";
@@ -318,6 +318,9 @@ const ROUTES = {
 // tests can exercise every tool without a live Claude relay.
 export async function execTool(name, p = {}) {
   const t = (name || "").toLowerCase();
+  // The tools that read the radar wait for it to be current — a slice at a
+  // time, so the panel keeps answering — instead of computing it in one go.
+  if (/^(find_customers|get_customer|deal_radar|deal_options|get_prospects|work_the_book|get_plays)$/.test(t)) { try { await warmRadar(); } catch { /* priced on demand below */ } }
   switch (t) {
     // ---- READS ----
     //
