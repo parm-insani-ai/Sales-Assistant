@@ -379,6 +379,31 @@ function invFromHtml(html, out) {
       url: href ? href[1] : "", photo: img ? img[1] : "", via: "html" });
   });
 }
+// The page's address, when the site writes the vehicle into it:
+// /inventory/Used-2019-Mazda-CX-5-Signature-NH22985A/ → condition, year,
+// make, model, trim, stock. Hyphens both separate words and sit inside
+// names (CX-5, CR-V, F-150), so short letter tokens rejoin the next one.
+const INV_TWO_WORD_MAKES = ["land rover", "alfa romeo", "mercedes benz", "aston martin", "rolls royce"];
+const INV_TWO_WORD_MODELS = ["grand cherokee", "grand caravan", "grand wagoneer", "santa fe", "santa cruz", "range rover", "land cruiser", "corolla cross", "town country", "super duty", "model 3", "model s", "model x", "model y", "silverado 1500", "silverado 2500", "silverado 3500", "sierra 1500", "sierra 2500", "sierra 3500", "wrangler unlimited", "crown victoria", "grand prix", "grand marquis", "park avenue"];
+function invFromSlug(url) {
+  const seg = decodeURIComponent(String(url || "").split("?")[0].split("#")[0].replace(/\/+$/, "").split("/").pop() || "");
+  const t = seg.split("-").filter(Boolean);
+  const yi = t.findIndex((x) => /^(19|20)\d{2}$/.test(x));
+  if (yi < 0 || yi + 1 >= t.length) return null;
+  const cond = invCondition(t.slice(0, yi).join(" "));
+  let i = yi + 1;
+  let make = t[i++];
+  if (i < t.length && INV_TWO_WORD_MAKES.includes((make + " " + t[i]).toLowerCase())) make += "-" + t[i++];
+  const rest = t.slice(i);
+  let stock = "";
+  if (rest.length > 1 && /\d/.test(rest[rest.length - 1]) && /[A-Za-z]/.test(rest[rest.length - 1]) && rest[rest.length - 1].length >= 4 && /^[A-Za-z0-9]+$/.test(rest[rest.length - 1])) stock = rest.pop().toUpperCase();
+  if (!rest.length) return null;
+  let model = rest.shift();
+  const nissanZ = /^nissan$/i.test(make) && /^z$/i.test(model);
+  if (rest.length && !nissanZ && /^[A-Za-z]{1,2}$/.test(model) && /^[A-Za-z0-9]{1,6}$/.test(rest[0])) model += "-" + rest.shift();
+  else if (rest.length && (INV_TWO_WORD_MODELS.includes((model + " " + rest[0]).toLowerCase()) || (/^\d$/.test(model) && /^series$/i.test(rest[0])) || (/^[A-Za-z]{3,}$/.test(model) && /^\d{1,4}$/.test(rest[0])))) model += " " + rest.shift();
+  return { condition: cond, year: Number(t[yi]), make, model, trim: rest.join(" "), stock };
+}
 // One vehicle's own page: the title says what it is, the metas and the text
 // say the rest. Used when a page is known to be about a single vehicle.
 function invFromPageMeta(html, pageUrl, out) {
@@ -399,8 +424,9 @@ function invFromPageMeta(html, pageUrl, out) {
   const cond = invCondition(String(pageUrl || "") + " " + title + " " + text.slice(0, 600));
   const rec = { vin, stock, year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
     price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "", via: "page" };
-  // The address as a last resort for the year and make: /used/2024-mazda-cx-5-gs-l-p12345/
-  if (!rec.year || !rec.make) { const u = /\/((?:19|20)\d{2})-([a-z]+)-([a-z0-9-]+)/i.exec(String(pageUrl || "")); if (u) { rec.year = rec.year || Number(u[1]); rec.make = rec.make || u[2][0].toUpperCase() + u[2].slice(1); } }
+  // The address fills whatever the page didn't: /inventory/Used-2024-Mazda-CX-5-GS-L-P12345/
+  const slug = invFromSlug(pageUrl);
+  if (slug) { ["year", "make", "model", "trim", "stock", "condition"].forEach((k) => { if (rec[k] == null || rec[k] === "") rec[k] = slug[k]; }); if (slug.condition) rec.condition = slug.condition; }
   if (rec.vin || rec.stock || (rec.make && rec.model)) out.push(rec);
 }
 function parseInventoryHtml(html, opts) {
@@ -539,17 +565,16 @@ async function crawlInventory(url: string, probe: boolean) {
     }
     report.sitemapsRead = tried;
     report.vehiclePagesFound = vdps.size;
-    const list = [...vdps].slice(0, 400);
+    const list = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u)).slice(0, 400);
     let fetched = 0, parsed = 0, failed = 0;
-    let firstPage: { url: string; html: string } | null = null;
+    let firstPage: { url: string; html: string; vin: string; stock: string } | null = null;
     await fetchMany(list, 6, async (u) => {
       if (Date.now() - started > BUDGET_MS) { report.complete = false; return; }
       let html: string;
       try { html = await fetchSitePage(u); } catch (_) { failed++; return; }
       fetched++;
-      if (!firstPage) firstPage = { url: u, html };
       const got = parseInventoryHtml(html, { single: true, url: u });
-      if (got.length) { parsed++; add(got.slice(0, 1), u); }
+      if (got.length) { parsed++; add(got.slice(0, 1), u); if (!firstPage && got[0].vin) firstPage = { url: u, html, vin: got[0].vin, stock: got[0].stock }; }
     });
     report.vehiclePagesRead = fetched; report.vehiclePagesWithAVehicle = parsed; report.vehiclePagesFailed = failed;
     if (!report.complete) report.warnings.push("stopped at the time budget — the rest come next run");
@@ -560,13 +585,28 @@ async function crawlInventory(url: string, probe: boolean) {
     if (probe) {
       // One vehicle page inside out, the same page asked for as JSON, and the
       // site's own app bundle's API paths — enough to fit the reader blind.
-      if (firstPage) report.vehiclePage = invPageProbe(firstPage.html, firstPage.url);
-      if (firstPage) {
+      const fp = firstPage as { url: string; html: string; vin: string; stock: string } | null;
+      if (fp) report.vehiclePage = invPageProbe(fp.html, fp.url);
+      const asJson = async (u: string) => {
         try {
-          const r = await fetch(firstPage.url, { headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0" }, redirect: "follow" });
+          const r = await fetch(u, { headers: { "Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": url }, redirect: "follow" });
           const body = await r.text();
-          report.vehiclePageAsJson = { status: r.status, type: r.headers.get("content-type") || "", head: body.slice(0, 300).replace(/\s+/g, " ") };
-        } catch (e) { report.vehiclePageAsJson = { error: (e as Error).message }; }
+          return { status: r.status, type: (r.headers.get("content-type") || "").slice(0, 60), bytes: body.length, head: body.slice(0, 400).replace(/\s+/g, " ") };
+        } catch (e) { return { error: (e as Error).message }; }
+      };
+      // The same pages asked for as JSON, and the API paths the bundle named,
+      // tried with the first vehicle's VIN and stock.
+      report.asJson = { search: await asJson(url) };
+      if (fp) {
+        report.asJson.vehiclePage = await asJson(fp.url);
+        const tries: string[] = [];
+        for (const path of ["/api/vehicle-deal-widget/", "/api/vehicle-media/", "/api/vehicle-main-photo-widget/", "/api/vehicle-specials-widget/"]) {
+          tries.push(`${origin}${path}?vin=${fp.vin}`);
+          if (fp.stock) tries.push(`${origin}${path}?stock=${encodeURIComponent(fp.stock)}`);
+        }
+        tries.push(`${origin}/api/vehicles/?vin=${fp.vin}`, `${origin}/api/vehicle/${fp.vin}/`, `${origin}/api/inventory/?vin=${fp.vin}`, `${origin}/inventory/?do-search=1&search.vin=${fp.vin}`);
+        report.apiTries = {};
+        for (const t of tries.slice(0, 12)) { if (Date.now() - started > BUDGET_MS + 20000) break; report.apiTries[t.replace(origin, "")] = await asJson(t); }
       }
       const own = report.scripts.filter((s: string) => /^\/|oregan/i.test(s) && /app|website|services/i.test(s)).slice(0, 3);
       report.bundleHints = {};

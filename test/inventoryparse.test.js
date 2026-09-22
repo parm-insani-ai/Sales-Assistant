@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -112,6 +112,28 @@ if (lib.invStock("Stock #: A1900 · 48,300 km") !== "A1900" || lib.invStock("Sto
 const probe = lib.invPageProbe(shellVdp, "https://www.example.com/inventory/used/2HKRS6H90SH000111/");
 console.log("the probe →", JSON.stringify(probe).slice(0, 300));
 if (!/Example Nissan/.test(probe.title) || probe.vinContexts.length !== 1 || probe.inlineScripts.length !== 1 || !/stock photos/.test(probe.textSnippet)) fail("the probe missed the page's parts: " + JSON.stringify(probe));
+
+// --- 5e. The page's address says what the vehicle is when the page itself doesn't.
+const slugs = {
+  "https://x.com/inventory/Used-2019-Mazda-CX-5-Signature-NH22985A/": ["Used", 2019, "Mazda", "CX-5", "Signature", "NH22985A"],
+  "https://x.com/inventory/Used-2024-Honda-CR-V-Hybrid-Touring-NIP1879/": ["Used", 2024, "Honda", "CR-V", "Hybrid Touring", "NIP1879"],
+  "https://x.com/inventory/Used-2020-BMW-5-Series-530i-xDrive-NHP1895/": ["Used", 2020, "BMW", "5 Series", "530i xDrive", "NHP1895"],
+  "https://x.com/inventory/New-2026-Nissan-Rogue-SV-N26011/": ["New", 2026, "Nissan", "Rogue", "SV", "N26011"],
+  "https://x.com/inventory/New-2025-Nissan-Z-Performance-N25101/": ["New", 2025, "Nissan", "Z", "Performance", "N25101"],
+  "https://x.com/inventory/Used-2023-Hyundai-IONIQ-5-Preferred-NH1001/": ["Used", 2023, "Hyundai", "IONIQ 5", "Preferred", "NH1001"],
+  "https://x.com/inventory/Used-2022-Land-Rover-Range-Rover-Sport-HSE-NHP2001/": ["Used", 2022, "Land-Rover", "Range Rover", "Sport HSE", "NHP2001"],
+  "https://x.com/inventory/Used-2021-Ford-F-150-XLT-NH3001/": ["Used", 2021, "Ford", "F-150", "XLT", "NH3001"],
+};
+for (const [u, want] of Object.entries(slugs)) {
+  const s = lib.invFromSlug(u) || {};
+  const got = [s.condition, s.year, s.make, s.model, s.trim, s.stock];
+  if (JSON.stringify(got) !== JSON.stringify(want)) fail(`the address ${u} read as ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
+}
+console.log("addresses →", Object.keys(slugs).length + " read right");
+if (lib.invFromSlug("https://x.com/inventory/categories/6-month-warranty/")) fail("a category page read as a vehicle");
+const fromSlug = lib.parseInventoryHtml(shellVdp, { single: true, url: "https://x.com/inventory/Used-2024-Honda-CR-V-Hybrid-Touring-NIP1879/" })[0] || {};
+console.log("shell page + address →", JSON.stringify(fromSlug));
+if (fromSlug.vin !== "2HKRS6H90SH000111" || fromSlug.year !== 2024 || fromSlug.make !== "Honda" || fromSlug.model !== "CR-V" || fromSlug.trim !== "Hybrid Touring" || fromSlug.stock !== "NIP1879" || fromSlug.condition !== "Used") fail("the address didn't fill the shell page's vehicle: " + JSON.stringify(fromSlug));
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");
