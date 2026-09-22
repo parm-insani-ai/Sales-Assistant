@@ -69,7 +69,7 @@ function cutsFor(sorted) {
 }
 
 // The whole book, read once. Returns a Map leadId -> assessment.
-let cache = { key: "", byId: null, sorted: null, cuts: null };
+let cache = { key: "", byId: null, sorted: null, cuts: null, one: null };
 function cacheKey() {
   return ["leads", "vehicles", "specials", "settings", "texts", "links", "sales", "tasks"].map((n) => store.generation(n)).join("|");
 }
@@ -83,6 +83,11 @@ function readBook() {
   // Signals gathered once for everyone, not per customer.
   const radar = new Map();
   topOpportunities(Infinity).forEach((r) => radar.set(r.lead.id, r));
+  // For everyone off the radar, the nearest miss — looked up now while the
+  // deal cache is current, so a single customer's later re-read never sends
+  // the deal engine back over the whole book.
+  const misses = new Map();
+  store.all("leads").forEach((l) => { if (!radar.has(l.id)) { const m = closestDeal(l.id); if (m) misses.set(l.id, m); } });
   const lastIn = new Map(), lastOpen = new Map(), opens = new Map();
   store.all("texts").forEach((t) => {
     if (t.dir !== "in" || !t.leadId) return;
@@ -100,17 +105,20 @@ function readBook() {
   const planned = new Set();
   store.all("tasks").forEach((t) => { if (t.cadence && !t.done && t.leadId) planned.add(t.leadId); });
 
-  const byId = new Map();
-  store.all("leads").forEach((l) => {
+  // One customer against the signals gathered above. Kept on the cache so a
+  // single customer can be re-read after a small change without reading the
+  // whole book again.
+  const one = (l) => {
     const sales = salesByLead.get(l.id) || [];
     const lastSale = sales.map((x) => String(x.saleDate || x.createdAt || "")).sort().pop() || null;
-    const a = assessOne(l, { s, band, now, today, radar: radar.get(l.id) || null, lastIn: lastIn.get(l.id), lastOpen: lastOpen.get(l.id), opens: opens.get(l.id) || 0, sales, lastSale, planned: planned.has(l.id) });
-    byId.set(l.id, a);
-  });
+    return assessOne(l, { s, band, now, today, radar: radar.get(l.id) || null, miss: misses.get(l.id) || null, lastIn: lastIn.get(l.id), lastOpen: lastOpen.get(l.id), opens: opens.get(l.id) || 0, sales, lastSale, planned: planned.has(l.id) });
+  };
+  const byId = new Map();
+  store.all("leads").forEach((l) => byId.set(l.id, one(l)));
   const sorted = [...byId.values()].sort((a, b) => b.score - a.score || String(b.lead.createdAt || "").localeCompare(String(a.lead.createdAt || "")));
   const cuts = cutsFor(sorted);
   sorted.forEach((a) => { a.tier = tierOf(a.score, cuts); });
-  return { byId, sorted, cuts };
+  return { byId, sorted, cuts, one };
 }
 
 function assessOne(l, ctx) {
@@ -154,7 +162,7 @@ function assessOne(l, ctx) {
     // Not on the radar, but priced: say what the closest deal is and why it
     // missed, rather than going quiet. (The payment includes any negative
     // equity rolled in — which is usually the reason.)
-    const miss = closestDeal(l.id);
+    const miss = ctx.miss !== undefined ? ctx.miss : closestDeal(l.id);
     if (miss && miss.best) {
       best = miss.best;
       if (miss.why === "cap") add(0, null, `The closest deal, a ${vehName(miss.best.vehicle)}, is about ${currency(Math.round(miss.best.monthly))}/mo — over the payment ceiling.`, null);
@@ -301,12 +309,29 @@ export function assessAll() {
   const key = cacheKey();
   if (cache.byId && cache.key === key) return cache;
   const r = readBook();
-  cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts };
+  cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one };
   return cache;
 }
 
 export function assessment(leadId) {
   return assessAll().byId.get(leadId) || null;
+}
+
+// One customer, re-read now, without re-reading the book. After a small
+// change to one customer — a contact logged, a note added — the full read
+// (every customer, every deal) would run again just to redraw one card,
+// and on a phone with three thousand customers that is the lag between the
+// tap and the card. The book's signals and cut-offs from the last full read
+// are good enough for one card; the next full read happens when the list
+// next needs the whole order.
+export function assessQuick(leadId) {
+  const l = store.get("leads", leadId);
+  if (!l) return null;
+  if (!cache.byId || !cache.one) return assessment(leadId);
+  const a = cache.one(l);
+  a.tier = tierOf(a.score, cache.cuts);
+  cache.byId.set(leadId, a);
+  return a;
 }
 
 // The book in order, best first.

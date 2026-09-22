@@ -973,23 +973,28 @@ export const CONTACT_VIAS = ["call", "text", "email"];
 export function logContact(leadId, { via = "call", at = null, notes = "" } = {}) {
   if (!CONTACT_VIAS.includes(via)) via = "call";
   const when = at && !isNaN(new Date(at)) ? new Date(at).toISOString() : new Date().toISOString();
-  const rec = create("calls", { leadId, dir: "out", via, at: when, outcome: "reached", notes, logged: true });
-  const lead = get("leads", leadId);
-  // The newest contact is the last one, whichever order they were logged in.
-  if (lead && (!lead.lastContacted || when >= lead.lastContacted)) {
-    update("leads", leadId, { lastContacted: when, lastContactVia: via });
-  }
-  logActivity("touch");
-  return rec;
+  // Three records change; the listeners hear about it once.
+  return bulk(() => {
+    const rec = create("calls", { leadId, dir: "out", via, at: when, outcome: "reached", notes, logged: true });
+    const lead = get("leads", leadId);
+    // The newest contact is the last one, whichever order they were logged in.
+    if (lead && (!lead.lastContacted || when >= lead.lastContacted)) {
+      update("leads", leadId, { lastContacted: when, lastContactVia: via });
+    }
+    logActivity("touch");
+    return rec;
+  });
 }
 
 // Take a logged contact back: the record goes, and the customer's last
 // contact returns to what it was before (`prev` from before the log).
 export function undoContact(recId, leadId, prev = {}) {
-  if (get("calls", recId)) remove("calls", recId);
-  if (get("leads", leadId)) {
-    update("leads", leadId, { lastContacted: prev.lastContacted || null, lastContactVia: prev.lastContactVia || null });
-  }
+  bulk(() => {
+    if (get("calls", recId)) remove("calls", recId);
+    if (get("leads", leadId)) {
+      update("leads", leadId, { lastContacted: prev.lastContacted || null, lastContactVia: prev.lastContactVia || null });
+    }
+  });
 }
 
 // --- Links ---

@@ -852,6 +852,16 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 /* Rows inside a card (tasks) need padding so the slide doesn't look cramped. */
 .swipe-wrap .check-item { padding-left: 2px; padding-right: 2px; }
 
+/* A note said or typed right after a contact, inside the customer's card. */
+.note-panel { padding: 2px 0; }
+.note-panel .note-status { font-size: 0.82rem; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.note-panel .note-status.listening { color: var(--success); font-weight: 600; }
+.note-panel .note-status .ico { width: 16px; height: 16px; }
+.note-panel textarea { width: 100%; min-height: 72px; font: inherit; padding: 10px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); color: var(--text); resize: vertical; }
+.note-panel .btn-row { margin-top: 10px; }
+.swipe-act-note { background: var(--primary); }
+.swipe-act-done { background: var(--muted); }
+
 /* "Which way?" under a customer's Last contacted row. */
 .contact-ways { display: flex; gap: 8px; padding: 8px 0 10px; }
 .contact-ways .btn { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 4px; }

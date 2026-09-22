@@ -275,13 +275,15 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
   const BTN = 92; // each button's width
   const baseW = BTN * (1 + first.length);
   let W = baseW; // revealed width right now
+  let expanded = false; // a follow-up tray is showing instead of the first one
   let startX = 0, startY = 0, dx = 0, horiz = null, tracking = false, open = false, moved = false;
 
   const setX = (x) => { el.style.transform = x ? `translate3d(${x}px,0,0)` : ""; };
+  const restoreTray = () => { if (expanded) { expanded = false; W = baseW; firstTray(); } };
   const closeRow = () => {
     open = false; dx = 0; moved = false;
     setX(0);
-    if (W !== baseW) { W = baseW; firstTray(); }
+    restoreTray();
     if (closeOpenSwipe === closeRow) closeOpenSwipe = null;
   };
   const api = {
@@ -293,6 +295,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
         b.addEventListener("click", () => { if (a.onTap) a.onTap(api); });
         return b;
       }));
+      expanded = true;
       W = BTN * list.length;
       open = true; dx = -W;
       setX(-W);
@@ -329,7 +332,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
     if (!horiz) return;
     open = dx < -W / 2;
     setX(open ? -W : 0);
-    if (!open && W !== baseW) { W = baseW; firstTray(); }
+    if (!open) restoreTray();
     closeOpenSwipe = open ? closeRow : (closeOpenSwipe === closeRow ? null : closeOpenSwipe);
   };
   el.addEventListener("pointerup", finish);

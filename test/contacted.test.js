@@ -6,6 +6,7 @@ const { chromium } = require("/opt/node22/lib/node_modules/playwright");
 
 (async () => {
 const APP = "http://127.0.0.1:8137";
+await fetch(APP + "/__reset"); // the stub cloud keeps rows between runs
 const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
 const p = await ctx.newPage();
@@ -98,9 +99,18 @@ if (Math.abs(at - before) > 5000) fail(`the logged time (${logged.lastContacted}
 if (logged.calls.length !== 1 || logged.calls[0].via !== "text" || !logged.calls[0].logged) fail("the contact record is wrong: " + JSON.stringify(logged.calls));
 if (!logged.timeline.includes("call")) fail("the contact isn't on the timeline");
 if (!/^Texted /.test(logged.card)) fail(`the card doesn't show the contact: ${JSON.stringify(logged.card)}`);
-if (logged.shift !== "none") fail("the card didn't slide back after logging");
-if (logged.tray !== "Contacted,Delete") fail(`the tray didn't go back to Contacted, Delete (${logged.tray})`);
+// One more step in the same tray: a note, or done.
+if (logged.tray !== "Note,Done") fail(`after logging the tray shows ${logged.tray}, not Note, Done`);
+if (!/-184/.test(logged.shift)) fail("the card isn't showing the Note / Done step");
 if (!/Texted Ann Example/.test(logged.toast) || !/Undo/.test(logged.toast)) fail(`no undo toast (${JSON.stringify(logged.toast)})`);
+await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act:has-text('Done')");
+await p.waitForTimeout(350);
+const done = await p.evaluate(() => {
+  const wrap = [...document.querySelectorAll(".swipe-wrap")].find((w) => w.textContent.includes("Ann Example"));
+  return { shift: getComputedStyle(wrap.querySelector(".swipe-card")).transform, tray: [...wrap.querySelectorAll(".swipe-act")].map((b) => b.textContent.trim()).join() };
+});
+console.log("after Done:", JSON.stringify(done));
+if (done.shift !== "none" || done.tray !== "Contacted,Delete") fail("Done didn't close the row and put the first tray back");
 
 // --- Undo takes it back.
 await p.click(".toast-undo button");
@@ -127,11 +137,49 @@ if (!/#\/leads$/.test(t.hash)) fail("cancelling opened the customer");
 const stillNone = await p.evaluate(async () => (await import("/js/store.js")).callsFor("lead_ann").length);
 if (stillNone !== 0) fail("cancelling logged something");
 
+// --- Log a call, then say what happened. No microphone here, so the panel
+// falls back to typing — the same panel, the same Save.
 await slide("Ann Example");
 await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act-ok");
 await p.waitForTimeout(300);
 await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act:has-text('Call')");
 await p.waitForTimeout(300);
+await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act:has-text('Note')");
+await p.waitForTimeout(900);
+const panel = await p.evaluate(() => {
+  const wrap = [...document.querySelectorAll(".swipe-wrap")].find((w) => w.textContent.includes("Ann Example"));
+  const pn = wrap.querySelector(".note-panel");
+  return pn ? { status: pn.querySelector(".note-status").textContent.trim(), box: !!pn.querySelector("textarea"), save: !!pn.querySelector('[data-act="save"]'),
+    shift: getComputedStyle(wrap.querySelector(".swipe-card")).transform, sheet: !!document.querySelector(".modal") } : null;
+});
+console.log("note panel:", JSON.stringify(panel));
+if (!panel) fail("tapping Note didn't open the note panel in the card");
+else {
+  if (!panel.box || !panel.save) fail("the panel has no box or no Save");
+  if (panel.shift !== "none") fail("the row didn't close for the panel");
+  if (panel.sheet) fail("a sheet opened");
+}
+await p.fill(".note-panel textarea", "Wants to come Saturday, wife has to sign off");
+// The card behind the panel must not open the customer when the box is tapped.
+await p.click(".note-panel textarea");
+await p.waitForTimeout(150);
+if (!/#\/leads$/.test(await p.evaluate(() => location.hash))) fail("tapping inside the panel opened the customer");
+await p.click('.note-panel [data-act="save"]');
+await p.waitForTimeout(400);
+const noted = await p.evaluate(async () => {
+  const store = await import("/js/store.js");
+  const l = store.get("leads", "lead_ann");
+  const wrap = [...document.querySelectorAll(".swipe-wrap")].find((w) => w.textContent.includes("Ann Example"));
+  return { notes: l.notes || "", call: store.callsFor("lead_ann").map((c) => c.notes).join("|"), panelGone: !wrap.querySelector(".note-panel"),
+    card: wrap.querySelector(".row-contact")?.textContent.trim() || "", toast: [...document.querySelectorAll(".toast")].map((t) => t.textContent).join("|") };
+});
+console.log("after Save:", JSON.stringify(noted));
+if (!/Wants to come Saturday/.test(noted.notes)) fail("the note isn't on the customer's profile");
+if (!/^\d{4}-\d{2}-\d{2} — Wants/.test(noted.notes)) fail("the note isn't dated");
+if (!/Wants to come Saturday/.test(noted.call)) fail("the note isn't on the contact record");
+if (!noted.panelGone) fail("the panel stayed up after saving");
+if (!/^Called /.test(noted.card)) fail("the card didn't come back showing the call");
+if (!/Noted/.test(noted.toast)) fail("no confirmation");
 
 // --- Their page: the row shows it and logs another, inline.
 await p.evaluate(() => { location.hash = "#/leads/lead_ann"; });
@@ -150,10 +198,16 @@ console.log("row tapped:", JSON.stringify(r));
 if (r.ways !== "call,text,email") fail("tapping the row didn't show the three ways under it");
 if (r.sheet) fail("the row opened a sheet");
 await p.click('.contact-ways [data-via="email"]');
+await p.waitForTimeout(900);
+const pagePanel = await p.evaluate(() => !!document.querySelector(".note-panel textarea"));
+console.log("page shows the note panel after Email:", pagePanel);
+if (!pagePanel) fail("the page didn't offer a note after logging");
+await p.fill(".note-panel textarea", "Sent the brochure");
+await p.click('.note-panel [data-act="save"]');
 await p.waitForTimeout(400);
 r = await row();
 const n = await p.evaluate(async () => (await import("/js/store.js")).callsFor("lead_ann").length);
-console.log("after Email from the page:", JSON.stringify({ ...r, records: n }));
+console.log("after Email + note from the page:", JSON.stringify({ ...r, records: n }));
 if (!/email/.test(r.value || "")) fail("the page didn't update to the new contact");
 if (n !== 2) fail(`${n} contact records — wanted 2`);
 
@@ -162,8 +216,8 @@ await p.evaluate(() => { location.hash = "#/inbox/lead_ann"; });
 await p.waitForTimeout(400);
 const thread = await p.evaluate(() => [...document.querySelectorAll(".chat-event")].map((e) => e.textContent.trim()));
 console.log("thread events:", JSON.stringify(thread));
-if (!thread.some((x) => /You called them \(logged\)/.test(x))) fail("the logged call isn't on the thread");
-if (!thread.some((x) => /You emailed them \(logged\)/.test(x))) fail("the logged email isn't on the thread");
+if (!thread.some((x) => /You called them \(logged\)/.test(x) && /Wants to come Saturday/.test(x))) fail("the logged call isn't on the thread with its note");
+if (!thread.some((x) => /You emailed them \(logged\)/.test(x) && /Sent the brochure/.test(x))) fail("the logged email isn't on the thread with its note");
 
 // --- Delete behind the same slide still works.
 await p.evaluate(() => { location.hash = "#/leads"; });

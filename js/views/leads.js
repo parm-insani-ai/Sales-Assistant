@@ -10,7 +10,8 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
-import { assessAll, assessment, bookSummary } from "../assess.js";
+import { assessAll, assessment, assessQuick, bookSummary } from "../assess.js";
+import { dictate } from "../dictate.js";
 import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
@@ -356,10 +357,10 @@ export function renderLeads(view, { param }) {
   draw();
 }
 
-function leadCard(l, onOpen) {
-  const el = document.createElement("div");
-  el.className = "card card-tap";
-  el.dataset.leadId = l.id;
+// What a customer's card says. Drawn once on the way in and again in place
+// when something about them changes — a contact logged, a note added —
+// without rebuilding the card or the swipe behind it.
+function cardHTML(l, { quick = false } = {}) {
   const st = stageMeta(l.stage);
   const fuDays = l.followUp ? daysFromToday(l.followUp) : null;
   let fuBadge = "";
@@ -367,14 +368,15 @@ function leadCard(l, onOpen) {
     const cls = fuDays < 0 ? "badge-due" : fuDays === 0 ? "badge-due" : fuDays <= 2 ? "badge-soon" : "";
     fuBadge = `<span class="badge ${cls}" style="margin-left:6px">${esc(relativeDay(l.followUp))}</span>`;
   }
-  // The read of this customer: how strong, and the reasons, right on the card.
-  const a = assessment(l.id);
+  // The read of this customer: how strong, and the reasons, right on the
+  // card. A quick redraw re-reads this one customer rather than the book.
+  const a = quick ? assessQuick(l.id) : assessment(l.id);
   const tier = a && a.tier ? `<span class="badge ${a.tier.badge}" style="margin-right:6px">${esc(a.tier.label)}</span>` : "";
   const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
   // The last contact, on the card — so logging one is visibly registered.
   const contact = l.lastContacted
     ? `<div class="row-contact">${icon("checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")} ${esc(formatDateTime(l.lastContacted))}</div>` : "";
-  el.innerHTML = `
+  return `
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
@@ -387,7 +389,20 @@ function leadCard(l, onOpen) {
     </div>
     ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
   `;
-  el.addEventListener("click", () => { if (onOpen) onOpen(); navigate(`/leads/${l.id}`); });
+}
+
+function leadCard(l, onOpen) {
+  const el = document.createElement("div");
+  el.className = "card card-tap";
+  el.dataset.leadId = l.id;
+  el.innerHTML = cardHTML(l);
+  // While a note panel is up inside the card, the card is not a button.
+  let busy = false;
+  el.addEventListener("click", () => { if (busy) return; if (onOpen) onOpen(); navigate(`/leads/${l.id}`); });
+  const redraw = () => {
+    const fresh = store.get("leads", l.id);
+    if (fresh) el.innerHTML = cardHTML(fresh, { quick: true });
+  };
   return swipeable(el, {
     actions: [{
       label: "Contacted", icon: "checkline", kind: "ok",
@@ -397,14 +412,19 @@ function leadCard(l, onOpen) {
       onTap: (api) => api.expand(WAYS.map((w) => ({
         label: w.label, icon: w.icon, kind: "ok",
         onTap: () => {
-          api.close();
-          // Redraw whichever card is showing this customer now — after the
-          // first redraw the original wrapper is gone, and Undo comes later.
-          logContactFor(l, w.via, () => {
-            const fresh = store.get("leads", l.id);
-            const cur = document.querySelector(`.swipe-card[data-lead-id="${CSS.escape(l.id)}"]`)?.closest(".swipe-wrap");
-            if (fresh && cur) cur.replaceWith(leadCard(fresh, onOpen));
-          });
+          const rec = logContactFor(l, w.via, redraw);
+          if (!rec) { api.close(); return; }
+          // Logged. One more step in the same tray: say what happened, or
+          // done. The card already shows the contact behind it.
+          api.expand([
+            { label: "Note", icon: "mic", kind: "note", onTap: () => {
+              api.close();
+              busy = true;
+              el.innerHTML = "";
+              el.appendChild(notePanel(l, rec, () => { busy = false; redraw(); }));
+            } },
+            { label: "Done", icon: "check", kind: "done", onTap: () => api.close() },
+          ]);
         },
       }))),
     }],
@@ -443,16 +463,69 @@ function logContactFor(l, via, onChange) {
   return rec;
 }
 
+// "What happened?" — said, or typed. Listening starts the moment the panel
+// appears (the tap that opened it is the gesture the microphone needs), the
+// words land in the box as they come, and Save puts them on the customer's
+// profile as a dated note and on the contact itself, so the thread shows
+// what the call was about. No engine, a blocked mic, a bad signal: the box
+// is there to type into, and the keyboard's own mic key still dictates.
+function notePanel(l, rec, onDone) {
+  const panel = document.createElement("div");
+  panel.className = "note-panel";
+  panel.innerHTML = `
+    <div class="row-title" style="margin-bottom:6px">${esc(l.name)}</div>
+    <div class="note-status listening">${icon("mic")} <span>Listening… say what happened</span></div>
+    <textarea data-f="note" placeholder="Left a voicemail · wants to come Saturday · asked about the SV"></textarea>
+    <div class="btn-row">
+      <button type="button" class="btn btn-primary" data-act="save" style="flex:1">Save note</button>
+      <button type="button" class="btn btn-ghost" data-act="stop">Stop</button>
+      <button type="button" class="btn btn-ghost" data-act="cancel">Cancel</button>
+    </div>`;
+  // The card behind this is a button and a swipe. Neither may hear these taps.
+  ["pointerdown", "click"].forEach((t) => panel.addEventListener(t, (ev) => ev.stopPropagation()));
+  const status = panel.querySelector(".note-status");
+  const box = panel.querySelector('[data-f="note"]');
+  const stopBtn = panel.querySelector('[data-act="stop"]');
+  const say = (text, cls) => { status.className = `note-status${cls ? " " + cls : ""}`; status.innerHTML = `${icon(cls === "listening" ? "mic" : "edit")} <span>${esc(text)}</span>`; };
+  let heard = "";
+  const d = dictate({
+    onInterim: (t) => { box.value = t; },
+    onFinal: (t) => { heard = t; if (t) box.value = t; say(t ? "Heard. Fix anything, then Save." : "Didn't catch that — type it, or use your keyboard's mic."); stopBtn.hidden = true; if (!t) box.focus(); },
+    onFallback: (why, partial) => { if (partial) box.value = partial; say(why); stopBtn.hidden = true; box.focus(); },
+  });
+  stopBtn.addEventListener("click", () => d.stop());
+  const finish = (saved) => { try { d.stop(); } catch { } panel.remove(); if (onDone) onDone(saved); };
+  panel.querySelector('[data-act="save"]').addEventListener("click", () => {
+    const note = box.value.trim() || heard;
+    if (!note) { say("Nothing to save yet — say it or type it."); box.focus(); return; }
+    try {
+      store.bulk(() => {
+        addContext(l.id, { note });
+        if (rec && store.get("calls", rec.id)) store.update("calls", rec.id, { notes: note });
+      });
+      toast("Noted", "success");
+      finish(true);
+    } catch (err) {
+      toast(`Couldn't save — ${(err && err.message) || "try again"}`, "danger");
+    }
+  });
+  panel.querySelector('[data-act="cancel"]').addEventListener("click", () => finish(false));
+  return panel;
+}
+
 // The same question, inline, for the customer's page: a row of buttons that
-// appears under "Last contacted" when that row is tapped.
+// appears under "Last contacted" when that row is tapped. After the tap, the
+// row becomes the note panel, then the page redraws.
 function contactWays(l, onDone) {
   const row = document.createElement("div");
   row.className = "contact-ways";
   row.innerHTML = WAYS.map((w) => `<button type="button" class="btn btn-ghost" data-via="${w.via}">${icon(w.icon)}<span>${w.label}</span></button>`).join("")
     + `<button type="button" class="btn btn-ghost" data-act="cancel">Cancel</button>`;
   row.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", () => {
-    row.remove();
-    logContactFor(l, b.dataset.via, onDone);
+    const rec = logContactFor(l, b.dataset.via, null);
+    if (!rec) { row.remove(); return; }
+    const panel = notePanel(l, rec, () => { if (onDone) onDone(rec); });
+    row.replaceWith(panel);
   }));
   row.querySelector('[data-act="cancel"]').addEventListener("click", () => row.remove());
   return row;
