@@ -554,7 +554,7 @@ function movesCard(l) {
     const rows = [
       ...appts.map((a) => ({ key: "a:" + a.id, ico: "calendar", title: `${a.type === "testdrive" ? "Test drive" : a.title || "Appointment"} · ${formatDateTime(a.when)}`, sub: a.confirmed ? "Confirmed" : "Not confirmed yet", act: "appt", a })),
       ...tasks.map((t) => ({ key: "t:" + t.id, ico: t.channel === "text" ? "message" : t.channel === "call" ? "phone" : t.channel === "email" ? "mail" : t.source === "context" ? "sparkles" : "check",
-        title: t.cadence ? strip(t) : t.title, sub: t.due ? relativeDay(t.due) + (t.cadence ? " · from the plan" : t.source === "context" ? " · from your context" : "") : "", act: t.cadence && t.channel === "text" ? "review" : t.channel === "call" && l.phone ? "call" : "task", t })),
+        title: t.cadence ? strip(t) : t.title, sub: (t.at ? formatDateTime(t.at) : t.due ? relativeDay(t.due) : "") + (t.cadence ? " · from the plan" : t.source === "context" ? " · from your context" : ""), act: t.cadence && t.channel === "text" ? "review" : t.channel === "call" && l.phone ? "call" : "task", t })),
     ];
     box.innerHTML = rows.map((r, i) => `
       <div class="nm-row" data-i="${i}">
@@ -601,7 +601,7 @@ function movesEl(l, moves, onDone) {
     ${moves.map((m, i) => `
       <div class="move" data-i="${i}">
         <span class="move-ico">${icon(MOVE_ICON[m.kind] || "check")}</span>
-        <div class="move-main"><div class="move-t">${esc(m.title)}</div>${m.detail ? `<div class="move-d">${esc(m.detail)}</div>` : ""}</div>
+        <div class="move-main"><div class="move-t">${esc(m.title)}${m.updated ? ` <span class="badge badge-soon">moved</span>` : ""}</div>${m.when || m.detail ? `<div class="move-d">${m.when ? `<b>${esc(formatDateTime(m.when))}</b>${m.detail ? " · " : ""}` : ""}${m.detail ? esc(m.detail) : ""}</div>` : ""}</div>
         ${m.kind === "text" && m.taskId ? `<button type="button" class="btn btn-primary btn-sm" data-act="review">Review</button>` : ""}
         ${m.taskId || m.appointmentId ? `<button type="button" class="btn btn-ghost btn-sm" data-act="undo">Undo</button>` : ""}
       </div>`).join("")}

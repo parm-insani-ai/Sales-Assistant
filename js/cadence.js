@@ -18,6 +18,7 @@
 // loss retires them (connections.js).
 
 import * as store from "./store.js";
+import { localISO, slotOn, toReadyAt, sameTimeOn } from "./schedule.js";
 
 function firstName(name) {
   return String(name || "there").trim().split(/\s+/)[0];
@@ -99,11 +100,18 @@ export function startCadence(leadId) {
   store.bulk(() => {
     steps.forEach((step, i) => {
       const verb = step.channel === "text" ? "Text" : step.channel === "email" ? "Email" : "Call";
+      // Every step has a clock time, not just a day: a timed day-zero step
+      // at its minute; a dated one at the hour its channel works best —
+      // texts mid-morning, calls late morning, emails first thing — inside
+      // business hours. The queue and the sweep both go by it.
+      const at = step.after != null
+        ? localISO(new Date(now + step.after * 60000))
+        : slotOn(addDaysISO(step.day || 0), step.channel === "call" ? 11 : step.channel === "email" ? 9 : 10, step.channel === "text" ? 15 : 0);
       store.create("tasks", {
         title: `${verb} ${fn} — ${step.label}`,
-        due: addDaysISO(step.day || 0),
-        // The clock time a day-zero step becomes ready; the day is not enough.
-        readyAt: step.after != null ? new Date(now + step.after * 60000).toISOString() : null,
+        due: at.slice(0, 10),
+        at,
+        readyAt: toReadyAt(at),
         priority: (step.day || 0) <= 2 ? "high" : "normal",
         done: false,
         leadId,
@@ -160,7 +168,11 @@ export function deferPlan(leadId, untilISO) {
   let moved = 0;
   store.bulk(() => {
     planSteps(leadId).forEach((t) => {
-      if (t.due && t.due <= until) { store.update("tasks", t.id, { due: after, deferredFor: "appointment" }); moved++; }
+      if (t.due && t.due <= until) {
+        const at = t.at ? sameTimeOn(t.at, after) : null;
+        store.update("tasks", t.id, { due: after, at, readyAt: at ? toReadyAt(at) : t.readyAt, deferredFor: "appointment" });
+        moved++;
+      }
     });
   });
   return moved;
@@ -186,7 +198,11 @@ export function adaptToReplies() {
       const at = latestIn.get(t.leadId);
       if (!at || (t.adaptedFor && t.adaptedFor >= at)) return;
       const hold = addDaysISO(REPLY_HOLD_DAYS, new Date(at));
-      if (t.due && t.due <= hold) { store.update("tasks", t.id, { due: hold, adaptedFor: at }); moved++; }
+      if (t.due && t.due <= hold) {
+        const when = t.at ? sameTimeOn(t.at, hold) : null;
+        store.update("tasks", t.id, { due: hold, at: when, readyAt: when ? toReadyAt(when) : t.readyAt, adaptedFor: at });
+        moved++;
+      }
       else store.update("tasks", t.id, { adaptedFor: at });
     });
   });

@@ -83,7 +83,7 @@ const has = (re) => rich.moves.some((x) => re.test(x));
 if (!has(/^appointment: Booked Ann for/)) fail("the visit wasn't booked");
 if (rich.appts.length !== 1 || !/T14:00$/.test(rich.appts[0].when)) fail("no appointment at Saturday 2pm on the calendar");
 if (rich.stage !== "appointment") fail(`stage is ${rich.stage}, not appointment`);
-if (!has(/^text: Confirmation text drafted/)) fail("no confirmation text drafted");
+if (!has(/^text: Confirmation text for/)) fail("no confirmation text drafted");
 if (!has(/^stock: 2 Rogue SVs in stock/)) fail("the two SVs with a moonroof in stock weren't found (the S has none, the SL is sold)");
 if (!has(/^text: Text about the ones in stock/)) fail("no text about the stock");
 if (!has(/^budget: \d+ in stock under their budget/)) fail("the budget wasn't counted against stock");
@@ -97,15 +97,58 @@ if (!rich.tasks.some((t) => /Appraise Ann's trade — 2019 altima/.test(t.title)
 const early = rich.tasks.filter((t) => t.cadence && t.intent !== "confirm" && t.intent !== "stock" && t.due <= "2026-09-26");
 if (early.length) fail("plan steps are still due before the visit: " + JSON.stringify(early.map((t) => t.title + " " + t.due)));
 
+// Every move has a clock time, inside business hours, never in the past.
+const timed = await p.evaluate(async () => {
+  const store = await import("/js/store.js");
+  const now = Date.now();
+  return store.all("tasks").filter((t) => t.leadId === "lead_ann" && !t.done).map((t) => ({ title: t.title.slice(0, 40), at: t.at, ok: !!t.at && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t.at) && new Date(t.at).getTime() > now - 60000 && t.due === t.at.slice(0, 10) && !!t.readyAt }));
+});
+console.log("timed:", JSON.stringify(timed.map((x) => [x.title, x.at])));
+if (!timed.length || !timed.every((x) => x.ok)) fail("a move has no clock time, or its day and time disagree: " + JSON.stringify(timed.filter((x) => !x.ok)));
+
 // --- The same note again makes nothing twice.
 const again = await p.evaluate(async () => {
   const store = await import("/js/store.js"); const m = await import("/js/moves.js");
   const before = store.all("tasks").length + store.all("appointments").length;
+  const ids = new Set(store.all("tasks").map((t) => t.id));
   const r = m.nextMoves("lead_ann", "Loves the SV with the moonroof, wants to be around thirty eight, wife has to sign off, coming Saturday at 2, trading a 2019 Altima");
-  return { before, after: store.all("tasks").length + store.all("appointments").length, moves: r.moves.map((x) => x.kind) };
+  return { before, after: store.all("tasks").length + store.all("appointments").length, moves: r.moves.map((x) => x.kind), added: store.all("tasks").filter((t) => !ids.has(t.id)).map((t) => t.title) };
 });
 console.log("same note again:", JSON.stringify(again));
+if (again.added.length) console.log("  added:", JSON.stringify(again.added));
 if (again.after !== again.before) fail("running the same note again created more");
+
+// --- New context moves what's already set up rather than adding to it.
+const replan = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const m = await import("/js/moves.js");
+  const count = () => store.all("tasks").filter((t) => t.leadId === "lead_ann" && !t.done).length + store.all("appointments").filter((a) => a.leadId === "lead_ann" && a.status !== "cancelled").length;
+  const before = count();
+  const moved = m.nextMoves("lead_ann", "actually she's coming Sunday at 3 instead");
+  const appts = store.all("appointments").filter((a) => a.leadId === "lead_ann" && a.status !== "cancelled").map((a) => a.when);
+  const confirm = store.all("tasks").find((t) => t.leadId === "lead_ann" && !t.done && t.intent === "confirm");
+  const afterMove = count();
+  const budget = m.nextMoves("lead_ann", "budget is more like forty two now");
+  const budgets = store.all("tasks").filter((t) => t.leadId === "lead_ann" && !t.done && t.kind === "budget");
+  const off = m.nextMoves("lead_ann", "she can't make it Sunday, will call to rebook");
+  const live = store.all("appointments").filter((a) => a.leadId === "lead_ann" && a.status !== "cancelled").length;
+  const confirmGone = !store.all("tasks").find((t) => t.leadId === "lead_ann" && !t.done && t.intent === "confirm");
+  const rebook = store.all("tasks").find((t) => t.leadId === "lead_ann" && !t.done && t.kind === "rebook");
+  return { before, afterMove, moved: moved.moves.map((x) => x.kind + ": " + x.title + (x.updated ? " (moved)" : "")), appts, confirmTitle: confirm && confirm.title,
+    budget: budget.moves.map((x) => x.kind + ": " + x.title + (x.updated ? " (moved)" : "")), budgets: budgets.map((t) => t.title), live, confirmGone, rebook: rebook && rebook.at,
+    off: off.moves.map((x) => x.kind + ": " + x.title), stage: store.get("leads", "lead_ann").stage };
+});
+console.log("moved the visit →", JSON.stringify(replan.moved), "appointments:", JSON.stringify(replan.appts));
+console.log("  budget again →", JSON.stringify(replan.budget), "budget tasks:", JSON.stringify(replan.budgets));
+console.log("  can't make it →", JSON.stringify(replan.off), "live visits:", replan.live, "rebook at:", replan.rebook, "stage:", replan.stage);
+if (replan.appts.length !== 1 || !/T15:00$/.test(replan.appts[0])) fail("the visit wasn't moved to Sunday 3pm (still " + JSON.stringify(replan.appts) + ")");
+if (!replan.moved.some((x) => /^appointment: Visit moved to/.test(x))) fail("no move says the visit moved");
+if (!/Sep 27, 3:00 PM/.test(replan.confirmTitle || "")) fail("the confirmation text wasn't re-dated: " + replan.confirmTitle);
+if (replan.afterMove !== replan.before) fail(`moving the visit changed the count of things set up (${replan.before} → ${replan.afterMove})`);
+if (replan.budgets.length !== 1 || !/under Ann's budget/.test(replan.budgets[0])) fail("a second budget note made a second budget task: " + JSON.stringify(replan.budgets));
+if (replan.live !== 0) fail("can't make it didn't cancel the visit");
+if (!replan.confirmGone) fail("the confirmation text survived the cancellation");
+if (!replan.rebook) fail("no rebook task with a time");
+if (replan.stage !== "working") fail(`after the cancellation the stage is ${replan.stage}, not working`);
 
 // --- Hesitation, a payment target, and a far-off timeline.
 const bob = await p.evaluate(async () => {
@@ -117,7 +160,7 @@ const bob = await p.evaluate(async () => {
 });
 console.log("bob →", JSON.stringify(bob.moves), "follow-up:", bob.followUp);
 if (!bob.moves.some((x) => /^objection: Prepare a second option/.test(x))) fail("the objection wasn't picked up");
-if (!bob.moves.some((x) => /^text: Options text drafted/.test(x))) fail("no options text two days out");
+if (!bob.moves.some((x) => /^text: Options text, two days out/.test(x))) fail("no options text two days out");
 if (!bob.moves.some((x) => /^budget: \d+ fit their payment target/.test(x))) fail("the payment target wasn't run against the deals");
 if (!bob.moves.some((x) => /^finance: /.test(x))) fail("financing wasn't picked up");
 if (!bob.moves.some((x) => /^later: Check back/.test(x))) fail("the March timeline didn't date a check-back");
@@ -136,8 +179,8 @@ const dee = await p.evaluate(async () => {
 console.log("dee →", JSON.stringify(dee.moves), "stage:", dee.stage);
 if (dee.stage !== "working") fail(`a sold customer who wants to come in is still ${dee.stage}`);
 if (!dee.moves.some((x) => /^stage: Back in the market/.test(x))) fail("no move says they're back in the market");
-if (!dee.moves.some((x) => /^text: .Tried you. text drafted/.test(x))) fail("the voicemail didn't draft a tried-you text");
-if (!dee.moves.some((x) => /^task: Call again tomorrow/.test(x))) fail("the voicemail didn't set a call for tomorrow");
+if (!dee.moves.some((x) => /^text: .Tried you. text/.test(x))) fail("the voicemail didn't draft a tried-you text");
+if (!dee.moves.some((x) => /^task: Call again /.test(x))) fail("the voicemail didn't set a call for tomorrow");
 if (!dee.moves.some((x) => /^task: Pin down a time for Saturday/.test(x))) fail("Saturday without a time didn't become a time to pin down");
 if (dee.appts !== 0) fail("a day without a time was booked as an appointment");
 if (!dee.moves.some((x) => /^task: No SV in stock — locate one/.test(x))) fail("the SV with no model on file wasn't taken as a vehicle to find");
