@@ -21,6 +21,8 @@ await p.addInitScript(() => {
       { id: "lead_ann", name: "Ann Example", phone: "9025550111", stage: "new", vehicleInterest: "Rogue", createdAt: "2026-09-20T12:00:00.000Z", updatedAt: "2026-09-20T12:00:00.000Z" },
       { id: "lead_bob", name: "Bob Example", phone: "9025550112", stage: "working", vehicleInterest: "Kicks", currentPayment: 520, createdAt: "2026-09-20T12:00:00.000Z", updatedAt: "2026-09-20T12:00:00.000Z" },
       { id: "lead_cy", name: "Cy Example", phone: "9025550113", stage: "new", createdAt: "2026-09-20T12:00:00.000Z", updatedAt: "2026-09-20T12:00:00.000Z" },
+      { id: "lead_dee", name: "Dee Example", phone: "9025550114", stage: "sold", currentVehicle: "2021 Rogue SV", createdAt: "2024-03-01T12:00:00.000Z", updatedAt: "2024-03-01T12:00:00.000Z" },
+      { id: "lead_eve", name: "Eve Example", phone: "9025550115", stage: "working", createdAt: "2026-09-20T12:00:00.000Z", updatedAt: "2026-09-20T12:00:00.000Z" },
     ],
     vehicles: [
       { id: "v1", year: 2026, make: "Nissan", model: "Rogue", trim: "SV", price: 38500, stock: "R101", status: "available", notes: "Moonroof, AWD, heated seats", condition: "New" },
@@ -120,6 +122,51 @@ if (!bob.moves.some((x) => /^budget: \d+ fit their payment target/.test(x))) fai
 if (!bob.moves.some((x) => /^finance: /.test(x))) fail("financing wasn't picked up");
 if (!bob.moves.some((x) => /^later: Check back/.test(x))) fail("the March timeline didn't date a check-back");
 if (!/^2027-02-2/.test(bob.followUp || "")) fail(`follow-up is ${bob.followUp}, not a few days before March`);
+
+// --- The one that came back empty: a past customer, a voicemail, a day
+// without a time, a trim without a model.
+const dee = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const m = await import("/js/moves.js");
+  const r = m.nextMoves("lead_dee", "left a voicemail, wants to come saturday to look at an SV");
+  const l = store.get("leads", "lead_dee");
+  return { moves: r.moves.map((x) => x.kind + ": " + x.title), stage: l.stage,
+    tasks: store.all("tasks").filter((t) => t.leadId === "lead_dee" && !t.done).map((t) => ({ title: t.title, due: t.due, intent: t.intent, cadence: !!t.cadence })),
+    appts: store.all("appointments").filter((a) => a.leadId === "lead_dee").length };
+});
+console.log("dee →", JSON.stringify(dee.moves), "stage:", dee.stage);
+if (dee.stage !== "working") fail(`a sold customer who wants to come in is still ${dee.stage}`);
+if (!dee.moves.some((x) => /^stage: Back in the market/.test(x))) fail("no move says they're back in the market");
+if (!dee.moves.some((x) => /^text: .Tried you. text drafted/.test(x))) fail("the voicemail didn't draft a tried-you text");
+if (!dee.moves.some((x) => /^task: Call again tomorrow/.test(x))) fail("the voicemail didn't set a call for tomorrow");
+if (!dee.moves.some((x) => /^task: Pin down a time for Saturday/.test(x))) fail("Saturday without a time didn't become a time to pin down");
+if (dee.appts !== 0) fail("a day without a time was booked as an appointment");
+if (!dee.moves.some((x) => /^task: No SV in stock — locate one/.test(x))) fail("the SV with no model on file wasn't taken as a vehicle to find");
+if (!dee.moves.some((x) => /^plan: \d+-step follow-up plan started/.test(x))) fail("the plan didn't start for a customer back in the market");
+if (!dee.tasks.some((t) => t.intent === "missed" && t.cadence)) fail("the tried-you text isn't a drafted plan step");
+
+// --- "Call me Saturday" is a call, not a visit.
+const eve = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const m = await import("/js/moves.js");
+  const r = m.nextMoves("lead_eve", "said to call her back Saturday morning");
+  return { moves: r.moves.map((x) => x.kind + ": " + x.title), appts: store.all("appointments").filter((a) => a.leadId === "lead_eve").length,
+    call: store.all("tasks").find((t) => t.leadId === "lead_eve" && /^Call Eve — they asked for/.test(t.title))?.due };
+});
+console.log("eve →", JSON.stringify(eve.moves), "call due:", eve.call);
+if (eve.appts !== 0) fail("a callback was booked as a visit");
+if (!eve.moves.some((x) => /^task: Call them (Saturday|Sep 26)/.test(x))) fail("the callback wasn't put on the list for Saturday");
+if (!/^\d{4}-\d{2}-\d{2}$/.test(eve.call || "")) fail("the callback task isn't dated");
+
+// --- With no inventory loaded at all, the vehicle move is to go and check.
+const bare = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const m = await import("/js/moves.js");
+  const saved = store.all("vehicles").map((v) => ({ ...v }));
+  saved.forEach((v) => store.remove("vehicles", v.id));
+  const r = m.nextMoves("lead_eve", "she's after a Rogue SV with the moonroof");
+  saved.forEach((v) => store.restore("vehicles", v));
+  return r.moves.map((x) => x.kind + ": " + x.title);
+});
+console.log("no inventory →", JSON.stringify(bare));
+if (!bare.some((x) => /^stock: Check stock for a Rogue SV/.test(x))) fail("with no inventory loaded, the move should be to check stock");
 
 // --- Nothing in particular: the plan, and its next text from the note.
 const cy = await p.evaluate(async () => {

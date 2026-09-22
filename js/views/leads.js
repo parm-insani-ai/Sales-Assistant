@@ -591,7 +591,7 @@ function movesCard(l) {
 
 // "Here's what I did with that." Each move on its own line, with the
 // detail under it; any that made something can be taken back on the spot.
-const MOVE_ICON = { appointment: "calendar", text: "message", stock: "car", budget: "dollar", people: "users", trade: "tag", objection: "compare", later: "clock", finance: "file", referral: "users", plan: "target", task: "check" };
+const MOVE_ICON = { stage: "tag", appointment: "calendar", text: "message", stock: "car", budget: "dollar", people: "users", trade: "tag", objection: "compare", later: "clock", finance: "file", referral: "users", plan: "target", task: "check" };
 function movesEl(l, moves, onDone) {
   const box = document.createElement("div");
   box.className = "moves";

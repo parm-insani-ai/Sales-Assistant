@@ -28,7 +28,7 @@
 // drafted text held for approval, as always; nothing here sends.
 
 import * as store from "./store.js";
-import { maybeStartCadence, planSteps, deferPlan } from "./cadence.js";
+import { planSteps, deferPlan, hasCadence, startCadence } from "./cadence.js";
 import { dealsForLead } from "./views/dealbuilder.js";
 import { addDaysISO } from "./cadence.js";
 import { relativeDay, formatDateTime } from "./utils.js";
@@ -190,22 +190,39 @@ export function nextMoves(leadId, note) {
   };
 
   store.bulk(() => {
-    // 0. The plan. Started first, for a customer still being worked, so the
-    // moves below have steps to move: booking a visit steps the plan aside,
-    // and a far-off timeline holds it.
-    const started = ["new", "working"].includes(lead.stage) ? maybeStartCadence(leadId) : 0;
+    // 0. Where they stand. A note that reads as shopping — a visit, a
+    // vehicle, a number, "looking" — from someone filed as sold, delivered
+    // or lost means they're back in the market: they become a customer
+    // being worked, and the plan starts. The plan starts for anyone active
+    // who doesn't have one; a note is an explicit act, so the automatic-
+    // plan setting doesn't gate it here.
+    const shopping = /\b(want|wants|looking|interested|shopping|come|coming|visit|test[- ]?drive|budget|trade|lease|financ)\w*/.test(t) || !!parseMoney(note) || !!parseWhen(note);
+    let stage = lead.stage;
+    if (["sold", "delivered", "lost"].includes(stage) && shopping) {
+      stage = "working";
+      store.update("leads", leadId, { stage });
+      moves.push({ kind: "stage", title: "Back in the market — moved to Working", detail: `They were filed as ${lead.stage}.` });
+    }
+    const active = ["new", "working", "appointment", "negotiating"].includes(stage);
+    const started = active && !hasCadence(leadId) ? startCadence(leadId) : 0;
 
-    // 1. A visit. Booked when there's a day and a time; a day alone is a time
-    // to pin down. The plan steps aside for the visit either way.
-    const visitish = /\b(coming|come in|comin|stop(ping)? by|swing by|drop(ping)? (in|by)|appointment|appt|test[- ]?drive|meet|see (me|us|you)|book(ed)?|visit|be (in|here)|on (mon|tue|wed|thu|fri|sat|sun))\b/.test(t) || /\b(tomorrow|today|tonight)\b/.test(t);
-    const when = visitish ? parseWhen(note) : null;
-    if (when) {
+    // 1. A day they named. "Call me Saturday" is a call to make; anything
+    // else with a day is a visit — booked when there's a time, a time to pin
+    // down when there isn't. The plan steps aside for a visit either way.
+    const when = parseWhen(note);
+    const callish = /\b(call|ring|phone|text|reach|get (back|hold of)|follow up with)\b[^.]{0,30}\b(me|him|her|them|back)\b|\b(call|ring|phone|text) (me|him|her|them)\b/.test(t);
+    const visitish = /\b(com(e|es|ing)|stop(ping)? (by|in)|swing by|drop(ping)? (in|by)|appointment|appt|test[- ]?drive|meet|see (me|us|you|the|it|them)|look at|look(ing)? for|check (it )?out|book(ed)?|visit|be (in|here|there)|pop (in|by))\b/.test(t);
+    if (when && callish && !visitish) {
+      const label = when.when ? formatDateTime(when.when) : `${when.dayWord[0].toUpperCase()}${when.dayWord.slice(1)}`;
+      const id = task(`Call ${fn} — they asked for ${label}`, { due: when.date, priority: "high", channel: "call" });
+      if (id) moves.push({ kind: "task", title: `Call them ${label}`, detail: "They asked for it — on your list for that day.", taskId: id });
+    } else if (when) {
       const label = when.when ? formatDateTime(when.when) : `${when.dayWord[0].toUpperCase()}${when.dayWord.slice(1)}`;
       const kind = /test[- ]?drive/.test(t) ? "testdrive" : "appointment";
       const already = store.all("appointments").find((a) => a.leadId === leadId && String(a.when || "").slice(0, 10) === when.date && a.status !== "cancelled");
       if (when.when && !already) {
         const a = store.create("appointments", { type: kind, title: kind === "testdrive" ? "Test drive" : "Appointment", customerName: lead.name, vehicle: lead.vehicleInterest || "", when: when.when, status: "scheduled", confirmed: false, outcome: "", leadId, notes: note });
-        if (["new", "working"].includes(lead.stage)) store.update("leads", leadId, { stage: "appointment" });
+        if (["new", "working"].includes(stage)) store.update("leads", leadId, { stage: "appointment" });
         deferPlan(leadId, when.date);
         moves.push({ kind: "appointment", title: `Booked ${fn} for ${label}`, detail: "On your calendar. The plan waits for the visit.", appointmentId: a.id });
         const id = textStep(`confirm ${label}`, "confirm", [`they said they're coming in ${label}`], today);
@@ -219,23 +236,37 @@ export function nextMoves(leadId, note) {
       }
     }
 
+    // 1b. Voicemail. A short "tried you" text now, and the call again
+    // tomorrow — the two things that turn a missed call into a conversation.
+    if (/\b(voicemail|voice mail|left (him |her |them )?a message|no answer|didn'?t (pick up|answer)|no pick ?up|went to (voicemail|machine)|straight to voicemail)\b/.test(t)) {
+      const tid = textStep("tried you — easy way back", "missed", ["you just called and got their voicemail"], today);
+      if (tid) moves.push({ kind: "text", title: "\u201cTried you\u201d text drafted", detail: "Waiting for your OK on Home.", taskId: tid });
+      const id = task(`Call ${fn} again — voicemail last time`, { due: addDaysISO(1), priority: "high", channel: "call" });
+      if (id) moves.push({ kind: "task", title: "Call again tomorrow", detail: "A voicemail with no second call goes nowhere.", taskId: id });
+    }
+
     // 2. The vehicle. What's in stock that fits, or the fact that nothing is.
     // The car they're trading is not the car they want.
     const tradeless = t.replace(/\b(trad(?:e|ing)(?:[- ]in)?|payoff on|owes? on)\b[^,.;]*/g, " ");
     const model = wantedModel(lead, tradeless);
     const trim = wantedTrim(lead, t);
     const feats = ["moonroof", "sunroof", "awd", "all-wheel", "tow", "heated", "leather", "navigation", "hybrid", "third row", "7 seat", "apple carplay"].filter((f) => t.includes(f));
-    const vehicleTalk = !!(model && (new RegExp(`\\b${model}\\b`).test(tradeless) || trim && TRIMS.some((x) => new RegExp(`\\b${x}\\b`).test(tradeless)) || feats.length));
+    const trimSaid = !!trim && TRIMS.some((x) => new RegExp(`\\b${x.replace(/[-]/g, "[- ]?")}\\b`).test(tradeless));
+    const vehicleTalk = !!(model && (new RegExp(`\\b${model}\\b`).test(tradeless) || trimSaid || feats.length)) || (!model && (trimSaid || feats.length));
     if (vehicleTalk) {
-      const fits = inStock().filter((v) => lower(v.model) === model && (!trim || lower(v.trim) === trim || !v.trim) && matchesFeatures(v, feats));
-      const what = [model[0].toUpperCase() + model.slice(1), trim ? trim.toUpperCase() : ""].filter(Boolean).join(" ");
-      if (fits.length) {
+      const fits = model ? inStock().filter((v) => lower(v.model) === model && (!trim || lower(v.trim) === trim || !v.trim) && matchesFeatures(v, feats)) : [];
+      const what = [model ? model[0].toUpperCase() + model.slice(1) : "", trim ? trim.toUpperCase() : "", !model && !trim && feats.length ? `with ${feats.join(", ")}` : ""].filter(Boolean).join(" ") || "vehicle";
+      if (!inStock().length) {
+        // No inventory on file to check against: the checking is the move.
+        const id = task(`Check stock for a ${what} for ${fn}`, { priority: "high" });
+        if (id) moves.push({ kind: "stock", title: `Check stock for a ${what}`, detail: "No inventory is loaded in the app to match against — see what's on the lot.", taskId: id });
+      } else if (fits.length) {
         const names = fits.slice(0, 3).map((v) => `${vehicleName(v)}${v.stock ? ` (#${v.stock})` : ""}`).join(", ");
         const id = task(`Show ${fn} the ${fits.length} ${what}${fits.length === 1 ? "" : "s"} in stock — ${names}`, { priority: "high" });
         if (id) moves.push({ kind: "stock", title: `${fits.length} ${what}${fits.length === 1 ? "" : "s"} in stock`, detail: names, taskId: id });
         const tid = textStep(`the ${what} in stock`, "stock", [`${fits.length} ${what} in stock right now: ${names}`], today);
         if (tid) moves.push({ kind: "text", title: "Text about the ones in stock drafted", detail: "Waiting for your OK on Home.", taskId: tid });
-      } else if (inStock().length) {
+      } else {
         const id = task(`Locate a ${what} for ${fn} — none in stock`, { due: addDaysISO(1), priority: "high" });
         if (id) moves.push({ kind: "task", title: `No ${what} in stock — locate one`, detail: "Check incoming and the dealer group.", taskId: id });
       }
