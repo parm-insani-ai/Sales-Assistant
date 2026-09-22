@@ -396,7 +396,9 @@ function invFromSlug(url) {
   if (i < t.length && INV_TWO_WORD_MAKES.includes((make + " " + t[i]).toLowerCase())) make += "-" + t[i++];
   const rest = t.slice(i);
   let stock = "";
-  if (rest.length > 1 && /\d/.test(rest[rest.length - 1]) && /[A-Za-z]/.test(rest[rest.length - 1]) && rest[rest.length - 1].length >= 4 && /^[A-Za-z0-9]+$/.test(rest[rest.length - 1])) stock = rest.pop().toUpperCase();
+  const last = rest[rest.length - 1] || "";
+  // "NH22985A", "NIP1879" — or a factory order number like "801028", all digits.
+  if (rest.length > 1 && /^[A-Za-z0-9]+$/.test(last) && /\d/.test(last) && ((/[A-Za-z]/.test(last) && last.length >= 4) || /^\d{5,}$/.test(last))) stock = rest.pop().toUpperCase();
   if (!rest.length) return null;
   let model = rest.shift();
   const nissanZ = /^nissan$/i.test(make) && /^z$/i.test(model);
@@ -546,13 +548,23 @@ function invSlim(x, depth) {
   const out = {}; Object.keys(x).forEach((k) => { out[k] = invSlim(x[k], depth + 1); }); return out;
 }
 // The platform's origin, from the page's own data stub.
+// What a vehicle is filed under: its VIN; without one (a factory order that
+// hasn't been assigned a VIN yet) its stock number; failing that its page —
+// so two VIN-less units never collapse into one record.
+function invKey(v) {
+  if (v && v.vin) return String(v.vin).toUpperCase();
+  if (v && v.stock) return "stk_" + String(v.stock).replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const slug = String((v && v.url) || "").split("?")[0].replace(/\/+$/, "").split("/").pop() || "";
+  return slug ? "url_" + slug.replace(/[^A-Za-z0-9]/g, "").slice(0, 60) : "";
+}
 function invServicesOrigin(html) { const m = /"servicesWebsite":\{"origin":"([^"]+)"/.exec(String(html || "").replace(/\\\//g, "/")); return m ? m[1] : ""; }
 const INV_SPECS_VARIANTS = ["vin", "vehicle.vin", "query.vin", "vehicle-vin", "query.vehicle.vin"];
 function invPlatformSpecsUrl(services, vin, referrer, variant) {
   return `${services.replace(/\/$/, "")}/api/vehicle-summary-specs-widget/?load-vehicle-summary-specs-request.${variant}=${encodeURIComponent(vin)}&do-load-vehicle-summary-specs-request=1&app.referrer=${encodeURIComponent(referrer || "")}`;
 }
-function invPlatformVehicleUrl(services, vin, referrer) {
-  return `${services.replace(/\/$/, "")}/api/vehicle-inventory-details-screen-widget/?load-vehicle-request.query.vin=${encodeURIComponent(vin)}&do-load-vehicle-request=1&app.referrer=${encodeURIComponent(referrer || "")}`;
+function invPlatformVehicleUrl(services, vin, referrer, stock) {
+  const q = vin ? `load-vehicle-request.query.vin=${encodeURIComponent(vin)}` : `load-vehicle-request.query.vehicle.stock-number=${encodeURIComponent(stock || "")}&load-vehicle-request.query.stock-number=${encodeURIComponent(stock || "")}`;
+  return `${services.replace(/\/$/, "")}/api/vehicle-inventory-details-screen-widget/?${q}&do-load-vehicle-request=1&app.referrer=${encodeURIComponent(referrer || "")}`;
 }
 // What one vehicle's page is made of — for fitting the reader to a site that
 // reads badly, from the report rather than by guessing.
@@ -615,7 +627,9 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
     if (from && !v.url) v.url = from;
     if (v.url && !/^https?:/i.test(v.url)) { try { v.url = new URL(v.url, url).toString(); } catch (_) { /* leave it */ } }
     if (v.photo && !/^https?:/i.test(v.photo)) { try { v.photo = new URL(v.photo, url).toString(); } catch (_) { /* leave it */ } }
-    const k = v.vin || "stock:" + v.stock; if (!all.has(k)) all.set(k, v);
+    const k = invKey(v); if (!k) return;
+    if (all.has(k)) { report.dupes = report.dupes || { count: 0, pages: [] }; report.dupes.count++; if (report.dupes.pages.length < 12) report.dupes.pages.push({ key: k.slice(0, 24), page: String(v.url || from || "").split("/").filter(Boolean).pop() }); return; }
+    all.set(k, v);
   });
   add(parseInventoryHtml(first));
 
@@ -762,19 +776,20 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
   // for each vehicle by VIN, the way the page's own widget does.
   const services = invServicesOrigin(first);
   if (services && all.size) {
-    const targets = [...all.values()].filter((v) => v.vin);
-    const plat: any = { origin: services, asked: targets.length, answered: 0, priced: 0, withKm: 0, failed: 0 };
+    const targets = [...all.values()].filter((v) => v.vin || v.stock);
+    const plat: any = { origin: services, asked: targets.length, byStock: targets.filter((v) => !v.vin).length, answeredByStock: 0, answered: 0, priced: 0, withKm: 0, failed: 0, noVin: [...all.values()].filter((v) => !v.vin).length };
     let sampleRaw: any = null, unpricedRaw: any = null;
     const platHeaders = (ref: string) => ({ "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": ref, "Origin": origin });
     await fetchMany(targets, 6, async (v) => {
       if (Date.now() - started > BUDGET_MS) { plat.failed++; report.complete = false; return; }
       try {
-        const r = await fetch(invPlatformVehicleUrl(services, v.vin, v.url || url), { headers: platHeaders(v.url || url) });
+        const r = await fetch(invPlatformVehicleUrl(services, v.vin, v.url || url, v.stock), { headers: platHeaders(v.url || url) });
         if (!r.ok) { plat.failed++; return; }
         const j = await r.json();
         const raw = j && j.loadVehicleResponse && j.loadVehicleResponse.vehicle;
         const rec = invFromPlatformVehicle(raw, v.url);
-        if (!rec) { plat.failed++; return; }
+        if (!rec) { plat.failed++; if (!v.vin && probe && !plat.byStockSample) plat.byStockSample = JSON.stringify(j).slice(0, 400); return; }
+        if (!v.vin) plat.answeredByStock++;
         if (!sampleRaw) sampleRaw = raw;
         if (!rec.price && !unpricedRaw) unpricedRaw = raw;
         plat.answered++; if (rec.price) plat.priced++;
@@ -784,7 +799,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
     });
     // The kilometres live in the summary-specs widget. Its request shape is
     // found on the first vehicle and then used for the rest.
-    const specsTargets = targets.filter((v) => v.via === "platform" && !v.mileage);
+    const specsTargets = targets.filter((v) => v.via === "platform" && !v.mileage && v.vin);
     if (specsTargets.length && Date.now() - started < BUDGET_MS) {
       const probeV = specsTargets[0];
       let variant = "", firstSpecs: any = null;
@@ -816,7 +831,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
     // New units carry no price in the vehicle answer; the page prices them
     // through the price-area widget. Its request shape is found on the first
     // unpriced vehicle and then used for the rest.
-    const unpriced = targets.filter((v) => v.via === "platform" && !v.price);
+    const unpriced = targets.filter((v) => v.via === "platform" && !v.price && v.vin);
     if (unpriced.length && Date.now() - started < BUDGET_MS) {
       const probeV = unpriced[0];
       let variant = "";
@@ -893,7 +908,8 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
   const seen = new Set<string>();
   const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate"];
   for (const v of vehicles) {
-    const id = "web_" + (v.vin || ("stk_" + String(v.stock).replace(/[^A-Za-z0-9]/g, "")));
+    const key = invKey(v); if (!key) { skipped++; continue; }
+    const id = "web_" + key;
     if (seen.has(id)) continue;
     seen.add(id);
     const was = byId.get(id) || null;

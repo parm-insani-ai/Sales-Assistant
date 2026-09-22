@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl, invKmFromSpecs, invSlim, invPlatformSpecsUrl, invPriceFromArea, invPlatformAreaUrl };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl, invKmFromSpecs, invSlim, invPlatformSpecsUrl, invPriceFromArea, invPlatformAreaUrl, invKey };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -123,6 +123,8 @@ const slugs = {
   "https://x.com/inventory/Used-2023-Hyundai-IONIQ-5-Preferred-NH1001/": ["Used", 2023, "Hyundai", "IONIQ 5", "Preferred", "NH1001"],
   "https://x.com/inventory/Used-2022-Land-Rover-Range-Rover-Sport-HSE-NHP2001/": ["Used", 2022, "Land-Rover", "Range Rover", "Sport HSE", "NHP2001"],
   "https://x.com/inventory/Used-2021-Ford-F-150-XLT-NH3001/": ["Used", 2021, "Ford", "F-150", "XLT", "NH3001"],
+  "https://x.com/inventory/New-2027-Nissan-Ariya-SV+-801028/": ["New", 2027, "Nissan", "Ariya", "SV+", "801028"],
+  "https://x.com/inventory/New-2026-Nissan-Frontier-PRO-4X-794371/": ["New", 2026, "Nissan", "Frontier", "PRO 4X", "794371"],
 };
 for (const [u, want] of Object.entries(slugs)) {
   const s = lib.invFromSlug(u) || {};
@@ -165,6 +167,16 @@ if (lib.invPriceFromArea({ html: "<div class='ovpawPayment'>$289 bi-weekly</div>
 if (lib.invPriceFromArea({ html: "<div>$1,234 /mo</div><div>$61,500</div>" }) !== 61500) fail("largest dollar figure that isn't a payment");
 if (lib.invPriceFromArea({ html: "<div>Call for pricing</div>" }) !== null) fail("no price invented");
 if (!/vehicle-price-area-widget\/\?load-request\.vehicle-vin=ABC&do-load-request=1&load-request\.ok=1/.test(lib.invPlatformAreaUrl("https://o.example.com", "ABC", "https://x.com/", "load-request.vehicle-vin"))) fail("area url");
+
+// --- 5i. Two factory orders without VINs are two records, not one.
+const noVin = [{ vin: "", stock: "801028", url: "https://x.com/inventory/New-2027-Nissan-Ariya-SV+-801028/" }, { vin: "", stock: "801029", url: "https://x.com/inventory/New-2027-Nissan-Ariya-SV+-801029/" }, { vin: "", stock: "", url: "https://x.com/inventory/New-2027-Nissan-Leaf-SV+/" }, { vin: "", stock: "", url: "https://x.com/inventory/New-2027-Nissan-Leaf-S+/" }];
+const keys = noVin.map(lib.invKey);
+console.log("keys without a VIN →", JSON.stringify(keys));
+if (new Set(keys).size !== 4 || keys[0] !== "stk_801028" || !/^url_/.test(keys[2])) fail("VIN-less units collapse: " + JSON.stringify(keys));
+if (lib.invKey({ vin: "2hkrs6h98rh210868", stock: "NIP1879" }) !== "2HKRS6H98RH210868") fail("the VIN is the key when there is one");
+const shellNoVin = lib.parseInventoryHtml(`<html><head><title>New 2027 Nissan Ariya SV+ #801028 - Example</title></head><body><script>App.stub = {"pendingData":{"vehicle":{"vin":"","title":"New 2027 Nissan Ariya SV+ #801028"}}};</script></body></html>`, { single: true, url: "https://x.com/inventory/New-2027-Nissan-Ariya-SV+-801028/" })[0] || {};
+console.log("a page with no VIN →", JSON.stringify(shellNoVin));
+if (shellNoVin.stock !== "801028" || shellNoVin.year !== 2027 || shellNoVin.model !== "Ariya" || shellNoVin.trim !== "SV+" || shellNoVin.condition !== "New") fail("a VIN-less page didn't read from its address: " + JSON.stringify(shellNoVin));
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");
