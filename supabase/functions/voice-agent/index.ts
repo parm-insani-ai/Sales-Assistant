@@ -466,6 +466,52 @@ function invScripts(html) {
   while ((m = re.exec(String(html || "")))) { out.push(invDecode(m[1]).slice(0, 160)); if (out.length >= 20) break; }
   return out;
 }
+// The platform behind the store's site answers for one vehicle with a JSON
+// object; the field names below are the ones its own widget reads. Unknown
+// fields (the odometer, say) are found by name anywhere in the object.
+function invDeepFind(obj, re, want, depth) {
+  depth = depth || 0; if (!obj || typeof obj !== "object" || depth > 6) return null;
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (re.test(k) && v != null && typeof v !== "object" && (want === "number" ? invNum(v) != null : String(v) !== "")) return want === "number" ? invNum(v) : v;
+  }
+  for (const k of Object.keys(obj)) { const v = obj[k]; if (v && typeof v === "object") { const got = invDeepFind(v, re, want, depth + 1); if (got != null) return got; } }
+  return null;
+}
+function invFromPlatformVehicle(v, url) {
+  if (!v || typeof v !== "object") return null;
+  const g = (path) => path.split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), v);
+  const info = v.resolvedComprehensiveInfo || {};
+  const jsonLd = v.jsonLd && typeof v.jsonLd === "object" ? v.jsonLd : null;
+  const name = (o) => (o && typeof o === "object" ? String(o.name || o.label || "") : String(o || ""));
+  const mileage = invNum(v.odometer) || invNum(v.mileage) || invNum(v.kilometers) || invNum(v.kilometres)
+    || (jsonLd && jsonLd.mileageFromOdometer ? invNum(typeof jsonLd.mileageFromOdometer === "object" ? jsonLd.mileageFromOdometer.value : jsonLd.mileageFromOdometer) : null)
+    || invDeepFind(v, /odometer|mileage|kilomet/i, "number");
+  const condType = name(v.vehicleInventoryType);
+  const category = v.vehicleCategory || {};
+  const photo = jsonLd ? (Array.isArray(jsonLd.image) ? jsonLd.image[0] : jsonLd.image && typeof jsonLd.image === "object" ? jsonLd.image.url : jsonLd.image) : null;
+  const rec = {
+    vin: String(v.vin || "").toUpperCase(), stock: String(v.stockNumber || v.stock || ""),
+    year: invNum(v.vehicleYear) || invNum(g("vehicleModelYear.theYear.name")) || null,
+    make: name(g("vehicleModel.vehicleMake")) || name(info.make) || "", model: name(v.vehicleModel) || name(info.model) || "",
+    trim: String(v.trimDescription || name(info.trim) || name(g("vinDetails.vehicleTrim")) || ""),
+    price: invNum(v.price) || invNum(v.basePrice) || null, wasPrice: invNum(v.previousPrice) || null, mileage,
+    color: name(info.exteriorColor) || name(g("vinDetails.exteriorVehicleColor")) || "", interiorColor: name(info.interiorColor) || "",
+    bodyStyle: name(v.vehicleBodyStyleGroup) || name(info.bodyStyle) || "",
+    condition: /new/i.test(condType) ? "New" : condType ? "Used" : "",
+    certified: !!(Number(category.certified) || Number(category.manufacturerCertified)), demo: !!Number(v.demo),
+    transmission: name(info.transmissionType) || "", drivetrain: name(info.drivetrainType) || "", fuel: name(info.fuelType) || "",
+    engine: String(v.engineDescription || ""), description: String(v.trimMarketingBlurb || v.shortDescription || ""),
+    inventoryDate: String(v.inventoryDate || "").slice(0, 10), url: String(url || ""), photo: photo ? String(photo) : "", via: "platform",
+  };
+  if (!rec.vin && !rec.stock) return null;
+  return rec;
+}
+// The platform's origin, from the page's own data stub.
+function invServicesOrigin(html) { const m = /"servicesWebsite":\{"origin":"([^"]+)"/.exec(String(html || "").replace(/\\\//g, "/")); return m ? m[1] : ""; }
+function invPlatformVehicleUrl(services, vin, referrer) {
+  return `${services.replace(/\/$/, "")}/api/vehicle-inventory-details-screen-widget/?load-vehicle-request.query.vin=${encodeURIComponent(vin)}&do-load-vehicle-request=1&app.referrer=${encodeURIComponent(referrer || "")}`;
+}
 // What one vehicle's page is made of — for fitting the reader to a site that
 // reads badly, from the report rather than by guessing.
 function invPageProbe(html, url) {
@@ -512,7 +558,7 @@ async function fetchMany<T>(items: T[], limit: number, fn: (x: T) => Promise<voi
   await Promise.all(workers);
 }
 
-async function crawlInventory(url: string, probe: boolean) {
+async function crawlInventory(url: string, probe: boolean, deep = false) {
   const started = Date.now();
   const BUDGET_MS = 100000; // leave headroom under the function's wall clock
   const first = await fetchSitePage(url);
@@ -589,7 +635,7 @@ async function crawlInventory(url: string, probe: boolean) {
     report.scripts = invScripts(first);
     report.apiHints = invApiHints(first);
     report.vehiclePagesSample = list.slice(0, 3);
-    if (probe) {
+    if (deep) {
       // One vehicle page inside out, the same page asked for as JSON, and the
       // site's own app bundle's API paths — enough to fit the reader blind.
       const fp = firstPage as { url: string; html: string; vin: string; stock: string } | null;
@@ -670,10 +716,36 @@ async function crawlInventory(url: string, probe: boolean) {
       }
     }
   }
+  // The platform behind the site knows the price and the kilometres: ask it
+  // for each vehicle by VIN, the way the page's own widget does.
+  const services = invServicesOrigin(first);
+  if (services && all.size) {
+    const targets = [...all.values()].filter((v) => v.vin);
+    const plat: any = { origin: services, asked: targets.length, answered: 0, priced: 0, withKm: 0, failed: 0 };
+    let sampleRaw: any = null;
+    await fetchMany(targets, 6, async (v) => {
+      if (Date.now() - started > BUDGET_MS) { plat.failed++; report.complete = false; return; }
+      try {
+        const r = await fetch(invPlatformVehicleUrl(services, v.vin, v.url || url), { headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": v.url || url, "Origin": origin } });
+        if (!r.ok) { plat.failed++; return; }
+        const j = await r.json();
+        const raw = j && j.loadVehicleResponse && j.loadVehicleResponse.vehicle;
+        const rec = invFromPlatformVehicle(raw, v.url);
+        if (!rec) { plat.failed++; return; }
+        if (!sampleRaw) sampleRaw = raw;
+        plat.answered++; if (rec.price) plat.priced++; if (rec.mileage) plat.withKm++;
+        Object.keys(rec).forEach((k) => { if (rec[k] != null && rec[k] !== "" && rec[k] !== false) v[k] = rec[k]; });
+        v.via = "platform";
+      } catch (_) { plat.failed++; }
+    });
+    if (!report.complete && !report.warnings.includes("stopped at the time budget — the rest come next run")) report.warnings.push("stopped at the time budget — the rest come next run");
+    report.platform = plat;
+    if (probe && sampleRaw) report.platformSample = JSON.stringify(sampleRaw).slice(0, 2500);
+  }
   report.found = all.size;
   report.via = {} as Record<string, number>;
   for (const v of all.values()) report.via[v.via] = (report.via[v.via] || 0) + 1;
-  report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, mileage: v.mileage, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via, url: v.url }));
+  report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, wasPrice: v.wasPrice, mileage: v.mileage, color: v.color, bodyStyle: v.bodyStyle, certified: v.certified, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via, url: v.url }));
   if (probe || !all.size) report.snippet = invText(first).slice(0, 500);
   report.seconds = Math.round((Date.now() - started) / 100) / 10;
   return { vehicles: [...all.values()], report };
@@ -691,7 +763,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
   const now = new Date().toISOString();
   const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0;
   const seen = new Set<string>();
-  const KEYS = ["year", "make", "model", "trim", "price", "mileage", "color", "stock", "condition", "status", "url", "photo", "bodyStyle"];
+  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate"];
   for (const v of vehicles) {
     const id = "web_" + (v.vin || ("stk_" + String(v.stock).replace(/[^A-Za-z0-9]/g, "")));
     if (seen.has(id)) continue;
@@ -704,6 +776,10 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
       price: v.price != null ? v.price : was ? was.price : null, mileage: v.mileage != null ? v.mileage : was ? was.mileage : null,
       color: keep("color", v.color), stock: keep("stock", v.stock), vin: keep("vin", v.vin), condition: keep("condition", v.condition),
       bodyStyle: keep("bodyStyle", v.bodyStyle), url: keep("url", v.url), photo: keep("photo", v.photo),
+      wasPrice: v.wasPrice != null ? v.wasPrice : was ? was.wasPrice ?? null : null,
+      interiorColor: keep("interiorColor", v.interiorColor), transmission: keep("transmission", v.transmission), drivetrain: keep("drivetrain", v.drivetrain),
+      fuel: keep("fuel", v.fuel), engine: keep("engine", v.engine), description: keep("description", v.description), inventoryDate: keep("inventoryDate", v.inventoryDate),
+      certified: v.certified != null ? !!v.certified : !!(was && was.certified), demo: v.demo != null ? !!v.demo : !!(was && was.demo),
       status: "available", source: "web", seenAt: now, updatedAt: now, createdAt: (was && was.createdAt) || now,
     };
     if (!data.make || !data.model) { skipped++; continue; }
@@ -748,7 +824,7 @@ async function handleInventory(body: any): Promise<Response> {
     const url = String(req.url || cfg.storeSiteUrl || "").trim();
     if (!/^https?:\/\//i.test(url)) { results.push({ uid: uid.slice(0, 8), error: "No store inventory URL in Settings → Dealer inventory sites." }); continue; }
     try {
-      const { vehicles, report } = await crawlInventory(url, !!req.probe);
+      const { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep);
       const write = await writeInventory(uid, vehicles, report.complete !== false);
       results.push({ uid: uid.slice(0, 8), ...report, ...write, at: new Date().toISOString() });
     } catch (e) {

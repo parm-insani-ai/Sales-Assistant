@@ -11,7 +11,7 @@ const start = src.indexOf("// === inventory parser (plain JS");
 const end = src.indexOf("// === inventory parser end ===");
 if (start < 0 || end < 0) { fail("the parser markers aren't in the function"); process.exit(1); }
 const block = src.slice(start, end);
-const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug };")();
+const lib = new Function(block + "\nreturn { parseInventoryHtml, invPageParam, invPageCount, invText, invSitemapLocs, invVdpLike, invLinks, invApiHints, invScripts, invStock, invPageProbe, invFromSlug, invFromPlatformVehicle, invServicesOrigin, invPlatformVehicleUrl };")();
 
 // --- 1. Structured data, the way most dealer platforms publish it.
 const jsonld = `<html><head><title>New and Used Inventory | O'Regan's</title>
@@ -134,6 +134,17 @@ if (lib.invFromSlug("https://x.com/inventory/categories/6-month-warranty/")) fai
 const fromSlug = lib.parseInventoryHtml(shellVdp, { single: true, url: "https://x.com/inventory/Used-2024-Honda-CR-V-Hybrid-Touring-NIP1879/" })[0] || {};
 console.log("shell page + address →", JSON.stringify(fromSlug));
 if (fromSlug.vin !== "2HKRS6H90SH000111" || fromSlug.year !== 2024 || fromSlug.make !== "Honda" || fromSlug.model !== "CR-V" || fromSlug.trim !== "Hybrid Touring" || fromSlug.stock !== "NIP1879" || fromSlug.condition !== "Used") fail("the address didn't fill the shell page's vehicle: " + JSON.stringify(fromSlug));
+
+// --- 5f. The platform's answer for one vehicle, as its own widget reads it.
+const platform = {"includeNewGetLowerPrice":false,"vin":"2HKRS6H98RH210868","stockNumber":"NIP1879","price":41990,"previousPrice":43990,"basePrice":"41990.00","vehicleYear":2024,"demo":0,"trimDescription":"Touring","shortDescription":null,"trimMarketingBlurb":"Leather I Sunroof","engineDescription":"2.0L","inventoryDate":"2026-09-17T00:00:00-03:00","vehicleInventoryType":{"id":2,"name":"Used"},"vehicleCategory":{"id":2,"name":"Green Light Certified","certified":1,"manufacturerCertified":0},"vehicleBodyStyleGroup":{"name":"SUV"},"vehicleModel":{"id":3048,"name":"CR-V Hybrid","slug":"CR-V-Hybrid","vehicleMake":{"id":17,"name":"Honda"}},"vehicleModelYear":null,"vinDetails":{"hasVinDetails":false,"vehicleTrim":null,"exteriorVehicleColor":null},"resolvedComprehensiveInfo":{"model":{"id":3048,"label":"CR-V Hybrid"},"trim":{"id":null,"label":"Touring"},"transmissionType":{"name":"Auto"},"drivetrainType":{"name":"All-Wheel drive"},"fuelType":{"id":5,"name":"Hybrid"},"interiorColor":{"name":"Black"},"exteriorColor":{"name":"Platinum White Pearl"}},"specs":{"odometerKm":24350},"jsonLd":{"@type":"Car","image":["https://cdn.example/nip1879-1.jpg"]}};
+const pv = lib.invFromPlatformVehicle(platform, "https://x.com/inventory/Used-2024-Honda-CR-V-Hybrid-Touring-NIP1879/");
+console.log("the platform's vehicle →", JSON.stringify(pv));
+if (!pv || pv.vin !== "2HKRS6H98RH210868" || pv.stock !== "NIP1879" || pv.price !== 41990 || pv.wasPrice !== 43990 || pv.mileage !== 24350 || pv.year !== 2024 || pv.make !== "Honda" || pv.model !== "CR-V Hybrid" || pv.trim !== "Touring" || pv.condition !== "Used" || pv.certified !== true || pv.bodyStyle !== "SUV" || pv.color !== "Platinum White Pearl" || pv.drivetrain !== "All-Wheel drive" || pv.fuel !== "Hybrid" || !/nip1879-1\.jpg/.test(pv.photo)) fail("the platform vehicle didn't read right: " + JSON.stringify(pv));
+const stubHtml = '<script>App.stub = {"pendingData":{"oregansServicesEmbedPlugin":{"websiteConfig":{"website":{"servicesWebsite":{"origin":"https:\\/\\/oserv3.example.com","version":"3.378.0"}}}}}};</script>';
+if (lib.invServicesOrigin(stubHtml) !== "https://oserv3.example.com") fail("the platform origin wasn't read from the stub: " + lib.invServicesOrigin(stubHtml));
+if (lib.invServicesOrigin("<html></html>") !== "") fail("a page without a stub invented a platform");
+const pu = lib.invPlatformVehicleUrl("https://oserv3.example.com", "2HKRS6H98RH210868", "https://x.com/inventory/a/");
+if (!/^https:\/\/oserv3\.example\.com\/api\/vehicle-inventory-details-screen-widget\/\?load-vehicle-request\.query\.vin=2HKRS6H98RH210868&do-load-vehicle-request=1&app\.referrer=https%3A%2F%2Fx\.com/.test(pu)) fail("the platform URL is wrong: " + pu);
 
 // --- 5. Nothing that looks like a vehicle is nothing.
 const none = lib.parseInventoryHtml("<html><body><p>Coming soon</p></body></html>");
