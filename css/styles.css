@@ -575,13 +575,15 @@ body.typing #app, body.kb-open #app {
 /* The current contract as a banner across the bottom of a customer's card:
    the payment and the payments left, and nothing else. */
 .contract-banner { display: flex; gap: 0; margin: 12px -18px -18px; padding: 10px 18px; background: var(--surface-2); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); }
-.contract-banner .cb-cell { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.contract-banner .cb-cell { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; min-width: 0; }
+/* One line each, so the three figures sit on the same line. */
+.contract-banner .cb-cell:nth-child(2) { flex: 1.35; }
 .contract-banner .cb-cell + .cb-cell { border-left: 1px solid var(--border); padding-left: 14px; margin-left: 14px; }
-.contract-banner .cb-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+.contract-banner .cb-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .contract-banner .cb-value { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1.2; }
 .contract-banner .cb-per { font-size: 0.8rem; font-weight: 500; color: var(--muted); margin-left: 1px; }
 .contract-banner .cb-approx { font-size: 0.8rem; font-weight: 500; color: var(--muted); margin-right: 1px; }
-.contract-banner .cb-cell + .cb-cell { padding-left: 10px; margin-left: 10px; }
+.contract-banner .cb-cell + .cb-cell { padding-left: 9px; margin-left: 9px; }
 .contract-banner .cb-value { font-size: 1.05rem; }
 .contract-banner-done .cb-value { color: var(--success); }
 /* The "i" on a customer's name box: details, history and actions behind it. */
