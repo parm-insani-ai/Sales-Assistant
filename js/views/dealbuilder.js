@@ -17,6 +17,7 @@ export { paymentDelta };
 import { SPEC_LIBRARY } from "../specs.js";
 import { cacheGet, cacheSet, fingerprint } from "../cachedb.js";
 import { paymentsLeftOf } from "../contract.js";
+import { classify, classifyUnit, fitScore } from "../segments.js";
 import { findSpec, queueCompare } from "./compare.js";
 import { openLeadForm } from "./leads.js";
 
@@ -615,38 +616,26 @@ export function bestPitch(lead, method, opts = {}) {
 // replacement) from the one pass.
 function pickPitch(rows, lead, opts = {}) {
   if (!rows.length) return null;
-  // The radar matches the payment, which is right when you're answering "what
-  // can they afford". Outreach asks a different question — "what would they
-  // actually want to come and see" — and the answer there is a replacement for
-  // what they drive. Inviting a Rogue owner to look at a Kicks reads as a
-  // demotion however well it prices.
-  if (lead.currentPayment != null && !opts.preferReplacement) return rows[0];
-  const owned = String(lead.vehicleInterest || "").toLowerCase();
-  if (owned) {
-    // Same model — the natural repeat sale.
-    const same = rows.filter((r) => {
-      const m = String(r.vehicle.model || "").toLowerCase().trim();
-      return m && owned.includes(m);
-    });
-    if (same.length) return same[0];
-    // Another brand: pitch the Nissan in the same class, using what their car
-    // cost new as the yardstick. Beats defaulting a Ridgeline owner into the
-    // cheapest Kicks on the lot.
-    let spec = null;
-    const words = owned.replace(/^\d{4}\s*/, "").trim().split(/\s+/).filter(Boolean);
-    for (let k = words.length; k >= 1 && !spec; k--) {
-      try { spec = findSpec(words.slice(0, k).join(" ")); } catch { spec = null; }
-    }
-    if (spec && spec.msrp) {
-      let near = null, gap = Infinity;
-      rows.forEach((r) => {
-        const d = Math.abs(num(r.vehicle.price) - spec.msrp);
-        if (d < gap) { gap = d; near = r; }
-      });
-      if (near) return near;
-    }
-  }
-  return rows[0];
+  // Two questions with two answers. "Can they move?" is answered by the
+  // payment: the radar keeps whoever fits within the band. "What would they
+  // come and see?" is answered by what they drive: the closest thing to it
+  // on the lot or in the lineup — the same model, the same make, the same
+  // class a size across or up, a premium trim for a luxury driver — never
+  // a step down. An Infiniti QX60 owner is offered the QX60 on the used
+  // row, a Pathfinder Platinum or an Armada, not the cheapest Kicks that
+  // lands on the payment.
+  const s = store.getSettings();
+  const band = s.dealMatchBand != null ? Number(s.dealMatchBand) : 50;
+  const owned = classify(String(lead.vehicleInterest || ""));
+  const fit = new Map();
+  const fitOf = (r) => { let f = fit.get(r.vehicle); if (f == null) { f = fitScore(owned, classifyUnit(r.vehicle), r.vehicle); fit.set(r.vehicle, f); } return f; };
+  const byFit = (a, b) => fitOf(b) - fitOf(a) || Math.abs(a.delta ?? a.monthly) - Math.abs(b.delta ?? b.monthly) || a.monthly - b.monthly;
+  if (opts.preferReplacement || lead.currentPayment == null) return rows.slice().sort(byFit)[0];
+  // Within the payment band, the best fit; nothing within it, the closest
+  // payment (so the radar can still say by how much they miss).
+  const within = rows.filter((r) => r.delta == null || r.delta <= band);
+  if (!within.length) return rows[0];
+  return within.sort(byFit)[0];
 }
 
 // The proactive radar: every customer who can move into a new vehicle within the
