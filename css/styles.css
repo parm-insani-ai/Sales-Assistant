@@ -581,6 +581,11 @@ body.typing #app, body.kb-open #app {
 .contract-banner .cb-value { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1.2; }
 .contract-banner .cb-per { font-size: 0.8rem; font-weight: 500; color: var(--muted); margin-left: 1px; }
 .contract-banner-done .cb-value { color: var(--success); }
+/* The "i" on a customer's name box: details, history and actions behind it. */
+.info-btn { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface-2); color: var(--text); font: 700 1rem/1 Georgia, "Times New Roman", serif; font-style: italic; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.info-btn:active { background: var(--border); }
+.hist-row { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.hist-row:last-child { border-bottom: 0; }
 /* Replacement options on a customer's page, and the vehicle picker. */
 .ro-row { position: relative; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; gap: 10px; }
 .ro-row:last-child { border-bottom: 0; }

@@ -805,7 +805,7 @@ function renderLeadDetail(view, id) {
           <div class="row-title" style="font-size:1.35rem">${esc(l.name)}</div>
           <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted — tap to add"}</div>
         </div>
-        <span class="badge ${st.badge}">${esc(st.label)}</span>
+        <button class="info-btn" data-act="info" aria-label="Details, history and actions" title="Details">i</button>
       </div>
 
       ${(l.phone || l.email) ? `
@@ -815,6 +815,7 @@ function renderLeadDetail(view, id) {
         ${l.email ? `<a class="btn btn-primary btn-sm" data-act="email" style="flex:1" href="${mailtoHref(l.email)}">${icon("mail")} Email</a>` : ""}
       </div>` : ""}
       ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
+      <div class="kv" data-act="contacted" style="cursor:pointer;margin-top:4px;padding:4px 0"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
       ${contractBanner(l, { tap: true })}
     </div>
 
@@ -885,44 +886,6 @@ function renderLeadDetail(view, id) {
     </div>`;
     })()}
 
-    ${(() => {
-      // Permission to text, and a way to record it. A text to a past customer
-      // needs consent; the app won't draft one without it.
-      const c = consentStatus(l);
-      const badge = c.basis === "express" ? "badge-sold" : c.basis === "implied" ? "badge-soon" : c.basis === "withdrawn" ? "badge-lost" : "badge-due";
-      const label = c.basis === "express" ? "Express" : c.basis === "implied" ? "Implied" : c.basis === "withdrawn" ? "Withdrawn" : "None";
-      return `
-    <div class="section-title">Texting consent</div>
-    <div class="card consent-card">
-      <div class="row" style="align-items:flex-start">
-        <div class="row-main"><div class="small" style="line-height:1.45">${esc(consentLine(c))}${c.note ? ` <span class="muted">— ${esc(c.note)}</span>` : ""}</div></div>
-        <span class="badge ${badge}" style="flex:none">${label}</span>
-      </div>
-      <div class="btn-row" style="margin-top:10px">
-        ${c.basis !== "express" ? `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">${icon("check")} Record express consent</button>` : ""}
-        ${c.basis !== "withdrawn" ? `<button class="btn btn-ghost btn-sm" data-act="consent-withdraw" style="flex:0 0 auto">They said stop</button>` : `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">They've said yes again</button>`}
-      </div>
-    </div>`;
-    })()}
-
-    <div class="section-title">Quick stage update</div>
-    <div class="card">
-      <div class="btn-row">
-        ${LEAD_STAGES.map((s) => `<button class="btn btn-sm ${s.id === l.stage ? "btn-primary" : "btn-ghost"}" data-stage="${s.id}">${esc(s.label)}</button>`).join("")}
-      </div>
-    </div>
-
-    <div class="section-title">Details <span class="muted" style="font-weight:500;font-size:0.78rem">· tap a row to edit</span></div>
-    <div class="card">
-      <div class="kv" data-edit="phone" style="cursor:pointer"><span class="k">Phone</span><span class="v">${l.phone ? esc(phoneDisplay(l.phone)) : "Tap to add"}</span></div>
-      <div class="kv" data-edit="email" style="cursor:pointer"><span class="k">Email</span><span class="v">${l.email ? esc(l.email) : "Tap to add"}</span></div>
-      <div class="kv" data-edit="source" style="cursor:pointer"><span class="k">Source</span><span class="v">${esc(l.source || "—")}</span></div>
-      <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
-      <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
-      ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
-      <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
-    </div>
-
     <div id="deal-slot"></div>
 
 
@@ -940,46 +903,22 @@ function renderLeadDetail(view, id) {
     </div>`;
     })()}
 
-    <div class="section-title">Email history</div>
-    <div class="card">
-      <div class="email-log"></div>
-      <button class="btn btn-ghost btn-sm btn-block" data-act="log-email">${icon("mail")} Log an email</button>
-    </div>
-
-    <div class="section-title">Actions</div>
-    <div class="card">
-      <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
-      <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:10px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
-      <button class="btn btn-ghost btn-block" data-act="referral" style="margin-bottom:14px">${icon("users")} Ask for a referral</button>
-      <div class="field">
-        <label>Set / change follow-up</label>
-        <input type="date" data-act="followup" value="${esc(l.followUp || "")}" />
-      </div>
-      <div class="btn-row" style="margin-top:4px">
-        <button class="btn btn-ghost btn-sm" data-act="followup-tomorrow">Follow up tomorrow</button>
-        <button class="btn btn-ghost btn-sm" data-act="followup-3">In 3 days</button>
-        <button class="btn btn-ghost btn-sm" data-act="followup-week">In a week</button>
-      </div>
-      <hr class="divider" />
-      <div class="btn-row">
-        <button class="btn btn-ghost btn-block" data-act="appointment">${icon("calendar")} Schedule</button>
-        <button class="btn btn-ghost btn-block" data-act="logsale">${icon("dollar")} Log sale</button>
-      </div>
-      <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
-        <button class="btn btn-success btn-block" data-act="deliver">${icon("check")} Start delivery</button>
-      </div>
-      <button class="btn btn-danger btn-block" data-act="delete" style="margin-top:10px">Delete lead</button>
-    </div>
   `;
   view.appendChild(el);
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/leads"));
   el.querySelectorAll('[data-act="money"]').forEach((n) => n.addEventListener("click", () => openMoneyForm(l)));
-  el.querySelector('[data-act="edit"]').addEventListener("click", () => openLeadForm(l));
-  // Tap-to-edit: any detail row opens the form focused on that field.
+  // Tap-to-edit: the name box opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
+  el.querySelector('[data-act="info"]').addEventListener("click", () => openInfoSheet());
+  // The last contact, on the name box, with a tap to log another.
+  el.querySelector('#view [data-act="contacted"], [data-act="contacted"]').addEventListener("click", (ev) => {
+    const kv = ev.currentTarget;
+    const existing = kv.nextElementSibling;
+    if (existing && existing.classList.contains("contact-ways")) { existing.remove(); return; }
+    kv.after(contactWays(l, () => window.dispatchEvent(new HashChangeEvent("hashchange"))));
+  });
   // The customer's own to-do list: the moves made from their context, and
   // the plan's next steps, soonest first — each one something to act on.
   el.querySelector("#moves-slot").appendChild(movesCard(l));
@@ -1003,13 +942,6 @@ function renderLeadDetail(view, id) {
   };
   window.addEventListener("viniva-sync", onSynced);
 
-  el.querySelector('[data-act="contacted"]').addEventListener("click", (ev) => {
-    const kv = ev.currentTarget;
-    const existing = kv.nextElementSibling;
-    if (existing && existing.classList.contains("contact-ways")) { existing.remove(); return; }
-    kv.after(contactWays(l, () => window.dispatchEvent(new HashChangeEvent("hashchange"))));
-  });
-
   const tmplBtn = el.querySelector('[data-act="templates"]');
   if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
 
@@ -1018,26 +950,6 @@ function renderLeadDetail(view, id) {
     openerBtn.disabled = true; openerBtn.textContent = "Drafting…";
     try { await reviewProspect(l.id); }
     finally { openerBtn.disabled = false; openerBtn.innerHTML = `${icon("message")} Review the opener`; }
-  });
-  const expressBtn = el.querySelector('[data-act="consent-express"]');
-  if (expressBtn) expressBtn.addEventListener("click", () => {
-    openModal("Express consent", (close) => {
-      const { element } = buildForm(
-        [{ name: "note", label: "How they gave it", value: "", placeholder: "Asked on the phone 14 Sep · ticked the box on the credit app · replied YES", required: true }],
-        { submitLabel: "Record", onSubmit: (data) => {
-          recordConsent(l.id, { basis: "express", note: data.note });
-          toast("Consent recorded", "success"); close();
-          window.dispatchEvent(new HashChangeEvent("hashchange"));
-        } });
-      return element;
-    });
-  });
-  const withdrawBtn = el.querySelector('[data-act="consent-withdraw"]');
-  if (withdrawBtn) withdrawBtn.addEventListener("click", async () => {
-    if (!(await confirmDialog(`Stop texting ${l.name}? They'll be left out of every campaign and opener until they say yes again.`))) return;
-    recordConsent(l.id, { basis: "withdrawn", note: "recorded by hand" });
-    toast("Texting stopped");
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
   const snoozeBtn = el.querySelector('[data-act="snooze"]');
   if (snoozeBtn) snoozeBtn.addEventListener("click", () => {
@@ -1074,55 +986,6 @@ function renderLeadDetail(view, id) {
     logTouch();
     logEmail(l.id, { direction: "out", subject: "", body: "", via: "mail-app" });
   });
-
-  // --- Email history: sent emails (templates / automated) + hand-logged replies.
-  const drawEmailLog = () => {
-    const box = el.querySelector(".email-log");
-    const items = emailsForLead(l.id);
-    if (!items.length) { box.innerHTML = `<div class="muted small" style="margin-bottom:10px">Nothing logged yet. Emails sent from viniva land here automatically.</div>`; return; }
-    box.innerHTML = items.slice(0, 12).map((e) => `
-      <div class="kv" style="align-items:flex-start">
-        <span class="k" style="flex:none">${e.direction === "in" ? "↓ In" : "↑ Out"}</span>
-        <span class="v" style="text-align:left;flex:1;font-weight:550">
-          ${esc(e.subject || "(no subject)")}
-          <div class="small muted" style="font-weight:450">${esc(formatDate(e.receivedAt || e.createdAt))}${e.via === "auto" ? " · sent automatically" : e.via === "outlook" ? " · from Outlook" : ""}</div>
-        </span>
-      </div>`).join("");
-  };
-  drawEmailLog();
-
-  el.querySelector('[data-act="log-email"]').addEventListener("click", () => {
-    openModal("Log an email", (close) => {
-      const { element } = buildForm(
-        [
-          { name: "direction", label: "Direction", value: "in", type: "select",
-            options: [{ value: "in", label: "Received from customer" }, { value: "out", label: "Sent to customer" }] },
-          { name: "subject", label: "Subject", value: "", placeholder: "Re: the Rogue" },
-          { name: "body", label: "Email text (optional)", value: "", type: "textarea", placeholder: "Paste the email here…" },
-        ],
-        {
-          submitLabel: "Log it",
-          onSubmit: (data) => {
-            logEmail(l.id, { direction: data.direction, subject: data.subject, body: data.body, via: "manual" });
-            if (data.direction === "out") logTouch();
-            toast("Email logged", "success");
-            close();
-            drawEmailLog();
-          },
-        }
-      );
-      return element;
-    });
-  });
-
-  el.querySelector('[data-act="cadence"]').addEventListener("click", () => {
-    if (hasCadence(l.id)) { toast("Follow-up plan already running", ""); return; }
-    const n = startCadence(l.id);
-    toast(`${n}-step follow-up plan started`, "success");
-    renderRefresh(view, id);
-  });
-
-  el.querySelector('[data-act="referral"]').addEventListener("click", () => openReferralCapture(l.name, l.id));
 
   // The deal is pre-made: best payment-matched option front and center, two
   // alternates under it, the offer text one tap away. No button hunting.
@@ -1217,77 +1080,174 @@ function renderLeadDetail(view, id) {
   }
   buildDealSection();
 
-  el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
-    openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));
+  // Everything that isn't the read of the customer — their details, stage,
+  // texting consent, follow-up, contact history and the actions — lives
+  // behind the "i" on the name box, so the page itself is the customer.
+  function historyHTML() {
+    const items = [];
+    store.all("calls").filter((c) => c.leadId === l.id).forEach((c) => items.push({ at: c.at || c.createdAt, kind: c.via === "text" ? "text" : c.via === "email" ? "email" : "call", dir: c.dir || "out", line: `${c.logged ? "Logged " : ""}${c.via === "text" ? "text" : c.via === "email" ? "email" : "call"}${c.outcome && c.outcome !== "reached" ? " · " + c.outcome : ""}${c.notes ? " — " + c.notes : ""}` }));
+    store.all("texts").filter((t) => t.leadId === l.id).forEach((t) => items.push({ at: t.at || t.createdAt, kind: "text", dir: t.dir, line: String(t.body || "").slice(0, 110) }));
+    emailsForLead(l.id).forEach((e) => items.push({ at: e.receivedAt || e.createdAt, kind: "email", dir: e.direction, line: (e.subject || "(no subject)") + (e.via === "auto" ? " · sent automatically" : e.via === "outlook" ? " · from Outlook" : "") }));
+    items.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    if (!items.length) return `<div class="muted small">No calls, texts or emails logged yet.</div>`;
+    return items.slice(0, 40).map((x) => `
+      <div class="kv hist-row" style="align-items:flex-start">
+        <span class="k" style="flex:none">${icon(x.kind === "call" ? "phone" : x.kind === "email" ? "mail" : "message")} ${x.dir === "in" ? "↓" : "↑"}</span>
+        <span class="v" style="text-align:left;flex:1;font-weight:500">${esc(x.line)}<div class="small muted" style="font-weight:450">${esc(formatDateTime(x.at))}</div></span>
+      </div>`).join("");
+  }
+  function openInfoSheet() {
+    openModal(l.name, (close) => {
+      const cur = store.get("leads", l.id) || l;
+      const c = consentStatus(cur);
+      const cBadge = c.basis === "express" ? "badge-sold" : c.basis === "implied" ? "badge-soon" : c.basis === "withdrawn" ? "badge-lost" : "badge-due";
+      const cLabel = c.basis === "express" ? "Express" : c.basis === "implied" ? "Implied" : c.basis === "withdrawn" ? "Withdrawn" : "None";
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div class="section-title" style="margin-top:0">Details <span class="muted" style="font-weight:500;font-size:0.78rem">· tap a row to edit</span></div>
+        <div class="card">
+          <div class="kv" data-edit="phone" style="cursor:pointer"><span class="k">Phone</span><span class="v">${cur.phone ? esc(phoneDisplay(cur.phone)) : "Tap to add"}</span></div>
+          <div class="kv" data-edit="email" style="cursor:pointer"><span class="k">Email</span><span class="v">${cur.email ? esc(cur.email) : "Tap to add"}</span></div>
+          <div class="kv" data-edit="source" style="cursor:pointer"><span class="k">Source</span><span class="v">${esc(cur.source || "—")}</span></div>
+          <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${cur.followUp ? esc(relativeDay(cur.followUp)) + " (" + esc(formatDate(cur.followUp)) + ")" : "Tap to set"}</span></div>
+          <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${cur.lastContacted ? esc(formatDateTime(cur.lastContacted)) + (cur.lastContactVia ? ` <span class="muted small">· ${esc(cur.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
+          ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
+          <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(cur.createdAt))}</span></div>
+          <div class="kv" style="align-items:flex-start"><span class="k">Texting</span><span class="v" style="text-align:right"><span class="badge ${cBadge}">${cLabel}</span><div class="small muted" style="margin-top:3px">${esc(consentLine(c))}</div></span></div>
+          <div class="btn-row" style="margin-top:8px">
+            ${c.basis !== "express" ? `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">${icon("check")} Record express consent</button>` : ""}
+            ${c.basis !== "withdrawn" ? `<button class="btn btn-ghost btn-sm" data-act="consent-withdraw" style="flex:0 0 auto">They said stop</button>` : `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">They've said yes again</button>`}
+          </div>
+        </div>
 
-  el.querySelector('[data-act="appointment"]').addEventListener("click", () =>
-    openAppointmentForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest, type: "appointment" }));
+        <div class="section-title">Stage</div>
+        <div class="card"><div class="btn-row">
+          ${LEAD_STAGES.map((st) => `<button class="btn btn-sm ${st.id === cur.stage ? "btn-primary" : "btn-ghost"}" data-stage="${st.id}">${esc(st.label)}</button>`).join("")}
+        </div></div>
 
-  el.querySelector('[data-act="logsale"]').addEventListener("click", () =>
-    openSaleForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest }));
+        <div class="section-title">Contact history</div>
+        <div class="card">
+          <div class="hist-list">${historyHTML()}</div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn btn-ghost btn-sm" data-act="log-contact" style="flex:1">${icon("checkline")} Log a contact</button>
+            <button class="btn btn-ghost btn-sm" data-act="log-email" style="flex:1">${icon("mail")} Log an email</button>
+          </div>
+        </div>
 
-  el.querySelectorAll("[data-stage]").forEach((b) =>
-    b.addEventListener("click", () => {
-      const stage = b.dataset.stage;
-      store.update("leads", l.id, { stage });
-      toast(`Moved to ${stageMeta(stage).label}`, "success");
-      // Stage changes ripple through the rest of the app.
-      if (stage === "sold") {
-        const hasSale = store.all("sales").some((s) => s.leadId === l.id);
-        if (!hasSale) {
-          // Sold means a sale — open the form prefilled so units/commission count.
-          openSaleForm(null, { customerName: l.name, vehicle: l.vehicleInterest, leadId: l.id }, () => renderRefresh(view, id));
-          return;
+        <div class="section-title">Actions</div>
+        <div class="card">
+          <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
+          <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:10px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
+          <button class="btn btn-ghost btn-block" data-act="referral" style="margin-bottom:14px">${icon("users")} Ask for a referral</button>
+          <div class="field">
+            <label>Set / change follow-up</label>
+            <input type="date" data-act="followup" value="${esc(cur.followUp || "")}" />
+          </div>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn btn-ghost btn-sm" data-act="followup-tomorrow">Tomorrow</button>
+            <button class="btn btn-ghost btn-sm" data-act="followup-3">In 3 days</button>
+            <button class="btn btn-ghost btn-sm" data-act="followup-week">In a week</button>
+          </div>
+          <hr class="divider" />
+          <div class="btn-row">
+            <button class="btn btn-ghost btn-block" data-act="appointment">${icon("calendar")} Schedule</button>
+            <button class="btn btn-ghost btn-block" data-act="logsale">${icon("dollar")} Log sale</button>
+          </div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn btn-primary btn-block" data-act="edit">${icon("edit")} Edit</button>
+            <button class="btn btn-success btn-block" data-act="deliver">${icon("check")} Start delivery</button>
+          </div>
+          <button class="btn btn-danger btn-block" data-act="delete" style="margin-top:10px">Delete lead</button>
+        </div>`;
+
+      const on = (sel, fn) => root.querySelectorAll(sel).forEach((n) => n.addEventListener("click", fn));
+      // Something that changes the customer closes the sheet and redraws the page under it.
+      const done = () => { close(); renderRefresh(view, id); };
+      on("[data-edit]", (ev) => { close(); openLeadForm(cur, { focus: ev.currentTarget.dataset.edit }); });
+      on('[data-act="edit"]', () => { close(); openLeadForm(cur); });
+      on('[data-act="contacted"], [data-act="log-contact"]', (ev) => {
+        const anchor = ev.currentTarget.closest(".card");
+        const existing = anchor.querySelector(".contact-ways");
+        if (existing) { existing.remove(); return; }
+        anchor.appendChild(contactWays(cur, () => done()));
+      });
+      on('[data-act="consent-express"]', () => {
+        close();
+        openModal("Express consent", (close2) => {
+          const { element } = buildForm(
+            [{ name: "note", label: "How they gave it", value: "", placeholder: "Asked on the phone 14 Sep · ticked the box on the credit app · replied YES", required: true }],
+            { submitLabel: "Record", onSubmit: (data) => { recordConsent(l.id, { basis: "express", note: data.note }); toast("Consent recorded", "success"); close2(); renderRefresh(view, id); } });
+          return element;
+        });
+      });
+      on('[data-act="consent-withdraw"]', async () => {
+        if (!(await confirmDialog(`Stop texting ${l.name}? They'll be left out of every campaign and opener until they say yes again.`))) return;
+        recordConsent(l.id, { basis: "withdrawn", note: "recorded by hand" });
+        toast("Texting stopped");
+        done();
+      });
+      on("[data-stage]", (ev) => {
+        const stage = ev.currentTarget.dataset.stage;
+        store.update("leads", l.id, { stage });
+        toast(`Moved to ${stageMeta(stage).label}`, "success");
+        close();
+        if (stage === "sold") {
+          const hasSale = store.all("sales").some((x) => x.leadId === l.id);
+          if (!hasSale) { openSaleForm(null, { customerName: l.name, vehicle: l.vehicleInterest, leadId: l.id }, () => renderRefresh(view, id)); return; }
+          afterSale(l.id, { vehicle: l.vehicleInterest || "" });
+        } else if (stage === "lost") {
+          closeFollowUps(l.id);
         }
-        afterSale(l.id, { vehicle: l.vehicleInterest || "" });
-      } else if (stage === "lost") {
-        closeFollowUps(l.id);
-      }
-      renderRefresh(view, id);
-    }));
-
-  const fuInput = el.querySelector('[data-act="followup"]');
-  fuInput.addEventListener("change", () => {
-    store.update("leads", l.id, { followUp: fuInput.value || null });
-    toast("Follow-up set", "success");
-    renderRefresh(view, id);
-  });
-  const setFu = (days) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    store.update("leads", l.id, { followUp: d.toISOString().slice(0, 10) });
-    toast("Follow-up set", "success");
-    renderRefresh(view, id);
-  };
-  el.querySelector('[data-act="followup-tomorrow"]').addEventListener("click", () => setFu(1));
-  el.querySelector('[data-act="followup-3"]').addEventListener("click", () => setFu(3));
-  el.querySelector('[data-act="followup-week"]').addEventListener("click", () => setFu(7));
-
-  el.querySelector('[data-act="deliver"]').addEventListener("click", () => {
-    // Create a delivery from this lead and jump to it.
-    const settings = store.getSettings();
-    const checklist = settings.deliveryChecklist.map((label) => ({ label, done: false }));
-    const d = store.create("deliveries", {
-      leadId: l.id,
-      customerName: l.name,
-      vehicle: l.vehicleInterest || (linkedVehicle ? vehicleName(linkedVehicle) : ""),
-      deliveryDate: "",
-      status: "prep",
-      checklist,
-      notes: "",
-    });
-    store.update("leads", l.id, { stage: l.stage === "delivered" ? l.stage : "sold" });
-    toast("Delivery started", "success");
-    navigate(`/deliveries/${d.id}`);
-  });
-
-  el.querySelector('[data-act="delete"]').addEventListener("click", async () => {
-    if (await confirmDialog(`Delete ${l.name}? This can't be undone.`)) {
-      store.remove("leads", l.id);
-      toast("Lead deleted");
-      navigate("/leads");
-    }
-  });
+        renderRefresh(view, id);
+      });
+      on('[data-act="log-email"]', () => {
+        close();
+        openModal("Log an email", (close2) => {
+          const { element } = buildForm(
+            [
+              { name: "direction", label: "Direction", value: "in", type: "select", options: [{ value: "in", label: "Received from customer" }, { value: "out", label: "Sent to customer" }] },
+              { name: "subject", label: "Subject", value: "", placeholder: "Re: the Rogue" },
+              { name: "body", label: "Email text (optional)", value: "", type: "textarea", placeholder: "Paste the email here…" },
+            ],
+            { submitLabel: "Log it", onSubmit: (data) => {
+              logEmail(l.id, { direction: data.direction, subject: data.subject, body: data.body, via: "manual" });
+              if (data.direction === "out") logTouch();
+              toast("Email logged", "success"); close2(); renderRefresh(view, id);
+            } });
+          return element;
+        });
+      });
+      on('[data-act="cadence"]', () => {
+        if (hasCadence(l.id)) { toast("Follow-up plan already running", ""); return; }
+        const n = startCadence(l.id);
+        toast(`${n}-step follow-up plan started`, "success");
+        done();
+      });
+      on('[data-act="referral"]', () => { close(); openReferralCapture(l.name, l.id); });
+      on('[data-act="find-car"]', () => { close(); openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }); });
+      on('[data-act="appointment"]', () => { close(); openAppointmentForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest, type: "appointment" }); });
+      on('[data-act="logsale"]', () => { close(); openSaleForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest }); });
+      const fuInput = root.querySelector('[data-act="followup"]');
+      fuInput.addEventListener("change", () => { store.update("leads", l.id, { followUp: fuInput.value || null }); toast("Follow-up set", "success"); done(); });
+      const setFu = (days) => { const d = new Date(); d.setDate(d.getDate() + days); store.update("leads", l.id, { followUp: d.toISOString().slice(0, 10) }); toast("Follow-up set", "success"); done(); };
+      on('[data-act="followup-tomorrow"]', () => setFu(1));
+      on('[data-act="followup-3"]', () => setFu(3));
+      on('[data-act="followup-week"]', () => setFu(7));
+      on('[data-act="deliver"]', () => {
+        const settings = store.getSettings();
+        const checklist = settings.deliveryChecklist.map((label) => ({ label, done: false }));
+        const d = store.create("deliveries", { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest || (linkedVehicle ? vehicleName(linkedVehicle) : ""), deliveryDate: "", status: "prep", checklist, notes: "" });
+        store.update("leads", l.id, { stage: l.stage === "delivered" ? l.stage : "sold" });
+        toast("Delivery started", "success");
+        close();
+        navigate(`/deliveries/${d.id}`);
+      });
+      on('[data-act="delete"]', async () => {
+        if (await confirmDialog(`Delete ${l.name}? This can't be undone.`)) { store.remove("leads", l.id); toast("Lead deleted"); close(); navigate("/leads"); }
+      });
+      return root;
+    }, { focus: false });
+  }
 }
 
 function renderRefresh(view, id) {

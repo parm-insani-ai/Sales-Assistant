@@ -33,7 +33,7 @@ await p.waitForFunction(() => document.querySelector(".contract-card"), null, { 
 const page = await p.evaluate(() => {
   const card = document.querySelector(".contract-card");
   const titles = [...document.querySelectorAll(".section-title")].map((t) => t.textContent.trim().split(" ·")[0]);
-  return { pay: card.querySelector(".contract-pay").textContent.trim(), left: card.querySelector(".contract-left").textContent.trim(), bar: !!card.querySelector(".contract-bar-fill"), rows: [...card.querySelectorAll(".kv")].map((k) => k.textContent.replace(/\s+/g, " ").trim()), order: titles.slice(0, 3), details: document.querySelector('[data-edit="phone"]').closest(".card").textContent };
+  return { pay: card.querySelector(".contract-pay").textContent.trim(), left: card.querySelector(".contract-left").textContent.trim(), bar: !!card.querySelector(".contract-bar-fill"), rows: [...card.querySelectorAll(".kv")].map((k) => k.textContent.replace(/\s+/g, " ").trim()), order: titles.slice(0, 3) };
 });
 console.log("page:", JSON.stringify(page));
 if (!/^\$532/.test(page.pay) || !/23 payments left/.test(page.left) || !page.bar) fail("the contract card doesn't lead with the payment and payments left: " + JSON.stringify(page));
@@ -41,7 +41,6 @@ if (page.order[0] !== "Context" || page.order[1] !== "Current contract") fail("t
 const headline = await p.evaluate(() => [...document.querySelector("#view .card .contract-banner").querySelectorAll(".cb-value")].map((v) => v.textContent.trim()));
 if (headline[0] !== "$532/mo" || headline[1] !== "23") fail("the name box doesn't carry the banner: " + JSON.stringify(headline));
 if (!page.rows.some((r) => /Payoff\$19,455/.test(r)) || !page.rows.some((r) => /Rate8\.9%/.test(r)) || !page.rows.some((r) => /Equity/.test(r))) fail("payoff, rate and equity aren't on the card: " + JSON.stringify(page.rows));
-if (/Current payment/.test(page.details)) fail("the Details card still repeats the payment");
 
 // --- Tap it: Their numbers, with payments left; saving counts from today.
 await p.click(".contract-card");
