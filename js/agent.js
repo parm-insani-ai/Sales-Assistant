@@ -29,7 +29,7 @@ import * as backend from "./backend.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
-import { parseOutreach, audienceFor, describeAudience } from "./outreach.js";
+import { parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -808,6 +808,7 @@ export async function execTool(name, p = {}) {
       const aud = audienceFor(spec, store.all("leads"));
       const m = await import("./views/outreach.js");
       m.queueOutreach(sentence);
+      if (aud.unknown && aud.unknown.length) return { result: { channel: spec.channel, recipients: 0, notUnderstood: aud.unknown, answer: unknownNote(spec), status: "nobody picked — ask the salesperson to reword the audience; never widen it to everyone" }, note: `⚠ didn't understand ${aud.unknown.map((u) => `"${u}"`).join(", ")}` };
       return { result: { channel: spec.channel, audience: describeAudience(spec), recipients: aud.included.length, leftOut: aud.excluded.length, leftOutWhy: aud.excluded.slice(0, 5).map((x) => x.why), message: spec.message, ready: !!spec.message, status: "on screen — the salesperson reviews and taps Send" }, note: `${aud.included.length} on screen to ${spec.channel}` };
     }
     case "lot_lookup": case "lot": case "inventory_lookup": {

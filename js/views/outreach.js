@@ -13,7 +13,7 @@ import { toast, confirmDialog } from "../components.js";
 import { esc, smsHref, mailtoHref } from "../utils.js";
 import { sendText, smsReady } from "../sms.js";
 import { sendEmail, emailSendConfigured, logEmail } from "../email.js";
-import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson } from "../outreach.js";
+import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote } from "../outreach.js";
 
 const PREFILL = "outreach-prefill";
 
@@ -74,13 +74,14 @@ export function renderOutreach(view) {
           <button class="seg-btn ${channel === "text" ? "active" : ""}" data-channel="text">${icon("message")} Text</button>
           <button class="seg-btn ${channel === "email" ? "active" : ""}" data-channel="email">${icon("mail")} Email</button>
         </div>
+        ${aud.unknown && aud.unknown.length ? `<div class="fab-note mo-unknown" style="text-align:left;color:var(--danger);margin-bottom:8px">${esc(unknownNote(live))} Reword it above and build again — the audience is never widened to everyone.</div>` : ""}
         <div class="row" style="margin-bottom:6px"><span class="strong">${recipients.length} ${channel === "text" ? "will be texted" : "will be emailed"}</span><span class="small muted">${aud.excluded.length ? aud.excluded.length + " left out" : ""}</span></div>
         <div class="mo-list">
           ${recipients.length ? recipients.map((l) => `
             <div class="row mo-row" data-lead="${esc(l.id)}">
               <div class="row-main" style="min-width:0"><div class="row-title" style="font-size:0.95rem">${esc(l.name)}</div><div class="row-sub">${esc(l.vehicleInterest || "")}${channel === "text" && l.phone ? " · " + esc(l.phone) : channel === "email" && l.email ? " · " + esc(l.email) : ""}</div></div>
               <button class="modal-close" data-skip="${esc(l.id)}" aria-label="Leave out" title="Leave out">&times;</button>
-            </div>`).join("") : `<div class="muted small">Nobody in this audience can be reached by ${channel} right now.</div>`}
+            </div>`).join("") : aud.unknown && aud.unknown.length ? "" : `<div class="muted small">Nobody in this audience can be reached by ${channel} right now.</div>`}
         </div>
         ${aud.excluded.length || skipped.size ? `
         <details style="margin-top:8px"><summary class="small muted" style="cursor:pointer">Left out (${aud.excluded.length + skipped.size})</summary>

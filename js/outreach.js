@@ -40,31 +40,61 @@ export function parseOutreach(text) {
   if (q) { message = q[1]; audienceText = t.replace(q[0].toLowerCase(), " "); }
   message = norm(message).replace(/^(that|saying)\s+/i, "");
 
-  const a = { text: norm(audienceText), models: [], makes: [], nissan: false, yearMin: null, yearMax: null, paidOff: false, equity: false, lease: false, ownedYears: null, quietDays: null, stages: [], everyone: false };
-  // The audience is what comes after "everyone who / anyone who / owners of / people with / customers in".
-  const who = /\b(?:everyone|everybody|anyone|anybody|all|every|each|people|customers?|clients?|owners?|folks|those|them)\b/.exec(audienceText);
-  const scope = who ? audienceText.slice(who.index) : audienceText;
+  const a = { text: norm(audienceText), models: [], makes: [], nissan: false, yearMin: null, yearMax: null, paidOff: false, equity: false, lease: false, ownedYears: null, quietDays: null, stages: [], everyone: false, unknown: [] };
+  // The audience is the whole clause after the verb ("text", "send a note
+  // to", "reach out to"): "my Altima owners" names a model as surely as
+  // "everyone who owns an Altima" does.
+  let scope = audienceText.replace(/^\s*(?:please |can you |could you )?(?:send (?:out )?(?:a |an )?(?:quick )?(?:text|sms|message|note|email|e-mail|blast) (?:out )?to|text|sms|message|email|e-mail|reach out to|blast|let|tell|remind)\s+/, " ");
+  // Every piece of the clause the parser reads is blanked out as it goes;
+  // whatever is left over with meaning is what it did not understand.
+  let rest = " " + scope + " ";
+  const take = (re) => { const m = re.exec(rest); if (m) rest = rest.replace(m[0], " ".repeat(m[0].length)); return m; };
   a.models = modelsIn(scope);
-  a.makes = MAKES.filter((m) => new RegExp(`\\b${m.replace(/-/g, "\\-")}\\b`).test(scope)).map((m) => (m === "vw" ? "volkswagen" : m === "chevy" ? "chevrolet" : m === "mercedes-benz" ? "mercedes" : m));
-  if (/\bnissan owners?\b|\bin a nissan\b|\bdrives? a nissan\b|\bown(?:s|ing)? a nissan\b|\bnissans?\b/.test(scope) && !a.models.length) a.nissan = true;
-  const yr = scope.match(/\b((?:19|20)\d{2})\b/g) || [];
-  if (/\b(older than|before|pre)\s+((?:19|20)\d{2})/.test(scope)) a.yearMax = Number(RegExp.$2) - 1;
-  else if (/\b(newer than|after|since)\s+((?:19|20)\d{2})/.test(scope)) a.yearMin = Number(RegExp.$2) + 1;
-  else if (/\b((?:19|20)\d{2})\s*(?:to|-|through|and)\s*((?:19|20)\d{2})\b/.test(scope)) { a.yearMin = Number(RegExp.$1); a.yearMax = Number(RegExp.$2); }
-  else if (/\b((?:19|20)\d{2})\s*(?:or older|and older|or earlier)\b/.test(scope)) a.yearMax = Number(RegExp.$1);
-  else if (/\b((?:19|20)\d{2})\s*(?:or newer|and newer|or later|\+)\b/.test(scope)) a.yearMin = Number(RegExp.$1);
-  else if (yr.length === 1) { a.yearMin = Number(yr[0]); a.yearMax = Number(yr[0]); }
-  if (/\bpaid[- ]off\b|\bno payment\b|\bown(?:s|ed)? (?:it|their car) outright\b/.test(scope)) a.paidOff = true;
-  if (/\b(positive )?equity\b/.test(scope)) a.equity = true;
-  if (/\blease\w*\s+(?:is |are |that's |that is )?(?:ending|maturing|coming due|up|expiring|due|almost up)\b|\bend of (?:their )?lease\b|\blease-?end\b/.test(scope)) a.lease = true;
-  const owned = /\b(?:owned|had|driven|in (?:their|the) (?:car|vehicle))\b[^0-9]{0,30}?(\d+)\s*(?:\+\s*)?years?/.exec(scope) || /\bfor (?:more than |over )?(\d+)\s*years?\b/.exec(scope);
+  a.models.forEach((k) => take(new RegExp(`(?<![a-z0-9])${k.replace(/[-.]/g, (c) => "\\" + c)}s?(?![a-z0-9])`)));
+  a.makes = MAKES.filter((m) => take(new RegExp(`\\b${m.replace(/-/g, "\\-")}s?\\b`))).map((m) => (m === "vw" ? "volkswagen" : m === "chevy" ? "chevrolet" : m === "mercedes-benz" ? "mercedes" : m));
+  if (a.makes.includes("nissan") && !a.models.length) a.nissan = true;
+  if (take(/\b(older than|before|pre)\s+((?:19|20)\d{2})/)) a.yearMax = Number(RegExp.$2) - 1;
+  else if (take(/\b(newer than|after|since)\s+((?:19|20)\d{2})/)) a.yearMin = Number(RegExp.$2) + 1;
+  else if (take(/\b((?:19|20)\d{2})\s*(?:to|-|through|and)\s*((?:19|20)\d{2})\b/)) { a.yearMin = Number(RegExp.$1); a.yearMax = Number(RegExp.$2); }
+  else if (take(/\b((?:19|20)\d{2})\s*(?:or older|and older|or earlier)\b/)) a.yearMax = Number(RegExp.$1);
+  else if (take(/\b((?:19|20)\d{2})\s*(?:or newer|and newer|or later|\+)\b/)) a.yearMin = Number(RegExp.$1);
+  else { const yr = scope.match(/\b((?:19|20)\d{2})\b/g) || []; if (yr.length === 1) { take(/\b(?:19|20)\d{2}\b/); a.yearMin = Number(yr[0]); a.yearMax = Number(yr[0]); } }
+  if (take(/\bpaid[- ]off\b|\bno payments?\b|\bown(?:s|ed)? (?:it|their (?:car|vehicle)) outright\b|\bpaid (?:it |their (?:car|vehicle) )?off\b/)) a.paidOff = true;
+  if (take(/\b(?:positive |in )?equity\b/)) a.equity = true;
+  if (take(/\blease\w*\s+(?:is |are |that's |that is )?(?:ending|maturing|coming due|up|expiring|due|almost up)\b|\bend of (?:their )?lease\b|\blease-?end\b|\bleases? ending\b/)) a.lease = true;
+  const owned = take(/\b(?:owned|had|driven|in (?:their|the) (?:car|vehicle))\b[^0-9]{0,30}?(\d+)\s*(?:\+\s*)?years?\b/) || take(/\bfor (?:more than |over )?(\d+)\s*(?:\+\s*)?years?\b/);
   if (owned) a.ownedYears = Number(owned[1]);
-  const quiet = /\b(?:haven'?t|not|no)\b[^0-9]{0,40}?(?:contact|reach|heard|talk|touch|text|call)[^0-9]{0,30}?(\d+)\s*(days?|weeks?|months?)/.exec(scope);
+  const quiet = take(/\b(?:haven'?t|hasn'?t|not|no|didn'?t)\b[^0-9]{0,40}?(?:contact|reach|heard|talk|touch|text|call|spoke)[^0-9]{0,30}?(\d+)\s*(days?|weeks?|months?)\b/);
   if (quiet) a.quietDays = Number(quiet[1]) * (/week/.test(quiet[2]) ? 7 : /month/.test(quiet[2]) ? 30 : 1);
-  if (/\bpast customers?\b|\bprevious customers?\b|\bsold customers?\b|\bbought from (?:us|me)\b/.test(scope)) a.stages = ["sold", "delivered"];
-  if (/\b(?:new )?leads?\b|\bprospects?\b/.test(scope) && !a.stages.length) a.stages = ["new", "working", "appointment", "negotiating"];
-  a.everyone = !a.models.length && !a.makes.length && !a.nissan && a.yearMin == null && a.yearMax == null && !a.paidOff && !a.equity && !a.lease && a.ownedYears == null && a.quietDays == null && !a.stages.length;
+  if (take(/\b(?:past|previous|sold|delivered|existing|current) (?:customers?|clients?|owners?)\b|\bbought from (?:us|me)\b/)) a.stages = ["sold", "delivered"];
+  if (take(/\b(?:new |open |active |fresh )?(?:leads?|prospects?)\b/) && !a.stages.length) a.stages = ["new", "working", "appointment", "negotiating"];
+  a.unknown = leftovers(rest);
+  a.everyone = !a.unknown.length && !a.models.length && !a.makes.length && !a.nissan && a.yearMin == null && a.yearMax == null && !a.paidOff && !a.equity && !a.lease && a.ownedYears == null && a.quietDays == null && !a.stages.length;
   return { channel, audience: a, message, raw };
+}
+
+// Words that only carry the shape of the sentence: they can be left over
+// without meaning anything is missing.
+const FILLER = new Set(("everyone everybody anyone anybody all every each people person customer customers client clients owner owners driver drivers folks guys those them they who whose whom which that what own owns owned owning drive drives driving driven have has had having got get bought buy purchased leased leasing in on at to for from of with and or a an the my our your his her their its it is are was were be been being still currently already now ever i me us we you one ones car cars vehicle vehicles ride rides know please just also too as so out up").split(" "));
+
+// What the clause still says once every recognised piece is blanked out:
+// runs of meaningful words, in the sentence's own words.
+function leftovers(rest) {
+  const words = [];
+  const re = /[^\s]+/g;
+  let m;
+  while ((m = re.exec(rest))) {
+    const w = m[0].replace(/'(s|re|ve|d|ll|m)$/i, "").replace(/^[^a-z0-9$%]+|[^a-z0-9$%]+$/g, "");
+    if (w.length > 1 && !FILLER.has(w)) words.push({ at: m.index, end: m.index + m[0].length, w });
+  }
+  const runs = [];
+  for (const x of words) {
+    const last = runs[runs.length - 1];
+    // A run continues across one filler word, so "but not a lease" stays whole.
+    if (last && rest.slice(last.end, x.at).trim().split(/\s+/).filter(Boolean).length <= 1) last.end = x.end;
+    else runs.push({ at: x.at, end: x.end });
+  }
+  return runs.map((r) => rest.slice(r.at, r.end).replace(/\s+/g, " ").replace(/^[^a-z0-9$]+|[^a-z0-9$%]+$/g, "").trim()).filter(Boolean);
 }
 
 // Is this sentence a mass outreach at all? Needs a plural target and a way
@@ -72,7 +102,7 @@ export function parseOutreach(text) {
 export function isOutreach(text) {
   const t = lower(text);
   const verb = /\b(text|sms|message|email|e-mail|reach out to|blast|send (?:a )?(?:text|message|note|email)|let .* know|tell)\b/.test(t);
-  const plural = /\b(everyone|everybody|anyone|anybody|all (?:my |the |of )?(?:customers|clients|owners|people|leads)|every (?:customer|owner|client|person|lead)|every [a-z0-9-]+ (?:owner|driver|customer)s?\b|customers who|people who|owners? (?:of|who|with)|(?:my |the )?[a-z0-9-]+ owners\b|mass|blast|campaign)\b/.test(t);
+  const plural = /\b(everyone|everybody|anyone|anybody|all (?:my |the |of |our )?(?:[a-z0-9-]+ )?(?:customers|clients|owners|people|leads|prospects)|every (?:customer|owner|client|person|lead)|every [a-z0-9-]+ (?:owner|driver|customer)s?\b|customers who|people who|owners? (?:of|who|with)|(?:my |the |our )?[a-z0-9-]+ (?:owners|people|customers|clients|leads|prospects)\b|mass|blast|campaign)\b/.test(t);
   return verb && plural;
 }
 
@@ -87,6 +117,9 @@ export function audienceFor(spec, leads, opts = {}) {
   const now = opts.now || Date.now();
   const recentDays = opts.recentDays != null ? opts.recentDays : 20;
   const included = [], excluded = [];
+  // A clause the parser couldn't read is never rounded down to "everyone":
+  // nobody is picked until it's reworded.
+  if (a.unknown && a.unknown.length) return { included, excluded, unknown: a.unknown.slice() };
   for (const l of leads) {
     const c = classify(String(l.vehicleInterest || ""));
     const drive = lower(l.vehicleInterest);
@@ -110,7 +143,17 @@ export function audienceFor(spec, leads, opts = {}) {
     else if (!opts.includeRecent && l.lastCampaignAt && (now - new Date(l.lastCampaignAt)) / DAY < recentDays) why = `reached ${Math.floor((now - new Date(l.lastCampaignAt)) / DAY)} days ago`;
     if (why) excluded.push({ lead: l, why }); else included.push(l);
   }
-  return { included, excluded };
+  return { included, excluded, unknown: [] };
+}
+
+// What the parser can read, for the reply that says it didn't understand.
+export const AUDIENCE_HELP = "a model, a make, Nissan, a year or a range of years, paid off, with equity, lease ending, owned so many years, not heard from in so many days, past customers, or open leads";
+
+// "I didn't understand \"under 60,000 km\"…" — empty when everything was read.
+export function unknownNote(spec) {
+  const a = spec.audience || spec;
+  if (!a.unknown || !a.unknown.length) return "";
+  return `I didn't understand ${a.unknown.map((u) => `"${u}"`).join(" or ")} in the audience. I can pick people by ${AUDIENCE_HELP}.`;
 }
 
 // "this month if they trade in their Sentra … they get double loyalty" →
@@ -163,6 +206,7 @@ export function draftFor(lead, spec, settings = {}) {
 export function describeAudience(spec) {
   const a = spec.audience || spec;
   const cap = (s) => s.split(/[\s-]+/).map((w) => (/^[a-z]{1,3}$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(" ");
+  if (a.unknown && a.unknown.length) return `nobody yet — didn't understand ${a.unknown.map((u) => `"${u}"`).join(", ")}`;
   const bits = [];
   if (a.yearMin != null && a.yearMax != null && a.yearMin === a.yearMax) bits.push(String(a.yearMin));
   else if (a.yearMin != null && a.yearMax != null) bits.push(`${a.yearMin}–${a.yearMax}`);

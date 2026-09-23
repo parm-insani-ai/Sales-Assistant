@@ -21,8 +21,36 @@ if (JSON.stringify(s.audience.stages) !== '["sold","delivered"]' || s.audience.q
 s = o.parseOutreach("email everyone that the service department is open Saturdays now");
 if (!s.audience.everyone || s.channel !== "email") fail("everyone: " + JSON.stringify(s));
 
+// --- A model without "everyone who owns": "my Altima owners", "Rogue owners:".
+s = o.parseOutreach("text my Altima owners that the Altima is being discontinued");
+if (s.audience.models.join() !== "altima" || s.audience.everyone) fail("my Altima owners: " + JSON.stringify(s.audience));
+s = o.parseOutreach("text Rogue owners: the new Rogue is here");
+if (s.audience.models.join() !== "rogue" || !/new Rogue is here/.test(s.message)) fail("Rogue owners with a colon: " + JSON.stringify(s));
+s = o.parseOutreach("text the Sentra people that we have double loyalty");
+if (s.audience.models.join() !== "sentra") fail("the Sentra people: " + JSON.stringify(s.audience));
+
+// --- What it can't read is never rounded down to everyone.
+for (const [t, want] of [
+  ["text everyone who owns an SUV that we have a family event", "suv"],
+  ["text everyone who is financed at over 8 percent that rates dropped", "financed at over 8 percent"],
+  ["text everyone in Dartmouth that I'm at the Dartmouth store this week", "dartmouth"],
+  ["text everyone who owns a Rogue with under 60,000 km that we want low km Rogues", "under 60,000 km"],
+  ["text everyone who owns a Sentra or a Versa but not a lease that we have double loyalty", "but not a lease"],
+  ["text all my Nissan owners except the ones I texted this month that we have an event", "except"],
+]) {
+  s = o.parseOutreach(t);
+  if (!s.audience.unknown.includes(want) || s.audience.everyone) fail(`didn't flag "${want}": ` + JSON.stringify(s.audience));
+  const a = o.audienceFor(s, [{ id: "x", name: "X", phone: "1", vehicleInterest: "2019 Nissan Rogue", stage: "sold" }], { now });
+  if (a.included.length || !a.unknown.length) fail("picked people for a clause it didn't understand: " + t);
+  if (!/didn't understand/.test(o.describeAudience(s)) || !/didn't understand/.test(o.unknownNote(s))) fail("no note for: " + t);
+}
+for (const t of ["text everyone who's had their car for more than 4 years that hi", "text everyone I haven't talked to in 3 months that hi", "text everyone who has a Nissan that's paid off that hi", "text everyone who owns a Rogue that is 2019 or older that hi", "let all my Sentra owners know that hi", "reach out to everyone who owns a Sentra about hi", "text all my past customers that hi", "text my delivered customers that hi", "email everyone that hi", "text everyone with a 2019 or older Nissan that hi"]) {
+  s = o.parseOutreach(t);
+  if (s.audience.unknown.length) fail(`flagged a clause it does read: "${t}" → ${JSON.stringify(s.audience.unknown)}`);
+}
+
 // --- Is it a blast?
-for (const t of ["text everyone who owns a sentra that we have double loyalty", "email all my Rogue owners saying hi", "reach out to anyone with a paid off Nissan", "text every Kicks owner about the trade-in event"]) if (!o.isOutreach(t)) fail("not read as outreach: " + t);
+for (const t of ["text everyone who owns a sentra that we have double loyalty", "email all my Rogue owners saying hi", "reach out to anyone with a paid off Nissan", "text every Kicks owner about the trade-in event", "text all my past customers that hi", "text my delivered customers that hi", "text the Sentra people that hi", "text all my new leads that hi"]) if (!o.isOutreach(t)) fail("not read as outreach: " + t);
 for (const t of ["text Sara that her car is ready", "book Ken Thursday at 4", "how many Rogues do we have", "add a lead named Rogue Smith"]) if (o.isOutreach(t)) fail("read as outreach: " + t);
 
 // --- Second person, no figures.

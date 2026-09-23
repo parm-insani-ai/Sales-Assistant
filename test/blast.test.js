@@ -135,6 +135,29 @@ console.log("mass_outreach →", JSON.stringify(tool.result).slice(0, 400));
 if (!tool.result || tool.result.channel !== "email" || tool.result.recipients !== 0 || !/Rogue owners/.test(tool.result.audience) || !/paying top dollar/.test(tool.result.message)) fail("the tool didn't set up an email to Rogue owners: " + JSON.stringify(tool.result));
 if (!(tool.result.leftOutWhy || []).some((x) => /no email/.test(x))) fail("the tool didn't say why the Rogue owner is left out: " + JSON.stringify(tool.result));
 
+// --- A clause it can't read: nobody is picked, the reply and the screen say what it didn't understand.
+const suv = await p.evaluate(async () => {
+  window.__spoke = [];
+  document.querySelector("#v-text").value = "text everyone who owns an SUV that we have a family event Saturday";
+  document.querySelector("#v-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await new Promise((r) => setTimeout(r, 1200));
+  return { spoke: (window.__spoke || []).join(" | "), hash: location.hash, rows: document.querySelectorAll(".mo-row").length, note: document.querySelector(".mo-unknown")?.textContent.trim(), send: document.querySelector('[data-act="send"]')?.disabled, to: document.querySelector(".section-title .muted")?.textContent.trim() };
+});
+console.log("SUV:", JSON.stringify(suv));
+if (!/didn't understand "suv"/.test(suv.spoke) || !/Nobody's picked/.test(suv.spoke)) fail("the assistant didn't say what it couldn't read: " + suv.spoke);
+if (suv.hash !== "#/outreach" || suv.rows !== 0 || !/didn't understand "suv"/.test(suv.note || "") || suv.send !== true) fail("the screen picked people for a clause it didn't understand: " + JSON.stringify(suv));
+const tool2 = await p.evaluate(async () => { const m = await import("/js/agent.js"); return await m.execTool("mass_outreach", { sentence: "text everyone in Dartmouth that I'm at the Dartmouth store this week" }); });
+if (!tool2.result || tool2.result.recipients !== 0 || !(tool2.result.notUnderstood || []).includes("dartmouth")) fail("the tool widened an unreadable audience: " + JSON.stringify(tool2.result));
+
+// --- "my Sentra owners" names the model without "everyone who owns".
+const mine = await p.evaluate(async () => {
+  const v = await import("/js/voice.js");
+  return await v.executeCommand(v.parseCommand("text my Sentra owners that the new Sentra is in"));
+});
+console.log("mine:", mine);
+if (!/to \d Sentra owners/.test(String(mine))) fail("'my Sentra owners' wasn't read as Sentra owners: " + mine);
+await p.waitForTimeout(400);
+
 // --- Switching the channel on screen re-reads who can be reached.
 await p.evaluate(async () => { const m = await import("/js/views/outreach.js"); m.queueOutreach("text everyone who owns a Sentra that the new Sentra is in"); });
 await p.waitForTimeout(400);
