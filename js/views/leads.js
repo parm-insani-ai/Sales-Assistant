@@ -406,21 +406,34 @@ function cardHTML(l, { quick = false } = {}) {
     ? `<div class="row-contact">${icon("checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")} ${esc(formatDateTime(l.lastContacted))}</div>` : "";
   // Their current contract in one line under the vehicle: what they pay,
   // how many payments are left, when it matures — or that it's paid off.
-  const c = contractSummary(l);
-  const contract = c && c.line ? `<div class="row-contract${c.paidOff ? " row-contract-done" : ""}">${esc(c.line)}</div>` : "";
   return `
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
         <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${l.phone ? " · " + esc(phoneDisplay(l.phone)) : ""}</div>
-        ${contract}${reasons}${contact}
+        ${reasons}${contact}
       </div>
       <div class="row-meta">
         ${tier}<span class="badge ${st.badge}">${esc(st.label)}</span>
       </div>
     </div>
     ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
+    ${contractBanner(l)}
   `;
+}
+
+// Their current contract, as a banner across the bottom of the card: the
+// payment and the payments left, nothing else, big enough to read at a
+// glance. Nothing when neither is on file.
+function contractBanner(l, opts = {}) {
+  const c = contractSummary(l);
+  if (!c || (c.payment == null && c.left == null)) return "";
+  const pay = c.payment != null ? currency(c.payment) + `<span class="cb-per">/mo</span>` : "—";
+  const left = c.paidOff ? "Paid off" : c.left != null ? String(c.left) : "—";
+  return `<div class="contract-banner${c.paidOff ? " contract-banner-done" : ""}"${opts.tap ? ' data-act="money" style="cursor:pointer"' : ""}>
+      <div class="cb-cell"><span class="cb-label">Payment</span><span class="cb-value">${pay}</span></div>
+      <div class="cb-cell"><span class="cb-label">Payments left</span><span class="cb-value">${esc(left)}</span></div>
+    </div>`;
 }
 
 function leadCard(l, onOpen) {
@@ -794,7 +807,6 @@ function renderLeadDetail(view, id) {
         </div>
         <span class="badge ${st.badge}">${esc(st.label)}</span>
       </div>
-      ${(() => { const c = contractSummary(l); return c && c.line ? `<div class="row-contract${c.paidOff ? " row-contract-done" : ""}" data-act="money" style="cursor:pointer;margin-top:6px">${esc(c.line)}</div>` : ""; })()}
 
       ${(l.phone || l.email) ? `
       <div class="btn-row" style="margin-top:14px">
@@ -803,6 +815,7 @@ function renderLeadDetail(view, id) {
         ${l.email ? `<a class="btn btn-primary btn-sm" data-act="email" style="flex:1" href="${mailtoHref(l.email)}">${icon("mail")} Email</a>` : ""}
       </div>` : ""}
       ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
+      ${contractBanner(l, { tap: true })}
     </div>
 
     ${(() => {
