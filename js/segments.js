@@ -7,7 +7,7 @@
 // Pure functions over strings, so node can test them.
 
 const LUXURY_MAKES = ["infiniti", "lexus", "acura", "bmw", "mercedes", "mercedes-benz", "audi", "volvo", "genesis", "cadillac", "lincoln", "porsche", "jaguar", "land rover", "range rover", "tesla", "alfa romeo", "maserati", "bentley", "rolls-royce", "aston martin", "lucid", "rivian", "polestar"];
-const MAKES = ["nissan", "infiniti", "toyota", "lexus", "honda", "acura", "hyundai", "genesis", "kia", "mazda", "subaru", "mitsubishi", "volkswagen", "vw", "ford", "lincoln", "chevrolet", "chevy", "gmc", "buick", "cadillac", "ram", "dodge", "jeep", "chrysler", "bmw", "mini", "mercedes-benz", "mercedes", "audi", "volvo", "porsche", "jaguar", "land rover", "range rover", "tesla", "alfa romeo", "fiat", "maserati", "rivian", "polestar", "lucid"];
+export const MAKES = ["nissan", "infiniti", "toyota", "lexus", "honda", "acura", "hyundai", "genesis", "kia", "mazda", "subaru", "mitsubishi", "volkswagen", "vw", "ford", "lincoln", "chevrolet", "chevy", "gmc", "buick", "cadillac", "ram", "dodge", "jeep", "chrysler", "bmw", "mini", "mercedes-benz", "mercedes", "audi", "volvo", "porsche", "jaguar", "land rover", "range rover", "tesla", "alfa romeo", "fiat", "maserati", "rivian", "polestar", "lucid"];
 
 // body: suv | car | truck | van | sports. size: 1 subcompact, 2 compact,
 // 3 midsize, 4 large / three-row, 5 full-size.
@@ -165,6 +165,23 @@ export function fitScore(owned, cand, candInfo = {}) {
   const cy = Number(candInfo.year) || cand.year, oy = owned.year;
   if (cy && oy) { if (cy < oy) s -= 15 + 5 * Math.min(4, oy - cy); else if (cy > oy) s += 3; }
   return s;
+}
+
+// Every model named in a sentence, longest names first ("range rover
+// sport" before "range rover"), for reading an audience: "Sentra owners".
+export function modelsIn(text) {
+  const t = norm(text);
+  const found = [];
+  let rest = t;
+  const hasMake = MAKES.some((m) => new RegExp(`\\b${m.replace(/-/g, "\\-")}\\b`).test(t));
+  for (const k of MODEL_KEYS) {
+    // Two-letter badges (IS, ES, RX, TT…) are ordinary words in a sentence;
+    // they only count with their make named.
+    if (k.length <= 2 && !hasMake) continue;
+    const re = new RegExp(`(^|[^a-z0-9])${k.replace(/[-.]/g, (c) => "\\" + c)}s?(?![a-z0-9])`);
+    if (re.test(rest)) { found.push(k); rest = rest.replace(re, "$1 "); }
+  }
+  return found;
 }
 
 // The class of a unit on the lot (or in the catalogue), read once per unit.

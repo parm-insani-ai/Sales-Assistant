@@ -29,6 +29,7 @@ import * as backend from "./backend.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
+import { parseOutreach, audienceFor, describeAudience } from "./outreach.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -107,6 +108,7 @@ const TOOLS = [
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "lot_lookup", description: "ANY question about what's on the lot — answered from the store's own inventory with the WEBSITE'S prices and kilometres. 'Do we have any Rogue SVs?', 'how many used Rogues?', 'what's the Civic Sport going for?', 'how many kilometres on stock NHP1868?', 'cheapest used SUV under thirty?', 'any hybrids?', 'anything black under 25?'. Pass the salesperson's words as `question`; add structured filters only when they help. Returns the count, the matching units (price, km, stock, colour, arrival date) and a ready spoken `answer` — read the answer back as is; the units are already on screen.", input_schema: { type: "object", properties: { question: { type: "string", description: "the salesperson's own words" }, condition: { type: "string", enum: ["New", "Used"] }, maxPrice: { type: "number" }, minPrice: { type: "number" }, maxKm: { type: "number" }, stock: { type: "string" }, sort: { type: "string", enum: ["price", "priceDesc", "km", "year"] }, ask: { type: "string", enum: ["count", "price", "km", "cheapest", "priciest", "newest", "list"] } }, required: ["question"] } },
+  { name: "mass_outreach", description: "Set up a text or email to MANY customers at once, picked by what they drive or where they stand: 'text everyone who owns a Sentra that this month if they trade it in for a new Nissan they get double loyalty', 'email all my Rogue owners from 2018 to 2021 that…', 'text everyone with a paid off Nissan that…', 'text everyone whose lease is ending that…'. Pass the salesperson's whole sentence as `sentence` (audience AND message). The app builds the recipient list and writes each message in the customer's name; the salesperson reviews on screen and taps Send — nothing sends from this tool. Never put a dollar amount or a rate in the message.", input_schema: { type: "object", properties: { sentence: { type: "string", description: "the whole request: who, and what to tell them" }, channel: { type: "string", enum: ["text", "email"] } }, required: ["sentence"] } },
   { name: "search_inventory", description: "Search the wider O'Regan's dealer NETWORK (other stores) for a used vehicle — only when the salesperson asks about the network or other stores. Questions about OUR lot are lot_lookup. NOT for comparing models against each other — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
@@ -119,6 +121,7 @@ function buildSystem(ctx) {
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
     `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
+    `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
@@ -796,6 +799,16 @@ export async function execTool(name, p = {}) {
       if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.name || p.customer}` };
       startCadence(lead.id);
       return { result: "started", note: `started follow-up plan for ${lead.name}` };
+    }
+    case "mass_outreach": case "outreach": case "blast": {
+      const sentence = String(p.sentence || p.message || "");
+      if (!sentence) return { result: "need the sentence: who, and what to tell them", note: "⚠ who should it go to, and what should it say?" };
+      const spec = parseOutreach(sentence);
+      if (p.channel) spec.channel = p.channel;
+      const aud = audienceFor(spec, store.all("leads"));
+      const m = await import("./views/outreach.js");
+      m.queueOutreach(sentence);
+      return { result: { channel: spec.channel, audience: describeAudience(spec), recipients: aud.included.length, leftOut: aud.excluded.length, leftOutWhy: aud.excluded.slice(0, 5).map((x) => x.why), message: spec.message, ready: !!spec.message, status: "on screen — the salesperson reviews and taps Send" }, note: `${aud.included.length} on screen to ${spec.channel}` };
     }
     case "lot_lookup": case "lot": case "inventory_lookup": {
       const hints = { condition: p.condition || "", maxPrice: p.maxPrice || null, minPrice: p.minPrice || null, maxKm: p.maxKm || null, stock: p.stock ? String(p.stock).toUpperCase() : "", sort: p.sort || "", ask: p.ask || "" };

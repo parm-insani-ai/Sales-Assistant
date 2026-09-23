@@ -12,6 +12,7 @@ import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
 import { agentConfigured, createAgentSession, showLotOnScreen } from "./agent.js";
 import { answerLot } from "./lot.js";
+import { isOutreach, parseOutreach, audienceFor, describeAudience } from "./outreach.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -167,6 +168,10 @@ export function parseCommand(raw) {
     return { action: "appointment", type, customerName: name, when };
   }
 
+  // 5) Mass outreach: "text everyone who owns a Sentra that …" — built on
+  // the device, reviewed on screen, sent by the salesperson.
+  if (isOutreach(raw)) return { action: "outreach", text: raw };
+
   // 5a) A question about the lot — answered from the lot, on the device.
   {
     const lot = answerLot(store.all("vehicles"), raw);
@@ -240,6 +245,13 @@ export function executeCommand(cmd) {
       if (!res) return null;
       showLotOnScreen(res);
       return res.answer;
+    }
+    case "outreach": {
+      const spec = parseOutreach(cmd.text);
+      const aud = audienceFor(spec, store.all("leads"));
+      import("./views/outreach.js").then((m) => m.queueOutreach(cmd.text));
+      const n = aud.included.length, out = aud.excluded.length;
+      return `Set up a ${spec.channel} to ${n} ${describeAudience(spec)}${out ? `, ${out} left out` : ""}. ${spec.message ? "Read it over and tap Send." : "Add what to tell them, then tap Send."}`;
     }
     case "search":
       openDealerSearch({ vehicleInterest: cmd.query });
@@ -580,7 +592,7 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
     // A question about the lot is answered here, from the lot, before any
     // network — the count and the website's price are exact, and instant.
     const lotCmd = parseCommand(said);
-    if (lotCmd.action === "lot") {
+    if (lotCmd.action === "lot" || lotCmd.action === "outreach") {
       reply = executeCommand(lotCmd) || "";
     }
     if (reply) { /* answered on the device */ } else if (agent) {

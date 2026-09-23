@@ -25,6 +25,7 @@ const LOADERS = {
   tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
+  outreach: () => import("./views/outreach.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -81,6 +82,7 @@ const PAGES = {
   "/goals": { title: "Goals & Commission", render: lazyView("goals", "renderGoals") },
   "/tools": { title: "Tools", render: lazyView("tools", "renderTools") },
   "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
+  "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   // Retired surfaces. The daily call list is the Home queue now, and the Deal
   // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
   // old notifications, voice commands and bookmarks still land somewhere sane.

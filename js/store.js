@@ -140,6 +140,9 @@ const DEFAULT_STATE = {
   // Every opener sent, with why it was sent, so what worked can be read back
   // later: { leadId, textId, kind, intent, reasons, score, tier, consent, at }
   outreach: [],
+  // Mass blasts, one row each: { channel, sentence, audience, message, offer,
+  // recipients, sent, failed, startedAt, finishedAt }
+  blasts: [],
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -955,7 +958,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather
