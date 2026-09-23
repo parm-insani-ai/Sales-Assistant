@@ -430,9 +430,15 @@ function contractBanner(l, opts = {}) {
   if (!c || (c.payment == null && c.left == null)) return "";
   const pay = c.payment != null ? currency(c.payment) + `<span class="cb-per">/mo</span>` : "—";
   const left = c.paidOff ? "Paid off" : c.left != null ? String(c.left) : "—";
+  // The rate they carry: as stated, or solved from payment, payoff and
+  // months left when it isn't on file (marked ≈).
+  let rate = "—";
+  if (c.apr != null) rate = `${c.apr}%`;
+  else { try { const a = dealInputs(l).apr; if (a && a.v != null && a.src !== "default") rate = `<span class="cb-approx">≈</span>${Math.round(Number(a.v) * 10) / 10}%`; } catch { /* no rate to show */ } }
   return `<div class="contract-banner${c.paidOff ? " contract-banner-done" : ""}"${opts.tap ? ' data-act="money" style="cursor:pointer"' : ""}>
       <div class="cb-cell"><span class="cb-label">Payment</span><span class="cb-value">${pay}</span></div>
       <div class="cb-cell"><span class="cb-label">Payments left</span><span class="cb-value">${esc(left)}</span></div>
+      <div class="cb-cell"><span class="cb-label">Rate</span><span class="cb-value">${rate}</span></div>
     </div>`;
 }
 
@@ -832,36 +838,6 @@ function renderLeadDetail(view, id) {
         ? `<div data-edit="notes" style="white-space:pre-wrap;cursor:pointer;${lines.length ? "margin-top:10px;padding-top:10px;border-top:1px solid var(--border)" : ""}">${esc(l.notes)}</div>`
         : `<div class="muted small">Nothing yet. Tell the voice agent about them, or add it here — what they want, what they love, budget, timeline, who else decides.</div>`}
       <button class="btn btn-ghost btn-sm btn-block" data-act="add-context" style="margin-top:12px">${icon("mic")} Add context</button>
-    </div>`;
-    })()}
-
-    ${(() => {
-      // Their current contract in full — the summary line sits under the vehicle
-      // in the name box; this is the payment, the
-      // payments left and when it matures, read plainly from what's on file.
-      const c = contractSummary(l);
-      const e = equityDetail(l);
-      const equityRow = e.v != null
-        ? `<div class="kv"><span class="k">${e.v < 0 ? "Negative equity" : "Equity"}</span><span class="v mono" style="color:${e.v >= 0 ? "var(--success)" : "var(--danger)"}">${e.v < 0 ? "− " + currency(-e.v) : currency(e.v)}${e.src === "est" ? ` <span class="muted small">est.</span>` : ""}</span></div>`
-        : "";
-      if (!c) return `
-    <div class="section-title">Current contract</div>
-    <div class="card card-tap" data-act="money">
-      <div class="muted small">Nothing on file yet — tap to add their payment, payments left and payoff.</div>
-    </div>`;
-      const pct = c.term && c.paid != null ? Math.round(c.paid / c.term * 100) : null;
-      return `
-    <div class="section-title">Current contract <span class="muted" style="font-weight:500;font-size:0.78rem">· tap to edit</span></div>
-    <div class="card card-tap contract-card${c.paidOff ? " contract-done" : ""}" data-act="money">
-      <div class="contract-head">
-        <div class="contract-pay">${c.paidOff ? "Paid off" : c.payment != null ? currency(c.payment) + "<span class=\"contract-per\">/mo</span>" : "Payment unknown"}</div>
-        <div class="contract-left">${c.paidOff ? (c.matures ? "matured " + esc(c.matures.toLocaleDateString("en-CA", { month: "short", year: "numeric" })) : "") : c.left != null ? `<b>${c.left}</b> payment${c.left === 1 ? "" : "s"} left` : "payments left unknown"}</div>
-      </div>
-      ${pct != null && !c.paidOff ? `<div class="contract-bar"><div class="contract-bar-fill" style="width:${pct}%"></div></div><div class="small muted" style="margin-top:4px">${c.paid} of ${c.term} paid${c.matures ? " · matures " + esc(c.matures.toLocaleDateString("en-CA", { month: "long", year: "numeric" })) : ""}</div>` : ""}
-      <div style="margin-top:${pct != null ? 8 : 4}px">
-        ${c.rows.filter((r) => r[0] !== "Payment" && !(pct != null && (r[0] === "Payments left" || r[0] === "Matures"))).map((r) => `<div class="kv"><span class="k">${esc(r[0])}</span><span class="v mono">${esc(r[1])}</span></div>`).join("")}
-        ${equityRow}
-      </div>
     </div>`;
     })()}
 
