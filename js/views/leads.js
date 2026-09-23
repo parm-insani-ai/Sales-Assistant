@@ -11,6 +11,7 @@ import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
 import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook } from "../assess.js";
+import { contractSummary } from "../contract.js";
 import { dictate } from "../dictate.js";
 import { nextMoves, undoMove } from "../moves.js";
 import { openTaskForm } from "./tasks.js";
@@ -403,12 +404,16 @@ function cardHTML(l, { quick = false } = {}) {
   // The last contact, on the card — so logging one is visibly registered.
   const contact = l.lastContacted
     ? `<div class="row-contact">${icon("checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")} ${esc(formatDateTime(l.lastContacted))}</div>` : "";
+  // Their current contract in one line under the vehicle: what they pay,
+  // how many payments are left, when it matures — or that it's paid off.
+  const c = contractSummary(l);
+  const contract = c && c.line ? `<div class="row-contract${c.paidOff ? " row-contract-done" : ""}">${esc(c.line)}</div>` : "";
   return `
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
         <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${l.phone ? " · " + esc(phoneDisplay(l.phone)) : ""}</div>
-        ${reasons}${contact}
+        ${contract}${reasons}${contact}
       </div>
       <div class="row-meta">
         ${tier}<span class="badge ${st.badge}">${esc(st.label)}</span>
@@ -686,6 +691,8 @@ export function openMoneyForm(l) {
         { name: "payoff", label: "Payoff / buyout $", value: l.payoff, type: "number", inputmode: "decimal", half: true, placeholder: "19455", hint: "Blank = current payment × payments left to maturity." },
         { name: "currentValue", label: "Trade value $ (appraised)", value: l.currentValue, type: "number", inputmode: "decimal", half: true, placeholder: "21500", hint: estD ? `Blank = estimate ≈ ${currency(estD.value)} (${estD.lines.join(" · ")})` : "Leave blank to use a book estimate." },
         { name: "currentApr", label: "Their rate %", value: l.currentApr, type: "number", inputmode: "decimal", half: true, placeholder: "8.9", hint: "Blank = solved from payment, payoff & maturity when possible." },
+        { name: "paymentsLeft", label: "Payments left (as of today)", value: l.paymentsLeft, type: "number", inputmode: "numeric", half: true, placeholder: "23", hint: "Counts down by itself from today." },
+        { name: "dealType", label: "Deal type", value: /lease/i.test(String(l.dealType || "")) ? "Lease" : /retail|finance|loan/i.test(String(l.dealType || "")) ? "Finance" : "", type: "select", half: true, options: [{ value: "", label: "Not set" }, { value: "Finance", label: "Finance" }, { value: "Lease", label: "Lease" }] },
         { name: "leaseEnd", label: "Contract maturity date", value: l.leaseEnd || "", type: "date", half: true },
         { name: "currentTerm", label: "Original term (mo)", value: l.currentTerm, type: "number", inputmode: "numeric", half: true, placeholder: "72" },
         { name: "odometer", label: "Odometer (km)", value: l.odometer, type: "number", inputmode: "numeric", half: true, placeholder: "48000", hint: "Feeds the km adjustment on the estimate." },
@@ -706,6 +713,10 @@ export function openMoneyForm(l) {
             currentApr: numOrNull(data.currentApr),
             leaseEnd: data.leaseEnd || null,
             currentTerm: numOrNull(data.currentTerm),
+            // A count entered today counts down from today; unchanged, it keeps its own date.
+            paymentsLeft: numOrNull(data.paymentsLeft),
+            paymentsLeftAsOf: numOrNull(data.paymentsLeft) == null ? null : (numOrNull(data.paymentsLeft) === (l.paymentsLeft == null || l.paymentsLeft === "" ? null : Number(l.paymentsLeft)) && l.paymentsLeftAsOf) ? l.paymentsLeftAsOf : new Date().toISOString().slice(0, 10),
+            dealType: data.dealType || l.dealType || "",
             odometer: numOrNull(data.odometer),
             tradeCondition: data.tradeCondition || null,
           });
@@ -783,6 +794,7 @@ function renderLeadDetail(view, id) {
         </div>
         <span class="badge ${st.badge}">${esc(st.label)}</span>
       </div>
+      ${(() => { const c = contractSummary(l); return c && c.line ? `<div class="row-contract${c.paidOff ? " row-contract-done" : ""}" data-act="money" style="cursor:pointer;margin-top:6px">${esc(c.line)}</div>` : ""; })()}
 
       ${(l.phone || l.email) ? `
       <div class="btn-row" style="margin-top:14px">
@@ -806,6 +818,36 @@ function renderLeadDetail(view, id) {
         ? `<div data-edit="notes" style="white-space:pre-wrap;cursor:pointer;${lines.length ? "margin-top:10px;padding-top:10px;border-top:1px solid var(--border)" : ""}">${esc(l.notes)}</div>`
         : `<div class="muted small">Nothing yet. Tell the voice agent about them, or add it here — what they want, what they love, budget, timeline, who else decides.</div>`}
       <button class="btn btn-ghost btn-sm btn-block" data-act="add-context" style="margin-top:12px">${icon("mic")} Add context</button>
+    </div>`;
+    })()}
+
+    ${(() => {
+      // Their current contract in full — the summary line sits under the vehicle
+      // in the name box; this is the payment, the
+      // payments left and when it matures, read plainly from what's on file.
+      const c = contractSummary(l);
+      const e = equityDetail(l);
+      const equityRow = e.v != null
+        ? `<div class="kv"><span class="k">${e.v < 0 ? "Negative equity" : "Equity"}</span><span class="v mono" style="color:${e.v >= 0 ? "var(--success)" : "var(--danger)"}">${e.v < 0 ? "− " + currency(-e.v) : currency(e.v)}${e.src === "est" ? ` <span class="muted small">est.</span>` : ""}</span></div>`
+        : "";
+      if (!c) return `
+    <div class="section-title">Current contract</div>
+    <div class="card card-tap" data-act="money">
+      <div class="muted small">Nothing on file yet — tap to add their payment, payments left and payoff.</div>
+    </div>`;
+      const pct = c.term && c.paid != null ? Math.round(c.paid / c.term * 100) : null;
+      return `
+    <div class="section-title">Current contract <span class="muted" style="font-weight:500;font-size:0.78rem">· tap to edit</span></div>
+    <div class="card card-tap contract-card${c.paidOff ? " contract-done" : ""}" data-act="money">
+      <div class="contract-head">
+        <div class="contract-pay">${c.paidOff ? "Paid off" : c.payment != null ? currency(c.payment) + "<span class=\"contract-per\">/mo</span>" : "Payment unknown"}</div>
+        <div class="contract-left">${c.paidOff ? (c.matures ? "matured " + esc(c.matures.toLocaleDateString("en-CA", { month: "short", year: "numeric" })) : "") : c.left != null ? `<b>${c.left}</b> payment${c.left === 1 ? "" : "s"} left` : "payments left unknown"}</div>
+      </div>
+      ${pct != null && !c.paidOff ? `<div class="contract-bar"><div class="contract-bar-fill" style="width:${pct}%"></div></div><div class="small muted" style="margin-top:4px">${c.paid} of ${c.term} paid${c.matures ? " · matures " + esc(c.matures.toLocaleDateString("en-CA", { month: "long", year: "numeric" })) : ""}</div>` : ""}
+      <div style="margin-top:${pct != null ? 8 : 4}px">
+        ${c.rows.filter((r) => r[0] !== "Payment" && !(pct != null && (r[0] === "Payments left" || r[0] === "Matures"))).map((r) => `<div class="kv"><span class="k">${esc(r[0])}</span><span class="v mono">${esc(r[1])}</span></div>`).join("")}
+        ${equityRow}
+      </div>
     </div>`;
     })()}
 
@@ -865,13 +907,6 @@ function renderLeadDetail(view, id) {
       <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "Tap to set"}</span></div>
       <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
       ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
-      ${l.currentPayment != null ? `<div class="kv"><span class="k">Current payment</span><span class="v mono">${currency(l.currentPayment)}/mo</span></div>` : ""}
-      ${(() => {
-        const e = equityDetail(l);
-        if (e.v == null) return l.payoff != null
-          ? `<div class="kv"><span class="k">Payoff</span><span class="v mono">${currency(l.payoff)} <span class="muted small">· trade not appraised</span></span></div>` : "";
-        return `<div class="kv"><span class="k">${e.v < 0 ? "Negative equity" : "Equity"}</span><span class="v mono" style="color:${e.v >= 0 ? "var(--success)" : "var(--danger)"}">${e.v < 0 ? "− " + currency(-e.v) : currency(e.v)}${e.src === "est" ? ` <span class="muted small">est.</span>` : ""}</span></div>`;
-      })()}
       <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(l.createdAt))}</span></div>
     </div>
 
@@ -927,6 +962,7 @@ function renderLeadDetail(view, id) {
   view.appendChild(el);
 
   el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/leads"));
+  el.querySelectorAll('[data-act="money"]').forEach((n) => n.addEventListener("click", () => openMoneyForm(l)));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openLeadForm(l));
   // Tap-to-edit: any detail row opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>

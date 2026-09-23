@@ -16,6 +16,7 @@ import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday, p
 export { paymentDelta };
 import { SPEC_LIBRARY } from "../specs.js";
 import { cacheGet, cacheSet, fingerprint } from "../cachedb.js";
+import { paymentsLeftOf } from "../contract.js";
 import { findSpec, queueCompare } from "./compare.js";
 import { openLeadForm } from "./leads.js";
 
@@ -112,22 +113,10 @@ export function estimateTradeValue(lead) {
 // (aged by the months since the export), else the maturity date, else the
 // purchase date + term when that's all we have.
 export function monthsRemaining(lead) {
-  // (num() reads a missing value as 0; here missing has to mean missing.)
-  const left = lead.paymentsLeft != null && lead.paymentsLeft !== "" && isFinite(Number(lead.paymentsLeft)) ? Number(lead.paymentsLeft) : null;
-  if (left != null) {
-    const asOf = new Date(lead.paymentsLeftAsOf || lead.updatedAt || lead.createdAt || Date.now());
-    const elapsed = isNaN(asOf) ? 0 : Math.max(0, Math.floor((Date.now() - asOf.getTime()) / (30.44 * 86400000)));
-    const m = Math.round(left - elapsed);
-    return m > 0 ? m : null;
-  }
-  let end = lead.leaseEnd ? new Date(lead.leaseEnd) : null;
-  if ((!end || isNaN(end)) && lead.purchaseDate && Number(lead.currentTerm)) {
-    const p = new Date(lead.purchaseDate);
-    if (!isNaN(p)) end = new Date(p.getFullYear(), p.getMonth() + Number(lead.currentTerm), p.getDate());
-  }
-  if (!end || isNaN(end)) return null;
-  const m = Math.round((end - new Date()) / (30.44 * 86400000));
-  return m > 0 ? m : null;
+  // The same reading the contract card shows (contract.js), so the deal
+  // math and the screen never disagree about what's left.
+  const r = paymentsLeftOf(lead);
+  return r && r.left > 0 ? r.left : null;
 }
 
 // Their actual APR, solved from what we do know: the payoff is the present

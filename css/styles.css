@@ -572,6 +572,17 @@ body.typing #app, body.kb-open #app {
 .row-reasons { color: var(--text-2, var(--text)); font-size: 0.8rem; margin-top: 5px; line-height: 1.35; }
 .row-contact { color: var(--success); font-size: 0.78rem; font-weight: 600; margin-top: 5px; display: flex; align-items: center; gap: 4px; }
 .row-contact .ico { width: 14px; height: 14px; }
+/* The current contract on a customer's card, under the vehicle. */
+.row-contract { color: var(--text); font-size: 0.8rem; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.row-contract-done { color: var(--muted); }
+.contract-card .contract-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.contract-card .contract-pay { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.contract-card .contract-per { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.contract-card .contract-left { font-size: 0.95rem; color: var(--text); }
+.contract-card .contract-left b { font-size: 1.15rem; }
+.contract-card .contract-bar { height: 6px; border-radius: 3px; background: var(--border); margin-top: 8px; overflow: hidden; }
+.contract-card .contract-bar-fill { height: 100%; background: var(--brand); border-radius: 3px; }
+.contract-card.contract-done .contract-pay { color: var(--success); }
 .lead-summary { margin: 2px 2px 10px; line-height: 1.4; }
 .why-list { margin: 0; padding-left: 18px; line-height: 1.45; font-size: 0.9rem; }
 .why-list li + li { margin-top: 4px; }
