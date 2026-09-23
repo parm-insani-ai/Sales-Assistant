@@ -581,6 +581,13 @@ body.typing #app, body.kb-open #app {
 .contract-banner .cb-value { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1.2; }
 .contract-banner .cb-per { font-size: 0.8rem; font-weight: 500; color: var(--muted); margin-left: 1px; }
 .contract-banner-done .cb-value { color: var(--success); }
+/* Replacement options on a customer's page, and the vehicle picker. */
+.ro-row { position: relative; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; gap: 10px; }
+.ro-row:last-child { border-bottom: 0; }
+.ro-row .ro-remove { flex: none; font-size: 1.1rem; }
+.vp-row { padding: 9px 0; border-bottom: 1px solid var(--border); align-items: center; gap: 10px; cursor: pointer; }
+.vp-row:last-child { border-bottom: 0; }
+.vp-row:active { background: var(--surface-2); }
 .contract-card .contract-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .contract-card .contract-pay { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .contract-card .contract-per { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin-left: 2px; }

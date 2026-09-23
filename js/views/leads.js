@@ -19,11 +19,11 @@ import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect, reviewTouch } from "../touches.js";
 import { snoozeProspect } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals, pitchList, vehicleKey } from "./dealbuilder.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
-  relativeDay, daysFromToday, formatDate, formatDateTime, todayISO,
+  relativeDay, daysFromToday, formatDate, formatDateTime, todayISO, num,
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
@@ -1126,54 +1126,52 @@ function renderLeadDetail(view, id) {
 
   // The deal is pre-made: best payment-matched option front and center, two
   // alternates under it, the offer text one tap away. No button hunting.
-  (function buildDealSection() {
+  //
+  // Replacement options: the vehicles this customer would move into, each
+  // with its payment. The app suggests the closest fits to what they drive;
+  // the salesperson adds any unit from the lot or the lineup with one tap
+  // in the picker, and the shortlist is kept on the customer.
+  function buildDealSection() {
     const slot = el.querySelector("#deal-slot");
-    if (l.stage === "lost") return;
-    const hasMoney = l.currentPayment != null || l.currentValue != null || l.payoff != null;
-    // No payment on file? Still pre-make the deal — lowest payments first,
-    // labeled as such. Every customer of a Nissan store has a next car.
-    const rows = dealsForLead(l).slice(0, 3);
-    if (!rows.length) return;
-    const best = rows[0];
-    const deltaLine = (m) => (paymentDelta(m.delta) || { text: "" }).text;
+    if (!slot || l.stage === "lost") return;
+    const fresh = store.get("leads", l.id) || l;
     const vname = (v) => [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
+    const all = pitchList(fresh, 0);
+    if (!all.length) { slot.innerHTML = ""; return; }
+    const byKey = new Map(all.map((m) => [vehicleKey(m.vehicle), m]));
+    const picked = (fresh.shortlist || []).map((k) => byKey.get(k)).filter(Boolean);
+    const pickedKeys = new Set(picked.map((m) => vehicleKey(m.vehicle)));
+    const suggested = all.filter((m) => !pickedKeys.has(vehicleKey(m.vehicle))).slice(0, Math.max(1, 3 - picked.length));
+    const rows = [...picked.map((m) => ({ m, picked: true })), ...suggested.map((m) => ({ m, picked: false }))];
+    const deltaLine = (m) => (paymentDelta(m.delta) || { text: "" }).text;
     const deltaColor = (m) => (paymentDelta(m.delta) || { color: "var(--muted)" }).color;
-
+    const first = rows[0].m;
+    const rowHTML = ({ m, picked }, i) => `
+      <div class="row ro-row" data-deal-open="${i}" style="cursor:pointer">
+        <div class="row-main" style="min-width:0">
+          <div class="row-title">${esc(vname(m.vehicle))}${picked ? ` <span class="badge badge-working" style="margin-left:4px">picked</span>` : i === 0 ? ` <span class="badge badge-sold" style="margin-left:4px">best fit</span>` : ""}</div>
+          <div class="row-sub">${m.vehicle.price != null ? currency(m.vehicle.price) : ""}${m.vehicle.lineup ? " · new — order/allocate" : m.vehicle.stock ? " · #" + esc(m.vehicle.stock) : ""} · ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷 " + esc(m.special) : ""}</div>
+        </div>
+        <div class="row-meta" style="flex:none;text-align:right">
+          <div class="strong mono" style="font-size:1.15rem">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.75rem">/mo</span></div>
+          <div class="small strong" style="color:${deltaColor(m)}">${deltaLine(m)}</div>
+        </div>
+        ${picked ? `<button class="modal-close ro-remove" data-unpick="${esc(vehicleKey(m.vehicle))}" aria-label="Remove" title="Remove from the list">&times;</button>` : ""}
+      </div>`;
     slot.innerHTML = `
-      <div class="section-title">The deal</div>
+      <div class="section-title">Replacement options <span class="muted" style="font-weight:500;font-size:0.78rem">· tap one for the full breakdown</span></div>
       <div class="card">
-        <div class="row" data-deal-open="0" style="cursor:pointer">
-          <div class="row-main">
-            <div class="row-title">${esc(vname(best.vehicle))}</div>
-            <div class="row-sub">
-              <span class="badge ${best.method === "lease" ? "badge-appt" : "badge-working"}">${best.method === "lease" ? "Lease" : "Finance"}</span>
-              ${best.vehicle.price != null ? " " + currency(best.vehicle.price) : ""}${best.vehicle.lineup ? " · new — order/allocate" : best.vehicle.stock ? " · #" + esc(best.vehicle.stock) : ""}
-              ${best.special ? `<div style="margin-top:3px"><span class="badge badge-sold">🏷 ${esc(best.special)}</span></div>` : ""}
-              <div class="small muted" style="margin-top:3px">Tap for the full breakdown ›</div>
-            </div>
-          </div>
-          <div class="row-meta">
-            <div class="strong mono" style="font-size:1.2rem">${currency(Math.round(best.monthly))}<span class="muted" style="font-size:0.75rem">/mo</span></div>
-            <div class="small strong" style="color:${deltaColor(best)}">${deltaLine(best)}</div>
-          </div>
-        </div>
+        ${fresh.currentPayment != null ? `<div class="small muted" style="margin-bottom:6px">They pay ${currency(fresh.currentPayment)}/mo now${fresh.vehicleInterest ? " on the " + esc(fresh.vehicleInterest) : ""}.</div>` : `<div class="small muted" style="margin-bottom:6px">No current payment on file — payments shown, not compared.</div>`}
+        <div class="ro-list">${rows.map(rowHTML).join("")}</div>
         <div class="btn-row" style="margin-top:12px">
-          ${l.phone ? `<a class="btn btn-primary btn-sm" data-act="deal-offer" style="flex:1.4" href="${smsHref(l.phone, offerText(l, best))}">${icon("message")} Text this offer</a>` : `<button class="btn btn-ghost btn-sm" data-edit="phone" style="flex:1.4">Add phone to text it</button>`}
-          <button class="btn btn-ghost btn-sm" data-act="deal-more" style="flex:1">All options</button>
+          <button class="btn btn-primary btn-sm" data-act="pick-vehicle" style="flex:1.2">${icon("car")} Pick a vehicle</button>
+          ${fresh.phone ? `<a class="btn btn-ghost btn-sm" data-act="deal-offer" style="flex:1" href="${smsHref(fresh.phone, offerText(fresh, first))}">${icon("message")} Text the top one</a>` : ""}
         </div>
-        ${rows.length > 1 ? `
-        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
-          ${rows.slice(1).map((m, i) => `
-            <div class="row" data-deal-open="${i + 1}" style="padding:5px 0;cursor:pointer">
-              <div class="small" style="flex:1">${esc(vname(m.vehicle))} <span class="muted">· ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷" : ""} ›</span></div>
-              <div class="small mono strong">${currency(Math.round(m.monthly))}/mo</div>
-              <div class="small mono" style="width:92px;text-align:right;color:${deltaColor(m)}">${deltaLine(m)}</div>
-            </div>`).join("")}
-        </div>` : ""}
+        <button class="btn btn-ghost btn-sm btn-block" data-act="deal-more" style="margin-top:8px">Every option, with cash down</button>
         ${(() => {
           // What this deal stands on — every input with its provenance, and a
           // one-tap way to replace an estimate with the real number.
-          const inp = dealInputs(l);
+          const inp = dealInputs(fresh);
           const chip = (label, x, fmt) => {
             const cls = x.src === "known" ? "di-known" : (x.src === "missing" || x.src === "default") ? "di-miss" : "di-est";
             const mark = x.src === "known" ? "✓" : x.src === "missing" ? "+" : "≈";
@@ -1187,14 +1185,7 @@ function renderLeadDetail(view, id) {
             chip("rate", inp.apr, (v) => v + "%"),
             inp.maturity.v != null ? chip("mat.", inp.maturity, (v) => v + " mo") : "",
           ].join("");
-          const note = inp.payment.src === "missing"
-            ? "No payment on file — these are the lowest payments. Add it and this becomes a payment-matched deal."
-            : inp.value.src === "wash" ? `Assumes their trade washes the ${currency(l.payoff)} payoff — appraise or add a value to tighten this.`
-            : inp.value.src === "book" ? "Trade value is a book estimate from year/model — appraise to firm it up."
-            : "";
-          return `
-            <div class="di-strip" data-act="deal-numbers" title="Update their numbers">${strip}<span class="di-chip di-edit">edit</span></div>
-            ${note ? `<div class="fab-note" style="margin-top:6px;text-align:left">${note}</div>` : ""}`;
+          return `<div class="di-strip" data-act="deal-numbers" title="Update their numbers" style="margin-top:10px">${strip}<span class="di-chip di-edit">edit</span></div>`;
         })()}
       </div>`;
 
@@ -1205,13 +1196,26 @@ function renderLeadDetail(view, id) {
       store.update("leads", l.id, { lastContacted: new Date().toISOString() });
     });
     slot.querySelectorAll("[data-deal-open]").forEach((n) =>
-      n.addEventListener("click", () => openDealDetail(l, rows[Number(n.dataset.dealOpen)])));
-    slot.querySelector('[data-act="deal-more"]').addEventListener("click", () => openDealBuilder(l));
+      n.addEventListener("click", (ev) => { if (ev.target.closest("[data-unpick]")) return; openDealDetail(fresh, rows[Number(n.dataset.dealOpen)].m); }));
+    slot.querySelectorAll("[data-unpick]").forEach((n) => n.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const cur = store.get("leads", l.id);
+      store.update("leads", l.id, { shortlist: (cur.shortlist || []).filter((k) => k !== n.dataset.unpick) });
+      buildDealSection();
+    }));
+    slot.querySelector('[data-act="pick-vehicle"]').addEventListener("click", () => openVehiclePicker(fresh, all, (m) => {
+      const cur = store.get("leads", l.id);
+      const k = vehicleKey(m.vehicle);
+      const list = (cur.shortlist || []).filter((x) => x !== k);
+      store.update("leads", l.id, { shortlist: [k, ...list].slice(0, 8) });
+      toast(`${vname(m.vehicle)} added — ${currency(Math.round(m.monthly))}/mo`, "success");
+      buildDealSection();
+    }));
+    slot.querySelector('[data-act="deal-more"]').addEventListener("click", () => openDealBuilder(fresh));
     const nums = slot.querySelector('[data-act="deal-numbers"]');
-    if (nums) nums.addEventListener("click", (ev) => { ev.stopPropagation(); openMoneyForm(l); });
-    const addPhone = slot.querySelector('[data-edit="phone"]');
-    if (addPhone) addPhone.addEventListener("click", () => openLeadForm(l, { focus: "phone" }));
-  })();
+    if (nums) nums.addEventListener("click", (ev) => { ev.stopPropagation(); openMoneyForm(fresh); });
+  }
+  buildDealSection();
 
   el.querySelector('[data-act="find-car"]').addEventListener("click", () =>
     openDealerSearch({ vehicleInterest: l.vehicleInterest, name: l.name }));
@@ -1293,4 +1297,79 @@ function renderRefresh(view, id) {
 
 function vehicleName(v) {
   return [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
+}
+
+
+// A sheet to pick any vehicle for a customer: the lot and the new lineup,
+// searchable by model, trim, stock or year, each with the payment it would
+// be for THIS customer. "Like theirs" puts the closest fits to what they
+// drive first. One tap adds it to their replacement options.
+function openVehiclePicker(lead, all, onPick) {
+  const vname = (v) => [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
+  let q = "", mode = "fit"; // fit | stock | lineup
+  openModal("Pick a vehicle", (close) => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `
+      <div class="searchbar" style="margin-bottom:8px"><input type="search" placeholder="Model, trim, stock #, year…" autocomplete="off" /></div>
+      <div class="seg" role="group" aria-label="Show" style="margin-bottom:10px">
+        <button class="seg-btn active" data-mode="fit">Like theirs</button>
+        <button class="seg-btn" data-mode="stock">On the lot</button>
+        <button class="seg-btn" data-mode="lineup">New lineup</button>
+      </div>
+      <div class="vp-list"></div>`;
+    const list = wrap.querySelector(".vp-list");
+    const input = wrap.querySelector("input");
+    const draw = () => {
+      const ql = q.trim().toLowerCase();
+      let rows = all.slice();
+      if (mode === "stock") rows = rows.filter((m) => !m.vehicle.lineup).sort((a, b) => (a.vehicle.price ?? 1e12) - (b.vehicle.price ?? 1e12));
+      else if (mode === "lineup") rows = rows.filter((m) => m.vehicle.lineup).sort((a, b) => (a.vehicle.price ?? 1e12) - (b.vehicle.price ?? 1e12));
+      if (ql) rows = rows.filter((m) => `${vname(m.vehicle)} ${m.vehicle.stock || ""} ${m.vehicle.color || ""} ${m.vehicle.condition || ""}`.toLowerCase().includes(ql));
+      list.innerHTML = "";
+      if (!rows.length) { list.innerHTML = `<div class="muted small" style="padding:10px 0">Nothing matches.</div>`; return; }
+      const FIRST = 30;
+      let i = 0;
+      const append = (n) => {
+        const frag = document.createDocumentFragment();
+        rows.slice(i, i + n).forEach((m) => {
+          const v = m.vehicle;
+          const dl = paymentDelta(m.delta);
+          const row = document.createElement("div");
+          row.className = "row vp-row";
+          row.innerHTML = `
+            <div class="row-main" style="min-width:0">
+              <div class="row-title" style="font-size:0.95rem">${esc(vname(v))}</div>
+              <div class="row-sub">${v.price != null ? currency(v.price) : "no price"}${v.lineup ? " · new lineup" : v.stock ? " · #" + esc(v.stock) : ""}${v.color ? " · " + esc(String(v.color).split("/")[0]) : ""}${v.mileage != null && !/new/i.test(String(v.condition || "")) ? " · " + num(v.mileage) + " km" : ""}</div>
+            </div>
+            <div class="row-meta" style="flex:none;text-align:right">
+              <div class="strong mono">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.72rem">/mo</span></div>
+              ${dl ? `<div class="small" style="color:${dl.color}">${dl.text}</div>` : `<div class="small muted">${m.method}</div>`}
+            </div>`;
+          row.addEventListener("click", () => { onPick(m); close(); });
+          frag.appendChild(row);
+        });
+        i = Math.min(rows.length, i + n);
+        list.appendChild(frag);
+      };
+      append(FIRST);
+      if (i < rows.length) {
+        const more = document.createElement("button");
+        more.className = "btn btn-ghost btn-sm btn-block";
+        more.style.marginTop = "8px";
+        const label = () => { more.textContent = `Show more (${i} of ${rows.length})`; };
+        label();
+        more.addEventListener("click", () => { list.removeChild(more); append(40); if (i < rows.length) { label(); list.appendChild(more); } });
+        list.appendChild(more);
+      }
+    };
+    let t = null;
+    input.addEventListener("input", () => { q = input.value; clearTimeout(t); t = setTimeout(draw, 80); });
+    wrap.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
+      mode = b.dataset.mode;
+      wrap.querySelectorAll("[data-mode]").forEach((x) => x.classList.toggle("active", x === b));
+      draw();
+    }));
+    draw();
+    return wrap;
+  }, { focus: false });
 }

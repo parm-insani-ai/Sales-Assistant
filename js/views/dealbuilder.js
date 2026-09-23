@@ -638,6 +638,34 @@ function pickPitch(rows, lead, opts = {}) {
   return within.sort(byFit)[0];
 }
 
+// One key per vehicle: a unit on the lot by its record, a lineup entry by
+// its model and trim. The customer's shortlist is kept as these.
+export function vehicleKey(v) {
+  return v.id || ("lineup:" + [v.year, v.model, v.trim].filter(Boolean).join("|"));
+}
+
+/**
+ * The customer's options in the order they'd want to see them: one row per
+ * vehicle (its best-fitting option), ranked by how close the vehicle is to
+ * what they drive and then by payment; within the payment band first, the
+ * rest after. `n` rows, or all when n is 0.
+ */
+export function pitchList(lead, n = 3, opts = {}) {
+  const rows = dealsForLead(lead, opts);
+  if (!rows.length) return [];
+  const s = store.getSettings();
+  const band = s.dealMatchBand != null ? Number(s.dealMatchBand) : 50;
+  const owned = classify(String(lead.vehicleInterest || ""));
+  const fitOf = (v) => fitScore(owned, classifyUnit(v), v);
+  const closeness = (r) => Math.abs(r.delta != null ? r.delta : r.monthly);
+  // Best option per vehicle: the one closest to their payment.
+  const best = new Map();
+  rows.forEach((r) => { const k = vehicleKey(r.vehicle); const have = best.get(k); if (!have || closeness(r) < closeness(have)) best.set(k, r); });
+  const list = [...best.values()].map((r) => ({ r, fit: fitOf(r.vehicle), within: r.delta == null || r.delta <= band }));
+  list.sort((a, b) => (b.within - a.within) || (b.fit - a.fit) || (closeness(a.r) - closeness(b.r)));
+  return (n ? list.slice(0, n) : list).map((x) => Object.assign(x.r, { fit: x.fit, within: x.within }));
+}
+
 // The proactive radar: every customer who can move into a new vehicle within the
 // current payment-tolerance band, via financing or leasing, scored and ranked.
 // The scored, sorted radar, cached against what it reads: customers,
