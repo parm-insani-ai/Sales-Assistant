@@ -1540,9 +1540,30 @@ body.voice-live .tab-voice .tab-label { color: var(--brand-strong); }
 .voice-overlay.voice-docked .voice-close { background: transparent; }
 
 /* The store's app: three tabs, no voice button, no quick-add. */
-body.management .tabbar { grid-template-columns: repeat(3, 1fr); }
+body.management .tabbar { grid-template-columns: repeat(4, 1fr); }
+/* Insights: small horizontal bars, tiny vertical bar charts, a by-rep table. */
+.ibar { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; min-width: 40px; }
+.ibar > span { display: block; height: 100%; background: var(--brand); border-radius: 4px; }
+.ibar.good > span { background: var(--success); }
+.irow2 { display: grid; grid-template-columns: 1.1fr 0.9fr 1.4fr 44px; gap: 8px; align-items: center; padding: 6px 0; font-size: 0.86rem; }
+.irow2 > .mono { text-align: right; }
+.ibars { display: flex; gap: 4px; align-items: flex-end; height: 64px; }
+.ibars.tall { height: 96px; }
+.ibarv { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 2px; min-width: 0; }
+.ibarv > span { display: block; width: 100%; min-height: 2px; background: var(--brand); border-radius: 3px 3px 0 0; }
+.ibarv > span.s2 { background: var(--border-strong, var(--border)); position: absolute; }
+.ibarv > span.s3 { background: var(--text); width: 50%; }
+.ibarv { position: relative; }
+.ibarv > span.s2 { bottom: 14px; left: 0; width: 100%; }
+.ibarv > b { font-size: 0.62rem; color: var(--muted); font-weight: 600; height: 12px; line-height: 12px; }
+.irow { display: grid; grid-template-columns: 1.6fr 0.6fr 0.7fr 0.7fr 0.6fr 1fr; gap: 6px; padding: 8px 16px; font-size: 0.84rem; border-bottom: 1px solid var(--border); align-items: center; }
+.irow:last-of-type { border-bottom: none; }
+.irow.ihead { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.irow > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 body.management #quick-add { display: none; }
 .mg-rep:active { opacity: 0.7; }
+.mg-plan { border-left: 4px solid var(--brand); }
+.mg-need { display: inline-block; background: var(--surface-2); border-radius: 8px; padding: 3px 8px; margin: 2px 4px 2px 0; font-size: 0.8rem; }
 
 /* The manager board: one rep per row, the month's cells under the name. */
 .team-row:last-child { border-bottom: none !important; }

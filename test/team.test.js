@@ -43,7 +43,7 @@ await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.body.classList.contains("management") && /No store yet/.test(document.querySelector(".hero-title")?.textContent || ""), null, { timeout: 15000 });
 const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn"), plus: getComputedStyle(document.querySelector("#quick-add")).display }));
 console.log("admin lands on:", JSON.stringify(landing));
-if (landing.greeting !== "Admin" || landing.tabs.join() !== "Home,Team,Settings" || landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
+if (landing.greeting !== "Admin" || landing.tabs.join() !== "Home,Insights,Team,Settings" || landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
 await mgr.click('[data-act="team"]');
 await mgr.waitForSelector('[data-act="create"]');
 await mgr.fill("#st-name", "O'Regan's Nissan Halifax");

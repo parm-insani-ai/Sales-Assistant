@@ -9,6 +9,7 @@
 // manager runs the day on.
 
 import * as backend from "./backend.js";
+import { repInsight, storeInsight } from "./insight.js";
 
 const KEY = "viniva:store";
 
@@ -120,6 +121,8 @@ export function storeTotals(stats) {
     touchesToday: sum((r) => r.touches.today), touchesMonth: sum((r) => r.touches.month),
     untouched: sum((r) => r.leads.untouched.length), overdue: sum((r) => r.leads.overdue.length), open: sum((r) => r.leads.open),
     apptsToday: ok.flatMap((r) => r.appts.today.map((a) => ({ ...a, rep: r.member }))).sort((a, b) => String(a.when).localeCompare(String(b.when))),
+    // The store's appointment picture, from everyone's rows together.
+    insight: storeInsight(ok.map((r) => r.raw).filter(Boolean)),
   };
 }
 export function inviteLink(code) {
@@ -150,18 +153,30 @@ const OPEN = ["new", "working", "appointment", "negotiating"];
 export async function repStats(userId, { now = new Date() } = {}) {
   const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
   const today = ymd(now);
-  const [activity, appts, sales, leads, config] = await Promise.all([
-    backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${monthStart}` }, { select: "data" }),
+  // Eight weeks of appointments and touches for the trend and the rates, 90
+  // days of leads for speed-to-lead and sources; the month for the board.
+  const since = (days) => ymd(new Date(now.getTime() - days * DAY));
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config] = await Promise.all([
+    backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
+    backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
     backend.readRecords(userId, "sales", { "data->>saleDate": `gte.${monthStart}` }, { select: "data" }),
     backend.readRecords(userId, "leads", { "data->>stage": `in.(${OPEN.join(",")})` }, { select: "id,data" }),
+    backend.readRecords(userId, "leads", { "data->>createdAt": `gte.${since(90)}` }, { select: "id,data" }),
     backend.readRecords(userId, "config", {}, { select: "data", limit: 2 }),
   ]);
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
-  const touches = { today: acts.filter((a) => String(a.createdAt || "").slice(0, 10) === today).length, month: acts.length };
+  const touchesByDay = {};
+  acts.forEach((a) => { const d = String(a.createdAt || "").slice(0, 10); if (d) touchesByDay[d] = (touchesByDay[d] || 0) + 1; });
+  const touches = { today: touchesByDay[today] || 0, month: acts.filter((a) => String(a.createdAt || "").slice(0, 10) >= monthStart).length };
 
-  const live = rows(appts).filter((a) => a.status !== "canceled");
+  // Every appointment we know of, once, slimmed to what the engine reads.
+  const seenA = new Map();
+  [...apptsSet, ...apptsMonth].forEach((r) => { const a = r.data || {}; if (a.id || r.id) seenA.set(a.id || r.id, a); });
+  const allAppts = [...seenA.values()].map((a) => ({ id: a.id, leadId: a.leadId || "", createdAt: a.createdAt || "", when: a.when || "", confirmed: !!a.confirmed, outcome: a.outcome || "", status: a.status || "", type: a.type || "", customerName: a.customerName || a.title || "" }));
+  const appts = allAppts.filter((a) => String(a.when).slice(0, 10) >= monthStart);
+  const live = appts.filter((a) => a.status !== "canceled");
   const apptStats = {
     set: live.length,
     shown: live.filter((a) => a.outcome === "showed" || a.outcome === "sold").length,
@@ -180,12 +195,15 @@ export async function repStats(userId, { now = new Date() } = {}) {
   const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const goal = { units: goalUnits, appts: num(cfg.goalAppointments), touchesDay: num(cfg.dailyTouchGoal), pace: goalUnits ? Math.round((goalUnits * now.getDate()) / daysIn * 10) / 10 : 0 };
 
-  const open = rows(leads);
+  const open = rows(openLeads);
   const untouched = open.filter((l) => l.stage === "new" && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) > DAY)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const overdue = open.filter((l) => l.followUp && String(l.followUp).slice(0, 10) < today)
     .sort((a, b) => String(a.followUp).localeCompare(String(b.followUp)));
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, at: now.toISOString() };
+  const slimLeads = rows(recentLeads).map((l) => ({ id: l.id, source: l.source || "", createdAt: l.createdAt || "", firstContacted: l.firstContacted || "", lastContacted: l.lastContacted || "", stage: l.stage || "" }));
+  const raw = { appts: allAppts, leads: slimLeads, touches: touches.month, touchesByDay, goalUnits, sold: saleStats.units };
+  const insight = repInsight({ ...raw, now });
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, at: now.toISOString() };
 }
 
 // Every member's numbers, in parallel, in the order given.

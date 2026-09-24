@@ -39,6 +39,7 @@ await seed(U1, [
   { id: "a1", collection: "activity", data: { id: "a1", type: "touch", createdAt: iso(now) } },
   { id: "ap1", collection: "appointments", data: { id: "ap1", customerName: "Fresh Lead", type: "test drive", when: ymd(now) + "T15:30", status: "scheduled", confirmed: true } },
   { id: "ap2", collection: "appointments", data: { id: "ap2", customerName: "Old Appt", when: first + "T10:00", status: "scheduled", outcome: "showed" } },
+  { id: "ap3", collection: "appointments", data: { id: "ap3", customerName: "Tomorrow Guy", when: ymd(day(1)) + "T10:00", status: "scheduled", createdAt: iso(day(-1)) } },
   { id: "l1", collection: "leads", data: { id: "l1", name: "Fresh Lead", phone: "9025551111", stage: "new", vehicleInterest: "2026 Nissan Rogue SV", createdAt: iso(day(-3)) } },
 ]);
 await seed(U2, [
@@ -62,12 +63,39 @@ const home = await mgr.evaluate(() => ({
   tiles: [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()),
 }));
 console.log("management home:", JSON.stringify(home, null, 1));
-if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Team,Settings") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
-if (!home.stats.some((s) => /^2 \/ 22 ?Units in/.test(s)) || !home.stats.some((s) => /^\$2,500 ?Gross/.test(s)) || !home.stats.some((s) => /^2 ?Appointments set · 1 shown/.test(s)) || !home.stats.some((s) => /^2 ?Untouched/.test(s)) || !home.stats.some((s) => /^1 ?Overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
+if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Insights,Team,Settings") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
+// Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
+if (!home.stats.some((s) => /^3 ?Appointments set in \w+ · 1 today/.test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => /^1 · 50% ?Shown/.test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
+const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
+console.log("plan:", plan);
+if (!/To hit 22 units: \d+ more appointments set by month end/.test(plan || "") || !/2 sold · [12] on the calendar/.test(plan) || !/typical rates/.test(plan) || !/Parm/.test(plan) || !/Dana/.test(plan)) fail("the plan card is wrong: " + plan);
 if (!home.word.some((w) => /^Parm.*1 untouched lead/.test(w)) || !home.word.some((w) => /^Dana.*1 untouched lead/.test(w)) || home.word.some((w) => /^Sam/.test(w))) fail("'needs a word' misses a rep, or nags the manager: " + JSON.stringify(home.word));
 if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.test(t))) fail("today's appointment isn't on the store's list with the rep: " + JSON.stringify(home.today));
-if (!home.reps[0].startsWith("Parm") || !/2 \/ 12/.test(home.reps[0])) fail("the reps aren't ordered by units: " + JSON.stringify(home.reps));
-if (!home.tiles.includes("Team") || !home.tiles.includes("Admin") || !home.tiles.includes("Invite a rep") || !home.tiles.includes("Sales view")) fail("the store's tools are missing: " + JSON.stringify(home.tiles));
+if (!home.reps[0].startsWith("Parm") || !/3 set · 1 today · 1 shown/.test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
+if (!home.tiles.includes("Insights") || !home.tiles.includes("Team") || !home.tiles.includes("Admin") || !home.tiles.includes("Invite a rep") || !home.tiles.includes("Sales view")) fail("the store's tools are missing: " + JSON.stringify(home.tiles));
+
+// --- Insights: the store, then one rep, with the math and the levers.
+await mgr.click('.tabbar [data-route="/insights"]');
+await mgr.waitForFunction(() => location.hash === "#/insights" && document.querySelectorAll(".irow").length > 1, null, { timeout: 15000 });
+const insights = await mgr.evaluate(() => ({
+  title: document.querySelector(".hero-title")?.textContent.trim(),
+  sections: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim().split(" ·")[0]),
+  rows: [...document.querySelectorAll(".irow:not(.ihead)")].map((r) => [...r.children].map((c) => c.textContent.trim()).join("|")),
+  speed: [...document.querySelectorAll(".irow2")].slice(0, 4).map((r) => [...r.children].map((c) => c.textContent.trim()).join("|")),
+  weeks: document.querySelectorAll(".ibars.tall .ibarv").length,
+}));
+console.log("insights:", JSON.stringify(insights, null, 1));
+if (insights.title !== "O'Regan's Nissan Halifax") fail("insights isn't the store's: " + insights.title);
+for (const s of ["What the numbers say", "What it takes", "By rep", "The funnel", "Speed to lead", "By source", "When appointments get set", "What makes them show", "Eight weeks"]) if (!insights.sections.includes(s)) fail("insights is missing: " + s + " in " + JSON.stringify(insights.sections));
+if (!insights.rows.some((r) => /^Parm\|3\|50%\|\d+\|[\d.]+\|/.test(r)) || !insights.rows.some((r) => /^Dana\|0\|—\|\d+\|/.test(r))) fail("the by-rep table is wrong: " + JSON.stringify(insights.rows));
+if (!insights.speed.some((r) => /^Never touched\|3 leads\|/.test(r))) fail("speed to lead doesn't count the untouched leads: " + JSON.stringify(insights.speed));
+if (insights.weeks !== 8) fail("the trend isn't eight weeks: " + insights.weeks);
+await mgr.evaluate((U2) => { document.querySelector('.lead-chips [data-who="' + U2 + '"]').click(); }, U2);
+await mgr.waitForFunction(() => document.querySelector(".hero-title")?.textContent.trim() === "Dana", null, { timeout: 5000 });
+const dana = await mgr.evaluate(() => ({ takes: document.querySelector(".card .stat-grid")?.textContent.replace(/\s+/g, " ").trim(), byRep: !!document.querySelector(".irow") }));
+if (!/more appointments to set/.test(dana.takes || "") || dana.byRep) fail("a rep's insights page is wrong: " + JSON.stringify(dana));
+await mgr.click('.tabbar [data-route="/"]');
+await mgr.waitForFunction(() => location.hash === "#/", null, { timeout: 5000 });
 
 // Tap a rep: their day, then a customer, read-only.
 await mgr.click('.team-row[data-rep="' + U2 + '"]');
@@ -104,7 +132,7 @@ await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) 
 await both.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".hero-title"), null, { timeout: 20000 });
 await both.waitForFunction(() => /As of/.test(document.body.textContent), null, { timeout: 20000 });
 const switched = await both.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
-if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 3) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
+if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 4) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
 await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) => /Sales view/.test(t.textContent)).click(); });
 await both.waitForSelector(".plays-slot", { timeout: 20000 });
 const back = await both.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: document.querySelectorAll(".tabbar .tab").length }));

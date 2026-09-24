@@ -926,6 +926,9 @@ export function create(name, data) {
 export function update(name, id, patch) {
   const item = get(name, id);
   if (!item) return null;
+  // The first time a customer is contacted is what speed-to-lead is measured
+  // from, so it's kept once and never moved by later contacts.
+  if (name === "leads" && patch && patch.lastContacted && !item.firstContacted) patch = { ...patch, firstContacted: patch.lastContacted };
   Object.assign(item, patch, { updatedAt: new Date().toISOString() });
   markOutbox(name, id, false);
   touch(name, id);
