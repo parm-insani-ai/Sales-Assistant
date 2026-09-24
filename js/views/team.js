@@ -16,7 +16,8 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, boardStats, repLead, adminStores, adminAddMember, adminSetStore } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, boardStats, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin } from "../team.js";
+import { runningVersion, getVersion } from "../updater.js";
 
 const BOARD_KEY = "viniva:team-board";
 const stageLabel = (s) => (store.stageMeta(s) || { label: s }).label;
@@ -38,12 +39,29 @@ export function renderTeam(view, { param } = {}) {
   let loading = false, error = "";
   let admin = isAdmin(team);
   let stores = null; // every store, for an admin
+  // What the screen knows about itself, so a "why isn't this working" has
+  // an answer on the screen: the account, the build, the admin check.
+  let check = { admin: null, error: "" }, build = "";
+  Promise.all([runningVersion().catch(() => null), getVersion().catch(() => null)]).then(([run, live]) => {
+    build = (run || "").replace(/^viniva-/, "") || (live && live.version) || "";
+    const n = el.querySelector(".team-build"); if (n) n.textContent = build ? "build " + build.slice(0, 7) : "";
+  });
 
   async function refreshTeam() {
-    try { team = await myStore(); admin = isAdmin(team); error = ""; } catch (e) { error = e && e.message ? e.message : "couldn't reach the store"; }
+    check = await checkAdmin();
+    try { team = await myStore(); error = ""; } catch (e) { error = e && e.message ? e.message : "couldn't reach the store"; }
+    admin = check.admin || isAdmin(team);
     if (admin) { try { stores = await adminStores(); } catch { stores = null; } }
     draw();
     if (team && isManager(team)) await refreshBoard();
+  }
+  function statusHTML() {
+    const verdict = check.admin === null ? "checking…" : check.error ? `failed — ${esc(check.error)}` : check.admin ? "yes" : "no — this email isn't in the admins table";
+    return `<div class="card small muted team-status" style="margin-top:14px">
+      <div>Signed in as <span class="mono">${esc(me.email || me.id)}</span> · <span class="team-build">${build ? "build " + esc(build.slice(0, 7)) : ""}</span></div>
+      <div style="margin-top:4px">Admin check: <span class="team-admin-check">${verdict}</span></div>
+      <button class="btn btn-ghost btn-sm" data-act="recheck" style="margin-top:8px">Check again</button>
+    </div>`;
   }
   async function refreshStores() {
     try { stores = await adminStores(); } catch (e) { toast(e.message || "Couldn't read the stores", "danger"); }
@@ -74,6 +92,7 @@ export function renderTeam(view, { param } = {}) {
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       ${admin ? adminHTML() : ""}
       ${manager ? boardHTML() : repHTML(mine)}
+      ${statusHTML()}
       <div class="section-title">Members <span class="muted" style="font-weight:500;font-size:0.78rem">· ${(team.members || []).length}</span></div>
       <div class="card">
         ${(team.members || []).map((m) => `
@@ -102,6 +121,7 @@ export function renderTeam(view, { param } = {}) {
     wireAdmin();
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="refresh"]', refreshBoard);
+    on('[data-act="recheck"]', refreshTeam);
     on('[data-act="copy-invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied", "success"); } catch { toast("Copy the link from the box", "warn"); } });
     on('[data-act="share-invite"]', () => navigator.share({ title: `Join ${team.name} on viniva`, text: `Tap to join ${team.name} on viniva`, url: inviteLink(team.code) }).catch(() => {}));
     on('[data-act="rename"]', () => openNameSheet(mine));
@@ -134,7 +154,9 @@ export function renderTeam(view, { param } = {}) {
         <button class="btn btn-primary btn-block" data-act="join">${icon("users")} Join the store</button>
         <div class="hint">Your manager can then see your numbers and your customers. Nothing changes about your own app.</div>
       </div>
+      ${statusHTML()}
     `;
+    const rc = el.querySelector('[data-act="recheck"]'); if (rc) rc.addEventListener("click", refreshTeam);
     const create = el.querySelector('[data-act="create"]');
     if (create) create.addEventListener("click", async (ev) => {
       const name = el.querySelector("#st-name").value.trim(), meName = el.querySelector("#st-me").value.trim();

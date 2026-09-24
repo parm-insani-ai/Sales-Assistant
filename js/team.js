@@ -30,6 +30,13 @@ export async function myStore() {
   try { localStorage.setItem(KEY + ":admin", admin ? "1" : ""); } catch { /* fine */ }
   return out;
 }
+// The admin check on its own, with the reason when it can't be made — so
+// the screen can say "the database doesn't have is_admin yet" rather than
+// silently treating the person as a rep.
+export async function checkAdmin() {
+  try { return { admin: (await backend.rpc("is_admin", {})) === true, error: "" }; }
+  catch (e) { return { admin: false, error: e && e.message ? e.message : "couldn't reach the database" }; }
+}
 export function cachedAdmin() {
   try { return localStorage.getItem(KEY + ":admin") === "1"; } catch { return false; }
 }
