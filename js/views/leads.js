@@ -932,6 +932,10 @@ function renderLeadDetail(view, id) {
   el.querySelectorAll("[data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
   el.querySelector('[data-act="info"]').addEventListener("click", () => openInfoSheet());
+  // Sent here to record consent (or fix a detail): open the sheet on arrival.
+  let wantInfo = false;
+  try { wantInfo = sessionStorage.getItem("leads-open-info") === l.id; if (wantInfo) sessionStorage.removeItem("leads-open-info"); } catch { wantInfo = false; }
+  if (wantInfo) setTimeout(() => { if (el.isConnected) openInfoSheet(); }, 60);
   // The last contact, on the name box, with a tap to log another.
   el.querySelector('#view [data-act="contacted"], [data-act="contacted"]').addEventListener("click", (ev) => {
     const kv = ev.currentTarget;
@@ -1133,10 +1137,12 @@ function renderLeadDetail(view, id) {
           <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${cur.lastContacted ? esc(formatDateTime(cur.lastContacted)) + (cur.lastContactVia ? ` <span class="muted small">· ${esc(cur.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
           ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
           <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(cur.createdAt))}</span></div>
+          <div class="consent-card">
           <div class="kv" style="align-items:flex-start"><span class="k">Texting</span><span class="v" style="text-align:right"><span class="badge ${cBadge}">${cLabel}</span><div class="small muted" style="margin-top:3px">${esc(consentLine(c))}</div></span></div>
           <div class="btn-row" style="margin-top:8px">
             ${c.basis !== "express" ? `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">${icon("check")} Record express consent</button>` : ""}
             ${c.basis !== "withdrawn" ? `<button class="btn btn-ghost btn-sm" data-act="consent-withdraw" style="flex:0 0 auto">They said stop</button>` : `<button class="btn btn-ghost btn-sm" data-act="consent-express" style="flex:1">They've said yes again</button>`}
+          </div>
           </div>
         </div>
 

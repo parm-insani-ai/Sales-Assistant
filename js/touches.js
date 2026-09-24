@@ -10,6 +10,7 @@
 // draft that contains one anyway is rewritten or replaced.
 
 import * as store from "./store.js";
+import * as backend from "./backend.js";
 import { agentConfigured } from "./agentcfg.js";
 import { briefFor } from "./context.js";
 import { looksLikeMoney } from "./replies.js";
@@ -107,7 +108,7 @@ async function ask(system, messages) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await backend.fnHeaders(),
       body: JSON.stringify({ system, messages, max_tokens: 300 }),
       signal: ctl.signal,
     });
@@ -176,6 +177,8 @@ function mayText(lead) {
   const c = consentStatus(lead);
   if (c.ok) return true;
   toast(`${String(lead.name || "They").split(" ")[0]}: ${consentLine(c)} Call instead, or record consent on their page.`, "warn");
+  // Land on their page with the details sheet open at the consent buttons.
+  try { sessionStorage.setItem("leads-open-info", lead.id); } catch { /* the page still says why */ }
   navigate(`/leads/${lead.id}`);
   return false;
 }

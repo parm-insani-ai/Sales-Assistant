@@ -16,11 +16,12 @@ await p.addInitScript(() => {
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
-      { id: "s1", name: "Dana Muise", phone: "9025551111", email: "dana@example.com", stage: "delivered", vehicleInterest: "2019 Nissan Sentra SV", createdAt: "x", updatedAt: "x" },
-      { id: "s2", name: "Lee Wong", phone: "9025552222", stage: "working", vehicleInterest: "2021 Nissan Sentra SR", createdAt: "x", updatedAt: "x" },
+      { id: "s1", name: "Dana Muise", phone: "9025551111", email: "dana@example.com", stage: "delivered", vehicleInterest: "2019 Nissan Sentra SV", purchaseDate: "2025-06-01", createdAt: "x", updatedAt: "x" },
+      { id: "s2", name: "Lee Wong", phone: "9025552222", stage: "working", vehicleInterest: "2021 Nissan Sentra SR", createdAt: new Date().toISOString(), updatedAt: "x" },
+      { id: "s7", name: "Old Buyer", phone: "9025557777", stage: "delivered", vehicleInterest: "2016 Nissan Sentra", purchaseDate: "2016-03-01", createdAt: "x", updatedAt: "x" },
       { id: "s3", name: "Pat Roy", phone: "9025553333", stage: "delivered", vehicleInterest: "2017 Sentra", smsOptOut: true, createdAt: "x", updatedAt: "x" },
-      { id: "s4", name: "No Phone", email: "np@example.com", stage: "delivered", vehicleInterest: "2020 Nissan Sentra", createdAt: "x", updatedAt: "x" },
-      { id: "s5", name: "Recent Reach", phone: "9025555555", stage: "delivered", vehicleInterest: "2018 Nissan Sentra", lastCampaignAt: new Date(Date.now() - 3 * 86400000).toISOString(), createdAt: "x", updatedAt: "x" },
+      { id: "s4", name: "No Phone", email: "np@example.com", stage: "delivered", vehicleInterest: "2020 Nissan Sentra", purchaseDate: "2025-01-15", createdAt: "x", updatedAt: "x" },
+      { id: "s5", name: "Recent Reach", phone: "9025555555", stage: "delivered", vehicleInterest: "2018 Nissan Sentra", purchaseDate: "2025-04-01", lastCampaignAt: new Date(Date.now() - 3 * 86400000).toISOString(), createdAt: "x", updatedAt: "x" },
       { id: "r1", name: "Rogue Owner", phone: "9025554444", stage: "delivered", vehicleInterest: "2020 Nissan Rogue SV", createdAt: "x", updatedAt: "x" },
     ],
     settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false,
@@ -63,7 +64,7 @@ const spoken = await p.evaluate(async (S) => {
   return (window.__spoke || []).join(" | ");
 }, SENTENCE);
 console.log("spoken:", spoken);
-if (!/text to 2 Sentra owners/.test(spoken) || !/3 left out/.test(spoken)) fail("the assistant didn't say who the blast goes to: " + spoken);
+if (!/text to 2 Sentra owners/.test(spoken) || !/4 left out/.test(spoken)) fail("the assistant didn't say who the blast goes to: " + spoken);
 await p.waitForTimeout(500);
 const screen = await p.evaluate(() => ({
   hash: location.hash,
@@ -81,6 +82,7 @@ if (!screen.leftOut.some((x) => /Pat Roy.*opted out/.test(x))) fail("the opted-o
 if (!screen.leftOut.some((x) => /No Phone.*no phone/.test(x))) fail("the owner with no phone isn't left out with the reason");
 if (!screen.leftOut.some((x) => /Recent Reach.*reached 3 days ago/.test(x))) fail("the recently reached owner isn't left out with the reason");
 if (screen.leftOut.some((x) => /Rogue Owner/.test(x))) fail("a Rogue owner is part of a Sentra audience");
+if (!screen.leftOut.some((x) => /Old Buyer.*no texting consent/.test(x))) fail("a customer with no consent on file isn't held back with the reason: " + JSON.stringify(screen.leftOut));
 if (!/^Hi Dana, it's Parm at O'Regan's Nissan Halifax\. This month if you trade in your Sentra for a new Nissan, you get double loyalty\./.test(screen.preview || "")) fail("the preview isn't written to Dana in the second person: " + screen.preview);
 if (!/Reply STOP/.test(screen.preview || "")) fail("no opt-out line in the text");
 if (screen.sendLabel !== "Send to 2" || screen.sendDisabled) fail("the send button isn't ready for 2: " + JSON.stringify([screen.sendLabel, screen.sendDisabled]));

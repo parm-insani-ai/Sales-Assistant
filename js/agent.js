@@ -30,6 +30,7 @@ import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
 import { parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
+import { reachForBlast } from "./consent.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -163,7 +164,7 @@ async function describeAgentError(res) {
   if (res.status === 404)
     return "No function at that URL (404). Open Settings → Voice agent and tap Test connection — it will find the right function and fix the URL for you.";
   if (res.status === 401 || res.status === 403)
-    return `The function rejected the call (${res.status}). Turn OFF "Verify JWT" for it in Supabase.`;
+    return msg && /sign in/i.test(msg) ? msg : `The function rejected the call (${res.status}). Sign in to your cloud account in Settings, and make sure the function has the latest code with "Verify JWT" off (it checks your session itself).`;
   return msg || `Agent error (${res.status})`;
 }
 
@@ -172,7 +173,7 @@ async function callAgent(messages) {
   if (!url) throw new Error("Voice agent isn't set up");
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await backend.fnHeaders(),
     body: JSON.stringify({ system: buildSystem(buildContext()), tools: TOOLS, messages, max_tokens: 1024 }),
   });
   if (!res.ok) throw new Error(await describeAgentError(res));
@@ -189,7 +190,7 @@ export async function testAgent() {
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await backend.fnHeaders(),
       body: JSON.stringify({ messages: [{ role: "user", content: "Reply with the word OK." }], max_tokens: 8 }),
     });
   } catch {
@@ -805,7 +806,7 @@ export async function execTool(name, p = {}) {
       if (!sentence) return { result: "need the sentence: who, and what to tell them", note: "⚠ who should it go to, and what should it say?" };
       const spec = parseOutreach(sentence);
       if (p.channel) spec.channel = p.channel;
-      const aud = audienceFor(spec, store.all("leads"));
+      const aud = audienceFor(spec, store.all("leads"), { reach: reachForBlast });
       const m = await import("./views/outreach.js");
       m.queueOutreach(sentence);
       if (aud.unknown && aud.unknown.length) return { result: { channel: spec.channel, recipients: 0, notUnderstood: aud.unknown, answer: unknownNote(spec), status: "nobody picked — ask the salesperson to reword the audience; never widen it to everyone" }, note: `⚠ didn't understand ${aud.unknown.map((u) => `"${u}"`).join(", ")}` };

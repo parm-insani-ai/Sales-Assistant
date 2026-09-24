@@ -228,7 +228,10 @@ const DEFAULT_STATE = {
     consentAtPurchase: false,
     // Hold drafted texts back when there's no consent on file. Off, the
     // status is still shown and logged, and only a STOP stops a text.
-    enforceConsent: false,
+    // On by default: a text to someone with no consent on file is held back
+    // until consent is recorded. A store that knows its paperwork covers it
+    // turns this off, or marks consent-at-purchase.
+    enforceConsent: true,
     dealMatchBand: 50, // $/mo tolerance: new payment may exceed current by up to this
     dealMethod: "both", // "both" | "finance" | "lease"
     dealMaxPayment: 0, // $/mo ceiling on the radar; 0 = no cap

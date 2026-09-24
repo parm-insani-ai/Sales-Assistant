@@ -88,6 +88,12 @@ export function recordConsent(leadId, { basis, note = "" }) {
   return rec;
 }
 
+// The rule a blast applies to each person: a text needs consent on file
+// (when enforcement is on). Returns the reason to leave them out, or "".
+export function reachForBlast(lead, channel) {
+  return channel === "text" && !consentStatus(lead).ok ? "no texting consent on file" : "";
+}
+
 // One line for a card or a toast.
 export function consentLine(c) {
   if (!c) return "";

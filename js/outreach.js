@@ -145,6 +145,8 @@ export function isOutreach(text) {
  * The audience, from the book: { included: [lead], excluded: [{ lead, why }] }.
  * `opts.channel` decides what "reachable" means; `opts.recentDays` (default
  * 20) keeps someone reached that recently out unless `opts.includeRecent`.
+ * `opts.reach(lead, channel)` may return a reason to leave someone out
+ * (the app passes texting consent through here).
  */
 export function audienceFor(spec, leads, opts = {}) {
   const a = spec.audience || spec;
@@ -163,6 +165,7 @@ export function audienceFor(spec, leads, opts = {}) {
     else if (channel === "text" && !l.phone) why = "no phone number";
     else if (channel === "email" && !l.email) why = "no email address";
     else if (channel === "text" && l.smsOptOut) why = "opted out of texts";
+    else if (opts.reach && (why = String(opts.reach(l, channel) || ""))) { /* the caller's own rule, e.g. consent */ }
     else if (!opts.includeRecent && l.lastCampaignAt && (now - new Date(l.lastCampaignAt)) / DAY < recentDays) why = `reached ${Math.floor((now - new Date(l.lastCampaignAt)) / DAY)} days ago`;
     if (why) excluded.push({ lead: l, why }); else included.push(l);
   }

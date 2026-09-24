@@ -15,6 +15,7 @@ import { sendText, smsReady } from "../sms.js";
 import { sendEmail, emailSendConfigured, logEmail } from "../email.js";
 import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience } from "../outreach.js";
 import { openAudienceFilter } from "./audience.js";
+import { reachForBlast as reach } from "../consent.js";
 
 const PREFILL = "outreach-prefill";
 // An audience picked by hand on Leads ("Text these") lands here instead.
@@ -54,7 +55,7 @@ export function renderOutreach(view) {
     const s = store.getSettings();
     const leads = store.all("leads");
     const live = spec ? { ...spec, channel, message } : null;
-    const aud = live ? audienceFor(live, leads, { channel, includeRecent }) : { included: [], excluded: [] };
+    const aud = live ? audienceFor(live, leads, { channel, includeRecent, reach }) : { included: [], excluded: [] };
     const recipients = aud.included.filter((l) => !skipped.has(l.id));
     const figures = figuresIn(message);
     const ready = channel === "text" ? smsReady() : emailSendConfigured();

@@ -118,7 +118,7 @@ export async function sendTestPush() {
   if (!user) throw new Error("Sign in to Cloud sync first.");
   const res = await fetch(agentUrl(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await backend.fnHeaders(),
     body: JSON.stringify({ testpush: { u: user.id } }),
   });
   const j = await res.json().catch(() => ({}));

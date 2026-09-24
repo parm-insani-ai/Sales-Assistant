@@ -63,7 +63,7 @@ export async function sendText(lead, body) {
     const timer = setTimeout(() => ctl.abort(), 15000);
     const res = await fetch((s.agentUrl || "").trim().replace(/\/+$/, ""), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await backend.fnHeaders(),
       body: JSON.stringify({ sms: { u: user.id, id: row.id, leadId: lead.id, to: lead.phone, body: text } }),
       signal: ctl.signal,
     });

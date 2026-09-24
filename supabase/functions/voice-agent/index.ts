@@ -20,7 +20,11 @@
 // Deploy:
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...   (or set it in the
 //     dashboard: Edge Functions → Secrets)
-//   deploy the function and turn OFF "Verify JWT" so the app can call it.
+//   deploy the function and turn OFF "Verify JWT" — the public paths (a
+//   customer booking, a short link, the Twilio webhook, cron) carry no session.
+//   The function checks the session itself on every call that acts as a
+//   person (see callerId): the app sends its bearer token, and the user id is
+//   taken from that, never from the body.
 
 import webpush from "npm:web-push@3.6.7";
 
@@ -78,6 +82,35 @@ async function proxyICS(req: Request): Promise<Response> {
     });
   } catch (err) {
     return new Response(`Fetch failed: ${err}`, { status: 502, headers: CORS });
+  }
+}
+
+// ---- Who is asking ----
+// Every call the app makes carries the signed-in session as a bearer token.
+// The user id is taken from that token and from nothing else: a request that
+// only says "u: <someone's id>" in its body is a stranger with a URL. Verified
+// against Supabase Auth once per token and remembered for a few minutes.
+const CALLERS = new Map<string, { id: string; exp: number }>();
+async function callerId(req: Request): Promise<string> {
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") || "");
+  if (!m) return "";
+  const tok = m[1].trim();
+  if (!tok || tok === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "") || tok === (Deno.env.get("SUPABASE_ANON_KEY") || "")) return "";
+  const hit = CALLERS.get(tok);
+  if (hit && hit.exp > Date.now()) return hit.id;
+  try {
+    const r = await fetch(`${Deno.env.get("SUPABASE_URL") || ""}/auth/v1/user`, {
+      headers: { apikey: Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "", Authorization: `Bearer ${tok}` },
+    });
+    if (!r.ok) return "";
+    const j = await r.json().catch(() => ({}));
+    const id = String(j?.id || "");
+    if (!/^[0-9a-f-]{36}$/.test(id)) return "";
+    if (CALLERS.size > 500) CALLERS.clear();
+    CALLERS.set(tok, { id, exp: Date.now() + 5 * 60_000 });
+    return id;
+  } catch {
+    return "";
   }
 }
 
@@ -1723,6 +1756,19 @@ Deno.serve(async (req: Request) => {
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+
+  // Anything that acts as a person — sends from the number, mints links,
+  // spends the model, imports the lot for an account — needs a session. The
+  // public paths (a customer booking, cron with its key) carry no session and
+  // never name a user from the body. The caller's id overwrites whatever the
+  // body said.
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  if (personal) {
+    const caller = await callerId(req);
+    if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
+    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+  }
+
   if (body.inventory) return handleInventory(body);
   if (body.smscheck) return handleSmsCheck(body);
   if (body.sms) return handleSendSms(body);

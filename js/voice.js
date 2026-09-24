@@ -13,6 +13,7 @@ import { addContext } from "./context.js";
 import { agentConfigured, createAgentSession, showLotOnScreen } from "./agent.js";
 import { answerLot } from "./lot.js";
 import { isOutreach, parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
+import { reachForBlast } from "./consent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -248,7 +249,7 @@ export function executeCommand(cmd) {
     }
     case "outreach": {
       const spec = parseOutreach(cmd.text);
-      const aud = audienceFor(spec, store.all("leads"));
+      const aud = audienceFor(spec, store.all("leads"), { reach: reachForBlast });
       import("./views/outreach.js").then((m) => m.queueOutreach(cmd.text));
       if (aud.unknown && aud.unknown.length) return `${unknownNote(spec)} Nobody's picked until it's reworded.`;
       const n = aud.included.length, out = aud.excluded.length;

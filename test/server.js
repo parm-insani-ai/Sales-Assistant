@@ -154,6 +154,11 @@ const server = http.createServer((req, res) => {
     return req.on("end", () => {
       let msg = {};
       try { msg = JSON.parse(body || "{}"); } catch {}
+      // Like the real function: anything that acts as a person needs the
+      // session's bearer token. A call without one is refused, which is how
+      // a test finds a client path that forgot to send it.
+      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
+      if (personal && !/^Bearer\s+\S+/.test(String(req.headers["authorization"] || ""))) return json(res, 401, { error: "Sign in to your cloud account in Settings — this call needs your session." });
       // Canned diagnosis, so the Settings readout can be exercised against the
       // shapes a real misconfiguration produces.
       if (msg.smscheck) return json(res, 200, checkReply);

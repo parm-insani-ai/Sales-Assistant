@@ -263,7 +263,7 @@ export function renderSettings(view) {
     if (!url) { toast("Set up the agent function first (Settings → Voice agent)", "danger"); return; }
     btn.disabled = true; line.textContent = "Reading the site… this takes a moment for a big lot.";
     try {
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inventory: { u: user.id, probe: 1 } }) });
+      const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ inventory: { u: user.id, probe: 1 } }) });
       const r = await res.json().catch(() => ({}));
       lastReport = r;
       if (!res.ok || r.error) {
@@ -970,7 +970,7 @@ function buildEmail(slot) {
     try {
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await backend.fnHeaders(),
         body: JSON.stringify({ sms: { u: user.id, to, body: "Test from viniva — texting is working. Reply to this and it should land in your Inbox." } }),
       });
       const j = await res.json().catch(() => ({}));
@@ -997,7 +997,7 @@ function buildEmail(slot) {
     box.textContent = "Checking…";
     try {
       const res = await fetch(url, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: await backend.fnHeaders(),
         body: JSON.stringify({ smscheck: { u: user.id } }),
       });
       const d = await res.json().catch(() => ({}));

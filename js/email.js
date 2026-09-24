@@ -9,6 +9,7 @@
 //      would need OAuth/IT approval, so it's deliberately not built yet.
 
 import * as store from "./store.js";
+import * as backend from "./backend.js";
 import { fillTemplate } from "./views/messages.js";
 
 export function emailSendConfigured() {
@@ -54,7 +55,7 @@ export async function sendEmail({ to, subject, text }) {
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await backend.fnHeaders(),
       body: JSON.stringify({ email: { to, subject, text } }),
     });
   } catch {

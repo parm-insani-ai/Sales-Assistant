@@ -130,6 +130,25 @@ async function token() {
   return sess.access_token;
 }
 
+// The headers every call to the cloud function carries: JSON, and the
+// signed-in session so the function knows who is asking. The function takes
+// the user from this token and from nothing else — a request without it can
+// only reach the public paths (booking, short links).
+export async function fnHeaders() {
+  const h = { "Content-Type": "application/json" };
+  const sess = getSession();
+  if (!sess?.access_token) return h; // not signed in: the function will say so
+  let t = sess.access_token;
+  // Refresh when it's about to expire; if that can't be done right now
+  // (offline, or the auth server is unreachable), send what we have and let
+  // the function judge it rather than sending nothing.
+  if ((sess.expires_at || 0) - 60 < Math.floor(Date.now() / 1000)) {
+    try { t = (await refresh()).access_token; } catch { /* keep the current token */ }
+  }
+  h.Authorization = `Bearer ${t}`;
+  return h;
+}
+
 // --- REST (records table) ---
 async function rest(path, opts = {}) {
   const { url, anonKey } = cfg();
@@ -149,6 +168,20 @@ async function rest(path, opts = {}) {
   }
   if (res.status === 204) return null;
   return res.json().catch(() => null);
+}
+
+// A database function (PostgREST rpc), as the signed-in user.
+export async function rpc(name, args = {}) {
+  return rest(`rpc/${name}`, { method: "POST", body: JSON.stringify(args) });
+}
+
+// Records the signed-in user is allowed to read that belong to `userId` —
+// their own, or a rep's when they manage that rep's store. `filters` are
+// PostgREST conditions on the JSON, e.g. { "data->>stage": "in.(new,working)" }.
+export async function readRecords(userId, collection, filters = {}, { select = "id,data,updated_at", limit = 5000 } = {}) {
+  const q = new URLSearchParams({ select, user_id: `eq.${userId}`, collection: `eq.${collection}`, deleted: "eq.false", limit: String(limit) });
+  for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") q.append(k, String(v));
+  return (await rest(`records?${q.toString()}`)) || [];
 }
 
 // Upsert a batch of records. Each row: { id, collection, data, updated_at, deleted }.

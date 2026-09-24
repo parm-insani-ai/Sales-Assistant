@@ -30,7 +30,7 @@ export async function shorten(kind, payload, meta) {
     const timer = setTimeout(() => ctl.abort(), 6000);
     const res = await fetch((s.agentUrl || "").trim().replace(/\/+$/, ""), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await backend.fnHeaders(),
       body: JSON.stringify({ shorten: { u: user.id, kind, data: payload, meta: meta || undefined } }),
       signal: ctl.signal,
     });

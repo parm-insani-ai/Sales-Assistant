@@ -12,6 +12,7 @@
 // mechanism.
 
 import * as store from "./store.js";
+import * as backend from "./backend.js";
 import { agentConfigured } from "./agentcfg.js";
 import { bestPitch, equityDetail } from "./views/dealbuilder.js";
 import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
@@ -91,7 +92,7 @@ async function ask(lead, messages) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await backend.fnHeaders(),
       body: JSON.stringify({ system: buildSystem(lead), messages, max_tokens: 400 }),
       signal: ctl.signal,
     });
