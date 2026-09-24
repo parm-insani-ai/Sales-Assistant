@@ -67,6 +67,18 @@ const server = http.createServer((req, res) => {
 
   // --- Supabase auth stubs: enough for the app to sign out and refresh ---
   if (url.pathname === "/auth/v1/logout") { res.writeHead(204, { "Access-Control-Allow-Origin": "*" }); return res.end(); }
+  if (url.pathname === "/auth/v1/signup") {
+    // A new account: a session straight away, like a project with email
+    // confirmation off. The email decides the user, so a test can create a
+    // second account and see it kept apart.
+    let body = ""; req.on("data", (c) => (body += c));
+    return req.on("end", () => {
+      let j = {}; try { j = JSON.parse(body || "{}"); } catch {}
+      const second = /2@/.test(String(j.email || ""));
+      json(res, 200, { access_token: second ? "t2" : "t", refresh_token: "r", expires_in: 86400,
+        user: { id: second ? "00000000-0000-4000-8000-000000000002" : "00000000-0000-4000-8000-000000000001", email: j.email || "p@e.com" } });
+    });
+  }
   if (url.pathname === "/auth/v1/token") {
     // Any refresh or password grant succeeds and yields a long-lived token for
     // a fixed test user, so a test can drive the real sign-in button.

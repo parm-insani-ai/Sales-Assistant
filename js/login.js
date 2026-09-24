@@ -23,6 +23,7 @@ export function showLogin() {
           enterkeyhint="go" placeholder="Password" aria-label="Password" hidden />
         <button type="submit" class="login-go">Continue</button>
         <div class="login-note" aria-live="polite"></div>
+        <button type="button" class="login-switch">New here? Create an account</button>
       </form>`;
     document.body.appendChild(root);
 
@@ -31,7 +32,18 @@ export function showLogin() {
     const passBox = root.querySelector('[name="password"]');
     const note = root.querySelector(".login-note");
     const button = root.querySelector(".login-go");
+    const switcher = root.querySelector(".login-switch");
     let busy = false;
+    // Sign in, or create an account: same two boxes, different last step.
+    let creating = false;
+    const label = () => (emailBox.hidden ? (creating ? "Create account" : "Sign in") : "Continue");
+    switcher.addEventListener("click", () => {
+      creating = !creating;
+      switcher.textContent = creating ? "Have an account? Sign in" : "New here? Create an account";
+      passBox.autocomplete = creating ? "new-password" : "current-password";
+      button.textContent = label();
+      if (emailBox.hidden) say(creating ? "Choose a password of 6+ characters" : "");
+    });
 
     const say = (html) => { note.innerHTML = html; };
     const askEmail = () => {
@@ -44,9 +56,9 @@ export function showLogin() {
     const askPassword = () => {
       emailBox.hidden = true;
       passBox.hidden = false;
-      button.textContent = "Sign in";
+      button.textContent = label();
       // The email you gave, as the way back to it.
-      say(`<button type="button" class="login-back">${esc(emailBox.value.trim())}</button>`);
+      say(`<button type="button" class="login-back">${esc(emailBox.value.trim())}</button>${creating ? " · choose a password of 6+ characters" : ""}`);
       note.querySelector(".login-back").addEventListener("click", askEmail);
       passBox.focus();
     };
@@ -65,18 +77,30 @@ export function showLogin() {
         return;
       }
       const password = passBox.value;
-      if (!password) { say("Enter your password"); return; }
+      if (!password) { say(creating ? "Choose a password" : "Enter your password"); return; }
+      if (creating && password.length < 6) { say("Use a password of 6+ characters"); return; }
       busy = true;
       root.classList.add("busy");
       button.disabled = true;
-      say("Signing in…");
+      say(creating ? "Creating your account…" : "Signing in…");
       try {
-        await backend.signIn(emailBox.value.trim(), password);
+        if (creating) {
+          const r = await backend.signUp(emailBox.value.trim(), password);
+          if (r.needsConfirmation) {
+            // The project asks new accounts to confirm by email first.
+            creating = false; switcher.textContent = "New here? Create an account"; button.textContent = label();
+            say(`Check ${esc(emailBox.value.trim())} for a confirmation link, then sign in here.`);
+            return;
+          }
+        } else {
+          await backend.signIn(emailBox.value.trim(), password);
+        }
         root.classList.add("login-out");
         setTimeout(() => root.remove(), 260);
         resolve(backend.currentUser());
       } catch (err) {
-        const msg = navigator.onLine === false ? "You're offline" : (err && err.message) || "Sign-in failed";
+        let msg = navigator.onLine === false ? "You're offline" : (err && err.message) || (creating ? "Couldn't create the account" : "Sign-in failed");
+        if (!creating && /invalid login credentials/i.test(msg)) msg = "Wrong password, or no account with this email yet";
         say(`${esc(msg)} · <button type="button" class="login-back">${esc(emailBox.value.trim())}</button>`);
         note.querySelector(".login-back").addEventListener("click", askEmail);
         passBox.focus();

@@ -132,6 +132,27 @@ if (!hadSignOut) fail("Settings has no sign-out button");
 if (!d.shown) fail("signing out didn't bring the door back");
 if (d.boxType !== "email") fail("the door came back on the wrong step");
 
+// --- The door can create an account: same two boxes, a switch underneath.
+await p.click("#login .login-switch");
+const sw = await p.evaluate(() => ({ text: document.querySelector("#login .login-switch")?.textContent.trim(), button: document.querySelector("#login .login-go")?.textContent.trim() }));
+console.log("create mode:", JSON.stringify(sw));
+if (!/Sign in/.test(sw.text || "")) fail("the switch didn't flip to create mode");
+await p.evaluate(() => { document.querySelector('#login [name="email"]').value = "new2@example.com"; });
+await p.click("#login .login-go");
+await p.waitForTimeout(200);
+const step = await p.evaluate(() => ({ button: document.querySelector("#login .login-go")?.textContent.trim(), note: document.querySelector("#login .login-note")?.textContent.trim() }));
+if (step.button !== "Create account" || !/6\+ characters/.test(step.note)) fail("the password step doesn't say it's creating an account: " + JSON.stringify(step));
+await p.evaluate(() => { document.querySelector('#login [name="password"]').value = "abc"; });
+await p.click("#login .login-go");
+await p.waitForTimeout(200);
+if (!/6\+ characters/.test(await p.evaluate(() => document.querySelector("#login .login-note").textContent))) fail("a short password wasn't refused");
+await p.evaluate(() => { document.querySelector('#login [name="password"]').value = "longenough"; });
+await p.click("#login .login-go");
+await p.waitForFunction(() => !document.querySelector("#login"), null, { timeout: 10000 });
+const created = await p.evaluate(() => JSON.parse(localStorage.getItem("viniva:auth") || "{}").user);
+console.log("created:", JSON.stringify(created));
+if (!created || created.email !== "new2@example.com" || !/0002$/.test(created.id)) fail("creating an account from the door didn't sign the new account in: " + JSON.stringify(created));
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nlogin.test.js FAILED" : "\nlogin.test.js passed");
