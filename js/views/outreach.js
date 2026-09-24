@@ -13,9 +13,12 @@ import { toast, confirmDialog } from "../components.js";
 import { esc, smsHref, mailtoHref } from "../utils.js";
 import { sendText, smsReady } from "../sms.js";
 import { sendEmail, emailSendConfigured, logEmail } from "../email.js";
-import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote } from "../outreach.js";
+import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience } from "../outreach.js";
+import { openAudienceFilter } from "./audience.js";
 
 const PREFILL = "outreach-prefill";
+// An audience picked by hand on Leads ("Text these") lands here instead.
+const MANUAL = "outreach-audience";
 
 // A sentence handed over by the assistant or the voice parser lands here;
 // the screen opens on it.
@@ -34,7 +37,9 @@ const EXAMPLES = [
 export function renderOutreach(view) {
   let sentence = "";
   try { sentence = sessionStorage.getItem(PREFILL) || ""; sessionStorage.removeItem(PREFILL); } catch { sentence = ""; }
-  let spec = sentence ? parseOutreach(sentence) : null;
+  let manual = null;
+  try { manual = JSON.parse(sessionStorage.getItem(MANUAL) || "null"); sessionStorage.removeItem(MANUAL); } catch { manual = null; }
+  let spec = sentence ? parseOutreach(sentence) : manual && manual.audience ? { channel: manual.channel || "text", audience: { ...emptyAudience(), ...manual.audience, unknown: [] }, message: "", raw: "" } : null;
   let channel = spec ? spec.channel : "text";
   let message = spec ? spec.message : "";
   let includeRecent = false;
@@ -68,7 +73,7 @@ export function renderOutreach(view) {
         </div>
       </div>
       ${!spec ? `<div class="fab-note" style="margin:0 2px">Say it to the assistant, or type it here. The app works out who's in the audience from what they drive and where they stand, writes each message in their name, and you send.</div>` : `
-      <div class="section-title">To <span class="muted" style="font-weight:500;font-size:0.78rem">· ${esc(describeAudience(live))}</span></div>
+      <div class="section-title" style="display:flex;align-items:center;gap:8px"><span style="min-width:0">To <span class="muted" style="font-weight:500;font-size:0.78rem">· ${esc(describeAudience(live))}</span></span><button class="btn btn-ghost btn-sm" data-act="adjust" style="margin-left:auto;flex:0 0 auto">Adjust who</button></div>
       <div class="card">
         <div class="seg" role="group" aria-label="Channel" style="margin-bottom:10px">
           <button class="seg-btn ${channel === "text" ? "active" : ""}" data-channel="text">${icon("message")} Text</button>
@@ -107,7 +112,7 @@ export function renderOutreach(view) {
 
       <div class="card">
         ${!ready ? `<div class="fab-note" style="text-align:left;margin-bottom:8px">${channel === "text" ? "No texting number set up — each text hands off to your phone's Messages app one at a time." : "Email sending isn't set up (Settings → Voice agent) — each email hands off to your mail app one at a time."}</div>` : ""}
-        <button class="btn btn-primary btn-block" data-act="send" ${!recipients.length || figures.length || sending ? "disabled" : ""}>${icon(channel === "text" ? "message" : "mail")} ${sending ? "Sending…" : `Send to ${recipients.length}`}</button>
+        <button class="btn btn-primary btn-block" data-act="send" ${!recipients.length || !message.trim() || figures.length || sending ? "disabled" : ""}>${icon(channel === "text" ? "message" : "mail")} ${sending ? "Sending…" : `Send to ${recipients.length}`}</button>
         <div class="mo-progress small muted" style="margin-top:8px;text-align:center"></div>
         <div class="fab-note" style="margin-top:8px">Sent one after another from your own number. Each one is logged on the customer and counts as a contact.</div>
       </div>`}
@@ -123,6 +128,9 @@ export function renderOutreach(view) {
     el.querySelector('[data-act="examples"]').addEventListener("click", () => { const x = el.querySelector(".mo-examples"); x.hidden = !x.hidden; });
     el.querySelectorAll("[data-example]").forEach((b) => b.addEventListener("click", () => { sentence = EXAMPLES[Number(b.dataset.example)]; spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear(); draw(); }));
     if (!spec) return;
+    el.querySelector('[data-act="adjust"]').addEventListener("click", () => openAudienceFilter(spec.audience, (a) => {
+      spec = { ...spec, audience: a || emptyAudience() }; skipped.clear(); draw();
+    }, { title: "Who it goes to" }));
     el.querySelectorAll("[data-channel]").forEach((b) => b.addEventListener("click", () => { channel = b.dataset.channel; draw(); }));
     el.querySelectorAll("[data-skip]").forEach((b) => b.addEventListener("click", () => { skipped.add(b.dataset.skip); draw(); }));
     el.querySelectorAll("[data-unskip]").forEach((b) => b.addEventListener("click", () => { skipped.delete(b.dataset.unskip); draw(); }));

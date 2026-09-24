@@ -40,7 +40,7 @@ export function parseOutreach(text) {
   if (q) { message = q[1]; audienceText = t.replace(q[0].toLowerCase(), " "); }
   message = norm(message).replace(/^(that|saying)\s+/i, "");
 
-  const a = { text: norm(audienceText), models: [], makes: [], nissan: false, yearMin: null, yearMax: null, paidOff: false, equity: false, lease: false, ownedYears: null, quietDays: null, stages: [], everyone: false, unknown: [] };
+  const a = { ...emptyAudience(), text: norm(audienceText) };
   // The audience is the whole clause after the verb ("text", "send a note
   // to", "reach out to"): "my Altima owners" names a model as surely as
   // "everyone who owns an Altima" does.
@@ -53,6 +53,11 @@ export function parseOutreach(text) {
   a.models.forEach((k) => take(new RegExp(`(?<![a-z0-9])${k.replace(/[-.]/g, (c) => "\\" + c)}s?(?![a-z0-9])`)));
   a.makes = MAKES.filter((m) => take(new RegExp(`\\b${m.replace(/-/g, "\\-")}s?\\b`))).map((m) => (m === "vw" ? "volkswagen" : m === "chevy" ? "chevrolet" : m === "mercedes-benz" ? "mercedes" : m));
   if (a.makes.includes("nissan") && !a.models.length) a.nissan = true;
+  if (take(/\b(?:suvs?|crossovers?|cuvs?)\b/)) a.body = "suv";
+  else if (take(/\b(?:trucks?|pickups?|pick-ups?)\b/)) a.body = "truck";
+  else if (take(/\b(?:sedans?|hatchbacks?|coupes?|compacts?)\b/)) a.body = "car";
+  else if (take(/\b(?:mini)?vans?\b/)) a.body = "van";
+  else if (take(/\bsports? cars?\b/)) a.body = "sports";
   if (take(/\b(older than|before|pre)\s+((?:19|20)\d{2})/)) a.yearMax = Number(RegExp.$2) - 1;
   else if (take(/\b(newer than|after|since)\s+((?:19|20)\d{2})/)) a.yearMin = Number(RegExp.$2) + 1;
   else if (take(/\b((?:19|20)\d{2})\s*(?:to|-|through|and)\s*((?:19|20)\d{2})\b/)) { a.yearMin = Number(RegExp.$1); a.yearMax = Number(RegExp.$2); }
@@ -69,8 +74,38 @@ export function parseOutreach(text) {
   if (take(/\b(?:past|previous|sold|delivered|existing|current) (?:customers?|clients?|owners?)\b|\bbought from (?:us|me)\b/)) a.stages = ["sold", "delivered"];
   if (take(/\b(?:new |open |active |fresh )?(?:leads?|prospects?)\b/) && !a.stages.length) a.stages = ["new", "working", "appointment", "negotiating"];
   a.unknown = leftovers(rest);
-  a.everyone = !a.unknown.length && !a.models.length && !a.makes.length && !a.nissan && a.yearMin == null && a.yearMax == null && !a.paidOff && !a.equity && !a.lease && a.ownedYears == null && a.quietDays == null && !a.stages.length;
+  a.everyone = !a.unknown.length && isEveryone(a);
   return { channel, audience: a, message, raw };
+}
+
+// A blank audience: the shape every filter starts from.
+export function emptyAudience() {
+  return { text: "", models: [], makes: [], nissan: false, body: "", yearMin: null, yearMax: null, paidOff: false, equity: false, lease: false, ownedYears: null, quietDays: null, stages: [], everyone: true, unknown: [] };
+}
+
+// Nothing narrows it: the whole book.
+export function isEveryone(a) {
+  return !a.models.length && !a.makes.length && !a.nissan && !a.body && a.yearMin == null && a.yearMax == null && !a.paidOff && !a.equity && !a.lease && a.ownedYears == null && a.quietDays == null && !a.stages.length;
+}
+
+// Does this customer fit the audience? The one set of rules, whether the
+// audience was said in a sentence or picked in the Leads filter.
+export function inAudience(a, l, now = Date.now()) {
+  const c = classify(String(l.vehicleInterest || ""));
+  const drive = lower(l.vehicleInterest);
+  if (a.models.length && !a.models.some((m) => c.model === m || drive.includes(m))) return false;
+  if (a.makes.length && !a.makes.includes(c.make)) return false;
+  if (a.nissan && c.make !== "nissan") return false;
+  if (a.body && c.body !== a.body) return false;
+  if (a.yearMin != null && !(c.year && c.year >= a.yearMin)) return false;
+  if (a.yearMax != null && !(c.year && c.year <= a.yearMax)) return false;
+  if (a.paidOff && !(l.currentPayment == null || Number(l.currentPayment) === 0) && !(l.payoff != null && Number(l.payoff) === 0)) return false;
+  if (a.equity && !(l.currentValue != null && l.payoff != null && Number(l.currentValue) - Number(l.payoff) >= 2000)) return false;
+  if (a.lease) { const d = l.leaseEnd ? (new Date(l.leaseEnd) - now) / DAY : null; if (d == null || d < -30 || d > 120) return false; }
+  if (a.ownedYears != null) { const p = l.purchaseDate ? (now - new Date(l.purchaseDate)) / (365.25 * DAY) : null; if (p == null || p < a.ownedYears) return false; }
+  if (a.quietDays != null) { const last = l.lastContacted ? (now - new Date(l.lastContacted)) / DAY : Infinity; if (last < a.quietDays) return false; }
+  if (a.stages.length && !a.stages.includes(l.stage)) return false;
+  return true;
 }
 
 // Words that only carry the shape of the sentence: they can be left over
@@ -121,19 +156,7 @@ export function audienceFor(spec, leads, opts = {}) {
   // nobody is picked until it's reworded.
   if (a.unknown && a.unknown.length) return { included, excluded, unknown: a.unknown.slice() };
   for (const l of leads) {
-    const c = classify(String(l.vehicleInterest || ""));
-    const drive = lower(l.vehicleInterest);
-    if (a.models.length && !a.models.some((m) => c.model === m || drive.includes(m))) continue;
-    if (a.makes.length && !a.makes.includes(c.make)) continue;
-    if (a.nissan && c.make !== "nissan") continue;
-    if (a.yearMin != null && !(c.year && c.year >= a.yearMin)) continue;
-    if (a.yearMax != null && !(c.year && c.year <= a.yearMax)) continue;
-    if (a.paidOff && !(l.currentPayment == null || Number(l.currentPayment) === 0) && !(l.payoff != null && Number(l.payoff) === 0)) continue;
-    if (a.equity && !(l.currentValue != null && l.payoff != null && Number(l.currentValue) - Number(l.payoff) >= 2000)) continue;
-    if (a.lease) { const d = l.leaseEnd ? (new Date(l.leaseEnd) - now) / DAY : null; if (d == null || d < -30 || d > 120) continue; }
-    if (a.ownedYears != null) { const p = l.purchaseDate ? (now - new Date(l.purchaseDate)) / (365.25 * DAY) : null; if (p == null || p < a.ownedYears) continue; }
-    if (a.quietDays != null) { const last = l.lastContacted ? (now - new Date(l.lastContacted)) / DAY : Infinity; if (last < a.quietDays) continue; }
-    if (a.stages.length && !a.stages.includes(l.stage)) continue;
+    if (!inAudience(a, l, now)) continue;
     // They're in the audience. Can they be reached?
     let why = "";
     if (l.stage === "lost" || l.doNotContact) why = "do not contact";
@@ -147,7 +170,7 @@ export function audienceFor(spec, leads, opts = {}) {
 }
 
 // What the parser can read, for the reply that says it didn't understand.
-export const AUDIENCE_HELP = "a model, a make, Nissan, a year or a range of years, paid off, with equity, lease ending, owned so many years, not heard from in so many days, past customers, or open leads";
+export const AUDIENCE_HELP = "a model, a make, Nissan, SUV / truck / sedan / van, a year or a range of years, paid off, with equity, lease ending, owned so many years, not heard from in so many days, past customers, or open leads";
 
 // "I didn't understand \"under 60,000 km\"…" — empty when everything was read.
 export function unknownNote(spec) {
@@ -212,13 +235,18 @@ export function describeAudience(spec) {
   else if (a.yearMin != null && a.yearMax != null) bits.push(`${a.yearMin}–${a.yearMax}`);
   else if (a.yearMin != null) bits.push(`${a.yearMin} and newer`);
   else if (a.yearMax != null) bits.push(`${a.yearMax} and older`);
+  const BODY = { suv: "SUV", truck: "truck", car: "sedan / hatchback", van: "van", sports: "sports car" };
+  const kind = a.body ? BODY[a.body] || a.body : "";
   if (a.models.length) bits.push(a.models.map(cap).join(" / ") + " owners");
-  else if (a.makes.length) bits.push(a.makes.map(cap).join(" / ") + " owners");
-  else if (a.nissan) bits.push("Nissan owners");
-  else if (a.stages.length && a.stages.includes("sold")) bits.push("past customers");
-  else if (a.stages.length) bits.push("open leads");
+  else if (a.makes.length) bits.push(a.makes.map(cap).join(" / ") + (kind ? " " + kind : "") + " owners");
+  else if (a.nissan) bits.push("Nissan " + (kind ? kind + " " : "") + "owners");
+  else if (kind) bits.push(kind + " owners");
+  else if (a.stages.length && a.stages.every((s) => ["sold", "delivered"].includes(s))) bits.push("past customers");
+  else if (a.stages.length && a.stages.every((s) => ["new", "working", "appointment", "negotiating"].includes(s))) bits.push("open leads");
+  else if (a.stages.length) bits.push(a.stages.join(" / ") + " customers");
   else bits.push("everyone");
   const extra = [];
+  if (a.models.length && kind) extra.push(kind);
   if (a.paidOff) extra.push("paid off");
   if (a.equity) extra.push("with equity");
   if (a.lease) extra.push("lease ending");

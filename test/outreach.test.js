@@ -30,8 +30,18 @@ s = o.parseOutreach("text the Sentra people that we have double loyalty");
 if (s.audience.models.join() !== "sentra") fail("the Sentra people: " + JSON.stringify(s.audience));
 
 // --- What it can't read is never rounded down to everyone.
+// --- Body style, and the one matcher the Leads filter shares.
+s = o.parseOutreach("text everyone who owns an SUV that we have a family event");
+if (s.audience.body !== "suv" || s.audience.unknown.length || o.describeAudience(s) !== "SUV owners") fail("SUV: " + JSON.stringify(s.audience) + " " + o.describeAudience(s));
+s = o.parseOutreach("text all my Nissan truck owners that Frontier lease rates are good");
+if (s.audience.body !== "truck" || !s.audience.nissan || o.describeAudience(s) !== "Nissan truck owners") fail("Nissan trucks: " + JSON.stringify(s.audience));
+const rogue = { vehicleInterest: "2019 Nissan Rogue SV", stage: "sold", currentPayment: 450, payoff: 9000, currentValue: 16000, purchaseDate: "2019-06-01" };
+const frontier = { vehicleInterest: "2022 Nissan Frontier PRO-4X", stage: "delivered", currentPayment: 700, payoff: 30000, currentValue: 33000 };
+if (!o.inAudience({ ...o.emptyAudience(), body: "suv" }, rogue, now) || o.inAudience({ ...o.emptyAudience(), body: "suv" }, frontier, now)) fail("body matching");
+if (!o.inAudience({ ...o.emptyAudience(), models: ["rogue"], equity: true, yearMax: 2019 }, rogue, now) || o.inAudience({ ...o.emptyAudience(), models: ["rogue"], paidOff: true }, rogue, now)) fail("hand-picked criteria don't match like the sentence's");
+if (!o.isEveryone(o.emptyAudience()) || o.isEveryone({ ...o.emptyAudience(), ownedYears: 4 })) fail("isEveryone");
+
 for (const [t, want] of [
-  ["text everyone who owns an SUV that we have a family event", "suv"],
   ["text everyone who is financed at over 8 percent that rates dropped", "financed at over 8 percent"],
   ["text everyone in Dartmouth that I'm at the Dartmouth store this week", "dartmouth"],
   ["text everyone who owns a Rogue with under 60,000 km that we want low km Rogues", "under 60,000 km"],

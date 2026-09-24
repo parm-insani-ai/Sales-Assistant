@@ -27,6 +27,8 @@ import {
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
+import { inAudience } from "../outreach.js";
+import { openAudienceFilter, audienceLabel } from "./audience.js";
 
 // The words a customer can be found by, lowercased once per record rather
 // than once per keystroke per customer.
@@ -64,6 +66,27 @@ export function renderLeads(view, { param }) {
   };
   let search = sessionStorage.getItem("leads-search") || (spot && spot.search) || "";
   sessionStorage.removeItem("leads-search");
+  // The audience filter: the same criteria a blast is built from (model,
+  // make, body style, years, paid off, equity, lease ending…), picked by
+  // hand in a sheet. It narrows the list on top of the chips and the search,
+  // and its people can be handed to Mass outreach as they stand.
+  const AUD = "viniva:leads-audience";
+  let aud = null;
+  try { aud = JSON.parse(sessionStorage.getItem(AUD) || "null"); } catch { aud = null; }
+  const keepAud = () => { try { if (aud) sessionStorage.setItem(AUD, JSON.stringify(aud)); else sessionStorage.removeItem(AUD); } catch {} };
+  const editAud = () => openAudienceFilter(aud, (a) => { aud = a; keepAud(); draw(); });
+  // Hand the filtered people to Mass outreach. The stage chip rides along as
+  // a stage rule; the search box doesn't, so what's shown is what's blasted
+  // only when it's empty — the count on the screen says so either way.
+  const blast = (channel) => {
+    const a = { ...aud };
+    if (!a.stages || !a.stages.length) {
+      if (filter === "active") a.stages = ["new", "working", "appointment", "negotiating"];
+      else if (filter !== "all" && filter !== "due") a.stages = [filter];
+    }
+    try { sessionStorage.setItem("outreach-audience", JSON.stringify({ channel, audience: a })); } catch {}
+    navigate("/outreach");
+  };
   // all | active | due | <stage>.
   //
   // The chip you tapped last is the one you're on next time — a preset from a
@@ -107,6 +130,7 @@ export function renderLeads(view, { param }) {
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
+    if (aud) list = list.filter((l) => inAudience(aud, l));
 
     // Sort: overdue follow-ups first, then by follow-up date, then newest.
     list = list.slice().sort((a, b) => {
@@ -158,13 +182,30 @@ export function renderLeads(view, { param }) {
         <button class="btn ${ranked ? "btn-primary" : "btn-ghost"}" data-act="opp" aria-pressed="${ranked}">By opportunity</button>
       </div>`}
       ${ranked ? "" : `<div class="lead-chips">
+        <button class="btn btn-sm ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}">${icon("search")} ${aud ? "Filter on" : "Filter"}</button>
         ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}">${esc(c.label)}</button>`).join("")}
-      </div>`}
+      </div>
+      ${aud ? `<div class="card lead-audience" style="padding:10px 12px;margin-bottom:10px">
+        <div class="row" style="align-items:center">
+          <span class="small" style="min-width:0"><span class="strong aud-count">${list.length.toLocaleString()}</span> match · ${esc(audienceLabel(aud))}</span>
+          <button class="modal-close" data-act="aud-clear" aria-label="Clear filter" title="Clear filter">&times;</button>
+        </div>
+        ${selecting ? "" : `<div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-ghost btn-sm" data-act="aud-edit" style="flex:0 0 auto;padding-left:10px;padding-right:10px">Edit</button>
+          <button class="btn btn-primary btn-sm" data-act="aud-text" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("message")} Text these</button>
+          <button class="btn btn-primary btn-sm" data-act="aud-email" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("mail")} Email these</button>
+        </div>`}
+      </div>` : ""}`}
       <div class="lead-list"></div>
     `;
 
     const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="opp"]', () => { opp = !opp; remember(OPP_KEY, opp ? "1" : null); draw(); });
+    on('[data-act="audience"]', editAud);
+    on('[data-act="aud-edit"]', editAud);
+    on('[data-act="aud-clear"]', () => { aud = null; keepAud(); draw(); });
+    on('[data-act="aud-text"]', () => blast("text"));
+    on('[data-act="aud-email"]', () => blast("email"));
 
     const listEl = wrap.querySelector(".lead-list");
     if (ranked) {
@@ -289,9 +330,11 @@ export function renderLeads(view, { param }) {
     const token = ++renderToken;
     if (watcher) { watcher.disconnect(); watcher = null; }
     el.innerHTML = "";
+    const cnt = wrap.querySelector(".aud-count");
+    if (cnt) cnt.textContent = filtered.length.toLocaleString();
     if (!filtered.length) {
       shown = 0;
-      el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Nothing in this filter yet.");
+      el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : "Nothing in this filter yet.");
       return;
     }
     const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot));
@@ -303,7 +346,7 @@ export function renderLeads(view, { param }) {
     const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : first;
     const frag = document.createDocumentFragment();
     // What the read of the book found, in one line above it.
-    if (!selecting && !search && filter === "all") {
+    if (!selecting && !search && !aud && filter === "all") {
       const b = bookSummary();
       const summary = document.createElement("div");
       summary.className = "lead-summary small muted";
@@ -367,6 +410,7 @@ export function renderLeads(view, { param }) {
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
+    if (aud) list = list.filter((l) => inAudience(aud, l));
     // Best deals first. The list's job is to read the whole book and put the
     // people a car can be sold to at the top, with the reason on the card —
     // see assess.js. Ties go to the nearest follow-up, then the newest.
