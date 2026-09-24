@@ -35,15 +35,17 @@ const forged = await stranger.evaluate(async () => { const bk = await import("/j
 if (!/only an admin/.test(forged)) fail("a non-admin could create a store: " + forged);
 await stranger.close();
 
-// --- 1. The admin account signs in with no book and lands on the Admin
-// screen, then creates the store and is its first manager.
+// --- 1. The admin account signs in with no book and gets the store's app:
+// the management Home, three tabs, no voice button. Team is a tap away;
+// there it creates the store and is its first manager.
 const mgr = await pageAs("tm", "mgr@e.com", { name: "Sam Manager" });
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => location.hash === "#/team", null, { timeout: 15000 });
-await mgr.waitForSelector('[data-act="create"]');
-const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim() }));
+await mgr.waitForFunction(() => document.body.classList.contains("management") && /No store yet/.test(document.querySelector(".hero-title")?.textContent || ""), null, { timeout: 15000 });
+const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn"), plus: getComputedStyle(document.querySelector("#quick-add")).display }));
 console.log("admin lands on:", JSON.stringify(landing));
-if (landing.greeting !== "Admin") fail("the admin account didn't land on the Admin screen: " + JSON.stringify(landing));
+if (landing.greeting !== "Admin" || landing.tabs.join() !== "Home,Team,Settings" || landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
+await mgr.click('[data-act="team"]');
+await mgr.waitForSelector('[data-act="create"]');
 await mgr.fill("#st-name", "O'Regan's Nissan Halifax");
 await mgr.click('[data-act="create"]');
 await mgr.waitForSelector("#invite-link");

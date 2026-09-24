@@ -25,7 +25,7 @@ const LOADERS = {
   tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
-  outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"),
+  outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -44,6 +44,7 @@ import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
+import { managementMode, myStore as readStore } from "./team.js";
 import { claimDevice } from "./account.js";
 import { initSaveState } from "./savestate.js";
 import { needsInstall } from "./push.js";
@@ -72,8 +73,40 @@ try { claimDevice(backend.currentUser()); } catch { }
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
 
+// ---- Which app this is: the salesperson's, or the store's ----
+// The store's app has a different Home (the board) and different tabs
+// (Home, Team, Settings); no voice button, no quick-add, no Leads or Comms
+// — those are a rep's. Applied at boot from what the device remembers, and
+// again once the cloud has answered who this account is.
+const inManagement = () => managementMode(store.all("leads").length);
+const TAB_SVG = {
+  home: '<path d="M3 10.6 12 3l9 7.6"/><path d="M5 9.4V20a1 1 0 0 0 1 1h3.5v-5.5h5V21H18a1 1 0 0 0 1-1V9.4"/>',
+  team: '<circle cx="9" cy="8" r="3.3"/><path d="M3.4 20a5.6 5.6 0 0 1 11.2 0"/><path d="M16.2 5.3a3.3 3.3 0 0 1 0 5.9"/><path d="M18.4 20a5.6 5.6 0 0 0-3-4.95"/>',
+  settings: '<circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.9 15H3.8a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4V3.8a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.5 1z"/>',
+};
+const SALES_TABBAR = document.querySelector(".tabbar").innerHTML;
+let appliedMode = null;
+function applyMode() {
+  const mg = inManagement();
+  if (mg === appliedMode) return false;
+  appliedMode = mg;
+  document.body.classList.toggle("management", mg);
+  const bar = document.querySelector(".tabbar");
+  bar.innerHTML = mg
+    ? [["/", "Home", "home"], ["/team", "Team", "team"], ["/settings", "Settings", "settings"]].map(([r, l, k]) =>
+        `<a href="#${r}" class="tab" data-route="${r}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[k]}</svg></span><span class="tab-label">${l}</span></a>`).join("")
+    : SALES_TABBAR;
+  const vb = document.getElementById("voice-btn");
+  if (vb) vb.addEventListener("click", () => startVoiceAssistant());
+  document.getElementById("quick-add").style.display = mg ? "none" : "";
+  return true;
+}
+applyMode();
+
 const PAGES = {
-  "/": { title: "Dashboard", render: renderDashboard },
+  // Home is the salesperson's day — or, for an admin or a manager running
+  // the store, the board. Decided per render so a mode switch takes at once.
+  "/": { title: "Dashboard", render: (view, ctx) => (inManagement() ? lazyView("manage", "renderManageHome")(view, ctx) : renderDashboard(view, ctx)) },
   "/leads": { title: "Leads", render: renderLeads },
   "/inventory": { title: "Inventory", render: renderInventory },
   "/calculator": { title: "Deal Calculator", render: lazyView("calculator", "renderCalculator") },
@@ -245,26 +278,16 @@ document.getElementById("quick-add").addEventListener("click", () => {
   }));
 });
 
-// Wrapped, not passed directly: the click event would arrive as the options
-// argument.
-document.getElementById("voice-btn").addEventListener("click", () => startVoiceAssistant());
-
 startRouter();
 
-// An admin account is a different kind of user: it runs the stores, it
-// doesn't sell. When one signs in with no customer book of its own, the app
-// opens on the Admin screen instead of a salesperson's empty Home. The flag
-// is remembered from the last visit so the jump happens before the network
-// answers, and re-read each launch so a demotion takes effect.
+// Who this account is, from the cloud: an admin or a manager runs the
+// store and gets the store's app. Re-read each launch so an appointment or
+// a demotion takes effect; if the answer changes what this app is, the tabs
+// and Home switch over in place.
 if (backend.isSignedIn()) {
-  LOADERS.team().then(async () => {
-    const t = await import("./team.js");
-    const atHome = () => (location.hash.replace(/^#/, "") || "/") === "/";
-    const empty = () => store.all("leads").length === 0;
-    if (t.isAdmin() && empty() && atHome()) navigate("/team");
-    const s = await t.myStore().catch(() => null);
-    if (t.isAdmin(s) && empty() && atHome()) navigate("/team");
-  }).catch(() => {});
+  readStore().catch(() => null).then(() => {
+    if (applyMode()) { const base = location.hash.replace(/^#/, "") || "/"; if (base === "/") navigate("/"); updateTabs(currentBase()); }
+  });
 }
 
 // Read the book while nothing else is happening, so the first visit to Leads

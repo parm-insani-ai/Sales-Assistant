@@ -70,6 +70,58 @@ export function isManager(s = cachedStore()) {
 export function isAdmin(s = cachedStore()) {
   return !!((s && s.admin) || cachedAdmin());
 }
+
+// ---- Which app this is ----
+// An admin, or a manager without a book of their own, runs the store: their
+// Home is the board and their tabs are Home, Team and Settings. Everyone
+// else gets the salesperson's app. A manager who also sells can switch
+// between the two; the choice is remembered on the device.
+const MODE_KEY = "viniva:mode";
+export function viewModeOverride() {
+  try { return localStorage.getItem(MODE_KEY) || ""; } catch { return ""; }
+}
+export function setViewMode(mode) {
+  try { if (mode) localStorage.setItem(MODE_KEY, mode); else localStorage.removeItem(MODE_KEY); } catch { /* fine */ }
+}
+// `leadsCount` is the size of this device's book; team.js doesn't read the store.
+export function managementMode(leadsCount = 0) {
+  const o = viewModeOverride();
+  if (o === "manage") return isAdmin() || isManager();
+  if (o === "sales") return false;
+  return isAdmin() || (isManager() && leadsCount === 0);
+}
+// Could this account run the store at all? (Whether the switch is offered.)
+export function canManage() {
+  return isAdmin() || isManager();
+}
+
+// ---- The board, cached for the session ----
+const BOARD_KEY = "viniva:team-board";
+export function cachedBoard() {
+  try { return JSON.parse(sessionStorage.getItem(BOARD_KEY) || "null"); } catch { return null; }
+}
+export async function loadBoard(team, { force = false } = {}) {
+  const have = cachedBoard();
+  if (have && !force && have.storeId === team.id && Date.now() - new Date(have.at) < 10 * 60000) return have;
+  const stats = await boardStats(team.members || []);
+  const board = { at: new Date().toISOString(), storeId: team.id, stats };
+  try { sessionStorage.setItem(BOARD_KEY, JSON.stringify(board)); } catch { /* fine */ }
+  return board;
+}
+
+// The store's day, added up from the reps' numbers. `stats` is boardStats'.
+export function storeTotals(stats) {
+  const ok = stats.filter((r) => !r.error && r.touches);
+  const sum = (f) => ok.reduce((a, r) => a + f(r), 0);
+  const past = sum((r) => r.appts.past), shown = sum((r) => r.appts.shown);
+  return {
+    reps: ok.length, units: sum((r) => r.sales.units), goal: sum((r) => r.goal.units), gross: sum((r) => r.sales.gross),
+    set: sum((r) => r.appts.set), shown, sold: sum((r) => r.appts.sold), showRate: past ? Math.round((shown / past) * 100) : null,
+    touchesToday: sum((r) => r.touches.today), touchesMonth: sum((r) => r.touches.month),
+    untouched: sum((r) => r.leads.untouched.length), overdue: sum((r) => r.leads.overdue.length), open: sum((r) => r.leads.open),
+    apptsToday: ok.flatMap((r) => r.appts.today.map((a) => ({ ...a, rep: r.member }))).sort((a, b) => String(a.when).localeCompare(String(b.when))),
+  };
+}
 export function inviteLink(code) {
   const base = location.origin + location.pathname.replace(/[^/]*$/, "");
   return `${base}#/join/${code}`;

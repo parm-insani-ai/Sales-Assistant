@@ -16,10 +16,9 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, boardStats, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard } from "../team.js";
 import { runningVersion, getVersion } from "../updater.js";
 
-const BOARD_KEY = "viniva:team-board";
 const stageLabel = (s) => (store.stageMeta(s) || { label: s }).label;
 const stageBadge = (s) => (store.stageMeta(s) || { badge: "" }).badge;
 
@@ -34,8 +33,7 @@ export function renderTeam(view, { param } = {}) {
   }
 
   let team = cachedStore();
-  let board = null;
-  try { board = JSON.parse(sessionStorage.getItem(BOARD_KEY) || "null"); } catch { board = null; }
+  let board = cachedBoard();
   let loading = false, error = "";
   let admin = isAdmin(team);
   let stores = null; // every store, for an admin
@@ -70,11 +68,8 @@ export function renderTeam(view, { param } = {}) {
   async function refreshBoard() {
     if (!team || loading) return;
     loading = true; draw();
-    try {
-      const stats = await boardStats(team.members || []);
-      board = { at: new Date().toISOString(), stats };
-      try { sessionStorage.setItem(BOARD_KEY, JSON.stringify(board)); } catch { /* fine */ }
-    } catch (e) { error = e && e.message ? e.message : "couldn't read the board"; }
+    try { board = await loadBoard(team, { force: true }); }
+    catch (e) { error = e && e.message ? e.message : "couldn't read the board"; }
     loading = false; draw();
   }
 
@@ -218,57 +213,11 @@ export function renderTeam(view, { param } = {}) {
   }
 
   // ---- A rep, opened from the board ----
-  async function openRep(userId) {
-    const r = (board && board.stats.find((s) => s.member.user_id === userId)) || null;
+  function openRep(userId) {
+    const r = (board && board.stats.find((x) => x.member.user_id === userId)) || null;
     const m = (team.members || []).find((x) => x.user_id === userId);
     if (!r || r.error || !r.touches) { toast("Refresh the board first", "warn"); return; }
-    openModal(memberName(m), () => {
-      const root = document.createElement("div");
-      const leadRow = (l, sub) => `<div class="row rep-lead" data-lead="${esc(l.id)}" style="padding:8px 0;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")}</div><div class="row-sub">${esc(sub)}</div></div><span class="badge ${stageBadge(l.stage)}">${esc(stageLabel(l.stage))}</span></div>`;
-      root.innerHTML = `
-        <div class="stat-grid" style="margin-bottom:12px">
-          <div class="stat"><div class="stat-value">${r.sales.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="stat-label">Units · pace ${r.goal.pace}</div></div>
-          <div class="stat"><div class="stat-value mono" style="font-size:1.25rem">${currency(r.sales.gross)}</div><div class="stat-label">Gross this month</div></div>
-          <div class="stat"><div class="stat-value" style="color:var(--brand)">${r.appts.set}</div><div class="stat-label">Set · ${r.appts.shown} shown · ${r.appts.sold} sold</div></div>
-          <div class="stat"><div class="stat-value">${r.touches.today}</div><div class="stat-label">Touches today · ${r.touches.month} MTD${r.goal.touchesDay ? " · goal " + r.goal.touchesDay + "/day" : ""}</div></div>
-        </div>
-        ${r.appts.today.length ? `<div class="section-title">Today's appointments</div><div class="card">${r.appts.today.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(String(a.when).slice(11, 16))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${a.outcome === "sold" ? "Sold" : a.outcome === "showed" ? "Showed" : a.outcome === "no_show" ? "No-show" : a.confirmed ? "Confirmed" : "Set"}</span></div>`).join("")}</div>` : ""}
-        <div class="section-title">Untouched new leads <span class="muted" style="font-weight:500;font-size:0.78rem">· ${r.leads.untouched.length} older than a day</span></div>
-        <div class="card">${r.leads.untouched.length ? r.leads.untouched.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · added ${formatDate(l.createdAt)}`)).join("") : `<div class="muted small">None — every new lead has been touched.</div>`}</div>
-        <div class="section-title">Overdue follow-ups <span class="muted" style="font-weight:500;font-size:0.78rem">· ${r.leads.overdue.length}</span></div>
-        <div class="card">${r.leads.overdue.length ? r.leads.overdue.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · due ${relativeDay(l.followUp)}`)).join("") : `<div class="muted small">None overdue.</div>`}</div>
-        <div class="hint">${r.leads.open} open leads in all. Tap a customer to read their page.</div>
-      `;
-      root.querySelectorAll("[data-lead]").forEach((n) => n.addEventListener("click", () => openCustomer(userId, n.dataset.lead)));
-      return root;
-    });
-  }
-
-  // ---- A rep's customer, read-only ----
-  async function openCustomer(userId, leadId) {
-    let data = null;
-    try { data = await repLead(userId, leadId); } catch (e) { toast(e.message || "Couldn't read the customer", "danger"); return; }
-    if (!data) { toast("That customer isn't there any more", "warn"); return; }
-    const l = data.lead;
-    const c = contractSummary(l);
-    openModal(l.name || "Customer", () => {
-      const root = document.createElement("div");
-      root.innerHTML = `
-        <div class="card">
-          <div class="row"><div class="row-main"><div class="row-title">${esc(l.vehicleInterest || "No vehicle noted")}</div><div class="row-sub">${l.source ? esc(l.source) + " · " : ""}added ${esc(formatDate(l.createdAt))}</div></div><span class="badge ${stageBadge(l.stage)}">${esc(stageLabel(l.stage))}</span></div>
-          <div class="kv"><span class="k">Phone</span><span class="v">${l.phone ? `<a href="${esc(telHref(l.phone))}">${esc(phoneDisplay(l.phone))}</a>` : "—"}</span></div>
-          <div class="kv"><span class="k">Email</span><span class="v">${esc(l.email || "—")}</span></div>
-          <div class="kv"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "—"}</span></div>
-          <div class="kv"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? " · " + esc(l.lastContactVia) : "") : "Never"}</span></div>
-          ${c ? `<div class="kv"><span class="k">Contract</span><span class="v">${esc(c.line)}</span></div>` : ""}
-        </div>
-        ${l.notes ? `<div class="section-title">Notes</div><div class="card small" style="white-space:pre-wrap">${esc(l.notes)}</div>` : ""}
-        <div class="section-title">Recent texts <span class="muted" style="font-weight:500;font-size:0.78rem">· ${data.texts.length ? "newest first" : "none"}</span></div>
-        <div class="card">${data.texts.length ? data.texts.map((t) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div class="small muted">${t.dir === "in" ? "Them" : "Rep"} · ${esc(formatDateTime(t.at || t.createdAt))}</div><div class="small" style="white-space:pre-wrap">${esc(t.body || "")}</div></div>`).join("") : `<div class="muted small">No texts with this customer.</div>`}</div>
-        <div class="hint">Read-only. The rep's own app is where this customer is worked.</div>
-      `;
-      return root;
-    });
+    openRepSheet(r, m);
   }
 
   function openNameSheet(mine) {
@@ -386,4 +335,60 @@ export function renderJoin(view, { param } = {}) {
   view.appendChild(el);
   joinStore(code, store.getSettings().salesperson || "").then((t) => { toast(`You're on ${t.name}'s team`, "success"); navigate("/team"); },
     (e) => { el.innerHTML = ""; view.innerHTML = ""; renderTeam(view, { param: code }); toast(e.message || "Couldn't join", "danger"); });
+}
+
+// ---- A rep's day, opened from a board: the lists behind the numbers ----
+export function openRepSheet(r, m) {
+  const userId = r.member ? r.member.user_id : m && m.user_id;
+  openModal(memberName(m || r.member), () => {
+    const root = document.createElement("div");
+    const leadRow = (l, sub) => `<div class="row rep-lead" data-lead="${esc(l.id)}" style="padding:8px 0;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")}</div><div class="row-sub">${esc(sub)}</div></div><span class="badge ${stageBadge(l.stage)}">${esc(stageLabel(l.stage))}</span></div>`;
+    root.innerHTML = `
+      <div class="stat-grid" style="margin-bottom:12px">
+        <div class="stat"><div class="stat-value">${r.sales.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="stat-label">Units · pace ${r.goal.pace}</div></div>
+        <div class="stat"><div class="stat-value mono" style="font-size:1.25rem">${currency(r.sales.gross)}</div><div class="stat-label">Gross this month</div></div>
+        <div class="stat"><div class="stat-value" style="color:var(--brand)">${r.appts.set}</div><div class="stat-label">Set · ${r.appts.shown} shown · ${r.appts.sold} sold</div></div>
+        <div class="stat"><div class="stat-value">${r.touches.today}</div><div class="stat-label">Touches today · ${r.touches.month} MTD${r.goal.touchesDay ? " · goal " + r.goal.touchesDay + "/day" : ""}</div></div>
+      </div>
+      ${r.appts.today.length ? `<div class="section-title">Today's appointments</div><div class="card">${r.appts.today.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(String(a.when).slice(11, 16))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("")}</div>` : ""}
+      <div class="section-title">Untouched new leads <span class="muted" style="font-weight:500;font-size:0.78rem">· ${r.leads.untouched.length} older than a day</span></div>
+      <div class="card">${r.leads.untouched.length ? r.leads.untouched.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · added ${formatDate(l.createdAt)}`)).join("") : `<div class="muted small">None — every new lead has been touched.</div>`}</div>
+      <div class="section-title">Overdue follow-ups <span class="muted" style="font-weight:500;font-size:0.78rem">· ${r.leads.overdue.length}</span></div>
+      <div class="card">${r.leads.overdue.length ? r.leads.overdue.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · due ${relativeDay(l.followUp)}`)).join("") : `<div class="muted small">None overdue.</div>`}</div>
+      <div class="hint">${r.leads.open} open leads in all. Tap a customer to read their page.</div>
+    `;
+    root.querySelectorAll("[data-lead]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(userId, n.dataset.lead)));
+    return root;
+  });
+}
+
+export function apptState(a) {
+  return a.outcome === "sold" ? "Sold" : a.outcome === "showed" ? "Showed" : a.outcome === "no_show" ? "No-show" : a.confirmed ? "Confirmed" : "Set";
+}
+
+// ---- A rep's customer, read-only ----
+export async function openCustomerSheet(userId, leadId) {
+  let data = null;
+  try { data = await repLead(userId, leadId); } catch (e) { toast(e.message || "Couldn't read the customer", "danger"); return; }
+  if (!data) { toast("That customer isn't there any more", "warn"); return; }
+  const l = data.lead;
+  const c = contractSummary(l);
+  openModal(l.name || "Customer", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="card">
+        <div class="row"><div class="row-main"><div class="row-title">${esc(l.vehicleInterest || "No vehicle noted")}</div><div class="row-sub">${l.source ? esc(l.source) + " · " : ""}added ${esc(formatDate(l.createdAt))}</div></div><span class="badge ${stageBadge(l.stage)}">${esc(stageLabel(l.stage))}</span></div>
+        <div class="kv"><span class="k">Phone</span><span class="v">${l.phone ? `<a href="${esc(telHref(l.phone))}">${esc(phoneDisplay(l.phone))}</a>` : "—"}</span></div>
+        <div class="kv"><span class="k">Email</span><span class="v">${esc(l.email || "—")}</span></div>
+        <div class="kv"><span class="k">Follow-up</span><span class="v">${l.followUp ? esc(relativeDay(l.followUp)) + " (" + esc(formatDate(l.followUp)) + ")" : "—"}</span></div>
+        <div class="kv"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? " · " + esc(l.lastContactVia) : "") : "Never"}</span></div>
+        ${c ? `<div class="kv"><span class="k">Contract</span><span class="v">${esc(c.line)}</span></div>` : ""}
+      </div>
+      ${l.notes ? `<div class="section-title">Notes</div><div class="card small" style="white-space:pre-wrap">${esc(l.notes)}</div>` : ""}
+      <div class="section-title">Recent texts <span class="muted" style="font-weight:500;font-size:0.78rem">· ${data.texts.length ? "newest first" : "none"}</span></div>
+      <div class="card">${data.texts.length ? data.texts.map((t) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div class="small muted">${t.dir === "in" ? "Them" : "Rep"} · ${esc(formatDateTime(t.at || t.createdAt))}</div><div class="small" style="white-space:pre-wrap">${esc(t.body || "")}</div></div>`).join("") : `<div class="muted small">No texts with this customer.</div>`}</div>
+      <div class="hint">Read-only. The rep's own app is where this customer is worked.</div>
+    `;
+    return root;
+  });
 }

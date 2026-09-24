@@ -1539,6 +1539,11 @@ body.voice-live .tab-voice .tab-label { color: var(--brand-strong); }
 .voice-overlay.voice-docked .voice-status { color: var(--text); }
 .voice-overlay.voice-docked .voice-close { background: transparent; }
 
+/* The store's app: three tabs, no voice button, no quick-add. */
+body.management .tabbar { grid-template-columns: repeat(3, 1fr); }
+body.management #quick-add { display: none; }
+.mg-rep:active { opacity: 0.7; }
+
 /* The manager board: one rep per row, the month's cells under the name. */
 .team-row:last-child { border-bottom: none !important; }
 .team-cells { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.8rem; color: var(--text-2); }

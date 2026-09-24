@@ -5,6 +5,7 @@
 import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { openDealerSearch } from "./dealer.js";
+import { canManage, setViewMode } from "../team.js";
 
 export const TOOL_LINKS = [
   { icon: "users", label: "Team", fn: () => navigate("/team") },
@@ -42,6 +43,8 @@ export function toolGrid(items, onPick) {
 
 export function renderTools(view) {
   const el = document.createElement("div");
+  // A manager or admin who also sells can step over to the store's app.
+  const links = canManage() ? [{ icon: "store", label: "Management view", fn: () => { setViewMode("manage"); location.hash = "#/"; location.reload(); } }, ...TOOL_LINKS] : TOOL_LINKS;
   el.innerHTML = `
     <div class="hero">
       <div class="hero-greeting">Tools</div>
@@ -51,5 +54,5 @@ export function renderTools(view) {
     <div class="tools-slot"></div>
   `;
   view.appendChild(el);
-  el.querySelector(".tools-slot").appendChild(toolGrid(TOOL_LINKS));
+  el.querySelector(".tools-slot").appendChild(toolGrid(links));
 }
