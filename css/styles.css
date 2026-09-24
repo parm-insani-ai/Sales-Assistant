@@ -1537,3 +1537,8 @@ body.voice-live .tab-voice .tab-label { color: var(--brand-strong); }
    coloured, sitting where the eye already expects the mic. */
 .voice-overlay.voice-docked .voice-status { color: var(--text); }
 .voice-overlay.voice-docked .voice-close { background: transparent; }
+
+/* The manager board: one rep per row, the month's cells under the name. */
+.team-row:last-child { border-bottom: none !important; }
+.team-cells { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.8rem; color: var(--text-2); }
+.team-cells b { font-weight: 700; color: var(--text); }

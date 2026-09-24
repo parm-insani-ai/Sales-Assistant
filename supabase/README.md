@@ -37,7 +37,32 @@ another device pulls everything down.
 - **Conflicts** resolve by newest edit wins (last-write-wins on each record).
 - **Offline:** edits made offline queue up and sync the next time you're online.
 - **A whole team** can share one Supabase project — each person signs in with
-  their own account and sees only their own customers.
+  their own account and sees only their own customers. See the next section
+  for the store and the manager board.
+
+## Teams and the manager board
+
+A **store** groups accounts on one project: reps and one or more managers. A
+manager sees the board under **Tools → Team** — every rep's touches,
+appointments set and shown, units against goal and pace, untouched new
+leads and overdue follow-ups, today and month to date — and can open a rep's
+lists and any customer on them, read-only. Reps keep their own books and
+never see each other's.
+
+Setup:
+
+1. Re-run [`schema.sql`](./schema.sql) in **SQL Editor** (it's safe to
+   re-run). This adds the `stores` and `store_members` tables, the database
+   functions the app calls, and a policy that lets a manager *read* their
+   store's members' records. Writing stays owner-only.
+2. The manager opens **Tools → Team**, names the store and taps **Create the
+   store**. They get an invite link.
+3. Each rep signs in to their own cloud account, taps the invite link (or
+   types the code under Tools → Team), and they're on the board.
+
+Managers can promote, demote or remove members from the Team screen. The
+board reads the reps' synced records, so a rep's numbers are as current as
+their last sync.
 
 ## Calendar feeds (Apple / Outlook / Google)
 

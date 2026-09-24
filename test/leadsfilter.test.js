@@ -15,12 +15,12 @@ await p.addInitScript(() => {
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
-      { id: "s1", name: "Dana Muise", phone: "9025551111", stage: "delivered", vehicleInterest: "2019 Nissan Sentra SV", currentPayment: 0, payoff: 0, createdAt: "x", updatedAt: "x" },
-      { id: "s2", name: "Lee Wong", phone: "9025552222", stage: "delivered", vehicleInterest: "2021 Nissan Sentra SR", currentPayment: 380, payoff: 9000, createdAt: "x", updatedAt: "x" },
-      { id: "s3", name: "Pat Roy", phone: "9025553333", stage: "working", vehicleInterest: "2017 Nissan Sentra S", currentPayment: 0, createdAt: "x", updatedAt: "x" },
-      { id: "r1", name: "Rogue Owner", phone: "9025554444", stage: "delivered", vehicleInterest: "2020 Nissan Rogue SV", payoff: 0, createdAt: "x", updatedAt: "x" },
-      { id: "f1", name: "Frontier Owner", phone: "9025555555", stage: "delivered", vehicleInterest: "2022 Nissan Frontier PRO-4X", currentPayment: 700, createdAt: "x", updatedAt: "x" },
-      { id: "h1", name: "Civic Owner", phone: "9025556666", stage: "new", vehicleInterest: "2020 Honda Civic Sport", createdAt: "x", updatedAt: "x" },
+      { id: "s1", name: "Dana Muise", phone: "9025551111", stage: "delivered", vehicleInterest: "2019 Nissan Sentra SV", currentPayment: 0, payoff: 0, purchaseDate: "2025-05-01", createdAt: "x", updatedAt: "x" },
+      { id: "s2", name: "Lee Wong", phone: "9025552222", stage: "delivered", vehicleInterest: "2021 Nissan Sentra SR", currentPayment: 380, payoff: 9000, purchaseDate: "2025-05-01", createdAt: "x", updatedAt: "x" },
+      { id: "s3", name: "Pat Roy", phone: "9025553333", stage: "working", vehicleInterest: "2017 Nissan Sentra S", currentPayment: 0, purchaseDate: "2025-05-01", createdAt: "x", updatedAt: "x" },
+      { id: "r1", name: "Rogue Owner", phone: "9025554444", stage: "delivered", vehicleInterest: "2020 Nissan Rogue SV", payoff: 0, purchaseDate: "2025-05-01", createdAt: "x", updatedAt: "x" },
+      { id: "f1", name: "Frontier Owner", phone: "9025555555", stage: "delivered", vehicleInterest: "2022 Nissan Frontier PRO-4X", currentPayment: 700, purchaseDate: "2025-05-01", createdAt: "x", updatedAt: "x" },
+      { id: "h1", name: "Civic Owner", phone: "9025556666", stage: "new", vehicleInterest: "2020 Honda Civic Sport", purchaseDate: "2025-05-01", createdAt: "x", updatedAt: "x" },
     ],
     settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false,
       agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api", smsFrom: "+19025550000" },
