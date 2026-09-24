@@ -20,11 +20,22 @@ function remember(s) {
   try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* fine */ }
 }
 
+// The store, and whether the signed-in user is an admin (kept beside it so
+// the screen knows without a store). Admins are set in the database by the
+// project owner; the app only reads the flag.
 export async function myStore() {
-  const s = await backend.rpc("my_store", {});
-  remember(s || null);
-  return s || null;
+  const [s, admin] = await Promise.all([backend.rpc("my_store", {}), backend.rpc("is_admin", {}).catch(() => false)]);
+  const out = s ? { ...s, admin: !!(s.admin || admin) } : null;
+  remember(out);
+  try { localStorage.setItem(KEY + ":admin", admin ? "1" : ""); } catch { /* fine */ }
+  return out;
 }
+export function cachedAdmin() {
+  try { return localStorage.getItem(KEY + ":admin") === "1"; } catch { return false; }
+}
+export async function adminStores() { return (await backend.rpc("admin_stores", {})) || []; }
+export async function adminAddMember(storeId, email, role, displayName = "") { return backend.rpc("admin_add_member", { store: storeId, member_email: email, new_role: role, display_name: displayName }); }
+export async function adminSetStore(storeId, { name = null, remove = false } = {}) { return backend.rpc("admin_set_store", { store: storeId, new_name: name, remove }); }
 export async function createStore(name, displayName = "") {
   const s = await backend.rpc("create_store", { store_name: name, display_name: displayName });
   remember(s); return s;
@@ -37,9 +48,10 @@ export async function setMyName(displayName) {
   const s = await backend.rpc("set_my_name", { display_name: displayName });
   remember(s); return s;
 }
-export async function setMemberRole(userId, role) {
-  const s = await backend.rpc("set_member_role", { member: userId, new_role: role });
-  remember(s); return s;
+export async function setMemberRole(userId, role, storeId = null) {
+  const s = await backend.rpc("set_member_role", { member: userId, new_role: role, store: storeId });
+  if (!storeId) remember(s);
+  return s;
 }
 export async function leaveStore() {
   await backend.rpc("leave_store", {});
@@ -47,6 +59,9 @@ export async function leaveStore() {
 }
 export function isManager(s = cachedStore()) {
   return !!(s && s.role === "manager");
+}
+export function isAdmin(s = cachedStore()) {
+  return !!((s && s.admin) || cachedAdmin());
 }
 export function inviteLink(code) {
   const base = location.origin + location.pathname.replace(/[^/]*$/, "");

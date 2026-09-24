@@ -83,6 +83,24 @@ create index if not exists store_members_user_idx on public.store_members (user_
 alter table public.stores        enable row level security;
 alter table public.store_members enable row level security;
 
+-- Admins: the dealership's owner of the app. Only an admin can create a
+-- store or appoint and demote managers, so nobody can make themselves a
+-- manager by tapping a button. Admins are set here, by whoever holds the
+-- Supabase project — there is no screen for it:
+--
+--   insert into public.admins (user_id)
+--     select id from auth.users where email = 'you@example.com'
+--     on conflict do nothing;
+create table if not exists public.admins (
+  user_id  uuid        primary key references auth.users (id) on delete cascade,
+  added_at timestamptz not null default now()
+);
+alter table public.admins enable row level security;
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.admins where user_id = auth.uid())
+$$;
+
 -- The store(s) the signed-in user belongs to. SECURITY DEFINER so a policy
 -- on store_members can consult it without recursing into its own policy.
 create or replace function public.my_store_ids() returns setof uuid
@@ -122,11 +140,11 @@ grant select on public.stores to authenticated;
 grant select on public.store_members to authenticated;
 
 -- The signed-in user's store: its name, invite code, their role, and the
--- members. Null when they're not in one.
+-- members. Null when they're not in one. `admin` says whether they are one.
 create or replace function public.my_store() returns json
 language sql stable security definer set search_path = public as $$
   select json_build_object(
-    'id', s.id, 'name', s.name, 'code', s.invite_code, 'role', me.role,
+    'id', s.id, 'name', s.name, 'code', s.invite_code, 'role', me.role, 'admin', public.is_admin(),
     'members', (
       select coalesce(json_agg(json_build_object(
         'user_id', m.user_id, 'role', m.role, 'name', m.name, 'email', m.email, 'joined_at', m.joined_at
@@ -146,13 +164,17 @@ language plpgsql security definer set search_path = public as $$
 declare s public.stores; code text; em text;
 begin
   if auth.uid() is null then raise exception 'sign in first'; end if;
+  if not public.is_admin() then raise exception 'only an admin can create a store'; end if;
   if trim(coalesce(store_name, '')) = '' then raise exception 'the store needs a name'; end if;
-  if exists (select 1 from public.store_members where user_id = auth.uid()) then raise exception 'you are already in a store'; end if;
   code := lower(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
   insert into public.stores (name, invite_code, created_by) values (trim(store_name), code, auth.uid()) returning * into s;
-  select email into em from auth.users where id = auth.uid();
-  insert into public.store_members (store_id, user_id, role, name, email)
-    values (s.id, auth.uid(), 'manager', trim(coalesce(display_name, '')), coalesce(em, ''));
+  -- The admin joins the new store as its manager unless they're already in
+  -- one; a second store is run from the admin screen.
+  if not exists (select 1 from public.store_members where user_id = auth.uid()) then
+    select email into em from auth.users where id = auth.uid();
+    insert into public.store_members (store_id, user_id, role, name, email)
+      values (s.id, auth.uid(), 'manager', trim(coalesce(display_name, '')), coalesce(em, ''));
+  end if;
   return public.my_store();
 end $$;
 
@@ -181,25 +203,76 @@ begin
   return public.my_store();
 end $$;
 
--- Managers: make someone a manager or a rep, or remove them from the store.
-create or replace function public.set_member_role(member uuid, new_role text) returns json
+-- Change a member's role in a store, or remove them.
+--   An admin can do anything in any store (pass its id, or null for your own).
+--   A manager can remove a rep from their own store — nothing more: appointing
+--   and demoting managers is the admin's call.
+create or replace function public.set_member_role(member uuid, new_role text, store uuid default null) returns json
 language plpgsql security definer set search_path = public as $$
-declare sid uuid;
+declare sid uuid; target_role text; admin boolean := public.is_admin();
 begin
-  select store_id into sid from public.store_members where user_id = auth.uid() and role = 'manager';
-  if sid is null then raise exception 'only a manager can do that'; end if;
+  if auth.uid() is null then raise exception 'sign in first'; end if;
+  if admin and store is not null then sid := store;
+  else select store_id into sid from public.store_members where user_id = auth.uid(); end if;
+  if sid is null then raise exception 'you are not in a store'; end if;
+  select role into target_role from public.store_members where store_id = sid and user_id = member;
+  if target_role is null then raise exception 'they are not in that store'; end if;
+  if not admin then
+    if not exists (select 1 from public.store_members where store_id = sid and user_id = auth.uid() and role = 'manager')
+    then raise exception 'only a manager can do that'; end if;
+    if new_role <> 'remove' then raise exception 'only an admin can appoint or demote a manager'; end if;
+    if target_role = 'manager' then raise exception 'only an admin can remove a manager'; end if;
+  end if;
   if new_role = 'remove' then
     if member = auth.uid() then raise exception 'leave the store instead'; end if;
     delete from public.store_members where store_id = sid and user_id = member;
   elsif new_role in ('manager', 'rep') then
-    if member = auth.uid() and new_role = 'rep'
-       and (select count(*) from public.store_members where store_id = sid and role = 'manager') = 1
-    then raise exception 'the store needs at least one manager'; end if;
     update public.store_members set role = new_role where store_id = sid and user_id = member;
   else
     raise exception 'role must be manager, rep or remove';
   end if;
   return public.my_store();
+end $$;
+
+-- Admin: every store with its members.
+create or replace function public.admin_stores() returns json
+language sql stable security definer set search_path = public as $$
+  select case when public.is_admin() then coalesce((
+    select json_agg(json_build_object(
+      'id', s.id, 'name', s.name, 'code', s.invite_code, 'created_at', s.created_at,
+      'members', (select coalesce(json_agg(json_build_object('user_id', m.user_id, 'role', m.role, 'name', m.name, 'email', m.email, 'joined_at', m.joined_at) order by m.role, m.name, m.email), '[]'::json)
+                  from public.store_members m where m.store_id = s.id)
+    ) order by s.name) from public.stores s), '[]'::json)
+  else null end
+$$;
+
+-- Admin: put an account into a store by its sign-in email, as a manager or
+-- a rep. The account must already exist (they signed up in the app).
+create or replace function public.admin_add_member(store uuid, member_email text, new_role text default 'rep', display_name text default '') returns json
+language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  if not public.is_admin() then raise exception 'only an admin can do that'; end if;
+  if new_role not in ('manager', 'rep') then raise exception 'role must be manager or rep'; end if;
+  select id into uid from auth.users where lower(email) = lower(trim(member_email)) limit 1;
+  if uid is null then raise exception 'no account has signed up with that email yet'; end if;
+  if not exists (select 1 from public.stores where id = store) then raise exception 'no such store'; end if;
+  if exists (select 1 from public.store_members where user_id = uid and store_id <> store) then raise exception 'they are already in another store'; end if;
+  insert into public.store_members (store_id, user_id, role, name, email)
+    values (store, uid, new_role, trim(coalesce(display_name, '')), lower(trim(member_email)))
+    on conflict (store_id, user_id) do update set role = excluded.role,
+      name = case when excluded.name <> '' then excluded.name else public.store_members.name end;
+  return public.admin_stores();
+end $$;
+
+-- Admin: rename a store, or delete it (members drop off; their books stay).
+create or replace function public.admin_set_store(store uuid, new_name text default null, remove boolean default false) returns json
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'only an admin can do that'; end if;
+  if remove then delete from public.stores where id = store;
+  elsif new_name is not null and trim(new_name) <> '' then update public.stores set name = trim(new_name) where id = store; end if;
+  return public.admin_stores();
 end $$;
 
 -- Leave the store. The last manager can't leave while others remain.
@@ -223,5 +296,11 @@ grant execute on function public.my_store() to authenticated;
 grant execute on function public.create_store(text, text) to authenticated;
 grant execute on function public.join_store(text, text) to authenticated;
 grant execute on function public.set_my_name(text) to authenticated;
-grant execute on function public.set_member_role(uuid, text) to authenticated;
+grant execute on function public.is_admin() to authenticated;
+grant execute on function public.set_member_role(uuid, text, uuid) to authenticated;
+grant execute on function public.admin_stores() to authenticated;
+grant execute on function public.admin_add_member(uuid, text, text, text) to authenticated;
+grant execute on function public.admin_set_store(uuid, text, boolean) to authenticated;
+-- The two-argument form from the first version of this file, if it was run.
+drop function if exists public.set_member_role(uuid, text);
 grant execute on function public.leave_store() to authenticated;

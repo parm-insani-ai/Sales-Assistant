@@ -24,7 +24,18 @@ const pageAs = async (token, email, extra = {}) => {
   return p;
 };
 
-// --- 1. The manager creates the store.
+// --- 0. Only an admin sees a way to create a store. (The stub lists "tm" as admin.)
+const stranger = await pageAs("t2", "rep2@e.com", { name: "Dana Rep" });
+await stranger.goto(APP + "/#/team");
+await stranger.waitForSelector("#st-code");
+const noCreate = await stranger.evaluate(() => ({ create: !!document.querySelector('[data-act="create"]'), note: /set up by your dealership's admin/.test(document.body.textContent) }));
+console.log("a rep without a store:", JSON.stringify(noCreate));
+if (noCreate.create || !noCreate.note) fail("someone who isn't an admin is offered a store to create");
+const forged = await stranger.evaluate(async () => { const bk = await import("/js/backend.js"); try { await bk.rpc("create_store", { store_name: "Fake Motors" }); return "created"; } catch (e) { return e.message; } });
+if (!/only an admin/.test(forged)) fail("a non-admin could create a store: " + forged);
+await stranger.close();
+
+// --- 1. The admin creates the store and is its first manager.
 const mgr = await pageAs("tm", "mgr@e.com", { name: "Sam Manager" });
 await mgr.goto(APP + "/#/team");
 await mgr.waitForSelector('[data-act="create"]');
@@ -35,8 +46,8 @@ const invite = await mgr.evaluate(() => document.querySelector("#invite-link").t
 console.log("invite:", invite);
 const code = (invite.match(/#\/join\/([a-z0-9]+)$/) || [])[1];
 if (!code) fail("no invite code in the link: " + invite);
-const first = await mgr.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), members: document.querySelectorAll(".badge").length, reps: document.querySelectorAll("[data-rep]").length }));
-if (first.title !== "O'Regan's Nissan Halifax") fail("the store isn't named: " + JSON.stringify(first));
+const first = await mgr.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), admin: document.querySelectorAll(".admin-store").length, reps: document.querySelectorAll("[data-rep]").length }));
+if (first.title !== "O'Regan's Nissan Halifax" || first.admin !== 1) fail("the store isn't named, or the admin section is missing: " + JSON.stringify(first));
 
 // --- 2. Two reps join: one through the invite link, one by typing the code.
 const rep1 = await pageAs("t", "p@e.com", { name: "Parm" });
@@ -125,21 +136,36 @@ const mgrRead = await mgr.evaluate(async (U2) => { const bk = await import("/js/
 console.log("rep reads another rep:", cross, "· manager reads a rep:", mgrRead);
 if (cross !== 0 || mgrRead !== 1) fail("row access is wrong: rep " + cross + ", manager " + mgrRead);
 
-// --- 7. Roles: make Dana a manager, then a rep leaves.
+// --- 7. Roles. The admin appoints Dana a manager from the admin section;
+// Dana then has the board but can't appoint anyone herself.
 await mgr.keyboard.press("Escape"); await mgr.keyboard.press("Escape");
 await mgr.waitForTimeout(200);
-await mgr.click('[data-role="' + U2 + '"]');
+await mgr.click('[data-arole="' + U2 + '"]');
 await mgr.waitForSelector('.modal [data-r="manager"]');
 await mgr.click('.modal [data-r="manager"]');
-await mgr.waitForFunction(() => document.querySelectorAll(".badge-sold").length >= 2, null, { timeout: 10000 });
+await mgr.waitForFunction(() => [...document.querySelectorAll(".admin-store .badge-sold")].length >= 2, null, { timeout: 10000 });
 await rep2.reload();
 await rep2.waitForSelector("[data-rep]", { timeout: 15000 });
-const danaBoard = await rep2.evaluate(() => document.querySelectorAll("[data-rep]").length);
-if (danaBoard < 2) fail("a promoted manager doesn't get the board: " + danaBoard);
+const danaBoard = await rep2.evaluate(() => ({ reps: document.querySelectorAll("[data-rep]").length, admin: document.querySelectorAll(".admin-store").length }));
+if (danaBoard.reps < 2 || danaBoard.admin) fail("a promoted manager doesn't get the board, or gets the admin section: " + JSON.stringify(danaBoard));
+await rep2.click('[data-role="' + U1 + '"]');
+await rep2.waitForSelector('.modal [data-r="remove"]');
+const danaSheet = await rep2.evaluate(() => ({ promote: !!document.querySelector('.modal [data-r="manager"]'), text: document.querySelector(".modal").textContent }));
+if (danaSheet.promote || !/Only the admin can appoint/.test(danaSheet.text)) fail("a manager is offered to appoint a manager: " + JSON.stringify(danaSheet));
+await rep2.keyboard.press("Escape");
+const danaForge = await rep2.evaluate(async (U1) => { const bk = await import("/js/backend.js"); try { await bk.rpc("set_member_role", { member: U1, new_role: "manager", store: null }); return "done"; } catch (e) { return e.message; } }, U1);
+if (!/only an admin/.test(danaForge)) fail("a manager could appoint a manager through the database: " + danaForge);
+
+// The admin adds a fourth account by email, straight in as a manager.
+await mgr.fill(".admin-store .admin-email", "rep4@e.com");
+await mgr.click('.admin-store [data-add]');
+await mgr.waitForFunction(() => /rep4@e\.com/.test(document.querySelector(".admin-store")?.textContent || ""), null, { timeout: 10000 });
+const added = await (await fetch(APP + "/__stores")).json();
+if (!added[0].members.some((m) => m.email === "rep4@e.com" && m.role === "manager")) fail("adding a manager by email didn't take: " + JSON.stringify(added[0].members));
 await rep1.click('[data-act="leave"]');
 await rep1.waitForSelector('.modal [data-act="ok"]');
 await rep1.click('.modal [data-act="ok"]');
-await rep1.waitForSelector('[data-act="create"]', { timeout: 10000 });
+await rep1.waitForSelector('#st-code', { timeout: 10000 });
 const after = await (await fetch(APP + "/__stores")).json();
 if (after[0].members.some((m) => m.user_id === U1)) fail("leaving didn't take");
 

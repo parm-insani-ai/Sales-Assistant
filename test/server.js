@@ -31,8 +31,10 @@ const MIME = {
 const links = new Map();
 // In-memory stand-in for the records table (cloud sync), and each POST's row count.
 const records = new Map();
-// Stores and their members, for the Team screen and the manager board.
+// Stores and their members, for the Team screen and the manager board; the
+// admins who may create stores and appoint managers ("tm" by default).
 const stores = new Map();
+const admins = new Set(["00000000-0000-4000-8000-000000000003"]);
 const pushes = [];
 let seq = 0;
 // Texts the app asked us to send, so a test can assert what reached "Twilio".
@@ -97,13 +99,35 @@ const server = http.createServer((req, res) => {
       try { args = JSON.parse(body || "{}"); } catch {}
       const uid = callerId, email = { [USERS.t]: "p@e.com", [USERS.t2]: "rep2@e.com", [USERS.tm]: "mgr@e.com", [USERS.t4]: "rep4@e.com" }[uid] || "";
       const fail = (m) => json(res, 400, { message: m });
-      if (fn === "my_store") return json(res, 200, myStore(uid));
+      const isAdmin = admins.has(uid);
+      const allStores = () => [...stores.values()].map((st) => ({ id: st.id, name: st.name, code: st.code, created_at: "x", members: st.members }));
+      const withAdmin = (st) => (st ? { ...st, admin: isAdmin } : null);
+      if (fn === "my_store") return json(res, 200, withAdmin(myStore(uid)));
+      if (fn === "is_admin") return json(res, 200, isAdmin);
+      if (fn === "admin_stores") return json(res, 200, isAdmin ? allStores() : null);
       if (fn === "create_store") {
+        if (!isAdmin) return fail("only an admin can create a store");
         if (!String(args.store_name || "").trim()) return fail("the store needs a name");
-        if (myStore(uid)) return fail("you are already in a store");
         const id = "st_" + (stores.size + 1), code = "code" + (stores.size + 1) + "abc";
-        stores.set(id, { id, name: String(args.store_name).trim(), code, members: [{ user_id: uid, role: "manager", name: String(args.display_name || "").trim(), email, joined_at: new Date().toISOString() }] });
-        return json(res, 200, myStore(uid));
+        const members = myStore(uid) ? [] : [{ user_id: uid, role: "manager", name: String(args.display_name || "").trim(), email, joined_at: new Date().toISOString() }];
+        stores.set(id, { id, name: String(args.store_name).trim(), code, members });
+        return json(res, 200, withAdmin(myStore(uid)));
+      }
+      if (fn === "admin_add_member") {
+        if (!isAdmin) return fail("only an admin can do that");
+        const st = stores.get(args.store); if (!st) return fail("no such store");
+        const em = String(args.member_email || "").trim().toLowerCase();
+        const who = Object.entries({ [USERS.t]: "p@e.com", [USERS.t2]: "rep2@e.com", [USERS.tm]: "mgr@e.com", [USERS.t4]: "rep4@e.com" }).find(([, e]) => e === em);
+        if (!who) return fail("no account has signed up with that email yet");
+        const have = st.members.find((m) => m.user_id === who[0]);
+        if (have) { have.role = args.new_role; if (args.display_name) have.name = args.display_name; }
+        else st.members.push({ user_id: who[0], role: args.new_role || "rep", name: String(args.display_name || "").trim(), email: em, joined_at: new Date().toISOString() });
+        return json(res, 200, allStores());
+      }
+      if (fn === "admin_set_store") {
+        if (!isAdmin) return fail("only an admin can do that");
+        if (args.remove) stores.delete(args.store); else if (args.new_name) { const st = stores.get(args.store); if (st) st.name = String(args.new_name).trim(); }
+        return json(res, 200, allStores());
       }
       if (fn === "join_store") {
         const st = [...stores.values()].find((x) => x.code === String(args.code || "").trim().toLowerCase());
@@ -116,11 +140,18 @@ const server = http.createServer((req, res) => {
       }
       if (fn === "set_my_name") { for (const st of stores.values()) st.members.forEach((m) => { if (m.user_id === uid) m.name = String(args.display_name || "").trim(); }); return json(res, 200, myStore(uid)); }
       if (fn === "set_member_role") {
-        const mine = myStore(uid); if (!mine || mine.role !== "manager") return fail("only a manager can do that");
-        const st = stores.get(mine.id);
+        const mine = myStore(uid);
+        const st = isAdmin && args.store ? stores.get(args.store) : mine ? stores.get(mine.id) : null;
+        if (!st) return fail("you are not in a store");
+        const target = st.members.find((m) => m.user_id === args.member); if (!target) return fail("they are not in that store");
+        if (!isAdmin) {
+          if (!mine || mine.role !== "manager") return fail("only a manager can do that");
+          if (args.new_role !== "remove") return fail("only an admin can appoint or demote a manager");
+          if (target.role === "manager") return fail("only an admin can remove a manager");
+        }
         if (args.new_role === "remove") st.members = st.members.filter((m) => m.user_id !== args.member);
-        else st.members.forEach((m) => { if (m.user_id === args.member) m.role = args.new_role; });
-        return json(res, 200, myStore(uid));
+        else target.role = args.new_role;
+        return json(res, 200, withAdmin(myStore(uid)));
       }
       if (fn === "leave_store") { for (const st of stores.values()) st.members = st.members.filter((m) => m.user_id !== uid); res.writeHead(204, { "Access-Control-Allow-Origin": "*" }); return res.end(); }
       return json(res, 404, { message: "no such function " + fn });
@@ -215,6 +246,7 @@ const server = http.createServer((req, res) => {
     });
   }
   if (url.pathname === "/__stores") return json(res, 200, [...stores.values()]);
+  if (url.pathname === "/__admin") { const u = url.searchParams.get("u"); if (u) admins.add(u); return json(res, 200, [...admins]); }
   if (url.pathname === "/__pushes") return json(res, 200, pushes);
 
   // --- Function stub ---

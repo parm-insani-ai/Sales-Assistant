@@ -49,20 +49,40 @@ leads and overdue follow-ups, today and month to date — and can open a rep's
 lists and any customer on them, read-only. Reps keep their own books and
 never see each other's.
 
+Who can do what:
+
+- **Admin** — the dealership's owner of the app. Creates stores, appoints and
+  demotes managers, adds people by email, renames or deletes a store. Admins
+  are set in the database by whoever holds the Supabase project; there is no
+  button for it, so nobody can make themselves a manager.
+- **Manager** — sees the board and any rep's customers, read-only; can remove
+  a rep from the store.
+- **Rep** — joins by invite link or code; their book stays their own.
+
 Setup:
 
 1. Re-run [`schema.sql`](./schema.sql) in **SQL Editor** (it's safe to
-   re-run). This adds the `stores` and `store_members` tables, the database
-   functions the app calls, and a policy that lets a manager *read* their
-   store's members' records. Writing stays owner-only.
-2. The manager opens **Tools → Team**, names the store and taps **Create the
-   store**. They get an invite link.
-3. Each rep signs in to their own cloud account, taps the invite link (or
+   re-run). This adds the `stores`, `store_members` and `admins` tables, the
+   database functions the app calls, and a policy that lets a manager *read*
+   their store's members' records. Writing stays owner-only.
+2. Make yourself the admin. The account has to exist first (sign up in the
+   app), then in **SQL Editor**:
+
+   ```sql
+   insert into public.admins (user_id)
+     select id from auth.users where email = 'you@example.com'
+     on conflict do nothing;
+   ```
+
+3. Open **Tools → Team**, name the store and tap **Create the store**. You
+   join it as its first manager and get an invite link. To make someone else
+   a manager, add their sign-in email in the admin section with the role set
+   to Manager (they need to have signed up first).
+4. Each rep signs in to their own cloud account, taps the invite link (or
    types the code under Tools → Team), and they're on the board.
 
-Managers can promote, demote or remove members from the Team screen. The
-board reads the reps' synced records, so a rep's numbers are as current as
-their last sync.
+The board reads the reps' synced records, so a rep's numbers are as current
+as their last sync.
 
 ## Calendar feeds (Apple / Outlook / Google)
 
