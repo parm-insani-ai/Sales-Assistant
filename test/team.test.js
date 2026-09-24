@@ -35,10 +35,15 @@ const forged = await stranger.evaluate(async () => { const bk = await import("/j
 if (!/only an admin/.test(forged)) fail("a non-admin could create a store: " + forged);
 await stranger.close();
 
-// --- 1. The admin creates the store and is its first manager.
+// --- 1. The admin account signs in with no book and lands on the Admin
+// screen, then creates the store and is its first manager.
 const mgr = await pageAs("tm", "mgr@e.com", { name: "Sam Manager" });
-await mgr.goto(APP + "/#/team");
+await mgr.goto(APP + "/#/");
+await mgr.waitForFunction(() => location.hash === "#/team", null, { timeout: 15000 });
 await mgr.waitForSelector('[data-act="create"]');
+const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim() }));
+console.log("admin lands on:", JSON.stringify(landing));
+if (landing.greeting !== "Admin") fail("the admin account didn't land on the Admin screen: " + JSON.stringify(landing));
 await mgr.fill("#st-name", "O'Regan's Nissan Halifax");
 await mgr.click('[data-act="create"]');
 await mgr.waitForSelector("#invite-link");
@@ -46,8 +51,8 @@ const invite = await mgr.evaluate(() => document.querySelector("#invite-link").t
 console.log("invite:", invite);
 const code = (invite.match(/#\/join\/([a-z0-9]+)$/) || [])[1];
 if (!code) fail("no invite code in the link: " + invite);
-const first = await mgr.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), admin: document.querySelectorAll(".admin-store").length, reps: document.querySelectorAll("[data-rep]").length }));
-if (first.title !== "O'Regan's Nissan Halifax" || first.admin !== 1) fail("the store isn't named, or the admin section is missing: " + JSON.stringify(first));
+const first = await mgr.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), greeting: document.querySelector(".hero-greeting")?.textContent.trim(), admin: document.querySelectorAll(".admin-store").length, adminFirst: (document.querySelector(".admin-store")?.getBoundingClientRect().top || 9e9) < (document.querySelector(".team-row")?.getBoundingClientRect().top || 9e9) }));
+if (first.title !== "O'Regan's Nissan Halifax" || first.admin !== 1 || first.greeting !== "Admin" || !first.adminFirst) fail("the store isn't named, or the admin section isn't first: " + JSON.stringify(first));
 
 // --- 2. Two reps join: one through the invite link, one by typing the code.
 const rep1 = await pageAs("t", "p@e.com", { name: "Parm" });

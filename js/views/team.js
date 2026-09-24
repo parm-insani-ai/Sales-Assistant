@@ -64,12 +64,15 @@ export function renderTeam(view, { param } = {}) {
     if (!team) { drawNoStore(); return; }
     const manager = isManager(team);
     const mine = (team.members || []).find((m) => m.user_id === me.id);
+    // An admin's screen leads with the admin controls; the board follows when
+    // they also manage a store.
     el.innerHTML = `
       <div class="hero">
-        <div class="hero-greeting">${manager ? "Manager board" : "Team"}</div>
+        <div class="hero-greeting">${admin ? "Admin" : manager ? "Manager board" : "Team"}</div>
         <div class="hero-title">${esc(team.name)}</div>
       </div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
+      ${admin ? adminHTML() : ""}
       ${manager ? boardHTML() : repHTML(mine)}
       <div class="section-title">Members <span class="muted" style="font-weight:500;font-size:0.78rem">· ${(team.members || []).length}</span></div>
       <div class="card">
@@ -95,7 +98,6 @@ export function renderTeam(view, { param } = {}) {
         </div>
         <div class="hint">Invite code: <span class="mono">${esc(team.code)}</span> — a rep can also type it under Tools → Team. Reps join themselves; managers are appointed by the admin.</div>
       </div>` : ""}
-      ${admin ? adminHTML() : ""}
     `;
     wireAdmin();
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
@@ -113,7 +115,7 @@ export function renderTeam(view, { param } = {}) {
 
   function drawNoStore() {
     el.innerHTML = `
-      <div class="hero"><div class="hero-greeting">Team</div><div class="hero-title">Set up your store</div></div>
+      <div class="hero"><div class="hero-greeting">${admin ? "Admin" : "Team"}</div><div class="hero-title">${admin ? "Set up the store" : "Join your store"}</div></div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       <div class="fab-note" style="margin:0 2px 14px;text-align:left">A store is your reps and managers on one board. Reps keep their own books; a manager sees every rep's numbers and can open any customer, read-only. No integration, no IT — a link does it.</div>
       ${admin ? `

@@ -251,6 +251,22 @@ document.getElementById("voice-btn").addEventListener("click", () => startVoiceA
 
 startRouter();
 
+// An admin account is a different kind of user: it runs the stores, it
+// doesn't sell. When one signs in with no customer book of its own, the app
+// opens on the Admin screen instead of a salesperson's empty Home. The flag
+// is remembered from the last visit so the jump happens before the network
+// answers, and re-read each launch so a demotion takes effect.
+if (backend.isSignedIn()) {
+  LOADERS.team().then(async () => {
+    const t = await import("./team.js");
+    const atHome = () => (location.hash.replace(/^#/, "") || "/") === "/";
+    const empty = () => store.all("leads").length === 0;
+    if (t.isAdmin() && empty() && atHome()) navigate("/team");
+    const s = await t.myStore().catch(() => null);
+    if (t.isAdmin(s) && empty() && atHome()) navigate("/team");
+  }).catch(() => {});
+}
+
 // Read the book while nothing else is happening, so the first visit to Leads
 // (sorted by that read) opens as fast as the second. It's cached until
 // something it reads changes; a cold read of three thousand people is a few
