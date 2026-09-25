@@ -43,8 +43,11 @@ export function equityOf(l, now = Date.now()) {
   return { v: Math.round(value - payoff), src };
 }
 
+const money0 = (n) => "$" + Math.round(Math.abs(Number(n))).toLocaleString("en-CA");
+
 /**
- * One customer, read. `opts`: { now, defaultApr = 7.9, kmAllowance = 20000 }.
+ * One customer, read. `opts`: { now, defaultApr = 7.9, kmAllowance = 20000,
+ * match(lead) → the payment match against the store's lot (match.js), or null }.
  * Returns { score, reasons: [chip], why: [sentence], next: { label, kind },
  *           excluded, inPlay, contactable, signals: {...} }
  */
@@ -64,6 +67,25 @@ export function readCustomer(l, opts = {}) {
   if (l.stage === "lost") { excluded = true; why.push("Marked lost."); }
   if (l.stage === "sold" || (l.stage === "delivered" && daysSince(l.purchaseDate, now) != null && daysSince(l.purchaseDate, now) < 60)) { excluded = true; why.push("Just bought — leave them to enjoy it."); }
   if (["appointment", "negotiating"].includes(l.stage)) { inPlay = true; why.push(`Already in play (${l.stage}).`); }
+
+  // The deal: a newer vehicle at what they pay now, against the store's lot.
+  // The like-for-like replacement when it fits their payment; the closest
+  // payment otherwise — the way the rep's radar picks.
+  let deal = null;
+  const m = typeof opts.match === "function" ? opts.match(l) : null;
+  if (m && m.pitch) {
+    const p = m.pitch, name = p.unit.name;
+    deal = { name, monthly: p.monthly, delta: p.delta, unit: p.unit.v, fits: p.delta != null && p.delta <= (num(opts.dealMatchBand) ?? 50) };
+    if (p.delta != null) {
+      if (p.delta <= -20) add(32, `${money0(p.delta)}/mo less`, `A ${name} would run about ${money0(p.delta)}/mo LESS than they pay now.`);
+      else if (p.delta <= (num(opts.dealMatchBand) ?? 50)) add(26, "Same payment", `A ${name} lands within ${money0(num(opts.dealMatchBand) ?? 50)}/mo of what they pay now.`);
+      else if (p.delta <= 100) add(12, `+${money0(p.delta)}/mo`, `A ${name} would be about ${money0(p.delta)}/mo more.`);
+      else why.push(`The closest deal, a ${name}, would be about ${money0(p.delta)}/mo more than they pay now.`);
+    } else {
+      add(8, null, `The natural next vehicle is a ${name}, about ${money0(p.monthly)}/mo with their trade.`);
+    }
+    if (m.replacement && m.replacement !== p && m.replacement.delta != null) why.push(`A like-for-like ${m.replacement.unit.name} would be about ${money0(m.replacement.delta)}/mo ${m.replacement.delta >= 0 ? "more" : "less"} than they pay now.`);
+  }
 
   // Equity.
   const eq = equityOf(l, now);
@@ -152,12 +174,13 @@ export function readCustomer(l, opts = {}) {
     else if (inPlay) next = { label: "Keep the deal moving", kind: "inplay" };
     else if (noConsent && score >= 20) next = { label: "Call — texts withdrawn", kind: "call" };
     else if (months != null && months <= 6 && lease) next = { label: "Lease-end conversation — their three options", kind: "opener" };
+    else if (deal && deal.fits && score >= 20) next = { label: `Text the opener — pitch a ${deal.name} at about the same payment`, kind: "opener" };
     else if (eq.v != null && eq.v >= 3000 && score >= 20) next = { label: "Equity opener — what their trade is worth toward the next one", kind: "opener" };
     else if (score >= 20) next = { label: "Reach out — an opener", kind: "opener" };
     else if (!contactable) next = { label: "Add a phone number", kind: "fix" };
     else next = { label: "Nothing pressing — keep on file", kind: "none" };
   }
-  return { score, reasons, why: whyAll, next, excluded, inPlay, contactable, months, equity: eq.v, lease };
+  return { score, reasons, why: whyAll, next, excluded, inPlay, contactable, months, equity: eq.v, lease, deal };
 }
 
 // Tiers relative to the book: Hot is the top tenth, Strong the top third,
@@ -199,7 +222,9 @@ export function reachOuts(ranked, { limit = 50, minScore = 30 } = {}) {
 // The task a manager hands a rep for one reach-out.
 export function taskFor(row, { by = "your manager", now = new Date() } = {}) {
   const l = row.lead, r = row.read;
-  const why = r.reasons.filter((x) => !/^No |^Texts withdrawn|upside down/.test(x)).slice(0, 2).join(", ");
+  const bits = r.reasons.filter((x) => !/^No |^Texts withdrawn|upside down/.test(x)).slice(0, 2);
+  if (r.deal && r.deal.fits) bits.unshift(`${r.deal.name} at ~$${Math.round(r.deal.monthly).toLocaleString("en-CA")}/mo`);
+  const why = bits.slice(0, 3).join(", ");
   const due = new Date(now); due.setHours(0, 0, 0, 0);
   const call = r.next && (r.next.kind === "call" || r.next.kind === "service");
   return {

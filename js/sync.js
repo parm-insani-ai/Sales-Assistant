@@ -31,7 +31,9 @@ export function lastSyncAt() { return meta().lastSyncAt || null; }
 function collectAll() {
   const rows = [];
   store.SYNC_COLLECTIONS.forEach((coll) => {
-    store.all(coll).forEach((rec) => rows.push({ id: rec.id, collection: coll, data: rec, deleted: false }));
+    // The store's shared lot lives in its own table; it is never this
+    // account's own rows.
+    store.all(coll).forEach((rec) => { if (!(coll === "vehicles" && rec.shared)) rows.push({ id: rec.id, collection: coll, data: rec, deleted: false }); });
   });
   return rows;
 }
@@ -83,6 +85,23 @@ async function pullApply() {
   // live settings. This is what makes a reinstall recover the dealership name,
   // fees, goals, templates and numbers instead of asking for them all again.
   if (store.adoptRemoteConfig()) { applied++; settingsArrived = true; }
+  // The store's shared lot, into this app's vehicles. Marked shared so the
+  // reconcile below never pushes it back as this account's own rows.
+  try {
+    const t = await import("./team.js");
+    if (t.cachedStore()) {
+      const { rows: lot } = await t.pullStoreInventory(meta().lotCursor || null);
+      if (lot.length) {
+        store.bulk(() => lot.forEach((row) => {
+          const local = store.get("vehicles", row.id);
+          const remoteTime = (row.data && row.data.updatedAt) || row.updated_at || "";
+          if (row.deleted) { if (local && local.shared) store.applyRemoteDelete("vehicles", row.id); return; }
+          if (!local || local.shared || remoteTime > (local.updatedAt || "")) { store.applyRemote("vehicles", row.id, { ...row.data, id: row.id, shared: true }); applied++; }
+        }));
+        setMeta({ lotCursor: lot[lot.length - 1].updated_at });
+      }
+    }
+  } catch { /* the lot is a convenience; the book is what matters */ }
   return applied;
 }
 // Whether a pull in the current sync changed the live settings — the
@@ -107,7 +126,7 @@ async function reconcile() {
   const have = new Set(remote.map((r) => r.id));
   const missing = [];
   store.SYNC_COLLECTIONS.forEach((coll) => {
-    store.all(coll).forEach((rec) => { if (!have.has(rec.id)) missing.push({ id: rec.id, collection: coll, data: rec, deleted: false }); });
+    store.all(coll).forEach((rec) => { if (!have.has(rec.id) && !(coll === "vehicles" && rec.shared)) missing.push({ id: rec.id, collection: coll, data: rec, deleted: false }); });
   });
   if (missing.length) await backend.pushRecords(missing);
   const localIds = new Set();

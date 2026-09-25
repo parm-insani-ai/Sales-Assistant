@@ -10,7 +10,8 @@
 import { icon } from "../icons.js";
 import { toast, confirmDialog } from "../components.js";
 import { esc, formatDateTime } from "../utils.js";
-import { cachedStore, myStore, isManager, memberName, cachedBook, loadBook, addRepTask, nudgeRep } from "../team.js";
+import { cachedStore, myStore, isManager, memberName, cachedBook, loadBook, addRepTask, nudgeRep, cachedInventory, loadInventory } from "../team.js";
+import { makeMatcher } from "../match.js";
 import { rankBook, reachOuts, taskFor } from "../reach.js";
 import { inAudience } from "../outreach.js";
 import { openAudienceFilter, audienceLabel } from "./audience.js";
@@ -25,6 +26,7 @@ export function renderCustomers(view) {
   view.appendChild(el);
   let team = cachedStore();
   let book = cachedBook();
+  let lot = cachedInventory();
   let mode = "reach"; // reach | all
   let rep = "all";
   let search = "";
@@ -36,14 +38,16 @@ export function renderCustomers(view) {
   async function refresh(force = false) {
     if (loading) return;
     loading = true; draw();
-    try { team = await myStore(); if (team && isManager(team)) book = await loadBook(team, { force }); ranked = null; error = ""; }
+    try { team = await myStore(); if (team && isManager(team)) { [book, lot] = await Promise.all([loadBook(team, { force }), loadInventory(team, { force }).catch(() => lot)]); } ranked = null; error = ""; }
     catch (e) { error = e && e.message ? e.message : "couldn't read the book"; }
     loading = false; draw();
   }
 
   function rankedRows() {
     if (!book) return null;
-    if (!ranked || ranked.at !== book.at) ranked = { at: book.at, ...rankBook(book.rows, { defaultApr: store.getSettings().defaultApr }) };
+    const s = store.getSettings();
+    const lotAt = lot ? lot.at : 0;
+    if (!ranked || ranked.at !== book.at || ranked.lotAt !== lotAt) ranked = { at: book.at, lotAt, ...rankBook(book.rows, { defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot && lot.rows.length ? makeMatcher(lot.rows, s) : null }) };
     return ranked;
   }
 
@@ -64,7 +68,7 @@ export function renderCustomers(view) {
     el.innerHTML = `
       <div class="hero"><div class="hero-greeting">${esc(team.name)}</div><div class="hero-title">${mode === "reach" ? "Who to reach out to" : "Every customer"}</div></div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}` : loading ? "Reading every rep's book…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:0 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · ${lot && lot.rows.length ? `priced against ${lot.rows.filter((v) => (v.status || "available") === "available").length} units` : "no shared lot yet"} · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}` : loading ? "Reading every rep's book…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
       <div class="searchbar"><input type="search" placeholder="Search the store's customers…" value="${esc(search)}"></div>
       <div class="lead-chips">
         <button class="btn btn-sm ${mode === "reach" ? "btn-primary" : "btn-ghost"}" data-mode="reach">${icon("sparkles")} Reach-outs${counts ? " " + counts.reach : ""}</button>
@@ -81,13 +85,14 @@ export function renderCustomers(view) {
               <div class="row-title" style="font-size:0.96rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div>
               <div class="row-sub">${esc(r.lead.vehicleInterest || "No vehicle noted")} · ${esc(memberName(r.rep))}${mode === "all" ? ` · <span class="badge ${stageBadge(r.lead.stage)}" style="font-size:0.66rem">${esc(stageLabel(r.lead.stage))}</span>` : ""}</div>
               ${r.read.reasons.length ? `<div class="row-reasons">${r.read.reasons.map(esc).join(" · ")}</div>` : ""}
+              ${r.read.deal ? `<div class="small cu-deal" style="margin-top:3px">${esc(r.read.deal.name)} ≈ <b>$${Math.round(r.read.deal.monthly).toLocaleString("en-CA")}/mo</b>${r.read.deal.delta != null ? ` <span class="${r.read.deal.delta <= 0 ? "" : "muted"}" style="${r.read.deal.delta <= 0 ? "color:var(--success)" : ""}">(${r.read.deal.delta <= 0 ? "−" : "+"}$${Math.abs(Math.round(r.read.deal.delta)).toLocaleString("en-CA")}/mo)</span>` : ` <span class="muted">with their trade</span>`}</div>` : ""}
               ${mode === "reach" && r.read.next ? `<div class="small" style="margin-top:3px;color:var(--brand)">${esc(r.read.next.label)}</div>` : ""}
             </div>
             ${!r.read.excluded && !r.read.inPlay && r.read.contactable ? `<button class="btn ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-send="${esc(r.lead.id)}" data-srep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "disabled" : ""}>${sent.has(r.rep.user_id + "|" + r.lead.id) ? "Sent" : "Send to " + esc(memberName(r.rep).split(" ")[0])}</button>` : ""}
           </div>`).join("") : `<div class="muted small" style="padding:10px 16px">${book ? (mode === "reach" ? "Nobody worth a call in this view." : "No customers match.") : loading ? "Reading…" : "Tap Refresh to read the book."}</div>`}
         ${rows.length > shown.length ? `<div class="muted small" style="padding:10px 16px">Showing ${shown.length} of ${rows.length.toLocaleString()} — search or filter to narrow it.</div>` : ""}
       </div>
-      <div class="hint" style="margin:0 2px">Read from what's on each customer's file: equity, years in, when the contract ends, the warranty, the rate, kilometres, AutoAlert flags, service visits, and whether anyone has spoken to them lately. A rep's own radar adds payment matches against the lot.</div>
+      <div class="hint" style="margin:0 2px">Read from what's on each customer's file — equity, years in, when the contract ends, the warranty, the rate, kilometres, AutoAlert flags, service visits, whether anyone has spoken to them lately — and priced against the store's shared lot: what they could drive for the money they pay now. ${lot && lot.rows.length ? "" : "Import the lot under Settings → Dealer inventory sites, or have any rep in the store import it, and payment matches appear."}</div>
     `;
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="refresh"]', () => refresh(true));

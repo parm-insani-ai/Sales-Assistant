@@ -976,7 +976,23 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
     });
     if (!res.ok) throw new Error(`vehicle save failed (${res.status})`);
   }
-  return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added };
+  // The store's shared lot: the same rows, for every member's app and the
+  // manager's read. Best-effort — the importer's own book is already saved.
+  let shared = 0;
+  try {
+    const m = await fetch(sbUrl(`/store_members?select=store_id&user_id=eq.${encodeURIComponent(uid)}&limit=1`), { headers: sbHeaders() }).then((x) => (x.ok ? x.json() : []));
+    const storeId = Array.isArray(m) && m[0] ? m[0].store_id : null;
+    if (storeId) {
+      const srows = rows.map((row) => ({ store_id: storeId, id: row.id, data: row.data, deleted: false }));
+      for (let i = 0; i < srows.length; i += 200) {
+        const res = await fetch(sbUrl("/store_vehicles?on_conflict=store_id,id"), {
+          method: "POST", headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(srows.slice(i, i + 200)),
+        });
+        if (res.ok) shared += srows.slice(i, i + 200).length;
+      }
+    }
+  } catch { /* best effort */ }
+  return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added, shared };
 }
 
 // {inventory: 1} from the daily job: every user whose Settings name a store

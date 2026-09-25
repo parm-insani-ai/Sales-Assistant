@@ -93,6 +93,12 @@ goes through a database function that checks the manager relationship:
 - **Monthly targets** — units and appointments set — per rep, from the Team
   tab. The rep's app adopts them as its goals for the month.
 
+- **The store's lot** — the website import fills a shared inventory for the
+  store as well as the importer's own book (re-run `schema.sql` and paste
+  the function to get this). Every member's app pulls it, so a rep who
+  never imported still has the lot for their radar, and the manager's read
+  of a customer prices every one of them against it: what they could drive
+  for the money they pay now.
 - **A to-do** — from the Customers tab, the manager hands a rep one customer
   to reach out to, with the reasons in the title. One task row in the rep's
   book, which their app shows in the queue on the next sync.

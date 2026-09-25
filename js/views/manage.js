@@ -16,7 +16,8 @@ import { esc, formatDateTime, currency } from "../utils.js";
 import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep } from "../team.js";
 import { openRepSheet, openCustomerSheet, apptState } from "./team.js";
 import { findings } from "../insight.js";
-import { cachedBook, loadBook, addRepTask } from "../team.js";
+import { cachedBook, loadBook, addRepTask, cachedInventory, loadInventory } from "../team.js";
+import { makeMatcher } from "../match.js";
 import { rankBook, reachOuts, taskFor } from "../reach.js";
 import * as store from "../store.js";
 
@@ -27,6 +28,7 @@ export function renderManageHome(view) {
   let team = cachedStore();
   let board = cachedBoard();
   let book = cachedBook();
+  let lot = cachedInventory();
   let loading = false, error = "";
   const handed = new Set();
   const now = new Date();
@@ -43,15 +45,16 @@ export function renderManageHome(view) {
     } catch (e) { error = e && e.message ? e.message : "couldn't reach the store"; }
     loading = false; draw();
     // The book is bigger than the board; read it after, and draw again.
-    if (team && isManager(team)) { try { book = await loadBook(team, { force }); draw(); } catch { /* the card says so */ } }
+    if (team && isManager(team)) { try { [book, lot] = await Promise.all([loadBook(team, { force }), loadInventory(team, { force }).catch(() => lot)]); draw(); } catch { /* the card says so */ } }
   }
+  const rankOpts = () => { const s = store.getSettings(); return { defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot && lot.rows.length ? makeMatcher(lot.rows, s) : null }; };
   function reachCard() {
     if (!book) return `<div class="section-title">Who to reach out to <span class="muted" style="font-weight:500;font-size:0.78rem">· the assistant</span></div><div class="card muted small">Reading every rep's book…</div>`;
-    const ranked = rankBook(book.rows, { defaultApr: store.getSettings().defaultApr });
+    const ranked = rankBook(book.rows, rankOpts());
     const top = reachOuts(ranked, { limit: 5 });
     const all = reachOuts(ranked, { limit: 100000 }).length;
     return `<div class="section-title">Who to reach out to <span class="muted" style="font-weight:500;font-size:0.78rem">· ${all.toLocaleString()} worth a call · <a href="#/customers" style="color:var(--brand)">see them all</a></span></div>
-      <div class="card" style="padding:6px 0">${top.length ? top.map((r) => `<div class="row" style="padding:8px 16px;border-bottom:1px solid var(--border);align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.map(esc).join(" · ")}</div></div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody on the book is worth a call right now — or the reps' books haven't synced.</div>`}</div>`;
+      <div class="card" style="padding:6px 0">${top.length ? top.map((r) => `<div class="row" style="padding:8px 16px;border-bottom:1px solid var(--border);align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.map(esc).join(" · ")}</div>${r.read.deal ? `<div class="small" style="margin-top:2px">${esc(r.read.deal.name)} ≈ <b>$${Math.round(r.read.deal.monthly).toLocaleString("en-CA")}/mo</b>${r.read.deal.delta != null ? ` <span style="${r.read.deal.delta <= 0 ? "color:var(--success)" : ""}" class="${r.read.deal.delta <= 0 ? "" : "muted"}">(${r.read.deal.delta <= 0 ? "−" : "+"}$${Math.abs(Math.round(r.read.deal.delta)).toLocaleString("en-CA")}/mo)</span>` : ""}</div>` : ""}</div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody on the book is worth a call right now — or the reps' books haven't synced.</div>`}</div>`;
   }
 
   function draw() {
@@ -174,7 +177,7 @@ export function renderManageHome(view) {
     }));
     el.querySelectorAll("[data-cust]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(n.dataset.rep, n.dataset.cust)));
     el.querySelectorAll("[data-hand]").forEach((b) => b.addEventListener("click", async () => {
-      const ranked = book ? rankBook(book.rows, { defaultApr: store.getSettings().defaultApr }) : null;
+      const ranked = book ? rankBook(book.rows, rankOpts()) : null;
       const r = ranked && ranked.rows.find((x) => x.lead.id === b.dataset.hand && x.rep.user_id === b.dataset.hrep);
       if (!r) return;
       b.disabled = true;

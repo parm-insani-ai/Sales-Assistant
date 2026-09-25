@@ -35,6 +35,8 @@ const records = new Map();
 // admins who may create stores and appoint managers ("tm" by default).
 const stores = new Map();
 const admins = new Set(["00000000-0000-4000-8000-000000000003"]);
+// The store's shared lot: key store|id.
+const storeVehicles = new Map();
 // Targets managers set, and the nudges (pushes) managers sent.
 const targets = new Map();
 const nudges = [];
@@ -187,6 +189,19 @@ const server = http.createServer((req, res) => {
         for (const k of ["confirmed", "outcome", "status", "managerNote"]) if (p[k] != null) row.data[k] = p[k];
         row.data.updatedAt = new Date().toISOString(); row.updated_at = row.data.updatedAt;
         return json(res, 200, row.data);
+      }
+      if (fn === "store_inventory") {
+        const st = stores.get(args.store); const mine = myStore(uid);
+        if (!st || !(isAdmin || (mine && mine.id === st.id))) return json(res, 200, []);
+        return json(res, 200, [...storeVehicles.values()].filter((v) => v.store_id === st.id && (!args.since || v.updated_at > args.since)).map((v) => ({ id: v.id, data: v.data, updated_at: v.updated_at, deleted: v.deleted })));
+      }
+      if (fn === "set_store_inventory") {
+        const st = stores.get(args.store); const mine = myStore(uid);
+        if (!st || !(isAdmin || (mine && mine.id === st.id && mine.role === "manager"))) return fail("only a manager of the store can do that");
+        const nowiso = new Date().toISOString(); let n = 0; const ids = new Set();
+        for (const r of args.rows || []) { if (!r.id) continue; ids.add(r.id); storeVehicles.set(st.id + "|" + r.id, { store_id: st.id, id: r.id, data: r, updated_at: nowiso, deleted: false }); n++; }
+        if (args.complete) for (const v of storeVehicles.values()) if (v.store_id === st.id && !ids.has(v.id) && (v.data.status || "available") !== "sold") { v.data = { ...v.data, status: "sold" }; v.updated_at = nowiso; }
+        return json(res, 200, { written: n });
       }
       if (fn === "manager_add_task") {
         if (!isAdmin && !manages(uid, args.member)) return fail("only a manager of their store can do that");
@@ -349,6 +364,9 @@ const server = http.createServer((req, res) => {
           { id: "web_JN8AT3CB0MW000003", year: 2021, make: "Nissan", model: "Rogue", trim: "SL", price: 27900, mileage: 61000, color: "White", stock: "P4411", vin: "JN8AT3CB0MW000003", condition: "Used", status: "available", source: "web", url: "https://example.test/vehicle/3", photo: "", seenAt: now, updatedAt: now, createdAt: now },
         ];
         lot.forEach((v) => records.set(uid + "|" + v.id, { id: v.id, user_id: uid, collection: "vehicles", data: v, deleted: false, updated_at: now }));
+        // …and into the store's shared lot when the importer is in a store.
+        const stOf = [...stores.values()].find((x) => x.members.some((m) => m.user_id === uid));
+        if (stOf) lot.forEach((v) => storeVehicles.set(stOf.id + "|" + v.id, { store_id: stOf.id, id: v.id, data: v, updated_at: now, deleted: false }));
         return json(res, 200, { uid: uid.slice(0, 8), url: msg.inventory.url || "https://example.test/inventory/", pages: 2, found: 3, added: 3, updated: 0, removed: 0, skipped: 0, onFile: 3, via: { jsonld: 3 }, at: now,
           sample: lot.slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price })) });
       }
@@ -379,7 +397,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0;
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear();
     links.clear(); seq = 0; sent.length = 0; failNextSend = false;
     return json(res, 200, { ok: true });
   }

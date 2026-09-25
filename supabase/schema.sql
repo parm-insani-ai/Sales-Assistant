@@ -401,3 +401,60 @@ begin
   return row_data::json;
 end $$;
 grant execute on function public.manager_add_task(uuid, jsonb) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- The store's shared inventory.
+--
+-- One lot for the whole store: what the website import reads lands here
+-- as well as in the importing account's own book, every member's app pulls
+-- it, and the manager's read of a customer prices against it. Managers (and
+-- the function, with the service role) write it; members read it.
+create table if not exists public.store_vehicles (
+  store_id   uuid        not null references public.stores (id) on delete cascade,
+  id         text        not null,
+  data       jsonb       not null default '{}'::jsonb,
+  updated_at timestamptz not null default now(),
+  deleted    boolean     not null default false,
+  primary key (store_id, id)
+);
+alter table public.store_vehicles enable row level security;
+drop policy if exists "members read their store's inventory" on public.store_vehicles;
+create policy "members read their store's inventory"
+  on public.store_vehicles for select
+  using (store_id in (select public.my_store_ids()));
+grant select on public.store_vehicles to authenticated;
+
+-- The store's lot, for any member. Rows changed since `since` when given.
+create or replace function public.store_inventory(store uuid, since timestamptz default null) returns json
+language sql stable security definer set search_path = public as $$
+  select case when store in (select public.my_store_ids()) or public.is_admin() then
+    coalesce((select json_agg(json_build_object('id', v.id, 'data', v.data, 'updated_at', v.updated_at, 'deleted', v.deleted) order by v.updated_at)
+              from public.store_vehicles v where v.store_id = store and (since is null or v.updated_at > since)), '[]'::json)
+  else '[]'::json end
+$$;
+
+-- A manager (or admin) writes units into the store's lot: `rows` is a JSON
+-- array of vehicle objects with an id. With `complete`, units not in the
+-- list are marked sold.
+create or replace function public.set_store_inventory(store uuid, rows jsonb, complete boolean default false) returns json
+language plpgsql security definer set search_path = public as $$
+declare r jsonb; ids text[] := '{}'; n integer := 0;
+begin
+  if not public.is_admin() and not exists (select 1 from public.store_members where store_id = store and user_id = auth.uid() and role = 'manager')
+  then raise exception 'only a manager of the store can do that'; end if;
+  for r in select * from jsonb_array_elements(rows) loop
+    if coalesce(r->>'id', '') = '' then continue; end if;
+    ids := ids || (r->>'id');
+    insert into public.store_vehicles (store_id, id, data, deleted) values (store, r->>'id', r, false)
+      on conflict (store_id, id) do update set data = excluded.data, deleted = false, updated_at = now();
+    n := n + 1;
+  end loop;
+  if complete then
+    update public.store_vehicles set data = data || jsonb_build_object('status', 'sold', 'goneAt', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), updated_at = now()
+      where store_id = store and not (id = any(ids)) and coalesce(data->>'status', 'available') <> 'sold';
+  end if;
+  return json_build_object('written', n);
+end $$;
+
+grant execute on function public.store_inventory(uuid, timestamptz) to authenticated;
+grant execute on function public.set_store_inventory(uuid, jsonb, boolean) to authenticated;

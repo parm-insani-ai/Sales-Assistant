@@ -267,6 +267,23 @@ export async function loadBook(team, { force = false } = {}) {
   return bookCache;
 }
 
+// ---- The store's shared lot ----
+let lotCache = { storeId: null, at: 0, rows: [] };
+export function cachedInventory() { return lotCache.storeId ? lotCache : null; }
+export async function loadInventory(team, { force = false } = {}) {
+  if (!force && lotCache.storeId === team.id && Date.now() - lotCache.at < 10 * 60000) return lotCache;
+  const rows = (await backend.rpc("store_inventory", { store: team.id, since: null })) || [];
+  lotCache = { storeId: team.id, at: Date.now(), rows: rows.filter((r) => !r.deleted).map((r) => ({ ...(r.data || {}), id: r.id })) };
+  return lotCache;
+}
+// The signed-in rep's store lot, for their own app: rows changed since a cursor.
+export async function pullStoreInventory(since = null) {
+  const s = cachedStore();
+  if (!s) return { rows: [], storeId: null };
+  const rows = (await backend.rpc("store_inventory", { store: s.id, since })) || [];
+  return { rows, storeId: s.id };
+}
+
 // One customer of a rep's, for the read-only page: the lead and their last texts.
 export async function repLead(userId, leadId) {
   const [lead, texts] = await Promise.all([

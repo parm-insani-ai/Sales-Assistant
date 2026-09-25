@@ -39,6 +39,16 @@ await seed(U2, [
   { id: "d2", collection: "leads", data: { id: "d2", name: "No Way To Reach", stage: "delivered", vehicleInterest: "2019 Nissan Rogue", currentValue: 15000, payoff: 4000, purchaseDate: "2019-05-01", createdAt: ago(900) } },
 ]);
 
+// The store's shared lot, written by the manager (the importer does the same).
+const lotWrite = await rpc("tm", "set_store_inventory", { store: st.id, rows: [
+  { id: "web_n1", year: 2026, make: "Nissan", model: "Rogue", trim: "SV", price: 41000, mileage: 12, condition: "New", status: "available", source: "web", updatedAt: new Date().toISOString() },
+  { id: "web_u1", year: 2022, make: "Nissan", model: "Frontier", trim: "PRO-4X", price: 39900, mileage: 41000, condition: "Used", status: "available", source: "web", updatedAt: new Date().toISOString() },
+  { id: "web_u2", year: 2021, make: "Honda", model: "Civic", trim: "Sport", price: 24990, mileage: 60000, condition: "Used", status: "available", source: "web", updatedAt: new Date().toISOString() },
+], complete: true });
+if (lotWrite.written !== 3) fail("the manager couldn't write the store's lot: " + JSON.stringify(lotWrite));
+const repWrite = await rpc("t", "set_store_inventory", { store: st.id, rows: [{ id: "bogus", make: "X", model: "Y", price: 1 }] });
+if (!repWrite.message || !/only a manager/.test(repWrite.message)) fail("a rep could write the store's lot: " + JSON.stringify(repWrite));
+
 // --- The Customers tab: reach-outs first.
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/customers");
@@ -47,16 +57,17 @@ const reach = await mgr.evaluate(() => ({
   tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()),
   title: document.querySelector(".hero-title")?.textContent.trim(),
   line: document.querySelector(".row .small.muted")?.textContent.replace(/\s+/g, " ").trim(),
-  rows: [...document.querySelectorAll(".cu-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), sub: r.querySelector(".row-sub").textContent.trim(), reasons: r.querySelector(".row-reasons")?.textContent.trim(), send: r.querySelector("[data-send]")?.textContent.trim() })),
+  rows: [...document.querySelectorAll(".cu-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), sub: r.querySelector(".row-sub").textContent.trim(), reasons: r.querySelector(".row-reasons")?.textContent.trim(), deal: r.querySelector(".cu-deal")?.textContent.replace(/\s+/g, " ").trim(), send: r.querySelector("[data-send]")?.textContent.trim() })),
 }));
 console.log("reach-outs:", JSON.stringify(reach, null, 1));
 if (reach.tabs.join() !== "Home,Appts,Customers,Insights,Team") fail("the Customers tab is missing: " + reach.tabs.join());
-if (!/6 customers · 4 worth a call/.test(reach.line || "")) fail("the book line is wrong: " + reach.line);
+if (!/6 customers · 4 worth a call/.test(reach.line || "") || !/priced against 3 units/.test(reach.line)) fail("the book line is wrong: " + reach.line);
 const names = reach.rows.map((r) => r.name.replace(/\s*(Hot|Strong|Worth a call)$/, ""));
 if (names.includes("Just Sold") || names.includes("No Way To Reach")) fail("excluded or unreachable customers are on the reach-out list: " + names.join(", "));
 if (!names.includes("Big Equity") || !names.includes("Lease Ending") || !names.includes("Fresh Untouched") || !names.includes("Old Kicks")) fail("reach-outs are missing: " + names.join(", "));
 const big = reach.rows.find((r) => /Big Equity/.test(r.name));
 if (!/\$13,000 equity/.test(big.reasons) || !/Parm/.test(big.sub) || big.send !== "Send to Parm") fail("Big Equity's row is wrong: " + JSON.stringify(big));
+if (!/\/mo less|Same payment/.test(big.reasons) || !/2022 Nissan Frontier PRO-4X ≈ \$\d{3}\/mo \(−\$\d+\/mo\)/.test(big.deal || "")) fail("Big Equity has no payment match against the store's lot: " + JSON.stringify(big));
 const fresh = reach.rows.find((r) => /Fresh Untouched/.test(r.name));
 if (!/Never touched/.test(fresh.reasons) || !/Dana/.test(fresh.sub)) fail("the untouched lead's row is wrong: " + JSON.stringify(fresh));
 
@@ -66,7 +77,7 @@ await mgr.waitForFunction(() => document.querySelector('[data-send="p1"]')?.text
 const recs = await (await fetch(APP + "/__records")).json();
 const task = recs.find((r) => r.user_id === U1 && r.collection === "tasks");
 console.log("task in Parm's book:", JSON.stringify(task && task.data));
-if (!task || !/^Reach out to Big Equity — \$13,000 equity/.test(task.data.title) || task.data.leadId !== "p1" || !task.data.fromManager || task.data.done) fail("the to-do didn't land in the rep's book: " + JSON.stringify(task));
+if (!task || !/^Reach out to Big Equity — 2022 Nissan Frontier PRO-4X at ~\$\d{3}\/mo, .*\$13,000 equity/.test(task.data.title) || task.data.leadId !== "p1" || !task.data.fromManager || task.data.done) fail("the to-do didn't land in the rep's book: " + JSON.stringify(task));
 const nudges = await (await fetch(APP + "/__nudges")).json();
 if (!nudges.some((n) => n.to === U1 && /Reach out to Big Equity/.test(n.title))) fail("the rep wasn't nudged: " + JSON.stringify(nudges));
 
@@ -111,6 +122,13 @@ const rep = await pageAs("t", "p@e.com", [{ id: "p1", name: "Big Equity", phone:
 await rep.goto(APP + "/#/");
 await rep.waitForFunction(async () => { const s = await import("/js/store.js"); return s.all("tasks").some((t) => /Reach out to Big Equity/.test(t.title) && t.fromManager); }, null, { timeout: 20000 });
 console.log("the rep has the to-do");
+await rep.waitForFunction(async () => { const s = await import("/js/store.js"); return s.all("vehicles").filter((v) => v.shared).length === 3; }, null, { timeout: 20000 });
+await rep.evaluate(async () => { const sy = await import("/js/sync.js"); await sy.syncNow({ reconcile: true }); });
+const pushedLot = (await (await fetch(APP + "/__records")).json()).filter((r) => r.user_id === U1 && r.collection === "vehicles");
+console.log("the rep has the store's lot; pushed back as their own:", pushedLot.length);
+if (pushedLot.length) fail("the shared lot was pushed back into the rep's own records");
+const radar = await rep.evaluate(async () => { const d = await import("/js/views/dealbuilder.js"); const s = await import("/js/store.js"); const l = s.all("leads")[0]; s.update("leads", l.id, { currentPayment: 610, currentValue: 31000, payoff: 18000 }); const opts = d.dealsForLead(s.get("leads", l.id)); const arr = Array.isArray(opts) ? opts : (opts.options || opts.deals || []); return arr.length; });
+if (!radar) fail("the rep's radar doesn't price against the shared lot");
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
