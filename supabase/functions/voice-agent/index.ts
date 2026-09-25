@@ -1030,7 +1030,10 @@ async function handleInventory(body: any): Promise<Response> {
 async function handleSweep(body: any): Promise<Response> {
   const cronKey = Deno.env.get("CRON_KEY");
   if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
-  if (!ensureVapid()) return json({ error: "VAPID keys not set" }, 500);
+  // The manager's welcome texts first: they need Twilio, not push.
+  const welcomeReport: any[] = [];
+  try { await welcomePass(Date.now(), welcomeReport); } catch (e) { welcomeReport.push({ welcome: "failed", error: String(e) }); }
+  if (!ensureVapid()) return json({ error: "VAPID keys not set", welcome: welcomeReport }, 500);
 
   const res = await fetch(sbUrl(`/records?collection=eq.push&deleted=eq.false&select=user_id`), { headers: sbHeaders() });
   if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
@@ -1721,28 +1724,117 @@ async function handleSmsCheck(body: any): Promise<Response> {
   return json(out);
 }
 
-async function handleSendSms(body: any): Promise<Response> {
+// One text out through Twilio. { ok, sid } or { ok: false, error, code }.
+async function twilioSend(to: string, text: string): Promise<{ ok: boolean; sid?: string; error?: string; code?: number | null }> {
   const { sid, token, from } = twilioCfg();
+  if (!sid || !token || !from) return { ok: false, error: "Texting is not set up on the server (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)" };
+  const form = new URLSearchParams({ To: to, From: from, Body: text.slice(0, 1600) });
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: { Authorization: "Basic " + btoa(`${sid}:${token}`), "Content-Type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: twilioReason(out, res.status), code: out?.code ?? null };
+  return { ok: true, sid: out?.sid || "" };
+}
+
+// ---- The manager's welcome text -------------------------------------------
+// A customer a rep logged gets a text from the sales manager — on its own,
+// an hour or two later, never on the rep's heels, only in the store's day,
+// once. The rules are js/welcome.js's, kept identical here.
+const WELCOME_DEFAULTS = { enabled: false, manager: "", template: "Hi {first}, it's {manager}, the sales manager at {store}. Thanks for coming in to see {rep} — we'd love to help in any way we can. If there's anything at all, you can reach me right here.", minMinutes: 45, maxMinutes: 150, gapMinutes: 30, hourFrom: 9, hourTo: 20, maxAgeDays: 3, tzOffsetMinutes: 180 };
+function hashPct(id: string): number {
+  let h = 2166136261;
+  for (const ch of String(id || "")) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return (h % 1000) / 1000;
+}
+function welcomeDue(lead: any, texts: any[], cfg: any, now: number): { due: boolean; why: string } {
+  const c = { ...WELCOME_DEFAULTS, ...(cfg || {}) };
+  const MIN = 60000;
+  if (!c.enabled) return { due: false, why: "off" };
+  if (lead.managerWelcomeAt) return { due: false, why: "already welcomed" };
+  if (!lead.phone) return { due: false, why: "no phone" };
+  if (lead.smsOptOut || lead.doNotContact || (lead.consent && lead.consent.basis === "withdrawn")) return { due: false, why: "opted out" };
+  if (String(lead.source || "").toLowerCase() === "text") return { due: false, why: "came in by text" };
+  if (!["new", "working", "appointment"].includes(lead.stage)) return { due: false, why: "not a fresh enquiry" };
+  if (lead.purchaseDate) return { due: false, why: "an owner on file" };
+  const created = new Date(lead.createdAt || "").getTime();
+  if (!isFinite(created)) return { due: false, why: "no arrival time" };
+  const ageMin = (now - created) / MIN;
+  if (ageMin > Number(c.maxAgeDays) * 1440) return { due: false, why: "too late" };
+  const min = Number(c.minMinutes), max = Math.max(min, Number(c.maxMinutes));
+  const delay = Math.round(min + hashPct(lead.id) * (max - min));
+  if (ageMin < delay) return { due: false, why: "not yet" };
+  const h = new Date(now - Number(c.tzOffsetMinutes || 0) * MIN).getUTCHours();
+  if (!(h >= Number(c.hourFrom) && h < Number(c.hourTo))) return { due: false, why: "after hours" };
+  const gap = Number(c.gapMinutes) * MIN;
+  for (const t of texts || []) {
+    const at = new Date(t.at || t.createdAt || "").getTime();
+    if (!isFinite(at)) continue;
+    if (t.dir === "out" && !/manager/.test(String(t.via || "")) && Math.abs(now - at) < gap) return { due: false, why: "rep just texted" };
+    if (t.dir === "in" && now - at < 15 * MIN) return { due: false, why: "mid-conversation" };
+  }
+  return { due: true, why: "" };
+}
+function welcomeText(lead: any, names: { manager: string; store: string; rep: string }, template: string): string {
+  const first = String(lead.name || "there").trim().split(/\s+/)[0] || "there";
+  return String(template || WELCOME_DEFAULTS.template)
+    .replace(/\{first\}/g, first).replace(/\{manager\}/g, names.manager || "the sales manager").replace(/\{store\}/g, names.store || "the store").replace(/\{rep\}/g, names.rep || "us")
+    .replace(/\s{2,}/g, " ").trim();
+}
+// Send the welcome to one of a rep's customers and log it in the rep's
+// thread; the customer is marked welcomed so it never goes twice.
+async function sendWelcome(store: any, cfg: any, rep: any, lead: any): Promise<{ ok: boolean; error?: string; body?: string }> {
+  const body = welcomeText(lead, { manager: cfg.manager || "", store: store.name || "", rep: rep.name || (rep.email || "").split("@")[0] || "us" }, cfg.template);
+  const r = await twilioSend(String(lead.phone), body);
+  if (!r.ok) return { ok: false, error: r.error };
+  const now = new Date().toISOString();
+  const tid = "txt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  try {
+    await saveRecord(rep.user_id, "texts", tid, { id: tid, leadId: lead.id, dir: "out", body, phone: lead.phone, at: now, read: true, sid: r.sid || "", via: "manager-welcome", by: cfg.manager || "", createdAt: now, updatedAt: now });
+    await saveRecord(rep.user_id, "leads", lead.id, { ...lead, managerWelcomeAt: now, updatedAt: now });
+  } catch { /* sent; the log is best-effort */ }
+  return { ok: true, body };
+}
+// The sweep's pass: every store with the welcome on, every member's fresh
+// customers, the rules, the send.
+async function welcomePass(now: number, report: any[]): Promise<void> {
+  const cfgs = await fetch(sbUrl(`/store_config?select=store_id,data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  for (const row of cfgs as any[]) {
+    const cfg = { ...WELCOME_DEFAULTS, ...((row.data || {}).welcome || {}) };
+    if (!cfg.enabled) continue;
+    const store = await fetch(sbUrl(`/stores?select=id,name&id=eq.${encodeURIComponent(row.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x[0]).catch(() => null);
+    if (!store) continue;
+    const members = await fetch(sbUrl(`/store_members?select=user_id,role,name,email&store_id=eq.${encodeURIComponent(row.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    const since = new Date(now - Number(cfg.maxAgeDays) * 86400000).toISOString();
+    let sent = 0, held = 0;
+    for (const m of members as any[]) {
+      const leads = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(m.user_id)}&collection=eq.leads&deleted=eq.false&data->>createdAt=gte.${encodeURIComponent(since)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
+      for (const lead of leads) {
+        if (lead.managerWelcomeAt || !lead.phone) continue;
+        const texts = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(m.user_id)}&collection=eq.texts&deleted=eq.false&data->>leadId=eq.${encodeURIComponent(lead.id)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
+        const d = welcomeDue(lead, texts, cfg, now);
+        if (!d.due) { if (d.why === "not yet" || d.why === "rep just texted" || d.why === "mid-conversation" || d.why === "after hours") held++; continue; }
+        const r = await sendWelcome(store, cfg, m, lead);
+        if (r.ok) sent++; else report.push({ store: String(store.name), welcome: "failed", error: r.error });
+      }
+    }
+    if (sent || held) report.push({ store: String(store.name), welcomes: sent, held });
+  }
+}
+
+async function handleSendSms(body: any): Promise<Response> {
   const s = body.sms || {};
   const uid = String(s.u || "");
   const to = String(s.to || "").trim();
   const text = String(s.body || "").trim();
-  if (!sid || !token || !from) return json({ error: "Texting is not set up on the server (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)" }, 500);
   if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
   if (phoneKey(to).length < 10) return json({ error: "bad number" }, 400);
   if (!text) return json({ error: "empty message" }, 400);
-
-  const form = new URLSearchParams({ To: to, From: from, Body: text.slice(0, 1600) });
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: {
-      Authorization: "Basic " + btoa(`${sid}:${token}`),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: form,
-  });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) return json({ error: twilioReason(out, res.status), code: out?.code ?? null }, 502);
+  const sent = await twilioSend(to, text);
+  if (!sent.ok) return json({ error: sent.error, code: sent.code ?? null }, /not set up/.test(String(sent.error)) ? 500 : 502);
+  const out = { sid: sent.sid };
 
   // Log it on the server so the thread is complete even if this device never
   // syncs again — the app writes its own optimistic copy under the same id.
@@ -1778,11 +1870,34 @@ Deno.serve(async (req: Request) => {
   // public paths (a customer booking, cron with its key) carry no session and
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
-  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.nudge || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.nudge || body.welcome || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
   if (personal) {
     const caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
-    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+  }
+
+  // The manager's welcome, to one customer, now — from a manager of the
+  // rep's store (or an admin). The sweep does the rest on its own clock.
+  if (body.welcome) {
+    const w = body.welcome;
+    const rep = String(w.rep || ""), leadId = String(w.leadId || "");
+    if (!/^[0-9a-f-]{36}$/.test(rep) || !leadId) return json({ error: "bad request" }, 400);
+    const mine = await fetch(sbUrl(`/store_members?select=store_id,role&user_id=eq.${encodeURIComponent(w.u)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    const managed = (mine as Array<{ store_id: string; role: string }>).filter((m) => m.role === "manager").map((m) => m.store_id);
+    const theirs = await fetch(sbUrl(`/store_members?select=store_id,user_id,role,name,email&user_id=eq.${encodeURIComponent(rep)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    const isAdm = await fetch(sbUrl(`/admins?select=user_id&user_id=eq.${encodeURIComponent(w.u)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x.length > 0).catch(() => false);
+    const member = (theirs as any[]).find((m) => isAdm || managed.includes(m.store_id));
+    if (!member) return json({ error: "you don't manage that rep" }, 403);
+    const store = await fetch(sbUrl(`/stores?select=id,name&id=eq.${encodeURIComponent(member.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x[0]).catch(() => null);
+    const cfgRow = await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(member.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}));
+    const cfg = { ...WELCOME_DEFAULTS, ...(cfgRow.welcome || {}) };
+    const lead = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(rep)}&collection=eq.leads&deleted=eq.false&id=eq.${encodeURIComponent(leadId)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || null).catch(() => null);
+    if (!lead) return json({ error: "no such customer" }, 400);
+    if (!lead.phone) return json({ error: "no phone number" }, 400);
+    if (lead.smsOptOut || lead.doNotContact) return json({ error: "they've opted out of texts" }, 400);
+    const r = await sendWelcome(store || { name: "" }, cfg, member, lead);
+    return r.ok ? json({ sent: true, body: r.body }) : json({ error: r.error }, 502);
   }
 
   // A manager taps a rep's phone: "Fresh Lead has been waiting 3 hours."

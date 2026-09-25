@@ -267,6 +267,36 @@ export async function loadBook(team, { force = false } = {}) {
   return bookCache;
 }
 
+// ---- Store config: the manager's welcome text ----
+let cfgCache = { storeId: null, data: null };
+export function cachedConfig() { return cfgCache.data; }
+export async function loadConfig(team) {
+  const data = (await backend.rpc("store_config_get", { store: team.id })) || {};
+  cfgCache = { storeId: team.id, data };
+  return data;
+}
+export async function saveConfig(team, patch) {
+  const data = (await backend.rpc("store_config_set", { store: team.id, patch })) || {};
+  cfgCache = { storeId: team.id, data };
+  return data;
+}
+// Send the welcome to one customer now, through the function.
+export async function sendWelcomeNow(repId, leadId) {
+  const s = (await import("./store.js")).getSettings();
+  const fn = (s.agentUrl || "").trim().replace(/\/+$/, "");
+  if (!fn) throw new Error("Set up the cloud function in Settings first");
+  const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ welcome: { rep: repId, leadId } }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || `Couldn't send (${res.status})`);
+  return j;
+}
+// Welcomes sent across the store in the last `days`, newest first.
+export async function welcomeLog(team, days = 30) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const per = await Promise.all((team.members || []).map((m) => backend.readRecords(m.user_id, "texts", { "data->>via": "eq.manager-welcome", "data->>at": `gte.${since}` }, { select: "data" }).then((rs) => rs.map((r) => ({ ...(r.data || {}), rep: m })), () => [])));
+  return per.flat().sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
 // ---- The store's shared lot ----
 let lotCache = { storeId: null, at: 0, rows: [] };
 export function cachedInventory() { return lotCache.storeId ? lotCache : null; }

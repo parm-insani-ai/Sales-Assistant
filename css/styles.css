@@ -1563,6 +1563,7 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 body.management #quick-add { display: none; }
 .mg-rep:active { opacity: 0.7; }
 .mg-plan { border-left: 4px solid var(--brand); }
+.bubble-by { font-size: 0.68rem; opacity: 0.75; margin-bottom: 2px; font-weight: 600; letter-spacing: 0.02em; }
 .mg-need { display: inline-block; background: var(--surface-2); border-radius: 8px; padding: 3px 8px; margin: 2px 4px 2px 0; font-size: 0.8rem; }
 
 /* The manager board: one rep per row, the month's cells under the name. */

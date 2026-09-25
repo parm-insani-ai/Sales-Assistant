@@ -458,3 +458,43 @@ end $$;
 
 grant execute on function public.store_inventory(uuid, timestamptz) to authenticated;
 grant execute on function public.set_store_inventory(uuid, jsonb, boolean) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Store settings the function acts on: the manager's welcome text.
+-- One row per store, a JSON document: { welcome: { enabled, manager,
+-- template, minMinutes, maxMinutes, gapMinutes, hourFrom, hourTo,
+-- maxAgeDays, tzOffsetMinutes } }. Managers write it; members read it; the
+-- function's sweep reads it with the service role.
+create table if not exists public.store_config (
+  store_id   uuid primary key references public.stores (id) on delete cascade,
+  data       jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.store_config enable row level security;
+drop policy if exists "members read their store's config" on public.store_config;
+create policy "members read their store's config"
+  on public.store_config for select
+  using (store_id in (select public.my_store_ids()));
+grant select on public.store_config to authenticated;
+
+create or replace function public.store_config_get(store uuid) returns json
+language sql stable security definer set search_path = public as $$
+  select case when store in (select public.my_store_ids()) or public.is_admin()
+    then coalesce((select data::json from public.store_config where store_id = store), '{}'::json) else '{}'::json end
+$$;
+
+-- Merge a patch into the store's config (top-level keys replace whole).
+create or replace function public.store_config_set(store uuid, patch jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare cur jsonb;
+begin
+  if not public.is_admin() and not exists (select 1 from public.store_members where store_id = store and user_id = auth.uid() and role = 'manager')
+  then raise exception 'only a manager of the store can do that'; end if;
+  insert into public.store_config (store_id, data) values (store, coalesce(patch, '{}'::jsonb))
+    on conflict (store_id) do update set data = public.store_config.data || excluded.data, updated_at = now()
+    returning data into cur;
+  return cur::json;
+end $$;
+
+grant execute on function public.store_config_get(uuid) to authenticated;
+grant execute on function public.store_config_set(uuid, jsonb) to authenticated;

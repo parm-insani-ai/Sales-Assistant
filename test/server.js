@@ -37,6 +37,9 @@ const stores = new Map();
 const admins = new Set(["00000000-0000-4000-8000-000000000003"]);
 // The store's shared lot: key store|id.
 const storeVehicles = new Map();
+// Per-store config (the manager's welcome text), and the welcomes "sent".
+const storeConfig = new Map();
+const welcomes = [];
 // Targets managers set, and the nudges (pushes) managers sent.
 const targets = new Map();
 const nudges = [];
@@ -190,6 +193,13 @@ const server = http.createServer((req, res) => {
         row.data.updatedAt = new Date().toISOString(); row.updated_at = row.data.updatedAt;
         return json(res, 200, row.data);
       }
+      if (fn === "store_config_get") { const mine = myStore(uid); return json(res, 200, (isAdmin || (mine && mine.id === args.store)) ? (storeConfig.get(args.store) || {}) : {}); }
+      if (fn === "store_config_set") {
+        const mine = myStore(uid);
+        if (!isAdmin && !(mine && mine.id === args.store && mine.role === "manager")) return fail("only a manager of the store can do that");
+        storeConfig.set(args.store, { ...(storeConfig.get(args.store) || {}), ...(args.patch || {}) });
+        return json(res, 200, storeConfig.get(args.store));
+      }
       if (fn === "store_inventory") {
         const st = stores.get(args.store); const mine = myStore(uid);
         if (!st || !(isAdmin || (mine && mine.id === st.id))) return json(res, 200, []);
@@ -305,6 +315,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__stores") return json(res, 200, [...stores.values()]);
   if (url.pathname === "/__nudges") return json(res, 200, nudges);
+  if (url.pathname === "/__welcomes") return json(res, 200, welcomes);
   if (url.pathname === "/__admin") { const u = url.searchParams.get("u"); if (u) admins.add(u); return json(res, 200, [...admins]); }
   if (url.pathname === "/__pushes") return json(res, 200, pushes);
 
@@ -336,6 +347,29 @@ const server = http.createServer((req, res) => {
       // Canned diagnosis, so the Settings readout can be exercised against the
       // shapes a real misconfiguration produces.
       if (msg.smscheck) return json(res, 200, checkReply);
+      // The manager's welcome, sent now to one customer: the text lands in the
+      // rep's thread and the customer is marked welcomed. The function's sweep
+      // does the same on its own clock (js/welcome.js has the rules).
+      if (msg.welcome) {
+        const uid = USERS[bearer] || USERS.t;
+        const w = msg.welcome;
+        const st = [...stores.values()].find((x) => x.members.some((m) => m.user_id === w.rep));
+        const ok = admins.has(uid) || !!(st && st.members.some((m) => m.user_id === uid && m.role === "manager"));
+        if (!ok) return json(res, 403, { error: "you don't manage that rep" });
+        const lead = records.get(w.rep + "|" + w.leadId);
+        if (!lead || lead.collection !== "leads") return json(res, 400, { error: "no such customer" });
+        if (!lead.data.phone) return json(res, 400, { error: "no phone number" });
+        const cfg = (storeConfig.get(st.id) || {}).welcome || {};
+        const first = String(lead.data.name || "there").split(" ")[0];
+        const repName = (st.members.find((m) => m.user_id === w.rep) || {}).name || "us";
+        const body = String(cfg.template || "Hi {first}, it's {manager}, the sales manager at {store}. Thanks for coming in to see {rep} — we'd love to help in any way we can. If there's anything at all, you can reach me right here.")
+          .replace(/\{first\}/g, first).replace(/\{manager\}/g, cfg.manager || "the sales manager").replace(/\{store\}/g, st.name).replace(/\{rep\}/g, repName);
+        const nowiso = new Date().toISOString(), tid = "txt_w" + (welcomes.length + 1);
+        records.set(w.rep + "|" + tid, { id: tid, user_id: w.rep, collection: "texts", data: { id: tid, leadId: w.leadId, dir: "out", body, phone: lead.data.phone, at: nowiso, read: true, via: "manager-welcome", by: cfg.manager || "", createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
+        lead.data.managerWelcomeAt = nowiso; lead.data.updatedAt = nowiso; lead.updated_at = nowiso;
+        welcomes.push({ rep: w.rep, leadId: w.leadId, body, to: lead.data.phone });
+        return json(res, 200, { sent: true, body });
+      }
       if (msg.nudge) {
         const uid = USERS[bearer] || USERS.t;
         const st = [...stores.values()].find((x) => x.members.some((m) => m.user_id === msg.nudge.to));
@@ -397,7 +431,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear();
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false;
     return json(res, 200, { ok: true });
   }

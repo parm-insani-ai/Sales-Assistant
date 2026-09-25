@@ -176,6 +176,7 @@ function renderThread(view, leadId) {
         runEnd ? " bubble-runend" : ""}`;
       const body = document.createElement("div");
       body.className = "bubble-body";
+      if (m.via === "manager-welcome") { const tag = document.createElement("div"); tag.className = "bubble-by"; tag.textContent = `${m.by || "Manager"} · sales manager`; b.appendChild(tag); }
       body.textContent = m.body;
       b.appendChild(body);
       wrap.appendChild(b);

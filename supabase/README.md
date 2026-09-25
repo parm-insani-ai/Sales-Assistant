@@ -99,6 +99,13 @@ goes through a database function that checks the manager relationship:
   never imported still has the lot for their radar, and the manager's read
   of a customer prices every one of them against it: what they could drive
   for the money they pay now.
+- **The welcome text** — Home → Welcome text in the store's app. With it
+  on, a customer a rep logs gets a text from the sales manager on the
+  function's ten-minute sweep: 45–150 minutes after they're logged (a
+  different delay per customer), never within 30 minutes of the rep's own
+  text, only in the store's day, once. It logs in the rep's conversation
+  with the customer, marked as the manager's. Needs Twilio on the function
+  (the same setup as texting).
 - **A to-do** — from the Customers tab, the manager hands a rep one customer
   to reach out to, with the reasons in the title. One task row in the rep's
   book, which their app shows in the queue on the next sync.

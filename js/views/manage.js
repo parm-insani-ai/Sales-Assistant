@@ -151,6 +151,7 @@ export function renderManageHome(view) {
 
       <div class="section-title">Run the store</div>
       <div class="qa-grid" style="margin-bottom:14px">
+        <button class="qa-tile" data-act="welcome"><span class="qa-ico">${icon("message")}</span><span class="qa-label">Welcome text</span></button>
         <button class="qa-tile" data-act="appointments"><span class="qa-ico">${icon("calendar")}</span><span class="qa-label">Appointments</span></button>
         <button class="qa-tile" data-act="insights"><span class="qa-ico">${icon("sparkles")}</span><span class="qa-label">Insights</span></button>
         <button class="qa-tile" data-act="team"><span class="qa-ico">${icon("users")}</span><span class="qa-label">Team</span></button>
@@ -166,6 +167,7 @@ export function renderManageHome(view) {
     on('[data-act="team"]', () => navigate("/team"));
     on('[data-act="insights"]', () => navigate("/insights"));
     on('[data-act="appointments"]', () => navigate("/appointments"));
+    on('[data-act="welcome"]', () => import("./welcome.js").then((m) => m.openWelcomeSheet(team)));
     on('[data-act="admin"]', () => navigate("/team"));
     on('[data-act="settings"]', () => navigate("/settings"));
     on('[data-act="sales"]', () => { setViewMode("sales"); location.hash = "#/"; location.reload(); });
