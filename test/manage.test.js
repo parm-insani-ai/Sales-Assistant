@@ -63,7 +63,7 @@ const home = await mgr.evaluate(() => ({
   tiles: [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()),
 }));
 console.log("management home:", JSON.stringify(home, null, 1));
-if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Insights,Team,Settings") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
+if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Appts,Insights,Team,Settings") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
 // Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
 if (!home.stats.some((s) => /^3 ?Appointments set in \w+ · 1 today/.test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => /^1 · 50% ?Shown/.test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
 const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
@@ -132,7 +132,7 @@ await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) 
 await both.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".hero-title"), null, { timeout: 20000 });
 await both.waitForFunction(() => /As of/.test(document.body.textContent), null, { timeout: 20000 });
 const switched = await both.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
-if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 4) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
+if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 5) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
 await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) => /Sales view/.test(t.textContent)).click(); });
 await both.waitForSelector(".plays-slot", { timeout: 20000 });
 const back = await both.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: document.querySelectorAll(".tabbar .tab").length }));

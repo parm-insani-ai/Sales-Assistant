@@ -1540,7 +1540,7 @@ body.voice-live .tab-voice .tab-label { color: var(--brand-strong); }
 .voice-overlay.voice-docked .voice-close { background: transparent; }
 
 /* The store's app: three tabs, no voice button, no quick-add. */
-body.management .tabbar { grid-template-columns: repeat(4, 1fr); }
+body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* Insights: small horizontal bars, tiny vertical bar charts, a by-rep table. */
 .ibar { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; min-width: 40px; }
 .ibar > span { display: block; height: 100%; background: var(--brand); border-radius: 4px; }

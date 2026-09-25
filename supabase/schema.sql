@@ -304,3 +304,82 @@ grant execute on function public.admin_set_store(uuid, text, boolean) to authent
 -- The two-argument form from the first version of this file, if it was run.
 drop function if exists public.set_member_role(uuid, text);
 grant execute on function public.leave_store() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- What a manager can do TO a rep's book — narrowly.
+--
+-- Managers read everything in their store; they can write exactly two
+-- things: an appointment's status (confirmed, showed, no-show, sold, notes)
+-- and a rep's monthly targets. Both go through functions that check the
+-- manager relationship, so the owner-only write policy on records stands.
+
+-- Targets set by the store for a rep and a month ("2026-09").
+create table if not exists public.store_targets (
+  store_id   uuid not null references public.stores (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  month      text not null check (month ~ '^\d{4}-\d{2}$'),
+  goal_units integer not null default 0,
+  goal_appts integer not null default 0,
+  set_by     uuid,
+  updated_at timestamptz not null default now(),
+  primary key (store_id, user_id, month)
+);
+alter table public.store_targets enable row level security;
+drop policy if exists "members see their store's targets" on public.store_targets;
+create policy "members see their store's targets"
+  on public.store_targets for select
+  using (store_id in (select public.my_store_ids()));
+grant select on public.store_targets to authenticated;
+
+-- A manager (or admin) sets a rep's targets for a month.
+create or replace function public.set_target(member uuid, target_month text, units integer, appts integer) returns json
+language plpgsql security definer set search_path = public as $$
+declare sid uuid;
+begin
+  select store_id into sid from public.store_members where user_id = member;
+  if sid is null then raise exception 'they are not in a store'; end if;
+  if not public.is_admin() and not public.manages(member) then raise exception 'only a manager of their store can set targets'; end if;
+  insert into public.store_targets (store_id, user_id, month, goal_units, goal_appts, set_by)
+    values (sid, member, target_month, greatest(0, coalesce(units, 0)), greatest(0, coalesce(appts, 0)), auth.uid())
+    on conflict (store_id, user_id, month) do update
+      set goal_units = excluded.goal_units, goal_appts = excluded.goal_appts, set_by = excluded.set_by, updated_at = now();
+  return public.targets_for_store(sid, target_month);
+end $$;
+
+-- Every target in a store for a month.
+create or replace function public.targets_for_store(store uuid, target_month text) returns json
+language sql stable security definer set search_path = public as $$
+  select case when store in (select public.my_store_ids()) or public.is_admin() then
+    coalesce((select json_agg(json_build_object('user_id', t.user_id, 'month', t.month, 'goal_units', t.goal_units, 'goal_appts', t.goal_appts))
+              from public.store_targets t where t.store_id = store and t.month = target_month), '[]'::json)
+  else '[]'::json end
+$$;
+
+-- My own target for a month, as the store set it. Null when none.
+create or replace function public.my_target(target_month text) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object('month', t.month, 'goal_units', t.goal_units, 'goal_appts', t.goal_appts)
+  from public.store_targets t where t.user_id = auth.uid() and t.month = target_month limit 1
+$$;
+
+-- A manager marks what happened to a rep's appointment. Only these keys
+-- can change; the row must be one of the rep's appointments.
+create or replace function public.manager_update_appointment(member uuid, appt_id text, patch jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare allowed jsonb; row_data jsonb;
+begin
+  if not public.is_admin() and not public.manages(member) then raise exception 'only a manager of their store can do that'; end if;
+  allowed := jsonb_strip_nulls(jsonb_build_object(
+    'confirmed', patch->'confirmed', 'outcome', patch->'outcome', 'status', patch->'status', 'managerNote', patch->'managerNote'));
+  allowed := allowed || jsonb_build_object('updatedAt', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'));
+  update public.records set data = data || allowed, updated_at = now()
+    where user_id = member and id = appt_id and collection = 'appointments' and deleted = false
+    returning data into row_data;
+  if row_data is null then raise exception 'no such appointment'; end if;
+  return row_data::json;
+end $$;
+
+grant execute on function public.set_target(uuid, text, integer, integer) to authenticated;
+grant execute on function public.targets_for_store(uuid, text) to authenticated;
+grant execute on function public.my_target(text) to authenticated;
+grant execute on function public.manager_update_appointment(uuid, text, jsonb) to authenticated;

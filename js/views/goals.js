@@ -79,6 +79,7 @@ export function renderGoals(view) {
       <div class="row"><span class="muted small">Show rate <span class="muted">(of ${funnel.past} past)</span></span><span class="mono strong">${funnel.showRate}%</span></div>
       <div class="row" style="margin-top:8px"><span class="muted small">Appointment → sold</span><span class="mono strong" style="color:var(--success)">${funnel.closeRate}%</span></div>
     </div>
+    ${s.targetSetBy === "manager" ? `<div class="hint" style="margin:-4px 2px 10px">${icon("check")} Targets set by your manager for this month.</div>` : ""}
     ${progressCard("Appointments set", funnel.set, s.goalAppointments, (v) => String(v))}
 
     <div class="section-title">Sales this month</div>

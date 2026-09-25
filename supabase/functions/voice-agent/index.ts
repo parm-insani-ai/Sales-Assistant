@@ -1762,11 +1762,37 @@ Deno.serve(async (req: Request) => {
   // public paths (a customer booking, cron with its key) carry no session and
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
-  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.nudge || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
   if (personal) {
     const caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
-    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+  }
+
+  // A manager taps a rep's phone: "Fresh Lead has been waiting 3 hours."
+  // Only to a rep in a store the caller manages.
+  if (body.nudge) {
+    const n = body.nudge;
+    const to = String(n.to || "");
+    if (!/^[0-9a-f-]{36}$/.test(to)) return json({ error: "bad rep" }, 400);
+    const q = `/store_members?select=store_id,role&user_id=eq.${encodeURIComponent(n.u)}`;
+    const mine = await fetch(sbUrl(q), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    const managed = (mine as Array<{ store_id: string; role: string }>).filter((m) => m.role === "manager").map((m) => m.store_id);
+    let ok = false;
+    if (managed.length) {
+      const q2 = `/store_members?select=store_id&user_id=eq.${encodeURIComponent(to)}`;
+      const theirs = await fetch(sbUrl(q2), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      ok = (theirs as Array<{ store_id: string }>).some((m) => managed.includes(m.store_id));
+    }
+    if (!ok) {
+      const adm = await fetch(sbUrl(`/admins?select=user_id&user_id=eq.${encodeURIComponent(n.u)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      ok = Array.isArray(adm) && adm.length > 0;
+    }
+    if (!ok) return json({ error: "you don't manage that rep" }, 403);
+    if (!ensureVapid()) return json({ error: "VAPID keys not set — push isn't configured on the function" }, 500);
+    const errs: string[] = [];
+    const sent = await sendPush(to, { title: String(n.title || "From your manager").slice(0, 80), body: String(n.body || "").slice(0, 200), tag: "nudge-" + (n.tag || "x"), url: String(n.url || "./#/") }, errs);
+    return json({ sent, errors: errs });
   }
 
   if (body.inventory) return handleInventory(body);

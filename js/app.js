@@ -25,7 +25,7 @@ const LOADERS = {
   tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
-  outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"),
+  outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), appointments: () => import("./views/appointments.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -44,7 +44,7 @@ import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
-import { managementMode, myStore as readStore } from "./team.js";
+import { managementMode, myStore as readStore, myTarget } from "./team.js";
 import { claimDevice } from "./account.js";
 import { initSaveState } from "./savestate.js";
 import { needsInstall } from "./push.js";
@@ -82,6 +82,7 @@ const inManagement = () => managementMode(store.all("leads").length);
 const TAB_SVG = {
   home: '<path d="M3 10.6 12 3l9 7.6"/><path d="M5 9.4V20a1 1 0 0 0 1 1h3.5v-5.5h5V21H18a1 1 0 0 0 1-1V9.4"/>',
   insights: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+  appts: '<rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="m9.5 15.5 1.8 1.8 3.5-3.8"/>',
   team: '<circle cx="9" cy="8" r="3.3"/><path d="M3.4 20a5.6 5.6 0 0 1 11.2 0"/><path d="M16.2 5.3a3.3 3.3 0 0 1 0 5.9"/><path d="M18.4 20a5.6 5.6 0 0 0-3-4.95"/>',
   settings: '<circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.9 15H3.8a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4V3.8a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.5 1z"/>',
 };
@@ -94,7 +95,7 @@ function applyMode() {
   document.body.classList.toggle("management", mg);
   const bar = document.querySelector(".tabbar");
   bar.innerHTML = mg
-    ? [["/", "Home", "home"], ["/insights", "Insights", "insights"], ["/team", "Team", "team"], ["/settings", "Settings", "settings"]].map(([r, l, k]) =>
+    ? [["/", "Home", "home"], ["/appointments", "Appts", "appts"], ["/insights", "Insights", "insights"], ["/team", "Team", "team"], ["/settings", "Settings", "settings"]].map(([r, l, k]) =>
         `<a href="#${r}" class="tab" data-route="${r}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[k]}</svg></span><span class="tab-label">${l}</span></a>`).join("")
     : SALES_TABBAR;
   const vb = document.getElementById("voice-btn");
@@ -119,6 +120,7 @@ const PAGES = {
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/team": { title: "Team", render: lazyView("team", "renderTeam") },
   "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") },
+  "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") },
   "/join": { title: "Join the store", render: lazyView("team", "renderJoin") },
   // Retired surfaces. The daily call list is the Home queue now, and the Deal
   // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
@@ -291,6 +293,17 @@ if (backend.isSignedIn()) {
     const base = location.hash.replace(/^#/, "") || "/";
     if (applyMode()) { if (base === "/") navigate("/"); updateTabs(currentBase()); }
     else if (base === "/tools") navigate("/tools"); // the Management view tile depends on the answer
+  });
+  // The store's target for this rep, if a manager set one, becomes the goal
+  // the whole app rallies around — Goals, Home, the radar's pace.
+  myTarget().catch(() => null).then((tg) => {
+    const s = store.getSettings();
+    if (tg && (tg.goal_units || tg.goal_appts)) {
+      const next = { targetSetBy: "manager" };
+      if (tg.goal_units && s.goalUnits !== tg.goal_units) next.goalUnits = tg.goal_units;
+      if (tg.goal_appts && s.goalAppointments !== tg.goal_appts) next.goalAppointments = tg.goal_appts;
+      if (Object.keys(next).length > 1 || s.targetSetBy !== "manager") store.updateSettings(next);
+    } else if (s.targetSetBy) store.updateSettings({ targetSetBy: "" });
   });
 }
 

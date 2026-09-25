@@ -35,6 +35,9 @@ const records = new Map();
 // admins who may create stores and appoint managers ("tm" by default).
 const stores = new Map();
 const admins = new Set(["00000000-0000-4000-8000-000000000003"]);
+// Targets managers set, and the nudges (pushes) managers sent.
+const targets = new Map();
+const nudges = [];
 const pushes = [];
 let seq = 0;
 // Texts the app asked us to send, so a test can assert what reached "Twilio".
@@ -165,6 +168,26 @@ const server = http.createServer((req, res) => {
         else target.role = args.new_role;
         return json(res, 200, withAdmin(myStore(uid)));
       }
+      // Targets a manager sets, and what a manager may write on a rep's appointment.
+      if (fn === "set_target") {
+        const st = [...stores.values()].find((x) => x.members.some((m) => m.user_id === args.member));
+        if (!st) return fail("they are not in a store");
+        const mine = myStore(uid);
+        if (!isAdmin && !(mine && mine.id === st.id && mine.role === "manager")) return fail("only a manager of their store can set targets");
+        targets.set(st.id + "|" + args.member + "|" + args.target_month, { user_id: args.member, month: args.target_month, goal_units: Math.max(0, args.units || 0), goal_appts: Math.max(0, args.appts || 0) });
+        return json(res, 200, [...targets.values()].filter((t) => t.month === args.target_month && st.members.some((m) => m.user_id === t.user_id)));
+      }
+      if (fn === "targets_for_store") { const st = stores.get(args.store); return json(res, 200, st ? [...targets.values()].filter((t) => t.month === args.target_month && st.members.some((m) => m.user_id === t.user_id)) : []); }
+      if (fn === "my_target") { const t = [...targets.values()].find((t) => t.user_id === uid && t.month === args.target_month); return json(res, 200, t ? { month: t.month, goal_units: t.goal_units, goal_appts: t.goal_appts } : null); }
+      if (fn === "manager_update_appointment") {
+        if (!isAdmin && !manages(uid, args.member)) return fail("only a manager of their store can do that");
+        const row = records.get(args.member + "|" + args.appt_id);
+        if (!row || row.collection !== "appointments") return fail("no such appointment");
+        const p = args.patch || {};
+        for (const k of ["confirmed", "outcome", "status", "managerNote"]) if (p[k] != null) row.data[k] = p[k];
+        row.data.updatedAt = new Date().toISOString(); row.updated_at = row.data.updatedAt;
+        return json(res, 200, row.data);
+      }
       if (fn === "leave_store") { for (const st of stores.values()) st.members = st.members.filter((m) => m.user_id !== uid); res.writeHead(204, { "Access-Control-Allow-Origin": "*" }); return res.end(); }
       return json(res, 404, { message: "no such function " + fn });
     });
@@ -258,6 +281,7 @@ const server = http.createServer((req, res) => {
     });
   }
   if (url.pathname === "/__stores") return json(res, 200, [...stores.values()]);
+  if (url.pathname === "/__nudges") return json(res, 200, nudges);
   if (url.pathname === "/__admin") { const u = url.searchParams.get("u"); if (u) admins.add(u); return json(res, 200, [...admins]); }
   if (url.pathname === "/__pushes") return json(res, 200, pushes);
 
@@ -289,6 +313,14 @@ const server = http.createServer((req, res) => {
       // Canned diagnosis, so the Settings readout can be exercised against the
       // shapes a real misconfiguration produces.
       if (msg.smscheck) return json(res, 200, checkReply);
+      if (msg.nudge) {
+        const uid = USERS[bearer] || USERS.t;
+        const st = [...stores.values()].find((x) => x.members.some((m) => m.user_id === msg.nudge.to));
+        const ok = admins.has(uid) || !!(st && st.members.some((m) => m.user_id === uid && m.role === "manager"));
+        if (!ok) return json(res, 403, { error: "you don't manage that rep" });
+        nudges.push({ from: uid, ...msg.nudge });
+        return json(res, 200, { sent: 1, errors: [] });
+      }
       if (msg.sms) {
         if (failNextSend) { failNextSend = false; return json(res, 502, { error: "carrier rejected the message" }); }
         sent.push(msg.sms);
@@ -339,7 +371,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear();
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false;
     return json(res, 200, { ok: true });
   }

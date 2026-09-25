@@ -13,8 +13,8 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast } from "../components.js";
 import { esc, formatDateTime, currency } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode } from "../team.js";
-import { openRepSheet, apptState } from "./team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep } from "../team.js";
+import { openRepSheet, openCustomerSheet, apptState } from "./team.js";
 import { findings } from "../insight.js";
 
 export function renderManageHome(view) {
@@ -94,6 +94,21 @@ export function renderManageHome(view) {
       ${fx.length ? `<div class="section-title">What the numbers say <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#/insights" style="color:var(--brand)">all insights</a></span></div>
       <div class="card">${fx.map((x) => `<div class="row" style="padding:6px 0;align-items:flex-start;gap:10px"><span style="flex:none;color:var(--brand)">${icon("sparkles")}</span><div class="small">${esc(x.text)}</div></div>`).join("")}</div>` : ""}
 
+      ${(() => {
+        // Fresh leads waiting: every untouched new lead in the store with the
+        // clock on it, newest arrivals that have waited longest first.
+        const waiting = rows.flatMap((r) => (r.leads ? r.leads.untouched.map((l) => ({ l, r })) : [])).concat(
+          rows.flatMap((r) => (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 30 * 60000).map((l) => ({ l, r })) : []))
+        ).filter((x, i, arr) => arr.findIndex((y) => y.l.id === x.l.id && y.r.member.user_id === x.r.member.user_id) === i)
+         .sort((a, b) => String(a.l.createdAt).localeCompare(String(b.l.createdAt))).slice(0, 12);
+        const age = (iso) => { const m = Math.max(0, Math.round((now - new Date(iso)) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
+        return `<div class="section-title">Fresh leads waiting <span class="muted" style="font-weight:500;font-size:0.78rem">· ${waiting.length ? "untouched · oldest first" : "none"}</span></div>
+        <div class="card">${waiting.length ? waiting.map(({ l, r }) => `<div class="row" style="padding:7px 0;align-items:center"><div class="row-main" data-cust="${esc(l.id)}" data-rep="${esc(r.member.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")} <span class="small" style="color:var(--danger);font-weight:600">${age(l.createdAt)}</span></div><div class="row-sub">${esc(memberName(r.member))}${l.source ? " · " + esc(l.source) : ""}</div></div><button class="btn btn-ghost btn-sm" data-nudge="${esc(r.member.user_id)}" data-lead="${esc(l.id)}" data-name="${esc(l.name || "A lead")}" data-age="${age(l.createdAt)}">${icon("bell")} Nudge</button></div>`).join("") : `<div class="muted small">Every lead has been touched. Leads set appointments in the first hour and rarely after the first day.</div>`}</div>`;
+      })()}
+
+      <div class="section-title">Today's huddle <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#" data-act="copy-huddle" style="color:var(--brand)">copy for the group chat</a></span></div>
+      <div class="card small" style="white-space:pre-wrap;line-height:1.5" id="mg-huddle">${esc(huddleText(team, t, ins, rows, fx, now))}</div>
+
       <div class="section-title">Needs a word <span class="muted" style="font-weight:500;font-size:0.78rem">· ${attention.length ? attention.length : "nobody"}</span></div>
       <div class="card">${attention.length ? attention.map(({ r, why }) => `<div class="row mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))}</div><div class="row-sub">${esc(why.join(" · "))}</div></div><span class="muted">›</span></div>`).join("") : `<div class="muted small">Every rep is on pace, touching leads, and current on follow-ups.</div>`}</div>
 
@@ -116,6 +131,7 @@ export function renderManageHome(view) {
 
       <div class="section-title">Run the store</div>
       <div class="qa-grid" style="margin-bottom:14px">
+        <button class="qa-tile" data-act="appointments"><span class="qa-ico">${icon("calendar")}</span><span class="qa-label">Appointments</span></button>
         <button class="qa-tile" data-act="insights"><span class="qa-ico">${icon("sparkles")}</span><span class="qa-label">Insights</span></button>
         <button class="qa-tile" data-act="team"><span class="qa-ico">${icon("users")}</span><span class="qa-label">Team</span></button>
         ${manager ? `<button class="qa-tile" data-act="invite"><span class="qa-ico">${icon("send")}</span><span class="qa-label">Invite a rep</span></button>` : ""}
@@ -129,9 +145,17 @@ export function renderManageHome(view) {
     on('[data-act="refresh"]', () => refresh(true));
     on('[data-act="team"]', () => navigate("/team"));
     on('[data-act="insights"]', () => navigate("/insights"));
+    on('[data-act="appointments"]', () => navigate("/appointments"));
     on('[data-act="admin"]', () => navigate("/team"));
     on('[data-act="settings"]', () => navigate("/settings"));
     on('[data-act="sales"]', () => { setViewMode("sales"); location.hash = "#/"; location.reload(); });
+    on('[data-act="copy-huddle"]', async (e) => { e.preventDefault(); const txt = el.querySelector("#mg-huddle")?.textContent || ""; try { await navigator.clipboard.writeText(txt); toast("Huddle copied", "success"); } catch { toast("Select the text to copy it", "warn"); } });
+    el.querySelectorAll("[data-nudge]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await nudgeRep(b.dataset.nudge, { title: `${b.dataset.name} has been waiting ${b.dataset.age}`, body: "A fresh lead — call or text them now. Leads set appointments in the first hour.", url: `./#/leads/${b.dataset.lead}`, tag: "lead-" + b.dataset.lead }); toast("Nudged", "success"); }
+      catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
+    }));
+    el.querySelectorAll("[data-cust]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(n.dataset.rep, n.dataset.cust)));
     on('[data-act="invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied — send it to the rep", "success"); } catch { navigate("/team"); } });
     el.querySelectorAll("[data-rep]").forEach((n) => n.addEventListener("click", () => {
       const r = stats && stats.find((x) => x.member.user_id === n.dataset.rep);
@@ -160,4 +184,19 @@ export function renderManageHome(view) {
 
   draw();
   refresh(false);
+}
+
+// The morning huddle, written from the numbers: where the store stands,
+// what each rep needs today, and the one thing the data says to do.
+function huddleText(team, t, ins, rows, fx, now) {
+  const L = [];
+  L.push(`${team.name} · ${now.toLocaleDateString("en-CA", { weekday: "long", month: "short", day: "numeric" })}`);
+  L.push(`Units ${t.units}/${t.goal || "—"} · appointments set this month ${ins.setThisMonth} · show rate ${ins.history.showRate != null ? ins.history.showRate + "%" : "—"}`);
+  if (ins.needs.goal) L.push(ins.needs.onTrack ? "On track — keep the calendar full." : `Need ${ins.needs.apptsNeeded} more appointments by month end: ${ins.needs.perDay} a day across the floor.`);
+  if (t.apptsToday.length) L.push(`Today: ${t.apptsToday.map((a) => `${String(a.when).slice(11, 16)} ${a.customerName || ""} (${memberName(a.rep)})`).join(", ")}`);
+  else L.push("Today: nothing on the calendar yet — first job is to change that.");
+  const reps = rows.filter((r) => r.insight && (r.leads.open || r.goal.units));
+  if (reps.length) L.push("Each of you today: " + reps.map((r) => { const i = r.insight; const bits = []; if (i.needs.goal) bits.push(i.needs.onTrack ? "on track" : `${i.needs.perDay} appt${i.needs.perDay === 1 ? "" : "s"}`); if (r.leads.untouched.length) bits.push(`${r.leads.untouched.length} untouched`); if (r.leads.overdue.length) bits.push(`${r.leads.overdue.length} overdue`); return `${memberName(r.member)} — ${bits.join(", ") || "keep touching"}`; }).join("; ") + ".");
+  if (fx.length) L.push("The numbers say: " + fx[0].text);
+  return L.join("\n");
 }

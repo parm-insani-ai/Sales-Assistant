@@ -16,7 +16,7 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey } from "../team.js";
 import { runningVersion, getVersion } from "../updater.js";
 
 const stageLabel = (s) => (store.stageMeta(s) || { label: s }).label;
@@ -94,6 +94,7 @@ export function renderTeam(view, { param } = {}) {
           <div class="row" style="padding:6px 0">
             <div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(m))}${m.user_id === me.id ? ' <span class="muted small">(you)</span>' : ""}</div><div class="row-sub">${esc(m.email || "")}</div></div>
             <div class="row-meta"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>
+              ${manager || admin ? `<button class="btn btn-ghost btn-sm" data-target="${esc(m.user_id)}" style="margin-left:6px" title="Targets">${(() => { const st = board && board.stats.find((s) => s.member.user_id === m.user_id); return st && st.goal ? `${st.goal.units || "—"}u · ${st.goal.appts || "—"}a` : "Targets"; })()}</button>` : ""}
               ${m.user_id !== me.id && (admin || (manager && m.role === "rep")) ? `<button class="btn btn-ghost btn-sm" data-role="${esc(m.user_id)}" style="margin-left:6px">…</button>` : ""}</div>
           </div>`).join("")}
         <div class="btn-row" style="margin-top:10px">
@@ -125,6 +126,7 @@ export function renderTeam(view, { param } = {}) {
       try { await leaveStore(); team = null; board = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
     });
     el.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", () => openRoleSheet((team.members || []).find((m) => m.user_id === b.dataset.role))));
+    el.querySelectorAll("[data-target]").forEach((b) => b.addEventListener("click", () => openTargetSheet((team.members || []).find((m) => m.user_id === b.dataset.target))));
     el.querySelectorAll("[data-rep]").forEach((r) => r.addEventListener("click", () => openRep(r.dataset.rep)));
   }
 
@@ -218,6 +220,27 @@ export function renderTeam(view, { param } = {}) {
     const m = (team.members || []).find((x) => x.user_id === userId);
     if (!r || r.error || !r.touches) { toast("Refresh the board first", "warn"); return; }
     openRepSheet(r, m);
+  }
+
+  // The store sets a rep's month: units and appointments. Their app picks
+  // it up on the next launch and rallies around it.
+  function openTargetSheet(m) {
+    if (!m) return;
+    const st = board && board.stats.find((s) => s.member.user_id === m.user_id);
+    const cur = st && st.goal ? st.goal : { units: 0, appts: 0 };
+    openModal(`${memberName(m)} · ${new Date().toLocaleDateString("en-CA", { month: "long" })}`, (close) => {
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div class="field"><label>Units this month</label><input id="tg-units" type="number" inputmode="numeric" value="${cur.units || ""}" placeholder="12"></div>
+        <div class="field"><label>Appointments set this month</label><input id="tg-appts" type="number" inputmode="numeric" value="${cur.appts || ""}" placeholder="30"></div>
+        <button class="btn btn-primary btn-block" data-act="save">Set targets</button>
+        <div class="hint">These replace the rep's own goals in their app for this month, and the board's math plans on them.</div>`;
+      root.querySelector('[data-act="save"]').addEventListener("click", async () => {
+        try { await setTarget(m.user_id, { units: Number(root.querySelector("#tg-units").value) || 0, appts: Number(root.querySelector("#tg-appts").value) || 0, month: monthKey() }); close(); toast(`Targets set for ${memberName(m)}`, "success"); await refreshBoard(); }
+        catch (e) { toast(e.message || "Couldn't set targets", "danger"); }
+      });
+      return root;
+    });
   }
 
   function openNameSheet(mine) {

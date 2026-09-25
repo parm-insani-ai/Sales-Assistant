@@ -84,6 +84,20 @@ Setup:
 The board reads the reps' synced records, so a rep's numbers are as current
 as their last sync.
 
+What a manager can write into a rep's book is deliberately narrow, and each
+goes through a database function that checks the manager relationship:
+
+- **Appointment outcomes** — confirmed, showed, no-show, sold, and a manager
+  note — from the Appointments tab. They land in the rep's own calendar on
+  their next sync.
+- **Monthly targets** — units and appointments set — per rep, from the Team
+  tab. The rep's app adopts them as its goals for the month.
+
+Nudges (a push notification to a rep's phone — a fresh lead waiting, an
+appointment to confirm, a no-show to rebook) go through the function, which
+checks the same relationship. They need push notifications set up (VAPID
+keys on the function) and the rep to have turned notifications on.
+
 ## Calendar feeds (Apple / Outlook / Google)
 
 To show your outside calendars *inside* viniva (read-only), the app subscribes to

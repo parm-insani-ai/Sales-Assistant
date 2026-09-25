@@ -104,7 +104,7 @@ export function cachedBoard() {
 export async function loadBoard(team, { force = false } = {}) {
   const have = cachedBoard();
   if (have && !force && have.storeId === team.id && Date.now() - new Date(have.at) < 10 * 60000) return have;
-  const stats = await boardStats(team.members || []);
+  const stats = await boardStats(team.members || [], { storeId: team.id });
   const board = { at: new Date().toISOString(), storeId: team.id, stats };
   try { sessionStorage.setItem(BOARD_KEY, JSON.stringify(board)); } catch { /* fine */ }
   return board;
@@ -130,6 +130,33 @@ export function inviteLink(code) {
   return `${base}#/join/${code}`;
 }
 // What to call a member on the board.
+// ---- What a manager can write ----
+const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+export { monthKey };
+export async function setTarget(userId, { units = 0, appts = 0, month = monthKey() } = {}) {
+  return (await backend.rpc("set_target", { member: userId, target_month: month, units, appts })) || [];
+}
+export async function targetsForStore(storeId, month = monthKey()) {
+  return (await backend.rpc("targets_for_store", { store: storeId, target_month: month })) || [];
+}
+export async function myTarget(month = monthKey()) {
+  return backend.rpc("my_target", { target_month: month });
+}
+export async function updateRepAppointment(userId, apptId, patch) {
+  return backend.rpc("manager_update_appointment", { member: userId, appt_id: apptId, patch });
+}
+// A push to a rep's phone, from their manager, through the function.
+export async function nudgeRep(userId, { title, body, url = "./#/", tag = "" }) {
+  const s = (await import("./store.js")).getSettings();
+  const fn = (s.agentUrl || "").trim().replace(/\/+$/, "");
+  if (!fn) throw new Error("Set up the cloud function in Settings first");
+  const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ nudge: { to: userId, title, body, url, tag } }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || `Couldn't reach them (${res.status})`);
+  if (!j.sent) throw new Error(j.errors && j.errors[0] ? j.errors[0] : "They haven't turned on notifications yet");
+  return j.sent;
+}
+
 export function memberName(m) {
   return (m && (m.name || (m.email || "").split("@")[0])) || "Rep";
 }
@@ -150,7 +177,7 @@ const OPEN = ["new", "working", "appointment", "negotiating"];
  *   goal:    { units, pace }   pace = where they should be by today
  *   leads:   { untouched: [...], overdue: [...], open }
  */
-export async function repStats(userId, { now = new Date() } = {}) {
+export async function repStats(userId, { now = new Date(), target = null } = {}) {
   const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
   const today = ymd(now);
   // Eight weeks of appointments and touches for the trend and the rates, 90
@@ -191,16 +218,18 @@ export async function repStats(userId, { now = new Date() } = {}) {
   const saleStats = { units: s.length, gross: s.reduce((a, x) => a + num(x.frontGross) + num(x.backGross), 0) };
 
   const cfg = (config[0] && config[0].data) || {};
-  const goalUnits = num(cfg.goalUnits);
+  // The store's target for the rep wins over the rep's own setting.
+  const goalUnits = target && num(target.goal_units) ? num(target.goal_units) : num(cfg.goalUnits);
+  const goalAppts = target && num(target.goal_appts) ? num(target.goal_appts) : num(cfg.goalAppointments);
   const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const goal = { units: goalUnits, appts: num(cfg.goalAppointments), touchesDay: num(cfg.dailyTouchGoal), pace: goalUnits ? Math.round((goalUnits * now.getDate()) / daysIn * 10) / 10 : 0 };
+  const goal = { units: goalUnits, appts: goalAppts, touchesDay: num(cfg.dailyTouchGoal), pace: goalUnits ? Math.round((goalUnits * now.getDate()) / daysIn * 10) / 10 : 0, fromStore: !!(target && (num(target.goal_units) || num(target.goal_appts))) };
 
   const open = rows(openLeads);
   const untouched = open.filter((l) => l.stage === "new" && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) > DAY)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const overdue = open.filter((l) => l.followUp && String(l.followUp).slice(0, 10) < today)
     .sort((a, b) => String(a.followUp).localeCompare(String(b.followUp)));
-  const slimLeads = rows(recentLeads).map((l) => ({ id: l.id, source: l.source || "", createdAt: l.createdAt || "", firstContacted: l.firstContacted || "", lastContacted: l.lastContacted || "", stage: l.stage || "" }));
+  const slimLeads = rows(recentLeads).map((l) => ({ id: l.id, name: l.name || "", source: l.source || "", vehicleInterest: l.vehicleInterest || "", createdAt: l.createdAt || "", firstContacted: l.firstContacted || "", lastContacted: l.lastContacted || "", stage: l.stage || "" }));
   const raw = { appts: allAppts, leads: slimLeads, touches: touches.month, touchesByDay, goalUnits, sold: saleStats.units };
   const insight = repInsight({ ...raw, now });
   return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, at: now.toISOString() };
@@ -208,7 +237,11 @@ export async function repStats(userId, { now = new Date() } = {}) {
 
 // Every member's numbers, in parallel, in the order given.
 export async function boardStats(members, opts = {}) {
-  return Promise.all(members.map((m) => repStats(m.user_id, opts).then((st) => ({ member: m, ...st }), (e) => ({ member: m, error: e && e.message ? e.message : "couldn't read" }))));
+  // The store's targets for the month, once, then each rep in parallel.
+  let targets = [];
+  if (opts.storeId) { try { targets = await targetsForStore(opts.storeId); } catch { targets = []; } }
+  const tFor = (id) => targets.find((t) => t.user_id === id) || null;
+  return Promise.all(members.map((m) => repStats(m.user_id, { ...opts, target: tFor(m.user_id) }).then((st) => ({ member: m, ...st }), (e) => ({ member: m, error: e && e.message ? e.message : "couldn't read" }))));
 }
 
 // One customer of a rep's, for the read-only page: the lead and their last texts.
