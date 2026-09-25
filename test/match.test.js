@@ -38,6 +38,12 @@ const m = M.matchFor(frontier, units, s);
 console.log("match:", JSON.stringify({ best: [m.best.unit.name, m.best.monthly, m.best.delta], replacement: [m.replacement.unit.name, m.replacement.monthly, m.replacement.delta, m.replacement.fit], pitch: m.pitch.unit.name }));
 if (m.replacement.unit.v.id !== "u1") fail("the like-for-like replacement for a Frontier owner is the Frontier: " + m.replacement.unit.name);
 if (m.pitch.unit.v.id !== "u1" || m.pitch.delta > 50) fail("the pitch should be the replacement when it fits the payment: " + JSON.stringify([m.pitch.unit.name, m.pitch.delta]));
+// A Murano owner: the Rogue fits them; the Frontier only fits the payment. Fit wins.
+const murano = { id: "m", name: "Murano Owner", phone: "1", stage: "delivered", vehicleInterest: "2019 Nissan Murano SL", currentValue: 22000, payoff: 9000, currentPayment: 480, purchaseDate: "2019-06-01", createdAt: "2022-01-01" };
+const m3 = M.matchFor(murano, units, s);
+console.log("murano:", JSON.stringify({ best: [m3.best.unit.name, m3.best.delta], pitch: [m3.pitch.unit.name, m3.pitch.delta, m3.pitch.fit] }));
+if (m3.pitch.unit.v.id !== "n1") fail("a Murano owner should be pitched the Rogue, not the truck at the closest payment: " + m3.pitch.unit.name);
+if (m3.best.unit.v.id !== "u1") fail("the closest payment is still reported as the closest payment: " + m3.best.unit.name);
 // A customer with no payment on file still gets a natural next vehicle.
 const paidOff = { id: "q", name: "Paid Off", phone: "1", stage: "delivered", vehicleInterest: "2017 Nissan Sentra SV", currentValue: 9000, purchaseDate: "2017-05-01", createdAt: "2020-01-01" };
 const m2 = M.matchFor(paidOff, units, s);

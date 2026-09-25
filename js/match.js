@@ -81,19 +81,31 @@ export function matchFor(l, units, s = {}, now = Date.now()) {
   const trade = tradeOf(l, now);
   const owned = classify(String(l.vehicleInterest || ""));
   const band = num(s.dealMatchBand, 50);
-  let best = null, rep = null;
+  let best = null, rep = null, pitch = null;
   for (const u of units) {
     const monthly = monthlyFor(u, trade);
     const delta = cur != null ? monthly - cur : null;
     if (cur != null && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { unit: u, monthly, delta };
     const fit = fitScore(owned, u.cls, { trim: u.v.trim, year: u.v.year, make: u.v.make, condition: u.v.condition });
-    // The replacement: the best-fitting unit that fits the payment; failing
-    // that, the best-fitting unit at all.
-    const fitsPay = cur == null || delta <= band;
-    if (!rep || (fitsPay && !rep.fitsPay) || (fitsPay === rep.fitsPay && fit > rep.fit)) rep = { unit: u, monthly, delta, fit, fitsPay };
+    // The like-for-like replacement: the best-fitting unit, whatever it costs.
+    if (!rep || fit > rep.fit) rep = { unit: u, monthly, delta, fit };
+    // The pitch: among units that genuinely fit what they drive (the right
+    // kind of vehicle) and are within reach of their payment, the one that
+    // weighs fit against how far the payment moves — a Rogue at $80/mo over
+    // beats a truck at the same payment for a Murano owner. With nothing
+    // that fits within reach, the closest payment is what there is.
+    const over = delta != null && delta > band ? delta - band : 0;
+    const within = delta == null || delta <= band + 100;
+    if (fit >= 40 && within) {
+      const pick = fit - over * 0.25 + (delta != null && delta < -20 ? 5 : 0);
+      if (!pitch || pick > pitch.pick) pitch = { unit: u, monthly, delta, fit, pick };
+    }
   }
   if (!best && !rep) return null;
-  const pitch = rep && rep.fitsPay && rep.fit >= 40 ? rep : best || rep;
+  if (!pitch && best) pitch = { ...best, fit: 0, pick: 0 };
+  if (!pitch && rep) pitch = { ...rep, pick: 0 };
+  if (pitch) pitch.fitsPay = cur == null || pitch.delta <= band;
+  if (rep) rep.fitsPay = cur == null || rep.delta <= band;
   return { best, replacement: rep, pitch, current: cur, trade };
 }
 
