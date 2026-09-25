@@ -63,7 +63,7 @@ const home = await mgr.evaluate(() => ({
   tiles: [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()),
 }));
 console.log("management home:", JSON.stringify(home, null, 1));
-if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Appts,Insights,Team,Settings") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
+if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Appts,Customers,Insights,Team") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
 // Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
 if (!home.stats.some((s) => /^3 ?Appointments set in \w+ · 1 today/.test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => /^1 · 50% ?Shown/.test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
 const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
@@ -107,8 +107,10 @@ await mgr.keyboard.press("Escape");
 // The Team tab is the members and admin screen; the Settings tab exists.
 await mgr.click('.tabbar [data-route="/team"]');
 await mgr.waitForSelector(".admin-store");
-await mgr.click('.tabbar [data-route="/settings"]');
-await mgr.waitForFunction(() => location.hash === "#/settings", null, { timeout: 5000 });
+await mgr.click('.tabbar [data-route="/customers"]');
+await mgr.waitForFunction(() => location.hash === "#/customers", null, { timeout: 5000 });
+await mgr.click('.tabbar [data-route="/"]');
+await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector('[data-act="settings"]'), null, { timeout: 10000 });
 
 // --- A rep keeps the salesperson's app.
 const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);

@@ -16,6 +16,9 @@ import { esc, formatDateTime, currency } from "../utils.js";
 import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep } from "../team.js";
 import { openRepSheet, openCustomerSheet, apptState } from "./team.js";
 import { findings } from "../insight.js";
+import { cachedBook, loadBook, addRepTask } from "../team.js";
+import { rankBook, reachOuts, taskFor } from "../reach.js";
+import * as store from "../store.js";
 
 export function renderManageHome(view) {
   const el = document.createElement("div");
@@ -23,7 +26,9 @@ export function renderManageHome(view) {
   const me = backend.currentUser();
   let team = cachedStore();
   let board = cachedBoard();
+  let book = cachedBook();
   let loading = false, error = "";
+  const handed = new Set();
   const now = new Date();
   const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const monthName = now.toLocaleDateString("en-CA", { month: "long" });
@@ -37,6 +42,16 @@ export function renderManageHome(view) {
       error = "";
     } catch (e) { error = e && e.message ? e.message : "couldn't reach the store"; }
     loading = false; draw();
+    // The book is bigger than the board; read it after, and draw again.
+    if (team && isManager(team)) { try { book = await loadBook(team, { force }); draw(); } catch { /* the card says so */ } }
+  }
+  function reachCard() {
+    if (!book) return `<div class="section-title">Who to reach out to <span class="muted" style="font-weight:500;font-size:0.78rem">· the assistant</span></div><div class="card muted small">Reading every rep's book…</div>`;
+    const ranked = rankBook(book.rows, { defaultApr: store.getSettings().defaultApr });
+    const top = reachOuts(ranked, { limit: 5 });
+    const all = reachOuts(ranked, { limit: 100000 }).length;
+    return `<div class="section-title">Who to reach out to <span class="muted" style="font-weight:500;font-size:0.78rem">· ${all.toLocaleString()} worth a call · <a href="#/customers" style="color:var(--brand)">see them all</a></span></div>
+      <div class="card" style="padding:6px 0">${top.length ? top.map((r) => `<div class="row" style="padding:8px 16px;border-bottom:1px solid var(--border);align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.map(esc).join(" · ")}</div></div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody on the book is worth a call right now — or the reps' books haven't synced.</div>`}</div>`;
   }
 
   function draw() {
@@ -106,6 +121,8 @@ export function renderManageHome(view) {
         <div class="card">${waiting.length ? waiting.map(({ l, r }) => `<div class="row" style="padding:7px 0;align-items:center"><div class="row-main" data-cust="${esc(l.id)}" data-rep="${esc(r.member.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")} <span class="small" style="color:var(--danger);font-weight:600">${age(l.createdAt)}</span></div><div class="row-sub">${esc(memberName(r.member))}${l.source ? " · " + esc(l.source) : ""}</div></div><button class="btn btn-ghost btn-sm" data-nudge="${esc(r.member.user_id)}" data-lead="${esc(l.id)}" data-name="${esc(l.name || "A lead")}" data-age="${age(l.createdAt)}">${icon("bell")} Nudge</button></div>`).join("") : `<div class="muted small">Every lead has been touched. Leads set appointments in the first hour and rarely after the first day.</div>`}</div>`;
       })()}
 
+      ${reachCard()}
+
       <div class="section-title">Today's huddle <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#" data-act="copy-huddle" style="color:var(--brand)">copy for the group chat</a></span></div>
       <div class="card small" style="white-space:pre-wrap;line-height:1.5" id="mg-huddle">${esc(huddleText(team, t, ins, rows, fx, now))}</div>
 
@@ -156,6 +173,18 @@ export function renderManageHome(view) {
       catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
     }));
     el.querySelectorAll("[data-cust]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(n.dataset.rep, n.dataset.cust)));
+    el.querySelectorAll("[data-hand]").forEach((b) => b.addEventListener("click", async () => {
+      const ranked = book ? rankBook(book.rows, { defaultApr: store.getSettings().defaultApr }) : null;
+      const r = ranked && ranked.rows.find((x) => x.lead.id === b.dataset.hand && x.rep.user_id === b.dataset.hrep);
+      if (!r) return;
+      b.disabled = true;
+      try {
+        await addRepTask(r.rep.user_id, taskFor(r, { by: store.getSettings().salesperson || "your manager" }));
+        handed.add(r.lead.id);
+        try { await nudgeRep(r.rep.user_id, { title: `Reach out to ${r.lead.name || "a customer"}`, body: r.read.reasons.slice(0, 3).join(" · "), url: `./#/leads/${r.lead.id}`, tag: "reach-" + r.lead.id }); } catch { /* the to-do is there */ }
+        toast(`Sent to ${memberName(r.rep)}`, "success"); draw();
+      } catch (e) { toast(e.message || "Couldn't send", "danger"); b.disabled = false; }
+    }));
     on('[data-act="invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied — send it to the rep", "success"); } catch { navigate("/team"); } });
     el.querySelectorAll("[data-rep]").forEach((n) => n.addEventListener("click", () => {
       const r = stats && stats.find((x) => x.member.user_id === n.dataset.rep);

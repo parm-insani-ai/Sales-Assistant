@@ -142,6 +142,9 @@ export async function targetsForStore(storeId, month = monthKey()) {
 export async function myTarget(month = monthKey()) {
   return backend.rpc("my_target", { target_month: month });
 }
+export async function addRepTask(userId, task) {
+  return backend.rpc("manager_add_task", { member: userId, task });
+}
 export async function updateRepAppointment(userId, apptId, patch) {
   return backend.rpc("manager_update_appointment", { member: userId, appt_id: apptId, patch });
 }
@@ -242,6 +245,26 @@ export async function boardStats(members, opts = {}) {
   if (opts.storeId) { try { targets = await targetsForStore(opts.storeId); } catch { targets = []; } }
   const tFor = (id) => targets.find((t) => t.user_id === id) || null;
   return Promise.all(members.map((m) => repStats(m.user_id, { ...opts, target: tFor(m.user_id) }).then((st) => ({ member: m, ...st }), (e) => ({ member: m, error: e && e.message ? e.message : "couldn't read" }))));
+}
+
+// ---- The store's whole book ----
+// Every rep's customers, slimmed to what the manager's read and the list
+// need, kept in memory for the session and refreshed on demand.
+const KEEP = ["id", "name", "phone", "email", "stage", "vehicleInterest", "source", "purchaseDate", "leaseEnd", "dealType", "currentPayment", "payoff", "currentValue", "currentApr", "paymentsLeft", "paymentsLeftAsOf", "currentTerm", "odometer", "alertType", "priority", "serviceAppt", "lastContacted", "firstContacted", "lastCampaignAt", "createdAt", "updatedAt", "followUp", "smsOptOut", "consent", "doNotContact"];
+let bookCache = { storeId: null, at: 0, rows: [] };
+export function cachedBook() { return bookCache.storeId ? bookCache : null; }
+export async function loadBook(team, { force = false } = {}) {
+  if (!force && bookCache.storeId === team.id && Date.now() - bookCache.at < 10 * 60000) return bookCache;
+  const members = team.members || [];
+  const per = await Promise.all(members.map((m) => backend.readRecords(m.user_id, "leads", {}, { select: "data", limit: 20000 }).then((rs) => rs.map((r) => {
+    const d = r.data || {}, slim = {};
+    for (const k of KEEP) if (d[k] != null && d[k] !== "") slim[k] = d[k];
+    const notes = String(d.notes || "");
+    if (/AutoAlert:|Priority:|Service appt|Deal type:/i.test(notes)) slim.notes = notes.slice(0, 300);
+    return { lead: slim, rep: m };
+  }), () => [])));
+  bookCache = { storeId: team.id, at: Date.now(), rows: per.flat() };
+  return bookCache;
 }
 
 // One customer of a rep's, for the read-only page: the lead and their last texts.

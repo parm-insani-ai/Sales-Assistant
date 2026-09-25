@@ -383,3 +383,21 @@ grant execute on function public.set_target(uuid, text, integer, integer) to aut
 grant execute on function public.targets_for_store(uuid, text) to authenticated;
 grant execute on function public.my_target(text) to authenticated;
 grant execute on function public.manager_update_appointment(uuid, text, jsonb) to authenticated;
+
+-- A manager hands a rep a job: "reach out to Dana Muise — lease ends in 2
+-- months". One task row in the rep's book, and nothing else.
+create or replace function public.manager_add_task(member uuid, task jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare tid text; nowiso text; row_data jsonb;
+begin
+  if not public.is_admin() and not public.manages(member) then raise exception 'only a manager of their store can do that'; end if;
+  tid := 'tsk_' || lower(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16));
+  nowiso := to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+  row_data := jsonb_strip_nulls(jsonb_build_object(
+    'id', tid, 'leadId', task->'leadId', 'title', task->'title', 'due', task->'due', 'channel', task->'channel',
+    'note', task->'note', 'fromManager', true, 'setBy', auth.uid(), 'done', false, 'createdAt', nowiso, 'updatedAt', nowiso));
+  if coalesce(row_data->>'title', '') = '' then raise exception 'the task needs a title'; end if;
+  insert into public.records (id, user_id, collection, data) values (tid, member, 'tasks', row_data);
+  return row_data::json;
+end $$;
+grant execute on function public.manager_add_task(uuid, jsonb) to authenticated;

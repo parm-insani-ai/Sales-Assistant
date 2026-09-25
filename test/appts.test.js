@@ -51,7 +51,7 @@ const board = await mgr.evaluate(() => ({
   today: [...document.querySelectorAll(".ap-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
 }));
 console.log("board:", JSON.stringify(board, null, 1));
-if (board.tabs.join() !== "Home,Appts,Insights,Team,Settings") fail("the Appts tab is missing: " + board.tabs.join());
+if (board.tabs.join() !== "Home,Appts,Customers,Insights,Team") fail("the Appts tab is missing: " + board.tabs.join());
 if (!board.stats.some((s) => /^1 ?Today · 1 still to come/.test(s)) || !board.stats.some((s) => /^1 ?Tomorrow's not yet confirmed/.test(s)) || !board.stats.some((s) => /^1 ?No-shows/.test(s))) fail("the board's numbers are wrong: " + JSON.stringify(board.stats));
 if (!/Confirm tomorrow: 1 appointment unconfirmed/.test(board.queue || "")) fail("no confirmation queue: " + board.queue);
 if (board.chips.join() !== "Today 1,Tomorrow 2,This week 0,No-shows 1,Unlogged 1") fail("the chips are wrong: " + board.chips.join());

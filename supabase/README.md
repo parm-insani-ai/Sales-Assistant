@@ -93,6 +93,10 @@ goes through a database function that checks the manager relationship:
 - **Monthly targets** — units and appointments set — per rep, from the Team
   tab. The rep's app adopts them as its goals for the month.
 
+- **A to-do** — from the Customers tab, the manager hands a rep one customer
+  to reach out to, with the reasons in the title. One task row in the rep's
+  book, which their app shows in the queue on the next sync.
+
 Nudges (a push notification to a rep's phone — a fresh lead waiting, an
 appointment to confirm, a no-show to rebook) go through the function, which
 checks the same relationship. They need push notifications set up (VAPID

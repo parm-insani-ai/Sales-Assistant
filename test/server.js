@@ -188,6 +188,14 @@ const server = http.createServer((req, res) => {
         row.data.updatedAt = new Date().toISOString(); row.updated_at = row.data.updatedAt;
         return json(res, 200, row.data);
       }
+      if (fn === "manager_add_task") {
+        if (!isAdmin && !manages(uid, args.member)) return fail("only a manager of their store can do that");
+        const t = args.task || {}; if (!t.title) return fail("the task needs a title");
+        const id = "tsk_" + Math.random().toString(36).slice(2, 10), nowiso = new Date().toISOString();
+        const data = { id, leadId: t.leadId, title: t.title, due: t.due, channel: t.channel, note: t.note, fromManager: true, setBy: uid, done: false, createdAt: nowiso, updatedAt: nowiso };
+        records.set(args.member + "|" + id, { id, user_id: args.member, collection: "tasks", data, deleted: false, updated_at: nowiso });
+        return json(res, 200, data);
+      }
       if (fn === "leave_store") { for (const st of stores.values()) st.members = st.members.filter((m) => m.user_id !== uid); res.writeHead(204, { "Access-Control-Allow-Origin": "*" }); return res.end(); }
       return json(res, 404, { message: "no such function " + fn });
     });
