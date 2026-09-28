@@ -18,6 +18,7 @@ import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, cu
 import { contractSummary } from "../contract.js";
 import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey } from "../team.js";
 import { runningVersion, getVersion } from "../updater.js";
+import { onPull } from "../pulltorefresh.js";
 
 const stageLabel = (s) => (store.stageMeta(s) || { label: s }).label;
 const stageBadge = (s) => (store.stageMeta(s) || { badge: "" }).badge;
@@ -115,7 +116,6 @@ export function renderTeam(view, { param } = {}) {
     `;
     wireAdmin();
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
-    on('[data-act="refresh"]', refreshBoard);
     on('[data-act="recheck"]', refreshTeam);
     on('[data-act="copy-invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied", "success"); } catch { toast("Copy the link from the box", "warn"); } });
     on('[data-act="share-invite"]', () => navigator.share({ title: `Join ${team.name} on viniva`, text: `Tap to join ${team.name} on viniva`, url: inviteLink(team.code) }).catch(() => {}));
@@ -182,7 +182,7 @@ export function renderTeam(view, { param } = {}) {
     const paceCls = (r) => (!r.goal.units ? "" : r.sales.units >= r.goal.pace ? "color:var(--success)" : r.sales.units < r.goal.pace * 0.6 ? "color:var(--danger)" : "color:var(--warning)");
     rows.sort((a, b) => ((b.sales ? b.sales.units : -1) - (a.sales ? a.sales.units : -1)) || memberName(a.member).localeCompare(memberName(b.member)));
     return `
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">${board ? "As of " + esc(formatDateTime(board.at)) : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:0 2px 8px"><span class="small muted">${board ? "As of " + esc(formatDateTime(board.at)) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "Reading…" : "Not read yet"}</span></div>
       ${totals ? `<div class="stat-grid" style="margin-bottom:12px">
         <div class="stat"><div class="stat-value">${totals.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${totals.goal}</span></div><div class="stat-label">Units this month</div></div>
         <div class="stat"><div class="stat-value" style="color:var(--brand)">${totals.set}</div><div class="stat-label">Appointments set</div></div>
@@ -217,7 +217,7 @@ export function renderTeam(view, { param } = {}) {
   function openRep(userId) {
     const r = (board && board.stats.find((x) => x.member.user_id === userId)) || null;
     const m = (team.members || []).find((x) => x.user_id === userId);
-    if (!r || r.error || !r.touches) { toast("Refresh the board first", "warn"); return; }
+    if (!r || r.error || !r.touches) { toast("Pull down to read the board first", "warn"); return; }
     openRepSheet(r, m);
   }
 
@@ -344,6 +344,7 @@ export function renderTeam(view, { param } = {}) {
 
   draw();
   refreshTeam();
+  onPull(() => refreshTeam());
 }
 
 // #/join/CODE — the invite link. Signed in: join straight away; otherwise the

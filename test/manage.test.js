@@ -74,6 +74,19 @@ if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.t
 if (!home.reps[0].startsWith("Parm") || !/3 set · 1 today · 1 shown/.test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
 if (!home.tiles.includes("Insights") || !home.tiles.includes("Team") || !home.tiles.includes("Admin") || !home.tiles.includes("Invite a rep") || !home.tiles.includes("Sales view")) fail("the store's tools are missing: " + JSON.stringify(home.tiles));
 
+// --- No Refresh button: pulling down re-reads the board.
+if (await mgr.$('[data-act="refresh"]')) fail("the Refresh button is still on the board");
+await mgr.evaluate(() => { window.__refreshed = 0; window.addEventListener("viniva-refresh", (e) => { window.__refreshed++; window.__refreshOk = e.detail.ok; }); document.getElementById("view").scrollTop = 0; });
+await mgr.evaluate(() => {
+  const t = (y) => ({ clientX: 195, clientY: y, identifier: 1, target: document.body });
+  const fire = (name, y) => document.dispatchEvent(new TouchEvent(name, { bubbles: true, cancelable: true, touches: name === "touchend" ? [] : [new Touch(t(y))], changedTouches: [new Touch(t(y))] }));
+  fire("touchstart", 80); for (let y = 80; y <= 320; y += 20) fire("touchmove", y); fire("touchend", 320);
+});
+await mgr.waitForFunction(() => window.__refreshed > 0, null, { timeout: 15000 }).catch(() => fail("pulling down on the board didn't refresh"));
+const pulled = await mgr.evaluate(() => ({ ok: window.__refreshOk, line: document.querySelector(".row .small.muted")?.textContent.trim() }));
+console.log("pull:", JSON.stringify(pulled));
+if (pulled.ok === false || !/pull down to refresh/.test(pulled.line || "")) fail("the pull didn't re-read the board: " + JSON.stringify(pulled));
+
 // --- The "+" in the top right is the manager's: their actions, not a rep's add menu.
 await mgr.click("#quick-add");
 await mgr.waitForFunction(() => /Quick actions/.test(document.querySelector(".modal")?.textContent || ""), null, { timeout: 10000 });

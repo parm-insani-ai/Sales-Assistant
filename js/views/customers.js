@@ -18,6 +18,7 @@ import { inAudience } from "../outreach.js";
 import { openAudienceFilter, audienceLabel } from "./audience.js";
 import { openCustomerSheet } from "./team.js";
 import * as store from "../store.js";
+import { onPull } from "../pulltorefresh.js";
 
 const stageLabel = (s) => (store.stageMeta(s) || { label: s }).label;
 const stageBadge = (s) => (store.stageMeta(s) || { badge: "" }).badge;
@@ -80,7 +81,7 @@ export function renderCustomers(view) {
     const counts = R ? { all: R.rows.length, reach: reachOuts(R, { limit: 100000 }).length, hot: R.rows.filter((r) => r.tier && r.tier.key === "hot").length } : null;
     el.innerHTML = `
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      <div class="row" style="margin:4px 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · ${lot && lot.rows.length ? `priced against ${lot.rows.filter((v) => (v.status || "available") === "available").length} units` : "no shared lot yet"} · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}` : loading ? "Reading every rep's book…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:4px 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · ${lot && lot.rows.length ? `priced against ${lot.rows.filter((v) => (v.status || "available") === "available").length} units` : "no shared lot yet"} · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}${loading ? " · reading…" : " · pull down to refresh"}` : loading ? "Reading every rep's book…" : "Not read yet"}</span></div>
       <div class="searchbar"><input type="search" placeholder="Search the store's customers…" value="${esc(search)}"></div>
       <div class="lead-chips">
         <button class="btn btn-sm ${mode === "reach" ? "btn-primary" : "btn-ghost"}" data-mode="reach">${icon("sparkles")} Reach-outs${counts ? " " + counts.reach : ""}</button>
@@ -115,14 +116,13 @@ export function renderCustomers(view) {
               ${mode === "reach" && r.read.next ? `<div class="small" style="margin-top:3px;color:var(--brand)">${esc(r.read.next.label)}</div>` : ""}
             </div>
             ${!r.read.excluded && !r.read.inPlay && r.read.contactable ? `<button class="btn ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-send="${esc(r.lead.id)}" data-srep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "disabled" : ""}>${sent.has(r.rep.user_id + "|" + r.lead.id) ? "Sent" : "Send to " + esc(memberName(r.rep).split(" ")[0])}</button>` : ""}
-          </div>`).join("") : `<div class="muted small" style="padding:10px 16px">${book ? (mode === "reach" ? "Nobody worth a call in this view." : "No customers match.") : loading ? "Reading…" : "Tap Refresh to read the book."}</div>`}
-        ${(mode === "timing" || mode === "leases") && !book ? `<div class="muted small" style="padding:10px 16px">${loading ? "Reading…" : "Tap Refresh to read the book."}</div>` : ""}
+          </div>`).join("") : `<div class="muted small" style="padding:10px 16px">${book ? (mode === "reach" ? "Nobody worth a call in this view." : "No customers match.") : loading ? "Reading…" : "Pull down to read the book."}</div>`}
+        ${(mode === "timing" || mode === "leases") && !book ? `<div class="muted small" style="padding:10px 16px">${loading ? "Reading…" : "Pull down to read the book."}</div>` : ""}
         ${rows.length > shown.length ? `<div class="muted small" style="padding:10px 16px">Showing ${shown.length} of ${rows.length.toLocaleString()} — search or filter to narrow it.</div>` : ""}
       </div>
       <div class="hint" style="margin:0 2px">Read from what's on each customer's file — equity, years in, when the contract ends, the warranty, the rate, kilometres, AutoAlert flags, service visits, whether anyone has spoken to them lately — and priced against the store's shared lot: what they could drive for the money they pay now. ${lot && lot.rows.length ? "" : "Import the lot under Settings → Dealer inventory sites, or have any rep in the store import it, and payment matches appear."}</div>
     `;
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
-    on('[data-act="refresh"]', () => refresh(true));
     on('[data-act="aud-clear"]', () => { aud = null; draw(); });
     on('[data-act="filter"]', () => openAudienceFilter(aud, (a) => { aud = a; draw(); }, { title: "Filter the store's customers" }));
     on('[data-act="rep"]', () => {
@@ -173,4 +173,5 @@ export function renderCustomers(view) {
 
   draw();
   refresh(false);
+  onPull(() => refresh(true));
 }

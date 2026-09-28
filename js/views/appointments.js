@@ -13,6 +13,7 @@ import { toast, openModal } from "../components.js";
 import { esc, formatDateTime } from "../utils.js";
 import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, updateRepAppointment, nudgeRep } from "../team.js";
 import { apptState, openCustomerSheet } from "./team.js";
+import { onPull } from "../pulltorefresh.js";
 
 const DAY = 86400000;
 const ymd = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
@@ -73,7 +74,7 @@ export function renderAppointments(view) {
       </div>`;
     el.innerHTML = `
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      <div class="row" style="margin:4px 2px 8px"><span class="small muted">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))} · ${board ? "as of " + esc(formatDateTime(board.at)) : loading ? "reading…" : "not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:4px 2px 8px"><span class="small muted">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))} · ${board ? "as of " + esc(formatDateTime(board.at)) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "reading…" : "not read yet"}</span></div>
       <div class="stat-grid" style="margin-bottom:12px">
         <div class="stat"><div class="stat-value" style="color:var(--brand)">${lists.today.length}</div><div class="stat-label">Today · ${todayLeft.length} still to come</div></div>
         <div class="stat"><div class="stat-value" style="${queue.length ? "color:var(--danger)" : "color:var(--success)"}">${queue.length}</div><div class="stat-label">Tomorrow's not yet confirmed</div></div>
@@ -93,7 +94,6 @@ export function renderAppointments(view) {
       <div class="hint" style="margin:0 2px">Tap an appointment to mark it confirmed, showed, no-show or sold, or to nudge the rep. Marks land in the rep's own calendar on their next sync.</div>
     `;
     const on2 = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
-    on2('[data-act="refresh"]', () => refresh(true));
     on2('[data-act="tab-unlogged"]', (e) => { e.preventDefault(); tab = "unlogged"; draw(); });
     el.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; draw(); }));
     el.querySelectorAll(".ap-row").forEach((r) => r.addEventListener("click", () => openAppt(r.dataset.rep, r.dataset.id)));
@@ -163,4 +163,5 @@ export function renderAppointments(view) {
 
   draw();
   refresh(false);
+  onPull(() => refresh(true));
 }

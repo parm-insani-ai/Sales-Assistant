@@ -18,6 +18,14 @@ const THRESHOLD = 70;   // how far down before it fires
 const MAX = 110;        // how far the indicator will travel
 let el = null;
 
+// A screen that reads more than the phone's own book — the manager's board,
+// the store's customers — registers what a pull should do on top of the
+// sync. It's forgotten on the next navigation, so a stale screen's reader
+// never runs under a different one.
+let refresher = null;
+export function onPull(fn) { refresher = fn; }
+window.addEventListener("viniva-navigated", () => { refresher = null; });
+
 function indicator() {
   if (el) return el;
   el = document.createElement("div");
@@ -86,6 +94,7 @@ export function initPullToRefresh() {
     try {
       await sync.syncNow();
     } catch { ok = false; /* the status line reports sync errors; a pull shouldn't throw */ }
+    if (refresher) { try { await refresher(); } catch { ok = false; } }
     // Announce it. A view that wants to redraw on a manual refresh can listen,
     // and it makes "did the pull actually do anything" answerable from outside
     // this module rather than by reading it.

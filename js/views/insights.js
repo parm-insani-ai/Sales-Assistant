@@ -11,6 +11,7 @@ import { icon } from "../icons.js";
 import { esc, formatDateTime } from "../utils.js";
 import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, storeTotals } from "../team.js";
 import { findings, DAYS, hourLabel } from "../insight.js";
+import { onPull } from "../pulltorefresh.js";
 
 const bar = (v, max, cls = "") => `<div class="ibar ${cls}"><span style="width:${max ? Math.round((v / max) * 100) : 0}%"></span></div>`;
 const pc = (v) => (v == null ? "—" : v + "%");
@@ -61,7 +62,7 @@ export function renderInsights(view) {
         <button class="btn btn-sm ${who === "store" ? "btn-primary" : "btn-ghost"}" data-who="store">Store</button>
         ${stats.map((r) => `<button class="btn btn-sm ${who === r.member.user_id ? "btn-primary" : "btn-ghost"}" data-who="${esc(r.member.user_id)}">${esc(memberName(r.member))}</button>`).join("")}
       </div>
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">As of ${esc(formatDateTime(board.at))} · last 8 weeks</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:0 2px 8px"><span class="small muted">As of ${esc(formatDateTime(board.at))} · last 8 weeks${loading ? " · reading…" : " · pull down to refresh"}</span></div>
 
       <div class="section-title">What the numbers say</div>
       <div class="card">${fx.length ? fx.map((x) => `<div class="row" style="padding:6px 0;align-items:flex-start;gap:10px"><span style="flex:none;color:var(--brand)">${icon("sparkles")}</span><div class="small">${esc(x.text)}</div></div>`).join("") : `<div class="muted small">Not enough history yet to say. The findings write themselves as appointments and leads build up — usually after a couple of weeks of use.</div>`}</div>
@@ -131,11 +132,11 @@ export function renderInsights(view) {
       </div>
     `;
     el.querySelectorAll("[data-who]").forEach((b) => b.addEventListener("click", () => { who = b.dataset.who; draw(); view.scrollTop = 0; }));
-    const rb = el.querySelector('[data-act="refresh"]'); if (rb) rb.addEventListener("click", () => refresh(true));
   }
 
   draw();
   refresh(false);
+  onPull(() => refresh(true));
 }
 
 function fmtMin(m) { return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; }

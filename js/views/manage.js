@@ -21,6 +21,7 @@ import { makeMatcher } from "../match.js";
 import { rankBook, reachOuts, taskFor } from "../reach.js";
 import * as store from "../store.js";
 import { pullStoreMailIfStale } from "../msmail.js";
+import { onPull } from "../pulltorefresh.js";
 
 export function renderManageHome(view) {
   const el = document.createElement("div");
@@ -95,7 +96,7 @@ export function renderManageHome(view) {
       </div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       ${!manager ? `<div class="card">You're on ${esc(team.name)}'s team as a rep. The board is the manager's; your own numbers are in the sales view.</div>` : `
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">${board && board.storeId === team.id ? "As of " + esc(formatDateTime(board.at)) : loading ? "Reading the reps…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:0 2px 8px"><span class="small muted">${board && board.storeId === team.id ? "As of " + esc(formatDateTime(board.at)) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "Reading the reps…" : "Not read yet"}</span></div>
       ${t ? `
       <div class="stat-grid" style="margin-bottom:12px">
         <div class="stat"><div class="stat-value" style="color:var(--brand)">${ins.setThisMonth}</div><div class="stat-label">Appointments set in ${esc(monthName)} · ${rows.reduce((a, r) => a + setToday(r), 0)} today</div></div>
@@ -150,7 +151,7 @@ export function renderManageHome(view) {
             ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span></div>` : ""}
           </div>`).join("")}
         ${!rows.length ? `<div class="muted small" style="padding:10px 16px">No reps on the board yet.</div>` : ""}
-      </div>` : loading ? `<div class="card"><div class="muted small" style="text-align:center">Reading the reps' books…</div></div>` : `<div class="card"><div class="muted small">Tap Refresh to read the board.</div></div>`}`}
+      </div>` : loading ? `<div class="card"><div class="muted small" style="text-align:center">Reading the reps' books…</div></div>` : `<div class="card"><div class="muted small">Pull down to read the board.</div></div>`}`}
 
       <div class="section-title">Run the store</div>
       <div class="qa-grid" style="margin-bottom:14px">
@@ -167,7 +168,6 @@ export function renderManageHome(view) {
       <div class="hint" style="margin:0 2px">Signed in as ${esc(me ? me.email || "" : "")}. The board reads the reps' synced records, so a rep's numbers are as current as their last sync.</div>
     `;
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
-    on('[data-act="refresh"]', () => refresh(true));
     on('[data-act="team"]', () => navigate("/team"));
     on('[data-act="insights"]', () => navigate("/insights"));
     on('[data-act="appointments"]', () => navigate("/appointments"));
@@ -199,7 +199,7 @@ export function renderManageHome(view) {
     el.querySelectorAll("[data-rep]").forEach((n) => n.addEventListener("click", () => {
       const r = stats && stats.find((x) => x.member.user_id === n.dataset.rep);
       const m = (team.members || []).find((x) => x.user_id === n.dataset.rep);
-      if (!r || r.error || !r.touches) { toast("Refresh the board first", "warn"); return; }
+      if (!r || r.error || !r.touches) { toast("Pull down to read the board first", "warn"); return; }
       openRepSheet(r, m);
     }));
   }
@@ -223,6 +223,7 @@ export function renderManageHome(view) {
 
   draw();
   refresh(false);
+  onPull(() => refresh(true));
 }
 
 // The manager's "+": the things a manager does from anywhere, one sheet.
