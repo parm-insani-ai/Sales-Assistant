@@ -36,14 +36,14 @@ if (!/only an admin/.test(forged)) fail("a non-admin could create a store: " + f
 await stranger.close();
 
 // --- 1. The admin account signs in with no book and gets the store's app:
-// the management Home, three tabs, no voice button. Team is a tap away;
+// the management Home, the store's tabs with the manager's voice button. Team is a tap away;
 // there it creates the store and is its first manager.
 const mgr = await pageAs("tm", "mgr@e.com", { name: "Sam Manager" });
 await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.body.classList.contains("management") && /No store yet/.test(document.querySelector(".hero-title")?.textContent || ""), null, { timeout: 15000 });
 const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn"), plus: getComputedStyle(document.querySelector("#quick-add")).display }));
 console.log("admin lands on:", JSON.stringify(landing));
-if (landing.greeting !== "Admin" || landing.tabs.join() !== "Home,Appts,Customers,Insights,Team" || landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
+if (landing.greeting !== "Admin" || landing.tabs.join() !== "Home,Appts,Voice,Customers,Insights,Team" || !landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
 await mgr.click('[data-act="team"]');
 await mgr.waitForSelector('[data-act="create"]');
 await mgr.fill("#st-name", "O'Regan's Nissan Halifax");
@@ -135,7 +135,7 @@ await mgr.click('.modal [data-lead="l1"]');
 await mgr.waitForFunction(() => document.querySelectorAll(".modal").length === 2, null, { timeout: 10000 });
 const cust = await mgr.evaluate(() => { const m = document.querySelectorAll(".modal")[1]; return { title: m.querySelector("h2").textContent.trim(), text: m.textContent.replace(/\s+/g, " ") }; });
 console.log("customer:", cust.title, "·", cust.text.slice(0, 160));
-if (cust.title !== "Fresh Lead" || !/\(902\) 555-1111/.test(cust.text) || !/Wants AWD/.test(cust.text) || !/Great, can I see it Saturday/.test(cust.text) || !/Read-only/.test(cust.text)) fail("the customer page isn't complete: " + cust.text.slice(0, 300));
+if (cust.title !== "Fresh Lead" || !/\(902\) 555-1111/.test(cust.text) || !/Wants AWD/.test(cust.text) || !/Great, can I see it Saturday/.test(cust.text) || !/rep.s own app is where/.test(cust.text)) fail("the customer page isn't complete: " + cust.text.slice(0, 300));
 
 // --- 6. A rep can't read another rep; a manager can.
 const cross = await rep1.evaluate(async (U2) => { const bk = await import("/js/backend.js"); return (await bk.readRecords(U2, "leads")).length; }, U2);

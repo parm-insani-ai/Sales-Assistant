@@ -121,7 +121,13 @@ async function accessToken() {
 // Pull recent inbox mail and file customer messages into their email history.
 // First pull looks back 14 days; after that, only what's new. Idempotent —
 // each Graph message id is stored once.
-export async function pullOutlookMail() {
+//
+// Who the customers are and where a match is filed depend on who's signed
+// in: a rep's are their own book and their own email history (the default);
+// a manager's are every rep's customers, filed into that rep's book
+// (pullStoreMail). `match(addr, name)` finds the customer, `seen` holds the
+// message ids already filed, `file(lead, email)` stores one.
+export async function pullOutlookMail({ match = null, seen = null, file = null } = {}) {
   const token = await accessToken();
   const since = lastMailPull() || new Date(Date.now() - 14 * 86400000).toISOString();
   const url = `${GRAPH}/me/messages?$top=50&$orderby=receivedDateTime desc` +
@@ -132,24 +138,30 @@ export async function pullOutlookMail() {
   if (!res.ok) throw new Error((j.error && j.error.message) || `Mail fetch failed (${res.status})`);
   const msgs = j.value || [];
 
-  const seen = new Set(store.all("emails").map((e) => e.msgId).filter(Boolean));
-  const leads = store.all("leads");
+  if (!seen) seen = new Set(store.all("emails").map((e) => e.msgId).filter(Boolean));
+  if (!match) {
+    const leads = store.all("leads");
+    // Match by email address first; fall back to an exact name match (and
+    // backfill the lead's email so future matching is instant).
+    match = (addr, fromName) => {
+      let lead = leads.find((l) => (l.email || "").toLowerCase() === addr);
+      if (!lead && fromName) {
+        lead = leads.find((l) => (l.name || "").trim().toLowerCase() === fromName.toLowerCase());
+        if (lead && !lead.email) store.update("leads", lead.id, { email: addr });
+      }
+      return lead || null;
+    };
+  }
+  if (!file) file = (lead, email) => store.create("emails", { leadId: lead.id, ...email });
   let linked = 0;
   for (const m of msgs) {
     if (!m.id || seen.has(m.id)) continue;
     const addr = String(m.from?.emailAddress?.address || "").toLowerCase();
     const fromName = String(m.from?.emailAddress?.name || "").trim();
     if (!addr) continue;
-    // Match by email address first; fall back to an exact name match (and
-    // backfill the lead's email so future matching is instant).
-    let lead = leads.find((l) => (l.email || "").toLowerCase() === addr);
-    if (!lead && fromName) {
-      lead = leads.find((l) => (l.name || "").trim().toLowerCase() === fromName.toLowerCase());
-      if (lead && !lead.email) store.update("leads", lead.id, { email: addr });
-    }
+    const lead = match(addr, fromName);
     if (!lead) continue; // not a customer — ignore, never store
-    store.create("emails", {
-      leadId: lead.id,
+    await file(lead, {
       direction: "in",
       subject: m.subject || "",
       body: m.bodyPreview || "",
@@ -157,10 +169,40 @@ export async function pullOutlookMail() {
       msgId: m.id,
       receivedAt: m.receivedDateTime || "",
     });
+    seen.add(m.id);
     linked++;
   }
   localStorage.setItem(LAST_KEY, new Date().toISOString());
   return { checked: msgs.length, linked };
+}
+
+// The manager's inbox: a reply from a customer on any rep's book is filed
+// into that rep's book, against that customer, through the database's
+// manager door. What's been filed is remembered on this phone.
+const SEEN_KEY = "viniva:msmail:filed";
+function loadSeen() { try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); } catch { return new Set(); } }
+function saveSeen(seen) { try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-1000))); } catch { /* fine */ } }
+export async function pullStoreMail(team) {
+  const { loadBook, logRepEmail } = await import("./team.js");
+  const book = await loadBook(team);
+  const seen = loadSeen();
+  const match = (addr, fromName) => {
+    let row = book.rows.find((r) => (r.lead.email || "").toLowerCase() === addr);
+    if (!row && fromName) row = book.rows.find((r) => (r.lead.name || "").trim().toLowerCase() === fromName.toLowerCase());
+    return row ? { id: row.lead.id, rep: row.rep.user_id } : null;
+  };
+  const file = async (lead, email) => { await logRepEmail(lead.rep, { leadId: lead.id, ...email }); seen.add(email.msgId); saveSeen(seen); };
+  return pullOutlookMail({ match, seen, file });
+}
+export function pullStoreMailIfStale(team, maxAgeMin = 20) {
+  if (!outlookConnected() || !team) return;
+  const last = lastMailPull();
+  const stale = !last || (Date.now() - new Date(last).getTime()) > maxAgeMin * 60000;
+  if (stale && navigator.onLine !== false) {
+    pullStoreMail(team)
+      .then((r) => { if (r.linked) window.dispatchEvent(new CustomEvent("viniva-mail", { detail: r })); })
+      .catch(() => {});
+  }
 }
 
 // Background refresh on app open (same pattern as calendar feeds).

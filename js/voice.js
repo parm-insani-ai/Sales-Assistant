@@ -367,7 +367,7 @@ let session_ = null;
  * you have something to say about it, and covering the thread to say it would
  * be the same mistake docking exists to fix.
  */
-export function startVoiceAssistant({ docked: startDocked = false } = {}) {
+export function startVoiceAssistant({ docked: startDocked = false, manager = false } = {}) {
   // Already listening: bring that session to the user rather than stacking a
   // second one on top of it.
   if (session_) {
@@ -494,10 +494,15 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
   // because settings can arrive from cloud sync — or be fixed in Settings —
   // after the panel is already up, and a session decided once at open would
   // leave you talking to the keyword parser for the rest of the session.
+  //
+  // The manager's assistant is a different brain over the same panel: it
+  // reads the store rather than a book (manageagent.js), and it loads only
+  // when a manager opens the panel, so a rep's app never fetches it.
   let session = null;
-  const agentSession = () => {
+  const managerMod = manager ? import("./manageagent.js") : null;
+  const agentSession = async () => {
     if (!agentConfigured()) return null;
-    if (!session) session = createAgentSession();
+    if (!session) session = manager ? (await managerMod).createManagerSession() : createAgentSession();
     return session;
   };
 
@@ -510,7 +515,8 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
   // until you close it or say you're done.
   // Built once when the panel opens: it walks every customer and vehicle, and
   // recognition results arrive several times a second.
-  const vocab = vocabulary();
+  let vocab = vocabulary();
+  if (managerMod) managerMod.then((m) => { vocab = m.managerVocabulary(); }).catch(() => { });
   let hearing = false;      // recognition is running right now
   let quiet = 0;            // consecutive rounds that heard nothing
   // Engine errors, counted separately. Silence and a broken recogniser are
@@ -570,6 +576,8 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
   // question that was never the problem: no rephrasing of anything reaches a
   // parser that doesn't have the concept.
   const onParser = (text) => {
+    // The store's assistant has no keyword grammar to fall back on.
+    if (manager) return "The store's assistant needs the cloud function — open Settings and tap Test connection under Voice agent.";
     const cmd = parseCommand(text);
     const say = cmd.action !== "error" ? executeCommand(cmd) : null;
     if (say) return say;
@@ -590,10 +598,12 @@ export function startVoiceAssistant({ docked: startDocked = false } = {}) {
 
     let reply = "";
     let ok = true;
-    const agent = agentSession();
+    let agent = null;
+    try { agent = await agentSession(); } catch (e) { toast(`Voice agent: ${e && e.message ? e.message : "couldn't load"}`, "danger"); }
     // A question about the lot is answered here, from the lot, before any
     // network — the count and the website's price are exact, and instant.
-    const lotCmd = parseCommand(said);
+    // (A rep's lot, from their phone; the manager's questions all go up.)
+    const lotCmd = manager ? { action: "none" } : parseCommand(said);
     if (lotCmd.action === "lot" || lotCmd.action === "outreach") {
       reply = executeCommand(lotCmd) || "";
     }

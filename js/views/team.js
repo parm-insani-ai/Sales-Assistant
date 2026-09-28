@@ -408,10 +408,18 @@ export async function openCustomerSheet(userId, leadId) {
         ${c ? `<div class="kv"><span class="k">Contract</span><span class="v">${esc(c.line)}</span></div>` : ""}
       </div>
       ${l.notes ? `<div class="section-title">Notes</div><div class="card small" style="white-space:pre-wrap">${esc(l.notes)}</div>` : ""}
+      <div class="btn-row" style="margin-bottom:12px"><button class="btn btn-primary btn-sm btn-block" data-act="email" ${l.email ? "" : "disabled"}>${icon("mail")} Email ${esc(String(l.name || "them").split(" ")[0])}</button></div>
       <div class="section-title">Recent texts <span class="muted" style="font-weight:500;font-size:0.78rem">· ${data.texts.length ? "newest first" : "none"}</span></div>
-      <div class="card">${data.texts.length ? data.texts.map((t) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div class="small muted">${t.dir === "in" ? "Them" : "Rep"} · ${esc(formatDateTime(t.at || t.createdAt))}</div><div class="small" style="white-space:pre-wrap">${esc(t.body || "")}</div></div>`).join("") : `<div class="muted small">No texts with this customer.</div>`}</div>
-      <div class="hint">Read-only. The rep's own app is where this customer is worked.</div>
+      <div class="card">${data.texts.length ? data.texts.map((t) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div class="small muted">${t.dir === "in" ? "Them" : t.via === "manager-welcome" ? "You (welcome)" : "Rep"} · ${esc(formatDateTime(t.at || t.createdAt))}</div><div class="small" style="white-space:pre-wrap">${esc(t.body || "")}</div></div>`).join("") : `<div class="muted small">No texts with this customer.</div>`}</div>
+      <div class="section-title">Emails <span class="muted" style="font-weight:500;font-size:0.78rem">· ${(data.emails || []).length ? "newest first" : "none"}</span></div>
+      <div class="card">${(data.emails || []).length ? data.emails.map((e) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div class="small muted">${e.direction === "in" ? "Them" : e.via === "manager" ? "You" : e.via === "manager-welcome" ? "You (welcome)" : e.via === "auto" ? "Rep · automatic" : "Rep"} · ${esc(formatDateTime(e.receivedAt || e.createdAt))}</div><div class="small strong">${esc(e.subject || "(no subject)")}</div>${e.body ? `<div class="small muted" style="white-space:pre-wrap">${esc(String(e.body).slice(0, 200))}</div>` : ""}</div>`).join("") : `<div class="muted small">No emails with this customer.</div>`}</div>
+      <div class="hint">The rep's own app is where this customer is worked; an email from you is filed here for them too.</div>
     `;
+    root.querySelector('[data-act="email"]').addEventListener("click", () => {
+      const team = cachedStore();
+      const rep = ((team && team.members) || []).find((m) => m.user_id === userId) || { user_id: userId };
+      import("./mail.js").then((m) => m.openComposeSheet(team || { name: "" }, { lead: l, rep }));
+    });
     return root;
   });
 }

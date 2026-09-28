@@ -33,7 +33,14 @@ if (r.due || !/texting the rep right now/.test(r.why)) fail("mid-conversation: "
 // Already welcomed, opted out, no phone, an owner, came in by text, too old, off.
 if (W.welcomeDue(lead({ managerWelcomeAt: ago(60) }), [], cfg, now).due) fail("never twice");
 if (W.welcomeDue(lead({ smsOptOut: true }), [], cfg, now).due) fail("opted out");
-if (W.welcomeDue(lead({ phone: "" }), [], cfg, now).due) fail("no phone");
+if (W.welcomeDue(lead({ phone: "" }), [], cfg, now).due) fail("no phone or email");
+// Only an email address: it goes by email; opting out of texts doesn't stop it, do-not-contact does.
+r = W.welcomeDue(lead({ phone: "", email: "dana@example.com" }), [], cfg, now);
+if (!r.due || r.channel !== "email") fail("email-only customer should be welcomed by email: " + JSON.stringify(r));
+if (!W.welcomeDue(lead({ phone: "", email: "dana@example.com", smsOptOut: true }), [], cfg, now).due) fail("an SMS opt-out doesn't stop an email");
+if (W.welcomeDue(lead({ phone: "", email: "dana@example.com", doNotContact: true }), [], cfg, now).due) fail("do-not-contact stops the email");
+if (W.welcomeDue(lead(), [], cfg, now).channel !== "text") fail("a phone means a text");
+if (W.welcomeSubject("O'Regan's") !== "Thanks for coming in to O'Regan's") fail("the subject");
 if (W.welcomeDue(lead({ purchaseDate: "2021-01-01" }), [], cfg, now).due) fail("an owner on file isn't a visit");
 if (W.welcomeDue(lead({ source: "text" }), [], cfg, now).due) fail("a customer created from an inbound text didn't come in");
 if (W.welcomeDue(lead({ createdAt: ago(5 * 1440) }), [], cfg, now).due) fail("five days later is too late");

@@ -168,16 +168,23 @@ async function describeAgentError(res) {
   return msg || `Agent error (${res.status})`;
 }
 
-async function callAgent(messages) {
+// One call to the model through the function: any brain, any tools. The
+// salesperson's assistant and the manager's (manageagent.js) share this
+// relay and the session loop below; they differ in what they know and what
+// they can do.
+export async function callRelay({ system, tools, messages, max_tokens = 1024 }) {
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
   if (!url) throw new Error("Voice agent isn't set up");
   const res = await fetch(url, {
     method: "POST",
     headers: await backend.fnHeaders(),
-    body: JSON.stringify({ system: buildSystem(buildContext()), tools: TOOLS, messages, max_tokens: 1024 }),
+    body: JSON.stringify({ system, tools, messages, max_tokens }),
   });
   if (!res.ok) throw new Error(await describeAgentError(res));
   return res.json(); // { content:[...], stop_reason }
+}
+function callAgent(messages) {
+  return callRelay({ system: buildSystem(buildContext()), tools: TOOLS, messages, max_tokens: 1024 });
 }
 
 // Cheap end-to-end check used by Settings: hits the saved URL with a tiny
@@ -848,13 +855,15 @@ export async function execTool(name, p = {}) {
 // send(text) runs the tool-use loop and returns:
 //   { say, done:true }              — finished (spoken reply)
 //   { say:question, done:false }    — needs an answer; call send(answer) next
-export function createAgentSession() {
+// `call(messages)` asks the model and `exec(name, input)` runs a tool; the
+// defaults are the salesperson's. The manager's assistant passes its own.
+export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
   const messages = [];
   let pending = null; // { results:[...], askId } while awaiting a human answer
 
   async function loop(onProgress) {
     for (let step = 0; step < 8; step++) {
-      const resp = await callAgent(messages);
+      const resp = await call(messages);
       const content = resp.content || [];
       const toolUses = content.filter((b) => b.type === "tool_use");
       const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
@@ -870,7 +879,7 @@ export function createAgentSession() {
           question = (tu.input && tu.input.question) || "Could you give me a bit more detail?";
         } else {
           let out;
-          try { out = await execTool(tu.name, tu.input || {}); }
+          try { out = await exec(tu.name, tu.input || {}); }
           catch (e) { out = { result: `error: ${e && e.message ? e.message : e}`, note: "" }; }
           if (out.note && onProgress) onProgress(out.note);
           results.push({ type: "tool_result", tool_use_id: tu.id, content: typeof out.result === "string" ? out.result : JSON.stringify(out.result) });

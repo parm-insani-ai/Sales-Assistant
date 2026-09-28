@@ -30,6 +30,13 @@ export function renderCustomers(view) {
   let mode = "reach"; // reach | all
   let rep = "all";
   let search = "";
+  // The assistant hands over a search: "find the Rogue owners" opens this
+  // screen already narrowed to them.
+  try {
+    const handed = JSON.parse(sessionStorage.getItem("customers-query") || "null");
+    sessionStorage.removeItem("customers-query");
+    if (handed) { search = handed.q || ""; rep = handed.rep || "all"; mode = handed.mode || (search ? "all" : "reach"); }
+  } catch { /* fresh screen */ }
   let aud = null;
   let loading = false, error = "";
   let ranked = null;

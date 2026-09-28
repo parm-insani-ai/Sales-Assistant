@@ -40,6 +40,8 @@ const storeVehicles = new Map();
 // Per-store config (the manager's welcome text), and the welcomes "sent".
 const storeConfig = new Map();
 const welcomes = [];
+// Emails the manager "sent" to reps' customers.
+const emails = [];
 // Targets managers set, and the nudges (pushes) managers sent.
 const targets = new Map();
 const nudges = [];
@@ -221,6 +223,15 @@ const server = http.createServer((req, res) => {
         records.set(args.member + "|" + id, { id, user_id: args.member, collection: "tasks", data, deleted: false, updated_at: nowiso });
         return json(res, 200, data);
       }
+      if (fn === "manager_log_email") {
+        if (!isAdmin && !manages(uid, args.member)) return fail("only a manager of their store can do that");
+        const e = args.email || {}; if (!e.leadId) return fail("the email needs a customer");
+        const id = "eml_" + Math.random().toString(36).slice(2, 10), nowiso = new Date().toISOString();
+        const who = (myStore(uid) || { members: [] }).members.find((m) => m.user_id === uid);
+        const data = { id, leadId: e.leadId, direction: e.direction || "in", subject: e.subject || "", body: e.body || "", via: e.via || "manager", msgId: e.msgId, receivedAt: e.receivedAt, by: (who && who.name) || "", loggedBy: uid, createdAt: nowiso, updatedAt: nowiso };
+        records.set(args.member + "|" + id, { id, user_id: args.member, collection: "emails", data, deleted: false, updated_at: nowiso });
+        return json(res, 200, data);
+      }
       if (fn === "leave_store") { for (const st of stores.values()) st.members = st.members.filter((m) => m.user_id !== uid); res.writeHead(204, { "Access-Control-Allow-Origin": "*" }); return res.end(); }
       return json(res, 404, { message: "no such function " + fn });
     });
@@ -316,6 +327,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__stores") return json(res, 200, [...stores.values()]);
   if (url.pathname === "/__nudges") return json(res, 200, nudges);
   if (url.pathname === "/__welcomes") return json(res, 200, welcomes);
+  if (url.pathname === "/__emails") return json(res, 200, emails);
   if (url.pathname === "/__admin") { const u = url.searchParams.get("u"); if (u) admins.add(u); return json(res, 200, [...admins]); }
   if (url.pathname === "/__pushes") return json(res, 200, pushes);
 
@@ -342,7 +354,7 @@ const server = http.createServer((req, res) => {
       // Like the real function: anything that acts as a person needs the
       // session's bearer token. A call without one is refused, which is how
       // a test finds a client path that forgot to send it.
-      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
+      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || msg.memail || msg.nudge || msg.welcome || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
       if (personal && !/^Bearer\s+\S+/.test(String(req.headers["authorization"] || ""))) return json(res, 401, { error: "Sign in to your cloud account in Settings — this call needs your session." });
       // Canned diagnosis, so the Settings readout can be exercised against the
       // shapes a real misconfiguration produces.
@@ -358,17 +370,38 @@ const server = http.createServer((req, res) => {
         if (!ok) return json(res, 403, { error: "you don't manage that rep" });
         const lead = records.get(w.rep + "|" + w.leadId);
         if (!lead || lead.collection !== "leads") return json(res, 400, { error: "no such customer" });
-        if (!lead.data.phone) return json(res, 400, { error: "no phone number" });
+        const channel = lead.data.phone ? "text" : lead.data.email ? "email" : "";
+        if (!channel) return json(res, 400, { error: "no phone number or email" });
         const cfg = (storeConfig.get(st.id) || {}).welcome || {};
         const first = String(lead.data.name || "there").split(" ")[0];
         const repName = (st.members.find((m) => m.user_id === w.rep) || {}).name || "us";
         const body = String(cfg.template || "Hi {first}, it's {manager}, the sales manager at {store}. Thanks for coming in to see {rep} — we'd love to help in any way we can. If there's anything at all, you can reach me right here.")
           .replace(/\{first\}/g, first).replace(/\{manager\}/g, cfg.manager || "the sales manager").replace(/\{store\}/g, st.name).replace(/\{rep\}/g, repName);
-        const nowiso = new Date().toISOString(), tid = "txt_w" + (welcomes.length + 1);
-        records.set(w.rep + "|" + tid, { id: tid, user_id: w.rep, collection: "texts", data: { id: tid, leadId: w.leadId, dir: "out", body, phone: lead.data.phone, at: nowiso, read: true, via: "manager-welcome", by: cfg.manager || "", createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
+        const nowiso = new Date().toISOString(), tid = (channel === "email" ? "eml_w" : "txt_w") + (welcomes.length + 1);
+        if (channel === "email") records.set(w.rep + "|" + tid, { id: tid, user_id: w.rep, collection: "emails", data: { id: tid, leadId: w.leadId, direction: "out", subject: "Thanks for coming in to " + st.name, body, via: "manager-welcome", by: cfg.manager || "", createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
+        else records.set(w.rep + "|" + tid, { id: tid, user_id: w.rep, collection: "texts", data: { id: tid, leadId: w.leadId, dir: "out", body, phone: lead.data.phone, at: nowiso, read: true, via: "manager-welcome", by: cfg.manager || "", createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
         lead.data.managerWelcomeAt = nowiso; lead.data.updatedAt = nowiso; lead.updated_at = nowiso;
-        welcomes.push({ rep: w.rep, leadId: w.leadId, body, to: lead.data.phone });
-        return json(res, 200, { sent: true, body });
+        welcomes.push({ rep: w.rep, leadId: w.leadId, body, to: channel === "email" ? lead.data.email : lead.data.phone, channel });
+        return json(res, 200, { sent: true, body, channel });
+      }
+      // The manager's email to a rep's customer: "sent", and filed in the
+      // rep's book marked as the manager's.
+      if (msg.memail) {
+        const uid = USERS[bearer] || USERS.t;
+        const e = msg.memail;
+        const st = [...stores.values()].find((x) => x.members.some((m) => m.user_id === e.rep));
+        const me = st && st.members.find((m) => m.user_id === uid);
+        const ok = admins.has(uid) || !!(me && me.role === "manager");
+        if (!ok) return json(res, 403, { error: "you don't manage that rep" });
+        const lead = records.get(e.rep + "|" + e.leadId);
+        if (!lead || lead.collection !== "leads") return json(res, 400, { error: "no such customer" });
+        if (!lead.data.email) return json(res, 400, { error: "no email on file" });
+        if (!e.subject || !e.text) return json(res, 400, { error: "bad request" });
+        const nowiso = new Date().toISOString(), eid = "eml_m" + (emails.length + 1);
+        records.set(e.rep + "|" + eid, { id: eid, user_id: e.rep, collection: "emails", data: { id: eid, leadId: e.leadId, direction: "out", subject: e.subject, body: e.text, via: "manager", by: (me && me.name) || "", sentBy: uid, createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
+        lead.data.managerEmailAt = nowiso; lead.data.updatedAt = nowiso; lead.updated_at = nowiso;
+        emails.push({ from: uid, rep: e.rep, leadId: e.leadId, to: lead.data.email, subject: e.subject, text: e.text });
+        return json(res, 200, { sent: true, id: eid });
       }
       if (msg.nudge) {
         const uid = USERS[bearer] || USERS.t;
@@ -431,7 +464,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0;
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false;
     return json(res, 200, { ok: true });
   }

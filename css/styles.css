@@ -1543,7 +1543,8 @@ body.voice-live .tab-voice .tab-label { color: var(--brand-strong); }
 .voice-overlay.voice-docked .voice-close { background: transparent; }
 
 /* The store's app: three tabs, no voice button, no quick-add. */
-body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
+body.management .tabbar { grid-template-columns: repeat(6, 1fr); }
+body.management .tab { font-size: 0.62rem; padding-left: 2px; padding-right: 2px; }
 /* Insights: small horizontal bars, tiny vertical bar charts, a by-rep table. */
 .ibar { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; min-width: 40px; }
 .ibar > span { display: block; height: 100%; background: var(--brand); border-radius: 4px; }
@@ -1617,6 +1618,7 @@ body.management #quick-add { display: none; }
     font-size: 0.95rem; font-weight: 600; letter-spacing: 0;
     color: var(--text-2);
   }
+  body.management .tab { font-size: 0.95rem; padding-left: 14px; padding-right: 14px; }
   .tab:hover { background: var(--surface-2); }
   .tab.active { background: var(--brand-tint); color: var(--brand); }
   .tab.active::before { display: none; }

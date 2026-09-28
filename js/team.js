@@ -314,13 +314,47 @@ export async function pullStoreInventory(since = null) {
   return { rows, storeId: s.id };
 }
 
-// One customer of a rep's, for the read-only page: the lead and their last texts.
+// One customer of a rep's, for the read-only page: the lead, their last
+// texts and their last emails.
 export async function repLead(userId, leadId) {
-  const [lead, texts] = await Promise.all([
+  const [lead, texts, emails] = await Promise.all([
     backend.readRecords(userId, "leads", { id: `eq.${leadId}` }, { select: "data", limit: 1 }),
     backend.readRecords(userId, "texts", { "data->>leadId": `eq.${leadId}` }, { select: "data", limit: 200 }),
+    backend.readRecords(userId, "emails", { "data->>leadId": `eq.${leadId}` }, { select: "data", limit: 100 }).catch(() => []),
   ]);
   const l = lead[0] && lead[0].data;
   const thread = texts.map((t) => t.data).sort((a, b) => String(b.at || b.createdAt || "").localeCompare(String(a.at || a.createdAt || ""))).slice(0, 8);
-  return l ? { lead: l, texts: thread } : null;
+  const mail = emails.map((e) => e.data).sort((a, b) => String(b.receivedAt || b.createdAt || "").localeCompare(String(a.receivedAt || a.createdAt || ""))).slice(0, 6);
+  return l ? { lead: l, texts: thread, emails: mail } : null;
+}
+
+// ---- The manager's email ----
+// A real email to one of a rep's customers, from the manager, through the
+// function: it sends (Resend) and files the email in the rep's book, marked
+// as the manager's, so the rep sees it on the customer's page.
+export async function sendManagerEmail(repId, leadId, { subject, text }) {
+  const s = (await import("./store.js")).getSettings();
+  const fn = (s.agentUrl || "").trim().replace(/\/+$/, "");
+  if (!fn) throw new Error("Set up the cloud function in Settings first");
+  const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ memail: { rep: repId, leadId, subject, text } }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || `Couldn't send (${res.status})`);
+  return j;
+}
+// File an email (one the manager received, say) into a rep's book against
+// their customer, through the one narrow door the database allows.
+export async function logRepEmail(repId, email) {
+  return backend.rpc("manager_log_email", { member: repId, email });
+}
+// Every email across the store in the last `days`, newest first, with the
+// customer's name and rep on each.
+export async function loadMail(team, days = 30) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const book = cachedBook();
+  const per = await Promise.all((team.members || []).map((m) => backend.readRecords(m.user_id, "emails", { "data->>createdAt": `gte.${since}` }, { select: "data", limit: 500 }).then((rs) => rs.map((r) => {
+    const e = r.data || {};
+    const row = book ? book.rows.find((x) => x.rep.user_id === m.user_id && x.lead.id === e.leadId) : null;
+    return { ...e, rep: m, customer: row ? row.lead.name || "Customer" : "Customer", email: row ? row.lead.email || "" : "" };
+  }), () => [])));
+  return per.flat().sort((a, b) => String(b.receivedAt || b.createdAt || "").localeCompare(String(a.receivedAt || a.createdAt || "")));
 }

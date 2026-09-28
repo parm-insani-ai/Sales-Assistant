@@ -1111,7 +1111,7 @@ function renderLeadDetail(view, id) {
     const items = [];
     store.all("calls").filter((c) => c.leadId === l.id).forEach((c) => items.push({ at: c.at || c.createdAt, kind: c.via === "text" ? "text" : c.via === "email" ? "email" : "call", dir: c.dir || "out", line: `${c.logged ? "Logged " : ""}${c.via === "text" ? "text" : c.via === "email" ? "email" : "call"}${c.outcome && c.outcome !== "reached" ? " · " + c.outcome : ""}${c.notes ? " — " + c.notes : ""}` }));
     store.all("texts").filter((t) => t.leadId === l.id).forEach((t) => items.push({ at: t.at || t.createdAt, kind: "text", dir: t.dir, line: String(t.body || "").slice(0, 110) }));
-    emailsForLead(l.id).forEach((e) => items.push({ at: e.receivedAt || e.createdAt, kind: "email", dir: e.direction, line: (e.subject || "(no subject)") + (e.via === "auto" ? " · sent automatically" : e.via === "outlook" ? " · from Outlook" : "") }));
+    emailsForLead(l.id).forEach((e) => items.push({ at: e.receivedAt || e.createdAt, kind: "email", dir: e.direction, line: (e.subject || "(no subject)") + (e.via === "auto" ? " · sent automatically" : e.via === "outlook" ? (e.loggedBy ? " · from your manager's Outlook" : " · from Outlook") : e.via === "manager" ? ` · from ${e.by || "your manager"}, sales manager` : e.via === "manager-welcome" ? " · the manager's welcome" : "") }));
     items.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
     if (!items.length) return `<div class="muted small">No calls, texts or emails logged yet.</div>`;
     return items.slice(0, 40).map((x) => `

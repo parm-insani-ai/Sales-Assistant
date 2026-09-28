@@ -105,7 +105,24 @@ goes through a database function that checks the manager relationship:
   different delay per customer), never within 30 minutes of the rep's own
   text, only in the store's day, once. It logs in the rep's conversation
   with the customer, marked as the manager's. Needs Twilio on the function
-  (the same setup as texting).
+  (the same setup as texting). A customer who left only an email address
+  gets the welcome by email instead (needs the Resend setup below), filed
+  on their page.
+- **The manager's email** — Home → Email in the store's app, or the Email
+  button on any customer's sheet, or by voice ("email Dana and thank her
+  for coming in"). It sends through the function as the manager
+  (`{memail}`; needs Resend) and is filed in the rep's book against the
+  customer, marked as the manager's, so the rep sees it on the customer's
+  page. The manager's own Outlook can be connected from the same sheet
+  (the Entra setup below): a reply from a customer on any rep's book is
+  filed into that rep's book through `manager_log_email`.
+- **The manager's voice assistant** — the Voice button in the store's app.
+  The same hands-free panel as a rep's, with the store's tools instead of a
+  book's: where the store stands, a rep's day, fresh leads waiting, who to
+  reach out to, a customer's story, the calendar, the huddle, insights;
+  nudges and to-dos to a rep's phone, targets, appointment outcomes, the
+  welcome, an email to a customer or a rep. Needs the voice agent set up
+  (the function URL in Settings), like a rep's.
 - **A to-do** — from the Customers tab, the manager hands a rep one customer
   to reach out to, with the reasons in the title. One task row in the rep's
   book, which their app shows in the queue on the next sync.

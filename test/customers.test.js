@@ -60,7 +60,7 @@ const reach = await mgr.evaluate(() => ({
   rows: [...document.querySelectorAll(".cu-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), sub: r.querySelector(".row-sub").textContent.trim(), reasons: r.querySelector(".row-reasons")?.textContent.trim(), deal: r.querySelector(".cu-deal")?.textContent.replace(/\s+/g, " ").trim(), send: r.querySelector("[data-send]")?.textContent.trim() })),
 }));
 console.log("reach-outs:", JSON.stringify(reach, null, 1));
-if (reach.tabs.join() !== "Home,Appts,Customers,Insights,Team") fail("the Customers tab is missing: " + reach.tabs.join());
+if (reach.tabs.join() !== "Home,Appts,Voice,Customers,Insights,Team") fail("the Customers tab is missing: " + reach.tabs.join());
 if (!/6 customers · 4 worth a call/.test(reach.line || "") || !/priced against 3 units/.test(reach.line)) fail("the book line is wrong: " + reach.line);
 const names = reach.rows.map((r) => r.name.replace(/\s*(Hot|Strong|Worth a call)$/, ""));
 if (names.includes("Just Sold") || names.includes("No Way To Reach")) fail("excluded or unreachable customers are on the reach-out list: " + names.join(", "));
@@ -98,7 +98,7 @@ if (filtered.sort().join() !== "Just Sold,No Way To Reach") fail("the store-wide
 // A customer opens read-only.
 await mgr.click(".cu-row .row-main");
 await mgr.waitForSelector(".modal h2");
-const sheet = await mgr.evaluate(() => document.querySelector(".modal")?.textContent.includes("Read-only"));
+const sheet = await mgr.evaluate(() => document.querySelector(".modal")?.textContent.includes("rep's own app is where"));
 if (!sheet) fail("the customer sheet didn't open read-only");
 await mgr.keyboard.press("Escape");
 

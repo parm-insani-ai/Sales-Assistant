@@ -13,6 +13,11 @@
 //                                     appears in their app on the next sync.
 //   POST ?sms=1&u=<uid>             → inbound text webhook (Twilio, signed).
 //   POST {sms: {u, to, body}}       → send a text from the dedicated number.
+//   POST {memail: {rep, leadId, subject, text}}
+//                                   → the manager's email to a rep's customer:
+//                                     sent via Resend, filed in the rep's book.
+//   POST {welcome: {rep, leadId}}   → the manager's welcome, now (text, or
+//                                     email when the customer left only that).
 // The agent's brain (system prompt + tools) lives in the app, so it improves
 // via normal app updates without redeploying this. No customer data is stored
 // here.
@@ -1749,13 +1754,18 @@ function hashPct(id: string): number {
   for (const ch of String(id || "")) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
   return (h % 1000) / 1000;
 }
+// A customer who left only an email address gets the welcome by email.
+function welcomeChannel(lead: any): "text" | "email" | "" {
+  return lead.phone ? "text" : lead.email ? "email" : "";
+}
 function welcomeDue(lead: any, texts: any[], cfg: any, now: number): { due: boolean; why: string } {
   const c = { ...WELCOME_DEFAULTS, ...(cfg || {}) };
   const MIN = 60000;
+  const channel = welcomeChannel(lead);
   if (!c.enabled) return { due: false, why: "off" };
   if (lead.managerWelcomeAt) return { due: false, why: "already welcomed" };
-  if (!lead.phone) return { due: false, why: "no phone" };
-  if (lead.smsOptOut || lead.doNotContact || (lead.consent && lead.consent.basis === "withdrawn")) return { due: false, why: "opted out" };
+  if (!channel) return { due: false, why: "no phone or email" };
+  if (lead.doNotContact || (channel === "text" && (lead.smsOptOut || (lead.consent && lead.consent.basis === "withdrawn")))) return { due: false, why: "opted out" };
   if (String(lead.source || "").toLowerCase() === "text") return { due: false, why: "came in by text" };
   if (!["new", "working", "appointment"].includes(lead.stage)) return { due: false, why: "not a fresh enquiry" };
   if (lead.purchaseDate) return { due: false, why: "an owner on file" };
@@ -1783,19 +1793,71 @@ function welcomeText(lead: any, names: { manager: string; store: string; rep: st
     .replace(/\{first\}/g, first).replace(/\{manager\}/g, names.manager || "the sales manager").replace(/\{store\}/g, names.store || "the store").replace(/\{rep\}/g, names.rep || "us")
     .replace(/\s{2,}/g, " ").trim();
 }
-// Send the welcome to one of a rep's customers and log it in the rep's
-// thread; the customer is marked welcomed so it never goes twice.
-async function sendWelcome(store: any, cfg: any, rep: any, lead: any): Promise<{ ok: boolean; error?: string; body?: string }> {
+// One email through Resend. Needs the RESEND_API_KEY and EMAIL_FROM secrets.
+async function resendSend(to: string, subject: string, text: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const key = Deno.env.get("RESEND_API_KEY");
+  const from = Deno.env.get("EMAIL_FROM");
+  if (!key) return { ok: false, error: "Server missing RESEND_API_KEY" };
+  if (!from) return { ok: false, error: "Server missing EMAIL_FROM" };
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: [to], subject, text: String(text || "") }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: data?.message || `Email failed (${r.status})` };
+    return { ok: true, id: data?.id || "" };
+  } catch (err) {
+    return { ok: false, error: `Email failed: ${err}` };
+  }
+}
+
+// Send the welcome to one of a rep's customers — a text, or an email when
+// the customer left only an address — and log it in the rep's book; the
+// customer is marked welcomed so it never goes twice.
+async function sendWelcome(store: any, cfg: any, rep: any, lead: any): Promise<{ ok: boolean; error?: string; body?: string; channel?: string }> {
   const body = welcomeText(lead, { manager: cfg.manager || "", store: store.name || "", rep: rep.name || (rep.email || "").split("@")[0] || "us" }, cfg.template);
+  const channel = welcomeChannel(lead);
+  if (!channel) return { ok: false, error: "no phone or email" };
+  const now = new Date().toISOString();
+  if (channel === "email") {
+    const subject = `Thanks for coming in${store.name ? " to " + store.name : ""}`;
+    const r = await resendSend(String(lead.email), subject, body);
+    if (!r.ok) return { ok: false, error: r.error };
+    const eid = "eml_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    try {
+      await saveRecord(rep.user_id, "emails", eid, { id: eid, leadId: lead.id, direction: "out", subject, body, via: "manager-welcome", by: cfg.manager || "", createdAt: now, updatedAt: now });
+      await saveRecord(rep.user_id, "leads", lead.id, { ...lead, managerWelcomeAt: now, updatedAt: now });
+    } catch { /* sent; the log is best-effort */ }
+    return { ok: true, body, channel };
+  }
   const r = await twilioSend(String(lead.phone), body);
   if (!r.ok) return { ok: false, error: r.error };
-  const now = new Date().toISOString();
   const tid = "txt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   try {
     await saveRecord(rep.user_id, "texts", tid, { id: tid, leadId: lead.id, dir: "out", body, phone: lead.phone, at: now, read: true, sid: r.sid || "", via: "manager-welcome", by: cfg.manager || "", createdAt: now, updatedAt: now });
     await saveRecord(rep.user_id, "leads", lead.id, { ...lead, managerWelcomeAt: now, updatedAt: now });
   } catch { /* sent; the log is best-effort */ }
-  return { ok: true, body };
+  return { ok: true, body, channel };
+}
+
+// The member row of a rep the caller manages (or any rep, for an admin),
+// with the store — or null. The manager's doors all start here.
+async function managedMember(caller: string, rep: string): Promise<{ member: any; store: any; me: any } | null> {
+  if (!/^[0-9a-f-]{36}$/.test(rep)) return null;
+  const mine = await fetch(sbUrl(`/store_members?select=store_id,role,name,email&user_id=eq.${encodeURIComponent(caller)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  const managed = (mine as Array<{ store_id: string; role: string }>).filter((m) => m.role === "manager").map((m) => m.store_id);
+  const theirs = await fetch(sbUrl(`/store_members?select=store_id,user_id,role,name,email&user_id=eq.${encodeURIComponent(rep)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  const isAdm = await fetch(sbUrl(`/admins?select=user_id&user_id=eq.${encodeURIComponent(caller)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x.length > 0).catch(() => false);
+  const member = (theirs as any[]).find((m) => isAdm || managed.includes(m.store_id));
+  if (!member) return null;
+  const store = await fetch(sbUrl(`/stores?select=id,name&id=eq.${encodeURIComponent(member.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x[0]).catch(() => null);
+  const me = (mine as any[]).find((m) => m.store_id === member.store_id) || (mine as any[])[0] || null;
+  return { member, store: store || { id: member.store_id, name: "" }, me };
+}
+async function repLeadRow(rep: string, leadId: string): Promise<any | null> {
+  return fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(rep)}&collection=eq.leads&deleted=eq.false&id=eq.${encodeURIComponent(leadId)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || null).catch(() => null);
 }
 // The sweep's pass: every store with the welcome on, every member's fresh
 // customers, the rules, the send.
@@ -1812,7 +1874,7 @@ async function welcomePass(now: number, report: any[]): Promise<void> {
     for (const m of members as any[]) {
       const leads = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(m.user_id)}&collection=eq.leads&deleted=eq.false&data->>createdAt=gte.${encodeURIComponent(since)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
       for (const lead of leads) {
-        if (lead.managerWelcomeAt || !lead.phone) continue;
+        if (lead.managerWelcomeAt || !welcomeChannel(lead)) continue;
         const texts = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(m.user_id)}&collection=eq.texts&deleted=eq.false&data->>leadId=eq.${encodeURIComponent(lead.id)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
         const d = welcomeDue(lead, texts, cfg, now);
         if (!d.due) { if (d.why === "not yet" || d.why === "rep just texted" || d.why === "mid-conversation" || d.why === "after hours") held++; continue; }
@@ -1870,11 +1932,11 @@ Deno.serve(async (req: Request) => {
   // public paths (a customer booking, cron with its key) carry no session and
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
-  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.nudge || body.welcome || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.nudge || body.welcome || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
   if (personal) {
     const caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
-    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome", "memail"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
   }
 
   // The manager's welcome, to one customer, now — from a manager of the
@@ -1883,21 +1945,42 @@ Deno.serve(async (req: Request) => {
     const w = body.welcome;
     const rep = String(w.rep || ""), leadId = String(w.leadId || "");
     if (!/^[0-9a-f-]{36}$/.test(rep) || !leadId) return json({ error: "bad request" }, 400);
-    const mine = await fetch(sbUrl(`/store_members?select=store_id,role&user_id=eq.${encodeURIComponent(w.u)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
-    const managed = (mine as Array<{ store_id: string; role: string }>).filter((m) => m.role === "manager").map((m) => m.store_id);
-    const theirs = await fetch(sbUrl(`/store_members?select=store_id,user_id,role,name,email&user_id=eq.${encodeURIComponent(rep)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
-    const isAdm = await fetch(sbUrl(`/admins?select=user_id&user_id=eq.${encodeURIComponent(w.u)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x.length > 0).catch(() => false);
-    const member = (theirs as any[]).find((m) => isAdm || managed.includes(m.store_id));
-    if (!member) return json({ error: "you don't manage that rep" }, 403);
-    const store = await fetch(sbUrl(`/stores?select=id,name&id=eq.${encodeURIComponent(member.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => x[0]).catch(() => null);
-    const cfgRow = await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(member.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}));
+    const mm = await managedMember(String(w.u), rep);
+    if (!mm) return json({ error: "you don't manage that rep" }, 403);
+    const cfgRow = await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(mm.member.store_id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}));
     const cfg = { ...WELCOME_DEFAULTS, ...(cfgRow.welcome || {}) };
-    const lead = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(rep)}&collection=eq.leads&deleted=eq.false&id=eq.${encodeURIComponent(leadId)}&select=data`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || null).catch(() => null);
+    const lead = await repLeadRow(rep, leadId);
     if (!lead) return json({ error: "no such customer" }, 400);
-    if (!lead.phone) return json({ error: "no phone number" }, 400);
-    if (lead.smsOptOut || lead.doNotContact) return json({ error: "they've opted out of texts" }, 400);
-    const r = await sendWelcome(store || { name: "" }, cfg, member, lead);
-    return r.ok ? json({ sent: true, body: r.body }) : json({ error: r.error }, 502);
+    const channel = welcomeChannel(lead);
+    if (!channel) return json({ error: "no phone number or email" }, 400);
+    if (lead.doNotContact || (channel === "text" && lead.smsOptOut)) return json({ error: "they've opted out" }, 400);
+    const r = await sendWelcome(mm.store, cfg, mm.member, lead);
+    return r.ok ? json({ sent: true, body: r.body, channel: r.channel }) : json({ error: r.error }, 502);
+  }
+
+  // The manager's email to one of a rep's customers: sent as the manager,
+  // filed in the rep's book against the customer, marked as the manager's.
+  if (body.memail) {
+    const e = body.memail;
+    const rep = String(e.rep || ""), leadId = String(e.leadId || "");
+    const subject = String(e.subject || "").trim().slice(0, 300), text = String(e.text || "").trim().slice(0, 8000);
+    if (!/^[0-9a-f-]{36}$/.test(rep) || !leadId || !subject || !text) return json({ error: "bad request" }, 400);
+    const mm = await managedMember(String(e.u), rep);
+    if (!mm) return json({ error: "you don't manage that rep" }, 403);
+    const lead = await repLeadRow(rep, leadId);
+    if (!lead) return json({ error: "no such customer" }, 400);
+    if (!lead.email) return json({ error: "no email on file" }, 400);
+    if (lead.doNotContact) return json({ error: "they've asked not to be contacted" }, 400);
+    const r = await resendSend(String(lead.email), subject, text);
+    if (!r.ok) return json({ error: r.error }, /missing/.test(r.error || "") ? 500 : 502);
+    const now = new Date().toISOString();
+    const eid = "eml_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    const by = (mm.me && mm.me.name) || "";
+    try {
+      await saveRecord(rep, "emails", eid, { id: eid, leadId, direction: "out", subject, body: text, via: "manager", by, sentBy: String(e.u), resendId: r.id || "", createdAt: now, updatedAt: now });
+      await saveRecord(rep, "leads", leadId, { ...lead, managerEmailAt: now, updatedAt: now });
+    } catch { /* sent; the log is best-effort */ }
+    return json({ sent: true, id: r.id || null });
   }
 
   // A manager taps a rep's phone: "Fresh Lead has been waiting 3 hours."
@@ -1949,24 +2032,11 @@ Deno.serve(async (req: Request) => {
 
   // --- Optional email sending (Resend) ---
   if (body.email) {
-    const key = Deno.env.get("RESEND_API_KEY");
-    const from = Deno.env.get("EMAIL_FROM");
-    if (!key) return json({ error: "Server missing RESEND_API_KEY" }, 500);
-    if (!from) return json({ error: "Server missing EMAIL_FROM" }, 500);
     const { to, subject, text } = body.email || {};
     if (!to || !subject) return json({ error: "email needs to + subject" }, 400);
-    try {
-      const r = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [to], subject, text: String(text || "") }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) return json({ error: data?.message || `Email failed (${r.status})` }, 502);
-      return json({ sent: true, id: data?.id || null });
-    } catch (err) {
-      return json({ error: `Email failed: ${err}` }, 502);
-    }
+    const r = await resendSend(String(to), String(subject), String(text || ""));
+    if (!r.ok) return json({ error: r.error }, /missing/.test(r.error || "") ? 500 : 502);
+    return json({ sent: true, id: r.id || null });
   }
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");

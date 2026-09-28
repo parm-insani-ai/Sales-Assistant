@@ -48,34 +48,42 @@ export function localHour(now, tzOffsetMinutes) {
  *   texts: the rep's texts with this customer [{ dir, at, via }]
  *   cfg:   the store's welcome config (DEFAULT_WELCOME shape)
  *   now:   ms
- * Returns { due, why } — `why` says what's holding it when it isn't.
+ * Returns { due, why, channel } — `why` says what's holding it when it
+ * isn't; `channel` is "text", or "email" for a customer who left only an
+ * email address.
  */
 export function welcomeDue(lead, texts, cfg = DEFAULT_WELCOME, now = Date.now()) {
   const c = { ...DEFAULT_WELCOME, ...(cfg || {}) };
-  if (!c.enabled) return { due: false, why: "off" };
-  if (lead.managerWelcomeAt) return { due: false, why: "already welcomed" };
-  if (!lead.phone) return { due: false, why: "no phone" };
-  if (lead.smsOptOut || lead.doNotContact || (lead.consent && lead.consent.basis === "withdrawn")) return { due: false, why: "opted out" };
-  if (String(lead.source || "").toLowerCase() === "text") return { due: false, why: "came in by text, not in person" };
-  if (!["new", "working", "appointment"].includes(lead.stage)) return { due: false, why: "not a fresh enquiry" };
-  if (lead.purchaseDate) return { due: false, why: "an owner on file, not a visit" };
+  const channel = lead.phone ? "text" : lead.email ? "email" : "";
+  if (!c.enabled) return { due: false, why: "off", channel };
+  if (lead.managerWelcomeAt) return { due: false, why: "already welcomed", channel };
+  if (!channel) return { due: false, why: "no phone or email", channel };
+  if (lead.doNotContact || (channel === "text" && (lead.smsOptOut || (lead.consent && lead.consent.basis === "withdrawn")))) return { due: false, why: "opted out", channel };
+  if (String(lead.source || "").toLowerCase() === "text") return { due: false, why: "came in by text, not in person", channel };
+  if (!["new", "working", "appointment"].includes(lead.stage)) return { due: false, why: "not a fresh enquiry", channel };
+  if (lead.purchaseDate) return { due: false, why: "an owner on file, not a visit", channel };
   const created = new Date(lead.createdAt || "").getTime();
-  if (!isFinite(created)) return { due: false, why: "no arrival time" };
+  if (!isFinite(created)) return { due: false, why: "no arrival time", channel };
   const ageMin = (now - created) / MIN;
-  if (ageMin > c.maxAgeDays * 1440) return { due: false, why: "too late to be a welcome" };
+  if (ageMin > c.maxAgeDays * 1440) return { due: false, why: "too late to be a welcome", channel };
   const delay = delayFor(lead, c);
-  if (ageMin < delay) return { due: false, why: `waits until ${delay} min after arrival`, inMinutes: Math.ceil(delay - ageMin) };
+  if (ageMin < delay) return { due: false, why: `waits until ${delay} min after arrival`, inMinutes: Math.ceil(delay - ageMin), channel };
   const h = localHour(now, c.tzOffsetMinutes);
-  if (!(h >= c.hourFrom && h < c.hourTo)) return { due: false, why: "outside the store's hours" };
+  if (!(h >= c.hourFrom && h < c.hourTo)) return { due: false, why: "outside the store's hours", channel };
   // Not on the rep's heels, and not into the middle of a conversation.
   const gap = c.gapMinutes * MIN;
   for (const t of texts || []) {
     const at = new Date(t.at || t.createdAt || "").getTime();
     if (!isFinite(at)) continue;
-    if (t.dir === "out" && !/manager/.test(String(t.via || "")) && Math.abs(now - at) < gap) return { due: false, why: `the rep texted them ${Math.round((now - at) / MIN)} min ago` };
-    if (t.dir === "in" && now - at < 15 * MIN) return { due: false, why: "they're texting the rep right now" };
+    if (t.dir === "out" && !/manager/.test(String(t.via || "")) && Math.abs(now - at) < gap) return { due: false, why: `the rep texted them ${Math.round((now - at) / MIN)} min ago`, channel };
+    if (t.dir === "in" && now - at < 15 * MIN) return { due: false, why: "they're texting the rep right now", channel };
   }
-  return { due: true, why: "" };
+  return { due: true, why: "", channel };
+}
+
+// The subject line when the welcome goes by email.
+export function welcomeSubject(storeName = "") {
+  return `Thanks for coming in${storeName ? " to " + storeName : ""}`;
 }
 
 // The text itself, in the store's words.

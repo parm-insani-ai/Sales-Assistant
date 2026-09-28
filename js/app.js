@@ -85,6 +85,7 @@ const TAB_SVG = {
   store: '<path d="M3 9.5 5 4h14l2 5.5"/><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/>',
   appts: '<rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="m9.5 15.5 1.8 1.8 3.5-3.8"/>',
   team: '<circle cx="9" cy="8" r="3.3"/><path d="M3.4 20a5.6 5.6 0 0 1 11.2 0"/><path d="M16.2 5.3a3.3 3.3 0 0 1 0 5.9"/><path d="M18.4 20a5.6 5.6 0 0 0-3-4.95"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>',
   settings: '<circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.9 15H3.8a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4V3.8a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.5 1z"/>',
 };
 const SALES_TABBAR = document.querySelector(".tabbar").innerHTML;
@@ -95,12 +96,16 @@ function applyMode() {
   appliedMode = mg;
   document.body.classList.toggle("management", mg);
   const bar = document.querySelector(".tabbar");
+  // The store's app has its own voice button in the middle of the bar, like
+  // the rep's: the same panel, with the manager's assistant behind it.
+  const voiceTab = `<button id="voice-btn" class="tab tab-voice" aria-label="Voice command"><span class="voice-fab"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG.mic}</svg></span><span class="tab-label">Voice</span></button>`;
   bar.innerHTML = mg
-    ? [["/", "Home", "home"], ["/appointments", "Appts", "appts"], ["/customers", "Customers", "team"], ["/insights", "Insights", "insights"], ["/team", "Team", "store"]].map(([r, l, k]) =>
-        `<a href="#${r}" class="tab" data-route="${r}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[k]}</svg></span><span class="tab-label">${l}</span></a>`).join("")
+    ? [["/", "Home", "home"], ["/appointments", "Appts", "appts"], null, ["/customers", "Customers", "team"], ["/insights", "Insights", "insights"], ["/team", "Team", "store"]].map((x) => x
+        ? `<a href="#${x[0]}" class="tab" data-route="${x[0]}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[x[2]]}</svg></span><span class="tab-label">${x[1]}</span></a>`
+        : voiceTab).join("")
     : SALES_TABBAR;
   const vb = document.getElementById("voice-btn");
-  if (vb) vb.addEventListener("click", () => startVoiceAssistant());
+  if (vb) vb.addEventListener("click", () => startVoiceAssistant({ manager: mg }));
   document.getElementById("quick-add").style.display = mg ? "none" : "";
   return true;
 }
@@ -332,7 +337,9 @@ handleAuthRedirect()
       toast("Outlook connected — pulling your mail", "success");
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     }
-    pullMailIfStale();
+    // A rep's inbox files into their own book; the manager's (management
+    // mode) files into the reps' books, from the manager's Home.
+    if (!inManagement()) pullMailIfStale();
   })
   .catch((e) => toast(`Outlook: ${e.message || "sign-in failed"}`, "danger"));
 window.addEventListener("viniva-mail", (e) => {

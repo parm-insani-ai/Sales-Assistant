@@ -20,6 +20,7 @@ import { cachedBook, loadBook, addRepTask, cachedInventory, loadInventory } from
 import { makeMatcher } from "../match.js";
 import { rankBook, reachOuts, taskFor } from "../reach.js";
 import * as store from "../store.js";
+import { pullStoreMailIfStale } from "../msmail.js";
 
 export function renderManageHome(view) {
   const el = document.createElement("div");
@@ -46,6 +47,8 @@ export function renderManageHome(view) {
     loading = false; draw();
     // The book is bigger than the board; read it after, and draw again.
     if (team && isManager(team)) { try { [book, lot] = await Promise.all([loadBook(team, { force }), loadInventory(team, { force }).catch(() => lot)]); draw(); } catch { /* the card says so */ } }
+    // The manager's Outlook, if connected: customer replies into the reps' books.
+    if (team && isManager(team)) { try { pullStoreMailIfStale(team); } catch { /* next time */ } }
   }
   const rankOpts = () => { const s = store.getSettings(); return { defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot && lot.rows.length ? makeMatcher(lot.rows, s) : null }; };
   function reachCard() {
@@ -152,6 +155,7 @@ export function renderManageHome(view) {
       <div class="section-title">Run the store</div>
       <div class="qa-grid" style="margin-bottom:14px">
         <button class="qa-tile" data-act="welcome"><span class="qa-ico">${icon("message")}</span><span class="qa-label">Welcome text</span></button>
+        <button class="qa-tile" data-act="mail"><span class="qa-ico">${icon("mail")}</span><span class="qa-label">Email</span></button>
         <button class="qa-tile" data-act="appointments"><span class="qa-ico">${icon("calendar")}</span><span class="qa-label">Appointments</span></button>
         <button class="qa-tile" data-act="insights"><span class="qa-ico">${icon("sparkles")}</span><span class="qa-label">Insights</span></button>
         <button class="qa-tile" data-act="team"><span class="qa-ico">${icon("users")}</span><span class="qa-label">Team</span></button>
@@ -168,6 +172,7 @@ export function renderManageHome(view) {
     on('[data-act="insights"]', () => navigate("/insights"));
     on('[data-act="appointments"]', () => navigate("/appointments"));
     on('[data-act="welcome"]', () => import("./welcome.js").then((m) => m.openWelcomeSheet(team)));
+    on('[data-act="mail"]', () => import("./mail.js").then((m) => m.openMailSheet(team)));
     on('[data-act="admin"]', () => navigate("/team"));
     on('[data-act="settings"]', () => navigate("/settings"));
     on('[data-act="sales"]', () => { setViewMode("sales"); location.hash = "#/"; location.reload(); });
@@ -222,7 +227,7 @@ export function renderManageHome(view) {
 
 // The morning huddle, written from the numbers: where the store stands,
 // what each rep needs today, and the one thing the data says to do.
-function huddleText(team, t, ins, rows, fx, now) {
+export function huddleText(team, t, ins, rows, fx, now) {
   const L = [];
   L.push(`${team.name} · ${now.toLocaleDateString("en-CA", { weekday: "long", month: "short", day: "numeric" })}`);
   L.push(`Units ${t.units}/${t.goal || "—"} · appointments set this month ${ins.setThisMonth} · show rate ${ins.history.showRate != null ? ins.history.showRate + "%" : "—"}`);

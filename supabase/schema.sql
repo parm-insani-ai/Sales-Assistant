@@ -402,6 +402,27 @@ begin
 end $$;
 grant execute on function public.manager_add_task(uuid, jsonb) to authenticated;
 
+-- An email filed into a rep's book against their customer by their manager:
+-- a reply the manager received in their own inbox, say. Only the email's
+-- own fields are taken; who filed it and when are stamped here.
+create or replace function public.manager_log_email(member uuid, email jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare eid text; nowiso text; row_data jsonb; who text;
+begin
+  if not public.is_admin() and not public.manages(member) then raise exception 'only a manager of their store can do that'; end if;
+  if coalesce(email->>'leadId', '') = '' then raise exception 'the email needs a customer'; end if;
+  eid := 'eml_' || lower(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16));
+  nowiso := to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+  select name into who from public.store_members where user_id = auth.uid() limit 1;
+  row_data := jsonb_strip_nulls(jsonb_build_object(
+    'id', eid, 'leadId', email->'leadId', 'direction', coalesce(email->>'direction', 'in'), 'subject', left(coalesce(email->>'subject', ''), 300),
+    'body', left(coalesce(email->>'body', ''), 4000), 'via', coalesce(email->>'via', 'manager'), 'msgId', email->'msgId', 'receivedAt', email->'receivedAt',
+    'by', coalesce(who, ''), 'loggedBy', auth.uid(), 'createdAt', nowiso, 'updatedAt', nowiso));
+  insert into public.records (id, user_id, collection, data) values (eid, member, 'emails', row_data);
+  return row_data::json;
+end $$;
+grant execute on function public.manager_log_email(uuid, jsonb) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- The store's shared inventory.
 --

@@ -26,6 +26,8 @@ export function renderAppointments(view) {
   let team = cachedStore();
   let board = cachedBoard();
   let tab = "today";
+  // The assistant hands over a tab: "what's tomorrow look like" opens it there.
+  try { const handed = sessionStorage.getItem("appointments-tab"); sessionStorage.removeItem("appointments-tab"); if (handed) tab = handed; } catch { /* today */ }
   let loading = false, error = "";
 
   async function refresh(force = false) {
