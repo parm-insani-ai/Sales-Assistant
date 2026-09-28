@@ -373,11 +373,11 @@ body.typing #app, body.kb-open #app {
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  /* The tab bar is ~71px; the rest is deliberate slack so the last row clears
+  /* The tab bar is ~83px; the rest is deliberate slack so the last row clears
      the bar and the page doesn't stop dead the moment you reach the bottom of
      the content. Enough to feel like room, not so much that a short list looks
      like it's floating above an empty screen. */
-  padding: 18px 20px calc(105px + var(--safe-bottom));
+  padding: 18px 20px calc(117px + var(--safe-bottom));
   /* `clip` rather than `hidden`: it contains a too-wide row without turning
      this into a scroll container. */
   overflow-x: clip;
@@ -397,7 +397,10 @@ body.typing #app, body.kb-open #app {
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--border);
-  padding-bottom: var(--safe-bottom);
+  /* A little air under the labels on every phone, on top of the home-indicator
+     inset where there is one — the icons sit where a native tab bar's do,
+     not on the very edge of the glass. */
+  padding: 2px 0 calc(10px + var(--safe-bottom));
 }
 
 /* Raised voice button in the nav */
@@ -433,7 +436,7 @@ body.typing #app, body.kb-open #app {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 7px 4px 8px;
+  padding: 9px 4px 6px;
   text-decoration: none;
   color: var(--muted);
   font-size: 0.66rem;
@@ -801,7 +804,7 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 /* ---------- Toast ---------- */
 #toast-root {
   position: fixed;
-  bottom: calc(88px + var(--safe-bottom));
+  bottom: calc(100px + var(--safe-bottom));
   left: 0; right: 0;
   z-index: 100; /* above the voice overlay (70) and modals so alerts are readable */
   display: flex;
