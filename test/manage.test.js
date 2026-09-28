@@ -19,7 +19,7 @@ const pageAs = async (token, email, leads = []) => {
   await p.addInitScript(({ token, email, leads }) => {
     const ids = { t: "00000000-0000-4000-8000-000000000001", t2: "00000000-0000-4000-8000-000000000002", tm: "00000000-0000-4000-8000-000000000003" };
     localStorage.setItem("viniva:auth", JSON.stringify({ access_token: token, refresh_token: "r", expires_at: Math.floor(Date.now() / 1000) + 86400, user: { id: ids[token], email } }));
-    localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads, settings: { salesperson: "Sam", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));
+    localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads, settings: { salesperson: "Sam", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k", agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" } }));
   }, { token, email, leads });
   return p;
 };
@@ -73,6 +73,20 @@ if (!home.word.some((w) => /^Parm.*1 untouched lead/.test(w)) || !home.word.some
 if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.test(t))) fail("today's appointment isn't on the store's list with the rep: " + JSON.stringify(home.today));
 if (!home.reps[0].startsWith("Parm") || !/3 set · 1 today · 1 shown/.test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
 if (!home.tiles.includes("Insights") || !home.tiles.includes("Team") || !home.tiles.includes("Admin") || !home.tiles.includes("Invite a rep") || !home.tiles.includes("Sales view")) fail("the store's tools are missing: " + JSON.stringify(home.tiles));
+
+// --- The "+" in the top right is the manager's: their actions, not a rep's add menu.
+await mgr.click("#quick-add");
+await mgr.waitForFunction(() => /Quick actions/.test(document.querySelector(".modal")?.textContent || ""), null, { timeout: 10000 });
+const quick = await mgr.evaluate(() => [...document.querySelectorAll(".modal .qa-label")].map((n) => n.textContent.trim()));
+console.log("quick actions:", quick.join(" · "));
+if (!quick.includes("Email a customer") || !quick.includes("Nudge a rep") || !quick.includes("Welcome text") || !quick.includes("Lease ends") || quick.includes("Lead") || quick.includes("Sale")) fail("the manager's + has the wrong tiles: " + quick.join(","));
+await mgr.evaluate(() => [...document.querySelectorAll(".modal .qa-tile")].find((t) => /Nudge a rep/.test(t.textContent)).click());
+await mgr.waitForSelector("#nd-rep", { timeout: 10000 });
+await mgr.fill("#nd-body", "Call Fresh Lead before lunch.");
+await mgr.click('.modal [data-act="send"]');
+await mgr.waitForFunction(() => !document.querySelector("#nd-rep"), null, { timeout: 10000 });
+const quickNudges = await (await fetch(APP + "/__nudges")).json();
+if (!quickNudges.some((n) => /before lunch/.test(n.body))) fail("the nudge from the + didn't send: " + JSON.stringify(quickNudges));
 
 // --- Insights: the store, then one rep, with the math and the levers.
 await mgr.click('[data-act="insights"]');

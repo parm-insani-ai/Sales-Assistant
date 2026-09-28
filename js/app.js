@@ -75,7 +75,7 @@ const title = document.getElementById("page-title");
 
 // ---- Which app this is: the salesperson's, or the store's ----
 // The store's app has a different Home (the board) and different tabs
-// (Home, Team, Settings); no voice button, no quick-add, no Leads or Comms
+// (Home, Appts, Voice, Customers, Team); its own "+" of manager actions; no Leads or Comms
 // — those are a rep's. Applied at boot from what the device remembers, and
 // again once the cloud has answered who this account is.
 const inManagement = () => managementMode(store.all("leads").length);
@@ -108,7 +108,6 @@ function applyMode() {
     : SALES_TABBAR;
   const vb = document.getElementById("voice-btn");
   if (vb) vb.addEventListener("click", () => startVoiceAssistant({ manager: mg }));
-  document.getElementById("quick-add").style.display = mg ? "none" : "";
   return true;
 }
 applyMode();
@@ -257,6 +256,9 @@ initPullToRefresh();
 // everything — the add-a-record actions up top, every tool below — rendered
 // as one uniform tile grid. There is deliberately no separate Tools screen.
 document.getElementById("quick-add").addEventListener("click", () => {
+  // The store's "+" is the manager's actions — an email, the welcome, a
+  // nudge, the reach-outs, targets — not a rep's add-a-record menu.
+  if (inManagement()) { LOADERS.manage().then((m) => m.openManagerQuickAdd()); return; }
   const base = currentBase();
   const byKey = {
     lead: { icon: "users", label: "Lead", fn: () => openLeadForm() },

@@ -1563,7 +1563,6 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .irow:last-of-type { border-bottom: none; }
 .irow.ihead { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .irow > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
-body.management #quick-add { display: none; }
 .mg-rep:active { opacity: 0.7; }
 .mg-plan { border-left: 4px solid var(--brand); }
 .bubble-by { font-size: 0.68rem; opacity: 0.75; margin-bottom: 2px; font-weight: 600; letter-spacing: 0.02em; }

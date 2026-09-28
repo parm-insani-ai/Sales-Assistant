@@ -225,6 +225,66 @@ export function renderManageHome(view) {
   refresh(false);
 }
 
+// The manager's "+": the things a manager does from anywhere, one sheet.
+// Same tile grid as the rep's quick-add; different tiles.
+export async function openManagerQuickAdd() {
+  const tools = await import("./tools.js");
+  const team = cachedStore();
+  const { openModal } = await import("../components.js");
+  openModal("Quick actions", (close) => {
+    const wrap = document.createElement("div");
+    const section = (label, items) => {
+      const title = document.createElement("div");
+      title.className = "section-title";
+      title.style.marginTop = wrap.children.length ? "16px" : "0";
+      title.textContent = label;
+      wrap.appendChild(title);
+      wrap.appendChild(tools.toolGrid(items, close));
+    };
+    const withTeam = (fn) => () => { if (!team || !isManager(team)) { toast("Set up the store under Team first", "warn"); navigate("/team"); return; } fn(); };
+    section("Do now", [
+      { icon: "mail", label: "Email a customer", fn: withTeam(() => import("./mail.js").then((m) => m.openMailSheet(team))) },
+      { icon: "message", label: "Welcome text", fn: withTeam(() => import("./welcome.js").then((m) => m.openWelcomeSheet(team))) },
+      { icon: "bell", label: "Nudge a rep", fn: withTeam(() => openNudgeSheet(team)) },
+      { icon: "send", label: "Hand out reach-outs", fn: withTeam(() => navigate("/customers")) },
+      { icon: "target", label: "Set targets", fn: withTeam(() => navigate("/team")) },
+      { icon: "users", label: "Invite a rep", fn: withTeam(async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied — send it to the rep", "success"); } catch { navigate("/team"); } }) },
+    ]);
+    section("Go to", [
+      { icon: "calendar", label: "Appointments", fn: () => navigate("/appointments") },
+      { icon: "calendar", label: "Timing", fn: () => { try { sessionStorage.setItem("customers-query", JSON.stringify({ q: "", rep: "all", mode: "timing" })); } catch { /* fine */ } navigate("/customers"); } },
+      { icon: "calendar", label: "Lease ends", fn: () => { try { sessionStorage.setItem("customers-query", JSON.stringify({ q: "", rep: "all", mode: "leases" })); } catch { /* fine */ } navigate("/customers"); } },
+      { icon: "sparkles", label: "Insights", fn: () => navigate("/insights") },
+      { icon: "store", label: "Team", fn: () => navigate("/team") },
+      { icon: "settings", label: "Settings", fn: () => navigate("/settings") },
+      { icon: "car", label: "Sales view", fn: () => { setViewMode("sales"); location.hash = "#/"; location.reload(); } },
+    ]);
+    return wrap;
+  });
+}
+
+// A notification to one rep's phone, in the manager's words.
+export function openNudgeSheet(team) {
+  const members = (team.members || []).filter((m) => m.role !== "manager").concat((team.members || []).filter((m) => m.role === "manager"));
+  import("../components.js").then(({ openModal }) => openModal("Nudge a rep", (close) => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="field"><label>Who</label><select id="nd-rep">${members.map((m) => `<option value="${esc(m.user_id)}">${esc(memberName(m))}</option>`).join("")}</select></div>
+      <div class="field"><label>Title</label><input id="nd-title" placeholder="Call your fresh lead" maxlength="80"></div>
+      <div class="field"><label>Message</label><textarea id="nd-body" rows="3" placeholder="Ken Adams has been waiting since this morning — give him a call before lunch." maxlength="200"></textarea></div>
+      <button class="btn btn-primary btn-block" data-act="send">${icon("bell")} Send to their phone</button>
+      <div class="hint">A notification on the rep's phone that opens their app. They need notifications turned on.</div>`;
+    root.querySelector('[data-act="send"]').addEventListener("click", async (e) => {
+      const to = root.querySelector("#nd-rep").value, title = root.querySelector("#nd-title").value.trim(), body = root.querySelector("#nd-body").value.trim();
+      if (!body) { toast("Say what you want them to do", "warn"); return; }
+      e.target.disabled = true;
+      try { await nudgeRep(to, { title: title || "From your manager", body, url: "./#/", tag: "nudge-" + Date.now() }); toast(`Nudged ${memberName(members.find((m) => m.user_id === to))}`, "success"); close(); }
+      catch (err) { toast(err.message || "Couldn't nudge", "danger"); e.target.disabled = false; }
+    });
+    return root;
+  }));
+}
+
 // The morning huddle, written from the numbers: where the store stands,
 // what each rep needs today, and the one thing the data says to do.
 export function huddleText(team, t, ins, rows, fx, now) {
