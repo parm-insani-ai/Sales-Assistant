@@ -116,6 +116,16 @@ goes through a database function that checks the manager relationship:
   page. The manager's own Outlook can be connected from the same sheet
   (the Entra setup below): a reply from a customer on any rep's book is
   filed into that rep's book through `manager_log_email`.
+- **Timing** — when it makes sense, not whether. Every owner on a book is
+  put in the month their window opens: equity clears $3,000 as the payoff
+  comes down (amortised at their rate) and the value drifts (about 12% a
+  year), a like-for-like on the shared lot lands at their payment, the
+  contract runs out, or a lease is six months from its end. A rep has it
+  under Tools → Timing with a follow-up set for that month (one at a time
+  or all at once); the manager has it as the Timing and Lease ends views
+  on Customers, handing a customer to their rep as a to-do due in that
+  month. Both assistants answer "when does it make sense for Dana" and
+  "when do our leases end". The month is an estimate from what's on file.
 - **The manager's voice assistant** — the Voice button in the store's app.
   The same hands-free panel as a rep's, with the store's tools instead of a
   book's: where the store stands, a rep's day, fresh leads waiting, who to

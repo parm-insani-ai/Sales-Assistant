@@ -11,6 +11,7 @@ export const TOOL_LINKS = [
   { icon: "users", label: "Team", fn: () => navigate("/team") },
   { icon: "megaphone", label: "Mass outreach", fn: () => navigate("/outreach") },
   { icon: "target", label: "Campaign", fn: () => navigate("/campaign") },
+  { icon: "calendar", label: "Timing", fn: () => navigate("/horizon") },
   { icon: "calculator", label: "Calculator", fn: () => navigate("/calculator") },
   { icon: "compare", label: "Compare", fn: () => navigate("/compare") },
   { icon: "tag", label: "Specials", fn: () => navigate("/specials") },

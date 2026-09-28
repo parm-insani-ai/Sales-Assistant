@@ -31,6 +31,8 @@ import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
 import { parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
+import { makeMatcher } from "./match.js";
+import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -111,6 +113,8 @@ const TOOLS = [
   { name: "lot_lookup", description: "ANY question about what's on the lot — answered from the store's own inventory with the WEBSITE'S prices and kilometres. 'Do we have any Rogue SVs?', 'how many used Rogues?', 'what's the Civic Sport going for?', 'how many kilometres on stock NHP1868?', 'cheapest used SUV under thirty?', 'any hybrids?', 'anything black under 25?'. Pass the salesperson's words as `question`; add structured filters only when they help. Returns the count, the matching units (price, km, stock, colour, arrival date) and a ready spoken `answer` — read the answer back as is; the units are already on screen.", input_schema: { type: "object", properties: { question: { type: "string", description: "the salesperson's own words" }, condition: { type: "string", enum: ["New", "Used"] }, maxPrice: { type: "number" }, minPrice: { type: "number" }, maxKm: { type: "number" }, stock: { type: "string" }, sort: { type: "string", enum: ["price", "priceDesc", "km", "year"] }, ask: { type: "string", enum: ["count", "price", "km", "cheapest", "priciest", "newest", "list"] } }, required: ["question"] } },
   { name: "mass_outreach", description: "Set up a text or email to MANY customers at once, picked by what they drive or where they stand: 'text everyone who owns a Sentra that this month if they trade it in for a new Nissan they get double loyalty', 'email all my Rogue owners from 2018 to 2021 that…', 'text everyone with a paid off Nissan that…', 'text everyone whose lease is ending that…'. Pass the salesperson's whole sentence as `sentence` (audience AND message). The app builds the recipient list and writes each message in the customer's name; the salesperson reviews on screen and taps Send — nothing sends from this tool. Never put a dollar amount or a rate in the message.", input_schema: { type: "object", properties: { sentence: { type: "string", description: "the whole request: who, and what to tell them" }, channel: { type: "string", enum: ["text", "email"] } }, required: ["sentence"] } },
   { name: "search_inventory", description: "Search the wider O'Regan's dealer NETWORK (other stores) for a used vehicle — only when the salesperson asks about the network or other stores. Questions about OUR lot are lot_lookup. NOT for comparing models against each other — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "when_it_makes_sense", description: "WHEN a customer's next vehicle starts to make sense — not whether, but the month: when their equity clears the line as the payoff comes down and the value drifts, when a like-for-like on the lot lands at their payment, when the contract runs out, or six months before a lease ends. 'When should I go back to Dana?', 'when does it make sense for Ken?', or with no customer: 'who opens up in the next six months?', 'who's coming up?'. Opens the Timing screen.", input_schema: { type: "object", properties: { customer: { type: "string" }, months: { type: "number", description: "with no customer: how far ahead to list (default 6)" } } } },
+  { name: "lease_ends", description: "Every lease on the book with when it ends, soonest first — 'when do my leases end?', 'any leases ending this year?', 'what's coming off lease?'. Opens the Timing screen on the lease list.", input_schema: { type: "object", properties: { months: { type: "number", description: "only leases ending within this many months (default 12)" } } } },
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
 
@@ -124,6 +128,7 @@ function buildSystem(ctx) {
     `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
     `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
+    `TIMING: "when should I go back to Dana?", "when does it make sense for Ken?", "who opens up in the next six months?", "who's coming up?" → when_it_makes_sense; "when do my leases end?", "what's coming off lease this year?" → lease_ends. The answer is a month and the reason — say it plainly: "Dana opens up in March, when her equity clears three thousand."`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
     // they're paying currently" is one sentence for a question the app can
@@ -522,6 +527,36 @@ export async function execTool(name, p = {}) {
         const items = d.checklist || [];
         return { customer: d.customerName || "", vehicle: d.vehicle || "", date: d.deliveryDate || null, prepDone: `${items.filter((i) => i.done).length}/${items.length}`, remaining: items.filter((i) => !i.done).map((i) => i.label).slice(0, 10) };
       }) }, note: "" };
+    }
+    case "when_it_makes_sense": case "timing": case "when": {
+      const s = store.getSettings();
+      const lot = store.all("vehicles");
+      const hopts = { now: new Date(), defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot.length ? makeMatcher(lot, s) : null };
+      const slim = (r) => ({ customer: r.lead.name, vehicle: r.lead.vehicleInterest || "", month: r.hz.m === 0 ? "now" : r.hz.at ? monthLabel(r.hz.at) : "unknown", monthsAway: r.hz.m, why: r.hz.why, equityNow: r.hz.equityNow, followUp: r.lead.followUp || null });
+      if (p.customer) {
+        const l = findLead(p.customer);
+        if (!l) return { result: { found: false }, note: "" };
+        const hz = horizonFor(l, hopts);
+        if (!hz) return { result: { found: true, customer: l.name, applies: false, note: "not an owner on file, or lost / just bought" }, note: "" };
+        try { sessionStorage.setItem("horizon-tab", "timing"); } catch { /* fine */ }
+        navigate("/horizon");
+        return { result: { found: true, ...slim({ lead: l, hz }), lease: hz.lease, paymentsLeft: hz.left, contractEnds: hz.end ? monthLabel(hz.end) : null, suggestedFollowUp: followUpFor(hz) }, note: `timing ${l.name}` };
+      }
+      const months = Number(p.months) || 6;
+      const rows = horizonBook(store.all("leads"), hopts);
+      const within = rows.filter((r) => r.hz.m != null && r.hz.m <= months);
+      try { sessionStorage.setItem("horizon-tab", "timing"); } catch { /* fine */ }
+      navigate("/horizon");
+      return { result: { readyNow: rows.filter((r) => r.hz.m === 0).length, openingWithin: months, count: within.length, customers: within.slice(0, 12).map(slim) }, note: "reading the book for timing" };
+    }
+    case "lease_ends": case "leases": {
+      const months = Number(p.months) || 12;
+      const now = Date.now();
+      const list = contractsEnding(store.all("leads"), { now, type: "lease" });
+      const soon = list.filter((r) => !r.end || r.end.getTime() - now <= months * 30.44 * 86400000);
+      try { sessionStorage.setItem("horizon-tab", "leases"); } catch { /* fine */ }
+      navigate("/horizon");
+      return { result: { leasesOnBook: list.length, endingWithin: months, count: soon.length, leases: soon.slice(0, 15).map((r) => ({ customer: r.lead.name, vehicle: r.lead.vehicleInterest || "", ends: r.end ? r.end.toISOString().slice(0, 10) : null, monthsLeft: r.left, past: r.past, payment: r.payment })) }, note: "listing the leases" };
     }
     case "get_occasions": {
       const occ = getOccasions().slice(0, 12).map((o) => ({ customer: o.lead.name, phone: o.lead.phone || "", occasion: o.label, suggestedMessage: o.message }));

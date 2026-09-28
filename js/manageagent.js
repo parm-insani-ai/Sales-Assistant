@@ -18,6 +18,7 @@ import { cachedStore, myStore, isManager, memberName, loadBoard, storeTotals, lo
 import { findings } from "./insight.js";
 import { rankBook, reachOuts, taskFor } from "./reach.js";
 import { makeMatcher } from "./match.js";
+import { horizonFor, horizonBook, contractsEnding, monthLabel } from "./horizon.js";
 import { sendEmail } from "./email.js";
 import { huddleText } from "./views/manage.js";
 import { openRepSheet, openCustomerSheet } from "./views/team.js";
@@ -108,6 +109,8 @@ const TOOLS = [
   { name: "find_customers", description: "Search every rep's book by name, vehicle, phone or stage; optionally one rep's. Puts the matches on the Customers screen.", input_schema: { type: "object", properties: { query: { type: "string" }, rep: { type: "string" } }, required: ["query"] } },
   { name: "get_customer", description: "Everything on one customer, whoever's book they're on: rep, stage, vehicle, the app's read (tier, reasons, the payment match against the shared lot, the suggested next move), recent texts and emails. Opens their page. 'What's the story with Dana?', 'why is Ken worth a call?', 'has anyone talked to Sara?'", input_schema: { type: "object", properties: { name: { type: "string" }, rep: { type: "string" } }, required: ["name"] } },
   { name: "reach_outs", description: "The assistant's list: customers across the store a rep should reach out to now, best first, each with the reasons and a payment match — 'who should we be calling', 'who's got equity', 'who can we put in a car', 'work the book'. Optionally one rep's. Puts the list on screen.", input_schema: { type: "object", properties: { limit: { type: "number" }, rep: { type: "string" } } } },
+  { name: "timing", description: "WHEN each customer's next vehicle starts to make sense — the month, across every rep's book: when equity clears the line as the payoff comes down, when a like-for-like on the shared lot lands at their payment, when the contract runs out, or six months before a lease ends. 'When does it make sense for Dana?', 'who opens up in the next six months?', 'who's coming up on Parm's book?'. Puts the list on the Customers screen.", input_schema: { type: "object", properties: { customer: { type: "string" }, rep: { type: "string" }, months: { type: "number", description: "with no customer: how far ahead (default 6)" } } } },
+  { name: "lease_ends", description: "Every lease the store has out with when it ends, soonest first, optionally one rep's — 'when do our leases end?', 'what's coming off lease this quarter?', 'how many leases end in December?'. Puts the list on the Customers screen.", input_schema: { type: "object", properties: { rep: { type: "string" }, months: { type: "number", description: "only leases ending within this many months (default 12)" } } } },
   { name: "appointments", description: "The store's calendar: today, tomorrow, this week, recent no-shows to rebook, or past appointments with no outcome logged. Each with the rep and where it stands. Opens the board on that tab.", input_schema: { type: "object", properties: { which: { type: "string", enum: ["today", "tomorrow", "week", "noshow", "unlogged"] } } } },
   { name: "insights", description: "What the numbers say — speed to lead, untouched leads, confirmation and lead-time effects on show rate, best sources, best times, what it takes to hit the goal. 'What should we change', 'what's the biggest lever', 'why is the show rate low'. Opens Insights.", input_schema: { type: "object", properties: {} } },
   { name: "huddle", description: "The morning huddle, written from the numbers: where the store stands, what each rep needs today, the one thing the data says. 'Give me the huddle', 'what do I tell the floor'.", input_schema: { type: "object", properties: {} } },
@@ -190,6 +193,42 @@ async function execManagerTool(name, input) {
       try { sessionStorage.setItem("customers-query", JSON.stringify({ q: "", rep: m ? m.user_id : "all", mode: "reach" })); } catch { /* fine */ }
       navigate("/customers");
       return { result: { worthACall: rows.length, top: rows.slice(0, Math.min(Number(input.limit) || 5, 12)).map(slimRead) }, note: "ranking the book" };
+    }
+    case "timing": {
+      const R = await ranked(t);
+      const m = repOf(input.rep);
+      const s = store.getSettings();
+      const lot = await loadInventory(t).catch(() => null);
+      const hopts = { now, defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot && lot.rows.length ? makeMatcher(lot.rows, s) : null };
+      const slim = (r) => ({ customer: r.lead.name, rep: memberName(r.rep), vehicle: r.lead.vehicleInterest || "", month: r.hz.m === 0 ? "now" : r.hz.at ? monthLabel(r.hz.at) : "unknown", monthsAway: r.hz.m, why: r.hz.why, equityNow: r.hz.equityNow });
+      if (input.customer) {
+        const pick = oneCustomer(R.rows, input.customer, m);
+        if (pick.error) return { result: pick.error, note: "" };
+        const hz = horizonFor(pick.row.lead, hopts);
+        openCustomerSheet(pick.row.rep.user_id, pick.row.lead.id);
+        if (!hz) return { result: { customer: pick.row.lead.name, applies: false, note: "not an owner on file, or lost / just bought" }, note: "" };
+        return { result: { ...slim({ ...pick.row, hz }), lease: hz.lease, paymentsLeft: hz.left, contractEnds: hz.end ? monthLabel(hz.end) : null }, note: `timing ${pick.row.lead.name}` };
+      }
+      const months = Number(input.months) || 6;
+      let rows = horizonBook(R.rows, hopts).filter((r) => r.hz.m != null);
+      if (m) rows = rows.filter((r) => r.rep.user_id === m.user_id);
+      try { sessionStorage.setItem("customers-query", JSON.stringify({ q: "", rep: m ? m.user_id : "all", mode: "timing" })); } catch { /* fine */ }
+      navigate("/customers");
+      const within = rows.filter((r) => r.hz.m <= months);
+      return { result: { readyNow: rows.filter((r) => r.hz.m === 0).length, openingWithin: months, count: within.length, customers: within.slice(0, 12).map(slim) }, note: "timing the book" };
+    }
+    case "lease_ends": {
+      const R = await ranked(t);
+      const m = repOf(input.rep);
+      const months = Number(input.months) || 12;
+      let list = contractsEnding(R.rows, { now, type: "lease" });
+      if (m) list = list.filter((r) => r.rep.user_id === m.user_id);
+      const soon = list.filter((r) => !r.end || r.end.getTime() - now.getTime() <= months * 30.44 * 86400000);
+      try { sessionStorage.setItem("customers-query", JSON.stringify({ q: "", rep: m ? m.user_id : "all", mode: "leases" })); } catch { /* fine */ }
+      navigate("/customers");
+      const perMonth = {};
+      soon.forEach((r) => { const k = r.end ? monthLabel(r.end) : "unknown"; perMonth[k] = (perMonth[k] || 0) + 1; });
+      return { result: { leasesOut: list.length, endingWithin: months, count: soon.length, byMonth: perMonth, leases: soon.slice(0, 15).map((r) => ({ customer: r.lead.name, rep: memberName(r.rep), vehicle: r.lead.vehicleInterest || "", ends: r.end ? r.end.toISOString().slice(0, 10) : null, monthsLeft: r.left, past: r.past })) }, note: "listing the leases" };
     }
     case "appointments": {
       const { stats } = await board(t);
@@ -308,7 +347,7 @@ function buildSystem(t) {
   return [
     `You are viniva's hands-free assistant for the sales manager${s.salesperson ? " " + s.salesperson : ""} at ${t.name}. Today is ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][now.getDay()]} ${ymd(now)}, ${pad(now.getHours())}:${pad(now.getMinutes())} local.`,
     `The manager runs the store, not a book: every rep's numbers, every customer on every rep's file, the store's calendar, targets, and the reps' phones. Everything is about booking more appointments — that's where sales come from.`,
-    `Understand plain, casual speech; the manager will NOT use command words. A bare remark usually implies an action: "how are we doing" → store_today; "how's Parm" → rep_report; "who's waiting" → fresh_leads; "who should we be calling" → reach_outs; "what's the story with Dana" → get_customer; "tell Jordan to confirm tomorrow" → nudge_rep; "have Parm reach out to Dana" → assign_task; "Dana showed" → appointment_outcome; "Parm's goal is twelve" → set_target; "what's tomorrow look like" → appointments tomorrow; "give me the huddle" → huddle; "what should we change" → insights; "email Ken and thank him for coming in" → email_customer.`,
+    `Understand plain, casual speech; the manager will NOT use command words. A bare remark usually implies an action: "how are we doing" → store_today; "how's Parm" → rep_report; "who's waiting" → fresh_leads; "who should we be calling" → reach_outs; "what's the story with Dana" → get_customer; "tell Jordan to confirm tomorrow" → nudge_rep; "have Parm reach out to Dana" → assign_task; "Dana showed" → appointment_outcome; "Parm's goal is twelve" → set_target; "what's tomorrow look like" → appointments tomorrow; "give me the huddle" → huddle; "what should we change" → insights; "email Ken and thank him for coming in" → email_customer; "when does it make sense for Dana" / "who opens up in the next six months" → timing; "when do our leases end" → lease_ends.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates to YYYY-MM-DD. Only call ask_user when several customers match a name across different reps, or no rep can be worked out for a target or a nudge.`,
     `The team: ${members.join(", ") || "nobody yet"}. Match a rep by first name.`,
     `The app FOLLOWS you: a tool that returns a list also puts it on the manager's screen. Do NOT read a list aloud — name the top one or two and hand over to the screen ("Dana and Ken are the two to hand out; they're on screen").`,
