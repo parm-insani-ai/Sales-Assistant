@@ -1293,11 +1293,7 @@ export function renderDeals(view, { embedded = false } = {}) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    ${embedded ? "" : `<div class="hero">
-      <div class="hero-greeting">Deal Radar</div>
-      <div class="hero-title">Deals ready to pitch</div>
-    </div>`}
-    <div class="fab-note" style="margin:0 2px 14px;text-align:left">Customers who can move into a new vehicle — financing or leasing — for close to what they pay now. Set your tolerance below.</div>
+    <div class="fab-note" style="margin:${embedded ? "0" : "4px"} 2px 14px;text-align:left">Customers who can move into a new vehicle — financing or leasing — for close to what they pay now. Set your tolerance below.</div>
     <div id="deals-controls"></div>
     <div class="deals-list"></div>
   `;

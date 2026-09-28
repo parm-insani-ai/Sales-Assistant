@@ -206,7 +206,7 @@ export function renderManageHome(view) {
 
   function drawNoStore() {
     el.innerHTML = `
-      <div class="hero"><div class="hero-greeting">${isAdmin() ? "Admin" : "Manager"}</div><div class="hero-title">No store yet</div></div>
+      <div class="hero"><div class="hero-title">No store yet</div></div>
       <div class="card">
         <div class="strong">${isAdmin() ? "Set up the store to start the board." : "You're not in a store yet."}</div>
         <div class="small muted" style="margin-top:4px">${isAdmin() ? "Name it, and you get an invite link for the reps. Then appoint managers by their sign-in email." : "Ask the admin to add you, or join with the invite link."}</div>

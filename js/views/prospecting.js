@@ -153,10 +153,6 @@ export function renderProspecting(view) {
     const rows = buildCallList();
 
     el.innerHTML = `
-      <div class="hero">
-        <div class="hero-greeting">Prospecting</div>
-        <div class="hero-title">Today's call list</div>
-      </div>
 
       <div class="stat-grid" style="margin-bottom:6px">
         <div class="stat">

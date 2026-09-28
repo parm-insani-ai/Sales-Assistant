@@ -61,7 +61,7 @@ export function renderCustomers(view) {
   function draw() {
     const bar = document.getElementById("page-title"); if (bar) bar.textContent = "Customers";
     if (!team || !isManager(team)) {
-      el.innerHTML = `<div class="hero"><div class="hero-greeting">Customers</div><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's book is the manager's. Your own customers are under Leads in the sales view." : "Set up the store under Team first."}</div>`;
+      el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's book is the manager's. Your own customers are under Leads in the sales view." : "Set up the store under Team first."}</div>`;
       return;
     }
     const R = rankedRows();
@@ -73,9 +73,8 @@ export function renderCustomers(view) {
     const shown = rows.slice(0, 150);
     const counts = R ? { all: R.rows.length, reach: reachOuts(R, { limit: 100000 }).length, hot: R.rows.filter((r) => r.tier && r.tier.key === "hot").length } : null;
     el.innerHTML = `
-      <div class="hero"><div class="hero-greeting">${esc(team.name)}</div><div class="hero-title">${mode === "reach" ? "Who to reach out to" : "Every customer"}</div></div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · ${lot && lot.rows.length ? `priced against ${lot.rows.filter((v) => (v.status || "available") === "available").length} units` : "no shared lot yet"} · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}` : loading ? "Reading every rep's book…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:4px 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · ${lot && lot.rows.length ? `priced against ${lot.rows.filter((v) => (v.status || "available") === "available").length} units` : "no shared lot yet"} · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}` : loading ? "Reading every rep's book…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
       <div class="searchbar"><input type="search" placeholder="Search the store's customers…" value="${esc(search)}"></div>
       <div class="lead-chips">
         <button class="btn btn-sm ${mode === "reach" ? "btn-primary" : "btn-ghost"}" data-mode="reach">${icon("sparkles")} Reach-outs${counts ? " " + counts.reach : ""}</button>

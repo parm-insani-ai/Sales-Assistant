@@ -56,8 +56,7 @@ export function renderDashboard(view) {
   const el = document.createElement("div");
   el.innerHTML = `
     <div class="hero">
-      <div class="hero-greeting">${greeting}${esc(name)}</div>
-      <div class="hero-title">Here's your day</div>
+      <div class="hero-title">${greeting}${esc(name)}</div>
     </div>
 
     <div class="nudge-slot"></div>

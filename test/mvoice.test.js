@@ -64,7 +64,7 @@ await p.goto(APP + "/#/");
 await p.waitForFunction(() => document.body.classList.contains("management") && document.querySelector("#voice-btn") && document.querySelector('[data-act="welcome"]'), null, { timeout: 20000 });
 const tabs = await p.evaluate(() => [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()));
 console.log("tabs:", tabs.join(" · "));
-if (tabs.join(",") !== "Home,Appts,Voice,Customers,Insights,Team") fail("the store's tab bar should carry the Voice button: " + tabs.join(","));
+if (tabs.join(",") !== "Home,Appts,Voice,Customers,Team") fail("the store's tab bar should carry the Voice button: " + tabs.join(","));
 
 // Open the panel: it listens straight away.
 await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));

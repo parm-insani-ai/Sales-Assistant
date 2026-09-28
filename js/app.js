@@ -97,10 +97,12 @@ function applyMode() {
   document.body.classList.toggle("management", mg);
   const bar = document.querySelector(".tabbar");
   // The store's app has its own voice button in the middle of the bar, like
-  // the rep's: the same panel, with the manager's assistant behind it.
+  // the rep's: the same panel, with the manager's assistant behind it. Five
+  // tabs so it sits dead centre; Insights lives on Home (its tile and the
+  // "all insights" link under the findings).
   const voiceTab = `<button id="voice-btn" class="tab tab-voice" aria-label="Voice command"><span class="voice-fab"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG.mic}</svg></span><span class="tab-label">Voice</span></button>`;
   bar.innerHTML = mg
-    ? [["/", "Home", "home"], ["/appointments", "Appts", "appts"], null, ["/customers", "Customers", "team"], ["/insights", "Insights", "insights"], ["/team", "Team", "store"]].map((x) => x
+    ? [["/", "Home", "home"], ["/appointments", "Appts", "appts"], null, ["/customers", "Customers", "team"], ["/team", "Team", "store"]].map((x) => x
         ? `<a href="#${x[0]}" class="tab" data-route="${x[0]}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[x[2]]}</svg></span><span class="tab-label">${x[1]}</span></a>`
         : voiceTab).join("")
     : SALES_TABBAR;

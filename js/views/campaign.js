@@ -186,11 +186,7 @@ export function renderCampaign(view) {
   function draw() {
     const sent = rows.filter((r) => r.sent).length;
     el.innerHTML = `
-      <div class="hero">
-        <div class="hero-greeting">Campaign</div>
-        <div class="hero-title">Fill the desk</div>
-      </div>
-      <div class="fab-note" style="margin:0 2px 14px;text-align:left">Pick who to reach, and the agent works out what to put each of them in and what to say. ${
+      <div class="fab-note" style="margin:4px 2px 14px;text-align:left">Pick who to reach, and the agent works out what to put each of them in and what to say. ${
         smsReady()
           ? "Sends from your texting number, so replies come back to the Inbox."
           : "You send from your own number."

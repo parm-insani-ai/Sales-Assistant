@@ -34,12 +34,12 @@ export function renderInsights(view) {
   function draw() {
     const bar0 = document.getElementById("page-title"); if (bar0) bar0.textContent = "Insights";
     if (!team || !isManager(team)) {
-      el.innerHTML = `<div class="hero"><div class="hero-greeting">Insights</div><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's numbers are the manager's. Your own are under Goals in the sales view." : "Set up the store under Team first."}</div>`;
+      el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's numbers are the manager's. Your own are under Goals in the sales view." : "Set up the store under Team first."}</div>`;
       return;
     }
     const stats = board && board.storeId === team.id ? board.stats.filter((r) => !r.error && r.insight) : null;
     if (!stats) {
-      el.innerHTML = `<div class="hero"><div class="hero-greeting">Insights</div><div class="hero-title">${esc(team.name)}</div></div><div class="card"><div class="muted small" style="text-align:center">${loading ? "Reading the reps' books…" : "Nothing read yet."}</div>${loading ? "" : `<button class="btn btn-primary btn-block" data-act="refresh" style="margin-top:10px">Read the board</button>`}</div>`;
+      el.innerHTML = `<div class="hero"><div class="hero-title">${esc(team.name)}</div></div><div class="card"><div class="muted small" style="text-align:center">${loading ? "Reading the reps' books…" : "Nothing read yet."}</div>${loading ? "" : `<button class="btn btn-primary btn-block" data-act="refresh" style="margin-top:10px">Read the board</button>`}</div>`;
       const b = el.querySelector('[data-act="refresh"]'); if (b) b.addEventListener("click", () => refresh(true));
       return;
     }
@@ -55,7 +55,7 @@ export function renderInsights(view) {
     const srcMax = Math.max(1, ...ins.sources.map((s) => s.appts));
 
     el.innerHTML = `
-      <div class="hero"><div class="hero-greeting">Insights · appointments</div><div class="hero-title">${esc(label)}</div></div>
+      <div class="hero"><div class="hero-title">${esc(label)}</div></div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       <div class="lead-chips" style="margin-bottom:12px">
         <button class="btn btn-sm ${who === "store" ? "btn-primary" : "btn-ghost"}" data-who="store">Store</button>

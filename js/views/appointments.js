@@ -48,7 +48,7 @@ export function renderAppointments(view) {
   function draw() {
     const bar = document.getElementById("page-title"); if (bar) bar.textContent = "Appointments";
     if (!team || !isManager(team)) {
-      el.innerHTML = `<div class="hero"><div class="hero-greeting">Appointments</div><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's board is the manager's. Your own appointments are under Calendar in the sales view." : "Set up the store under Team first."}</div>`;
+      el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's board is the manager's. Your own appointments are under Calendar in the sales view." : "Set up the store under Team first."}</div>`;
       return;
     }
     const now = new Date(), today = ymd(now), tomorrow = ymd(now.getTime() + DAY);
@@ -72,9 +72,8 @@ export function renderAppointments(view) {
         <span class="badge ${a.outcome === "sold" ? "badge-sold" : a.outcome === "showed" ? "badge-appt" : a.outcome === "no_show" ? "badge-lost" : a.confirmed ? "badge-working" : "badge-new"}">${apptState(a)}</span>
       </div>`;
     el.innerHTML = `
-      <div class="hero"><div class="hero-greeting">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))}</div><div class="hero-title">Appointments</div></div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">${board ? "As of " + esc(formatDateTime(board.at)) : loading ? "Reading…" : "Not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
+      <div class="row" style="margin:4px 2px 8px"><span class="small muted">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))} · ${board ? "as of " + esc(formatDateTime(board.at)) : loading ? "reading…" : "not read yet"}</span><button class="btn btn-ghost btn-sm" data-act="refresh" ${loading ? "disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></div>
       <div class="stat-grid" style="margin-bottom:12px">
         <div class="stat"><div class="stat-value" style="color:var(--brand)">${lists.today.length}</div><div class="stat-label">Today · ${todayLeft.length} still to come</div></div>
         <div class="stat"><div class="stat-value" style="${queue.length ? "color:var(--danger)" : "color:var(--success)"}">${queue.length}</div><div class="stat-label">Tomorrow's not yet confirmed</div></div>

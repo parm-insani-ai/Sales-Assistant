@@ -46,11 +46,7 @@ export function renderTools(view) {
   // A manager or admin who also sells can step over to the store's app.
   const links = canManage() ? [{ icon: "store", label: "Management view", fn: () => { setViewMode("manage"); location.hash = "#/"; location.reload(); } }, ...TOOL_LINKS] : TOOL_LINKS;
   el.innerHTML = `
-    <div class="hero">
-      <div class="hero-greeting">Tools</div>
-      <div class="hero-title">Everything else</div>
-    </div>
-    <div class="fab-note" style="margin:0 2px 14px;text-align:left">Your day runs on Home, Leads and Comms. This is the rest — pricing, tracking and setup.</div>
+    <div class="fab-note" style="margin:4px 2px 14px;text-align:left">Your day runs on Home, Leads and Comms. This is the rest — pricing, tracking and setup.</div>
     <div class="tools-slot"></div>
   `;
   view.appendChild(el);

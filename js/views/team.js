@@ -27,7 +27,7 @@ export function renderTeam(view, { param } = {}) {
   view.appendChild(el);
   const me = backend.currentUser();
   if (!me) {
-    el.innerHTML = `<div class="hero"><div class="hero-greeting">Team</div><div class="hero-title">Sign in first</div></div>
+    el.innerHTML = `<div class="hero"><div class="hero-title">Sign in first</div></div>
       <div class="card">The team lives in your cloud account. Sign in under Settings → Cloud sync & account, then come back here.</div>`;
     return;
   }
@@ -81,7 +81,6 @@ export function renderTeam(view, { param } = {}) {
     // they also manage a store.
     el.innerHTML = `
       <div class="hero">
-        <div class="hero-greeting">${admin ? "Admin" : manager ? "Manager board" : "Team"}</div>
         <div class="hero-title">${esc(team.name)}</div>
       </div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
@@ -354,7 +353,7 @@ export function renderJoin(view, { param } = {}) {
   const me = backend.currentUser();
   if (!me || !code) { renderTeam(view, { param: code }); return; }
   const el = document.createElement("div");
-  el.innerHTML = `<div class="hero"><div class="hero-greeting">Team</div><div class="hero-title">Joining…</div></div><div class="card muted small">Adding you to the store with code <span class="mono">${esc(code)}</span>.</div>`;
+  el.innerHTML = `<div class="hero"><div class="hero-title">Joining…</div></div><div class="card muted small">Adding you to the store with code <span class="mono">${esc(code)}</span>.</div>`;
   view.appendChild(el);
   joinStore(code, store.getSettings().salesperson || "").then((t) => { toast(`You're on ${t.name}'s team`, "success"); navigate("/team"); },
     (e) => { el.innerHTML = ""; view.innerHTML = ""; renderTeam(view, { param: code }); toast(e.message || "Couldn't join", "danger"); });

@@ -43,7 +43,7 @@ await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.body.classList.contains("management") && /No store yet/.test(document.querySelector(".hero-title")?.textContent || ""), null, { timeout: 15000 });
 const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn"), plus: getComputedStyle(document.querySelector("#quick-add")).display }));
 console.log("admin lands on:", JSON.stringify(landing));
-if (landing.greeting !== "Admin" || landing.tabs.join() !== "Home,Appts,Voice,Customers,Insights,Team" || !landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
+if (landing.tabs.join() !== "Home,Appts,Voice,Customers,Team" || !landing.voice || landing.plus !== "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
 await mgr.click('[data-act="team"]');
 await mgr.waitForSelector('[data-act="create"]');
 await mgr.fill("#st-name", "O'Regan's Nissan Halifax");
@@ -54,7 +54,7 @@ console.log("invite:", invite);
 const code = (invite.match(/#\/join\/([a-z0-9]+)$/) || [])[1];
 if (!code) fail("no invite code in the link: " + invite);
 const first = await mgr.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), greeting: document.querySelector(".hero-greeting")?.textContent.trim(), admin: document.querySelectorAll(".admin-store").length, adminFirst: (document.querySelector(".admin-store")?.getBoundingClientRect().top || 9e9) < (document.querySelector(".team-row")?.getBoundingClientRect().top || 9e9) }));
-if (first.title !== "O'Regan's Nissan Halifax" || first.admin !== 1 || first.greeting !== "Admin" || !first.adminFirst) fail("the store isn't named, or the admin section isn't first: " + JSON.stringify(first));
+if (first.title !== "O'Regan's Nissan Halifax" || first.admin !== 1 || !first.adminFirst) fail("the store isn't named, or the admin section isn't first: " + JSON.stringify(first));
 
 // --- 2. Two reps join: one through the invite link, one by typing the code.
 const rep1 = await pageAs("t", "p@e.com", { name: "Parm" });

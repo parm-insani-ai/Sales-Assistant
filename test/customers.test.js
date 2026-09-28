@@ -60,7 +60,7 @@ const reach = await mgr.evaluate(() => ({
   rows: [...document.querySelectorAll(".cu-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), sub: r.querySelector(".row-sub").textContent.trim(), reasons: r.querySelector(".row-reasons")?.textContent.trim(), deal: r.querySelector(".cu-deal")?.textContent.replace(/\s+/g, " ").trim(), send: r.querySelector("[data-send]")?.textContent.trim() })),
 }));
 console.log("reach-outs:", JSON.stringify(reach, null, 1));
-if (reach.tabs.join() !== "Home,Appts,Voice,Customers,Insights,Team") fail("the Customers tab is missing: " + reach.tabs.join());
+if (reach.tabs.join() !== "Home,Appts,Voice,Customers,Team") fail("the Customers tab is missing: " + reach.tabs.join());
 if (!/6 customers · 4 worth a call/.test(reach.line || "") || !/priced against 3 units/.test(reach.line)) fail("the book line is wrong: " + reach.line);
 const names = reach.rows.map((r) => r.name.replace(/\s*(Hot|Strong|Worth a call)$/, ""));
 if (names.includes("Just Sold") || names.includes("No Way To Reach")) fail("excluded or unreachable customers are on the reach-out list: " + names.join(", "));
