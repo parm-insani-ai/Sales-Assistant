@@ -1570,3 +1570,66 @@ body.management #quick-add { display: none; }
 .team-row:last-child { border-bottom: none !important; }
 .team-cells { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.8rem; color: var(--text-2); }
 .team-cells b { font-weight: 700; color: var(--text); }
+
+/* ============================================================================
+   Wide screens: the navigation is a sidebar, the way apps do it on a laptop.
+   Phones keep the bottom tab bar untouched — this only applies from 900px.
+   The markup is the same nav; the grid puts it down the left, the title bar
+   and the page to its right, and the tabs become a list.
+   ========================================================================== */
+@media (min-width: 900px) {
+  #app {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  body.typing #app, body.kb-open #app { top: 0; bottom: 0; height: auto; }
+  .topbar { grid-column: 2; grid-row: 1; padding-left: 32px; padding-right: 32px; }
+  .view {
+    grid-column: 2; grid-row: 2;
+    max-width: none; margin: 0;
+    padding: 24px 32px 56px;
+  }
+  .view > * { max-width: 760px; }
+  .tabbar {
+    grid-column: 1; grid-row: 1 / span 2;
+    display: flex !important; flex-direction: column; justify-content: flex-start;
+    gap: 4px;
+    padding: 18px 12px calc(18px + var(--safe-bottom));
+    border-top: none; border-right: 1px solid var(--border);
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    background: var(--surface);
+  }
+  body.management .tabbar { grid-template-columns: none; }
+  .tabbar::before {
+    content: "viniva";
+    display: block;
+    padding: 4px 14px 18px;
+    font-size: 1.35rem; font-weight: 800; letter-spacing: -0.03em;
+    color: var(--brand);
+  }
+  .tab {
+    flex-direction: row; align-items: center; gap: 12px;
+    padding: 11px 14px; border-radius: 12px;
+    font-size: 0.95rem; font-weight: 600; letter-spacing: 0;
+    color: var(--text-2);
+  }
+  .tab:hover { background: var(--surface-2); }
+  .tab.active { background: var(--brand-tint); color: var(--brand); }
+  .tab.active::before { display: none; }
+  .tab.active .tab-icon svg { transform: none; }
+  .tab-icon { height: 22px; }
+  .tab-icon svg { width: 22px; height: 22px; }
+  .tab-dot { position: static; margin-left: auto; }
+  /* The voice button is a row like the others, at the bottom of the list. */
+  .tab-voice { order: 99; margin-top: auto; color: var(--text-2); }
+  .tab-voice .tab-label { color: inherit; font-weight: 600; }
+  .voice-fab {
+    width: 22px; height: 22px; margin: 0; border: none; box-shadow: none;
+    background: none; color: var(--brand);
+  }
+  .voice-fab svg { width: 22px; height: 22px; }
+  /* Sheets and toasts sit over the page, not the sidebar. */
+  .modal-backdrop { left: 236px; }
+  #toast-root { left: 236px; bottom: 32px; }
+}
