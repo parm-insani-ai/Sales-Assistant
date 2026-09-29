@@ -1359,21 +1359,34 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
     return rows.length;
   };
 
+  // A new band, ceiling or deal type re-prices the book. Doing that inside
+  // the slider's own event froze the screen for the length of it — the knob
+  // stuck, then the list jumped. Now the list dims and says it's updating,
+  // the radar re-prices a slice at a time yielding to the screen (the same
+  // path Home warms on), and the list redraws when it's current. Moves that
+  // land while it's working are folded into the same run.
+  const update = () => {
+    list.classList.add("deals-stale");
+    countEl.textContent = "Updating…";
+    warmRadar((done, total) => { if (total > 300) countEl.textContent = `Updating… ${Math.round((done / total) * 100)}%`; })
+      .then(() => { if (!el.isConnected) return; if (!radarCurrent()) return update(); list.classList.remove("deals-stale"); redraw(); })
+      .catch(() => { if (el.isConnected) { list.classList.remove("deals-stale"); redraw(); } });
+  };
   controls.querySelectorAll("[data-method]").forEach((b) =>
     b.addEventListener("click", () => {
       store.updateSettings({ dealMethod: b.dataset.method });
       controls.querySelectorAll("[data-method]").forEach((x) => x.classList.toggle("active", x === b));
-      redraw();
+      update();
     }));
   const slider = controls.querySelector("#band-slider");
   const bandVal = controls.querySelector("#band-val");
   slider.addEventListener("input", () => { bandVal.textContent = `+${currency(Number(slider.value))}/mo`; });
-  slider.addEventListener("change", () => { store.updateSettings({ dealMatchBand: Number(slider.value) }); redraw(); });
+  slider.addEventListener("change", () => { store.updateSettings({ dealMatchBand: Number(slider.value) }); update(); });
   const capSlider = controls.querySelector("#cap-slider");
   const capVal = controls.querySelector("#cap-val");
   const capText = (v) => (v ? currency(v) + "/mo" : "off");
   capSlider.addEventListener("input", () => { capVal.textContent = capText(Number(capSlider.value)); });
-  capSlider.addEventListener("change", () => { store.updateSettings({ dealMaxPayment: Number(capSlider.value) }); redraw(); });
+  capSlider.addEventListener("change", () => { store.updateSettings({ dealMaxPayment: Number(capSlider.value) }); update(); });
 
   redraw();
   return { redraw };

@@ -1575,6 +1575,9 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-rep:active { opacity: 0.7; }
 .mg-plan { border-left: 4px solid var(--brand); }
 .hz-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+/* The ranked list while the radar re-prices behind a moved slider. */
+.deals-list { transition: opacity 0.2s ease; }
+.deals-list.deals-stale { opacity: 0.45; pointer-events: none; }
 .hz-line .badge { flex: none; }
 .bubble-by { font-size: 0.68rem; opacity: 0.75; margin-bottom: 2px; font-weight: 600; letter-spacing: 0.02em; }
 .mg-need { display: inline-block; background: var(--surface-2); border-radius: 8px; padding: 3px 8px; margin: 2px 4px 2px 0; font-size: 0.8rem; }

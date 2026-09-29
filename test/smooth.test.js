@@ -349,6 +349,41 @@ console.log("\nBy opportunity:");
   if (s.ranked) fail("a jump via /deals switched the lens on permanently");
 }
 
+// --- "It's not smooth loading the changes when I move the payment sliders."
+// A new band re-prices the whole book. Done inside the slider's change
+// event that froze the screen for ~400ms here (longer on a phone): the knob
+// stuck, then the list jumped. Now the event returns at once, the list dims
+// and says it's updating while the radar re-prices in slices, and it
+// redraws once the answer is current — with the new band applied.
+console.log("payment sliders:");
+{
+  await p.evaluate(() => { location.hash = "#/deals"; }); await p.waitForTimeout(400);
+  await p.waitForSelector("#band-slider");
+  const r = await p.evaluate(async () => {
+    const db = await import("/js/views/dealbuilder.js");
+    const s = document.querySelector("#band-slider");
+    s.value = "120";
+    const t0 = performance.now();
+    s.dispatchEvent(new Event("input", { bubbles: true }));
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+    const blocked = performance.now() - t0;
+    const list = document.querySelector(".deals-list");
+    const dimmed = list.classList.contains("deals-stale");
+    const label = document.querySelector("#band-count").textContent;
+    // Longest gap between frames while it works = the worst freeze.
+    let worst = 0, last = performance.now(), frames = 0;
+    await new Promise((res) => { const tick = () => { const now = performance.now(); worst = Math.max(worst, now - last); last = now; frames++; if (list.classList.contains("deals-stale") || frames < 5) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
+    const total = performance.now() - t0;
+    return { blocked: Math.round(blocked), dimmed, label, worst: Math.round(worst), total: Math.round(total), current: db.radarCurrent(), band: (await import("/js/store.js")).getSettings().dealMatchBand, cards: list.querySelectorAll(".card").length };
+  });
+  console.log("  " + JSON.stringify(r));
+  if (r.blocked > 100) fail(`the slider's change event blocked the screen for ${r.blocked}ms`);
+  if (!r.dimmed || !/Updating/.test(r.label)) fail("the list didn't dim and say it was updating");
+  if (r.worst > 250) fail(`the screen froze for ${r.worst}ms while the radar re-priced`);
+  if (r.total > 5000) fail(`the list took ${r.total}ms to come current`);
+  if (!r.current || r.band !== 120 || !r.cards) fail(`the list didn't redraw with the new band: ${JSON.stringify(r)}`);
+}
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nsmooth.test.js FAILED" : "\nsmooth.test.js passed");
