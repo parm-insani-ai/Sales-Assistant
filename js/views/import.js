@@ -4,7 +4,7 @@
 
 import * as store from "../store.js";
 import { toast, emptyState } from "../components.js";
-import { navigate } from "../router.js";
+import { navigate, goBack } from "../router.js";
 import { parseCSV, autoMap, parseNumber, parseDateLoose, normalizeHeader } from "../csv.js";
 import { parseXLSX } from "../xlsx.js";
 import { startCadence } from "../cadence.js";
@@ -112,7 +112,7 @@ export function renderImport(view) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/"));
+  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/"));
 
   // Show the outreach toggle only for lead/prospect imports.
   const typeSel = el.querySelector("#imp-type");

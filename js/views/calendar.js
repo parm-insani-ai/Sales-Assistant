@@ -4,7 +4,7 @@
 import * as store from "../store.js";
 import { APPT_TYPES, apptType } from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
-import { navigate } from "../router.js";
+import { navigate, goBack } from "../router.js";
 import { esc, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
@@ -339,7 +339,7 @@ function renderApptDetail(view, id) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/calendar"));
+  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/calendar"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openAppointmentForm(a));
   el.querySelector('[data-act="ics"]').addEventListener("click", () => addToCalendar(a));
   const leadBtn = el.querySelector('[data-act="lead"]');

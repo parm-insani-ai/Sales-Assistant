@@ -2,7 +2,7 @@
 
 import * as store from "../store.js";
 import { openModal, buildForm, toast, confirmDialog, emptyState } from "../components.js";
-import { navigate } from "../router.js";
+import { navigate, goBack } from "../router.js";
 import { openMarketplaceBuilder } from "./marketplace.js";
 import { openDealerSearch } from "./dealer.js";
 import { icon } from "../icons.js";
@@ -220,7 +220,7 @@ function renderVehicleDetail(view, id) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/inventory"));
+  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/inventory"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openVehicleForm(v));
   el.querySelector('[data-act="marketplace"]').addEventListener("click", () => openMarketplaceBuilder(v));
   el.querySelector('[data-act="quote"]').addEventListener("click", () => {

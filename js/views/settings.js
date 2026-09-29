@@ -13,6 +13,7 @@ import { showLogin } from "../login.js";
 import { claimDevice } from "../account.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
+import { goBack } from "../router.js";
 import { viewportReport } from "../viewport.js";
 
 // What the page-level catcher in index.html wrote down.
@@ -196,7 +197,7 @@ export function renderSettings(view) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => (location.hash = "/"));
+  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/"));
   el.querySelector('[data-act="csv"]').addEventListener("click", () => (location.hash = "/import"));
 
   el.querySelector('[data-act="sample"]').addEventListener("click", async () => {

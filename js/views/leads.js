@@ -3,7 +3,7 @@
 import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
 import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swipeable } from "../components.js";
-import { navigate } from "../router.js";
+import { navigate, goBack, isReturn } from "../router.js";
 import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
@@ -106,7 +106,11 @@ export function renderLeads(view, { param }) {
   const rememberSpot = () => {
     try { sessionStorage.setItem(SPOT, JSON.stringify({ top: view.scrollTop, shown, filter, search, opp: opp && !selecting })); } catch {}
   };
-  let search = sessionStorage.getItem("leads-search") || (spot && spot.search) || "";
+  // Leaving by any door — a card, a tab, the assistant — keeps the spot, so
+  // coming back by any door lands on it.
+  const onLeaving = () => { window.removeEventListener("viniva-leaving", onLeaving); if (wrap.isConnected) rememberSpot(); };
+  window.addEventListener("viniva-leaving", onLeaving);
+  let search = sessionStorage.getItem("leads-search") || "";
   sessionStorage.removeItem("leads-search");
   // The audience filter: the same criteria a blast is built from (model,
   // make, body style, years, paid off, equity, lease ending…), picked by
@@ -151,7 +155,9 @@ export function renderLeads(view, { param }) {
   let filter = preset || (rem && rem !== "opportunity" ? rem : null) || "all";
   // A jump from elsewhere (a preset) is a new list; the spot only applies to
   // the list it was saved on.
-  if (spot && (preset || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
+  if (spot && (preset || !isReturn() || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
+  // The search you had typed comes back with the spot — and only with it.
+  if (spot && !search && spot.search) search = spot.search;
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
   let selecting = false;
   const selected = new Set();
@@ -1002,7 +1008,7 @@ function renderLeadDetail(view, id) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/leads"));
+  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/leads"));
   el.querySelectorAll('[data-act="money"]').forEach((n) => n.addEventListener("click", () => openMoneyForm(l)));
   // Tap-to-edit: the name box opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>

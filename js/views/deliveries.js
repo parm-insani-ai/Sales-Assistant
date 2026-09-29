@@ -2,7 +2,7 @@
 
 import * as store from "../store.js";
 import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swipeable } from "../components.js";
-import { navigate } from "../router.js";
+import { navigate, goBack } from "../router.js";
 import { esc, formatDate, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { openReferralCapture } from "./referrals.js";
@@ -181,7 +181,7 @@ function renderDeliveryDetail(view, id) {
 
   function refresh() { view.innerHTML = ""; renderDeliveryDetail(view, id); }
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => navigate("/deliveries"));
+  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/deliveries"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openDeliveryForm(d));
   el.querySelector('[data-act="add-item"]').addEventListener("click", () => {
     openModal("Add item", (close) => {
