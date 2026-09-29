@@ -73,6 +73,22 @@ if (!/2 leases on the book · 2 end in the next year/.test(leasesTab.plan || "")
 const m2 = new Date(now.getFullYear(), now.getMonth() + 2, 15).toLocaleDateString("en-CA", { month: "long", year: "numeric" });
 if (!leasesTab.months[0].startsWith(m2)) fail("the soonest lease comes first: " + JSON.stringify(leasesTab.months));
 
+// --- The Timing chip on Leads: the same read, soonest first, month and reason on the card.
+await rep.evaluate(() => { location.hash = "#/leads"; });
+await rep.waitForSelector('[data-filter="timing"]', { timeout: 15000 });
+await rep.click('[data-filter="timing"]');
+await rep.waitForFunction(() => document.querySelectorAll(".lead-list .hz-line").length >= 3, null, { timeout: 10000 });
+const chip = await rep.evaluate(() => ({
+  chip: document.querySelector('[data-filter="timing"]')?.textContent.trim(),
+  summary: document.querySelector(".lead-summary")?.textContent.replace(/\s+/g, " ").trim(),
+  cards: [...document.querySelectorAll(".lead-list [data-lead-id]")].map((c) => ({ name: c.querySelector(".row-title").textContent.trim(), hz: c.querySelector(".hz-line")?.textContent.replace(/\s+/g, " ").trim() })),
+}));
+console.log("leads timing chip:", JSON.stringify(chip, null, 1));
+if (chip.chip !== "Timing 4") fail("the chip should carry the count: " + chip.chip);
+if (!/2 ready now · 1 open up in the next six months/.test(chip.summary || "")) fail("the summary line: " + chip.summary);
+if (chip.cards.length !== 4 || !/^Now /.test(chip.cards[0].hz) || !/^Now /.test(chip.cards[1].hz) || chip.cards[2].name !== "Lease Next Year" || !new RegExp("^" + label(5) + " Lease ends").test(chip.cards[2].hz) || chip.cards[3].name !== "Finance Later") fail("the Timing chip isn't soonest first with the month on each: " + JSON.stringify(chip.cards));
+if (chip.cards.some((c) => /Live Lead/.test(c.name))) fail("a live lead is under Timing");
+
 // --- The manager's Customers tab: Timing and Lease ends, with the hand-off.
 const rpc = (tok, fn, args) => fetch(APP + "/rest/v1/rpc/" + fn, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args) }).then((r) => r.json());
 const st = await rpc("tm", "create_store", { store_name: "O'Regan's Nissan Halifax", display_name: "Sam" });

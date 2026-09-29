@@ -29,6 +29,8 @@ import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
 import { inAudience } from "../outreach.js";
 import { openAudienceFilter, audienceLabel } from "./audience.js";
+import { horizonBook, monthLabel } from "../horizon.js";
+import { makeMatcher } from "../match.js";
 
 // The words a customer can be found by, lowercased once per record rather
 // than once per keystroke per customer.
@@ -123,11 +125,27 @@ export function renderLeads(view, { param }) {
   const wrap = document.createElement("div");
   view.appendChild(wrap);
 
+  // The Timing chip: every owner in the month their window opens (see
+  // horizon.js), soonest first, the month and the reason on the card. Read
+  // once per draw, only when the chip is on — it prices the whole book.
+  let timingCache = null;
+  function timingRows() {
+    const leads = store.all("leads");
+    if (timingCache && timingCache.leads === leads) return timingCache.rows;
+    const s = store.getSettings();
+    const lot = store.all("vehicles");
+    const rows = horizonBook(leads, { now: new Date(), defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot.length ? makeMatcher(lot, s) : null }).filter((r) => r.hz.m != null);
+    timingCache = { leads, rows };
+    return rows;
+  }
+  const hzOf = (l) => { const r = timingCache && timingCache.rows.find((x) => x.lead.id === l.id); return r ? r.hz : null; };
+
   function draw() {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
+    else if (filter === "timing") list = timingRows().map((r) => r.lead);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
@@ -157,6 +175,7 @@ export function renderLeads(view, { param }) {
       { id: "all", label: withCount("All", "all") },
       { id: "active", label: withCount("Active", "active") },
       { id: "due", label: withCount("Due follow-ups", "due") },
+      { id: "timing", label: filter === "timing" ? `Timing ${timingRows().length.toLocaleString()}` : "Timing" },
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: withCount(s.label, s.id) })),
     ];
 
@@ -251,6 +270,9 @@ export function renderLeads(view, { param }) {
             x.classList.toggle("btn-primary", active);
             x.classList.toggle("btn-ghost", !active);
           });
+          // Timing's count is only worth computing when it's on.
+          const tb = wrap.querySelector('[data-filter="timing"]');
+          if (tb) tb.textContent = filter === "timing" ? `Timing ${timingRows().length.toLocaleString()}` : "Timing";
           renderList();
         }));
     }
@@ -334,10 +356,19 @@ export function renderLeads(view, { param }) {
     if (cnt) cnt.textContent = filtered.length.toLocaleString();
     if (!filtered.length) {
       shown = 0;
-      el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : "Nothing in this filter yet.");
+      el.innerHTML = emptyState("users", filter === "timing" ? "Nobody to time yet" : "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : filter === "timing" ? "Owners with a trade value, a payment or a lease end on file get a month here — the month it starts to make sense." : "Nothing in this filter yet.");
       return;
     }
-    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot));
+    // Timing: a line above the list saying what it is.
+    if (filter === "timing" && !selecting && !search && !aud) {
+      const rows = timingRows();
+      const now = rows.filter((r) => r.hz.m === 0).length, six = rows.filter((r) => r.hz.m > 0 && r.hz.m <= 6).length;
+      const summary = document.createElement("div");
+      summary.className = "lead-summary small muted";
+      summary.innerHTML = `<span class="strong" style="color:var(--danger)">${now} ready now</span> · <span class="strong" style="color:var(--success)">${six}</span> open up in the next six months — soonest first, with the month and why on each. <a href="#/horizon" style="color:var(--brand)">Set the follow-ups</a>`;
+      el.appendChild(summary);
+    }
+    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, filter === "timing" ? { hz: hzOf(x) } : {}));
     // How many to put back before handing over to the scroll: the previous
     // count on a redraw, the saved count on a return, else a screenful. On a
     // return they go in at once — a scroll position can't be restored onto
@@ -408,9 +439,12 @@ export function renderLeads(view, { param }) {
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
+    else if (filter === "timing") list = timingRows().map((r) => r.lead);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
+    // Timing keeps its own order: the month the window opens, soonest first.
+    if (filter === "timing") return list;
     // Best deals first. The list's job is to read the whole book and put the
     // people a car can be sold to at the top, with the reason on the card —
     // see assess.js. Ties go to the nearest follow-up, then the newest.
@@ -432,7 +466,7 @@ export function renderLeads(view, { param }) {
 // What a customer's card says. Drawn once on the way in and again in place
 // when something about them changes — a contact logged, a note added —
 // without rebuilding the card or the swipe behind it.
-function cardHTML(l, { quick = false } = {}) {
+function cardHTML(l, { quick = false, hz = null } = {}) {
   const st = stageMeta(l.stage);
   const fuDays = l.followUp ? daysFromToday(l.followUp) : null;
   let fuBadge = "";
@@ -440,6 +474,8 @@ function cardHTML(l, { quick = false } = {}) {
     const cls = fuDays < 0 ? "badge-due" : fuDays === 0 ? "badge-due" : fuDays <= 2 ? "badge-soon" : "";
     fuBadge = `<span class="badge ${cls}" style="margin-left:6px">${esc(relativeDay(l.followUp))}</span>`;
   }
+  // Under the Timing chip: the month the window opens, and why.
+  const timing = hz ? `<div class="row-reasons hz-line">${hz.m === 0 ? '<span class="badge badge-due">Now</span>' : `<span class="badge badge-soon">${esc(monthLabel(hz.at))}</span>`} ${esc(hz.why)}</div>` : "";
   // The read of this customer: how strong, and the reasons, right on the
   // card. A quick redraw re-reads this one customer rather than the book.
   const a = quick ? assessQuick(l.id) : assessment(l.id);
@@ -455,7 +491,7 @@ function cardHTML(l, { quick = false } = {}) {
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
         <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${l.phone ? " · " + esc(phoneDisplay(l.phone)) : ""}</div>
-        ${reasons}${contact}
+        ${timing}${reasons}${contact}
       </div>
       <div class="row-meta">
         ${tier}<span class="badge ${st.badge}">${esc(st.label)}</span>
@@ -486,17 +522,17 @@ function contractBanner(l, opts = {}) {
     </div>`;
 }
 
-function leadCard(l, onOpen) {
+function leadCard(l, onOpen, extra = {}) {
   const el = document.createElement("div");
   el.className = "card card-tap";
   el.dataset.leadId = l.id;
-  el.innerHTML = cardHTML(l);
+  el.innerHTML = cardHTML(l, extra);
   // While a note panel is up inside the card, the card is not a button.
   let busy = false;
   el.addEventListener("click", () => { if (busy) return; if (onOpen) onOpen(); navigate(`/leads/${l.id}`); });
   const redraw = () => {
     const fresh = store.get("leads", l.id);
-    if (fresh) el.innerHTML = cardHTML(fresh, { quick: true });
+    if (fresh) el.innerHTML = cardHTML(fresh, { quick: true, ...extra });
   };
   return swipeable(el, {
     actions: [{
