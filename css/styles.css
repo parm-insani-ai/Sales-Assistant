@@ -571,6 +571,11 @@ body.typing #app, body.kb-open #app {
 }
 .lead-chips::-webkit-scrollbar { display: none; }
 .lead-chips .btn { flex: 0 0 auto; }
+/* A chip is a pill in a scrolling row. The primary button's drop shadow
+   spilled below the pill and was cut flat by the row's edge, so the active
+   chip carried a rectangular smudge under a rounded shape. No shadow here:
+   the fill is the highlight. */
+.lead-chips .btn-primary { box-shadow: none; }
 
 /* Why this customer, on the card and on their page. */
 .row-reasons { color: var(--text-2, var(--text)); font-size: 0.8rem; margin-top: 5px; line-height: 1.35; }
