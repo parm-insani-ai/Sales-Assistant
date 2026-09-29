@@ -248,9 +248,13 @@ const server = http.createServer((req, res) => {
     const key = (id) => uid + "|" + id;
     // Row-level security: your own rows, plus — for a manager — the rows of
     // the reps in your store. Asking for anyone else's reads as empty.
+    // Like the real policies: with no user_id asked for, a manager's read
+    // returns their own rows AND every rep's in their store — which is why
+    // the sync has to ask for its own.
     const mine = () => {
       const want = (url.searchParams.get("user_id") || "").replace(/^eq\./, "");
-      const who = want && want !== uid ? (manages(uid, want) ? want : null) : uid;
+      if (!want) { const st = myStore(uid); const ids = new Set([uid, ...(st && st.role === "manager" ? st.members.map((m) => m.user_id) : [])]); return [...records.values()].filter((r) => ids.has(r.user_id)); }
+      const who = want !== uid ? (manages(uid, want) ? want : null) : uid;
       return who ? [...records.values()].filter((r) => r.user_id === who) : [];
     };
     if (req.method === "POST") {

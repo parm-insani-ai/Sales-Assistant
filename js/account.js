@@ -17,7 +17,13 @@ const OWNER = "viniva:owner";
 const PER_ACCOUNT_KEYS = [
   "viniva:sync", "viniva:prospects", "viniva:leads-spot", "viniva:leads-filter", "viniva:leads-opp",
   "viniva:outreach-pending", "viniva:playdismiss", "viniva:played", "viniva:sms-prefill", "viniva:autoemail-warned",
+  // Who the last account was to the store: its team, whether it was an admin,
+  // and which app it had chosen. Left behind, a rep signing in after the
+  // admin inherits the admin's app — the board, no Leads, and "no previous
+  // info" — until something re-reads who they are.
+  "viniva:store", "viniva:store:admin", "viniva:mode",
 ];
+const PER_ACCOUNT_SESSION_KEYS = ["viniva:team-board"];
 
 export function owner() {
   try { return localStorage.getItem(OWNER) || null; } catch { return null; }
@@ -35,6 +41,7 @@ export function claimDevice(user) {
   if (was && was !== user.id) {
     store.resetForNewOwner();
     PER_ACCOUNT_KEYS.forEach((k) => { try { localStorage.removeItem(k); } catch { } });
+    PER_ACCOUNT_SESSION_KEYS.forEach((k) => { try { sessionStorage.removeItem(k); } catch { } });
     // The radar's remembered prices are the last account's customers too.
     import("./cachedb.js").then((m) => m.cacheClear()).catch(() => {});
     cleared = true;

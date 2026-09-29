@@ -225,11 +225,17 @@ export async function pushRecords(rows) {
 // whether it's a tombstone. Ids only — about 60 bytes a row, so a book of
 // three thousand is a couple of hundred KB, cheap enough to do once a session.
 // This is what lets sync RECONCILE instead of trusting a one-time seed.
+// Only this account's own rows. A manager can also READ their reps' rows
+// (the board reads them by user_id), so the sync has to say whose book it
+// is pulling — an unfiltered pull would fold every rep's customers into the
+// manager's own book and the next push would copy them into their account.
+const mine = () => `user_id=eq.${encodeURIComponent((currentUser() || {}).id || "")}`;
+
 export async function listRecordIds() {
   const out = [];
   const pageSize = 1000;
   for (let from = 0; ; from += pageSize) {
-    const page = await rest(`records?select=id,collection,deleted&order=updated_at.asc`,
+    const page = await rest(`records?select=id,collection,deleted&${mine()}&order=updated_at.asc`,
       { headers: { Range: `${from}-${from + pageSize - 1}`, "Range-Unit": "items" } });
     if (!page || !page.length) break;
     out.push(...page);
@@ -244,7 +250,7 @@ export async function listRecordIds() {
 export async function countRecords() {
   const { url, anonKey } = cfg();
   const t = await token();
-  const res = await fetch(`${url}/rest/v1/records?select=id&deleted=eq.false`, {
+  const res = await fetch(`${url}/rest/v1/records?select=id&${mine()}&deleted=eq.false`, {
     method: "HEAD",
     headers: { apikey: anonKey, Authorization: `Bearer ${t}`, Prefer: "count=exact", Range: "0-0", "Range-Unit": "items" },
   });
@@ -265,7 +271,7 @@ export async function pullRecords(cursorISO) {
   for (;;) {
     const filter = cursorISO ? `&updated_at=gt.${encodeURIComponent(cursorISO)}` : "";
     const page = await rest(
-      `records?select=id,collection,data,updated_at,deleted&order=updated_at.asc${filter}`,
+      `records?select=id,collection,data,updated_at,deleted&${mine()}&order=updated_at.asc${filter}`,
       { headers: { Range: `${from}-${from + pageSize - 1}`, "Range-Unit": "items" } }
     );
     if (!page || !page.length) break;

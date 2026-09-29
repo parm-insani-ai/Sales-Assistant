@@ -722,9 +722,11 @@ function buildCloud(slot) {
     // Signed out is the front door. Come back through it and pick up syncing.
     const user = await showLogin();
     const switched = claimDevice(user);
+    // A different account: nothing on this page is theirs, and which app
+    // this is — the rep's or the store's — is decided at boot from who they
+    // are. Start over from Home so it's decided for them, not the last person.
+    if (switched) { location.hash = "#/"; location.reload(); return; }
     sync.enable(); sync.init(); sync.syncNow();
-    // A different account: nothing on this page is theirs. Start from Home.
-    if (switched) { location.hash = "#/"; return; }
     rerender();
   });
   slot.querySelector("#c-auto").addEventListener("change", (e) =>
