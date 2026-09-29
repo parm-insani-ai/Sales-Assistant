@@ -95,7 +95,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
   await settle();
   console.log("get_plays →", r.hash, "| plays:", (r.result.plays || []).length);
   if (!(r.result.plays || []).length) fail("no plays for a salesperson with three overdue follow-ups");
-  if (r.hash !== "#/") fail("asking for your plays didn't take you to them: " + r.hash);
+  if (r.hash !== "#/today") fail("asking for your plays didn't take you to them: " + r.hash);
 
   // And onto the queue itself, which sits most of a page below the top of Home.
   const where = await p.evaluate(() => {
@@ -113,11 +113,11 @@ const settle = () => p.evaluate(() => new Promise((done) => {
     fail(`landed ${where.top}px above the queue — the answer is off screen (scrolled ${where.scrolled})`);
 }
 
-// --- Already on Home. Setting the hash to the hash you're on fires no
+// --- Already on Today. Setting the hash to the hash you're on fires no
 // hashchange, so this used to be a total no-op: no repaint, no scroll, and the
 // voice panel never docked either.
 {
-  await goto("#/");
+  await goto("#/today");
   await p.evaluate(() => { document.querySelector(".view").scrollTop = 0; });
   let navigated = 0;
   await p.evaluate(() => { window.__navs = 0; window.addEventListener("viniva-navigated", () => { window.__navs++; }); });
@@ -125,9 +125,9 @@ const settle = () => p.evaluate(() => new Promise((done) => {
   await settle();
   navigated = await p.evaluate(() => window.__navs);
   const scrolled = await p.evaluate(() => Math.round(document.querySelector(".view").scrollTop));
-  console.log("\nalready on Home → navigations:", navigated, "| scrolled to:", scrolled);
+  console.log("\nalready on Today → navigations:", navigated, "| scrolled to:", scrolled);
   if (!navigated) fail("re-entering the screen you're already on announced nothing — the voice panel can't dock");
-  if (scrolled <= 0) fail("it didn't scroll to the queue when you were already on Home");
+  if (scrolled <= 0) fail("it didn't scroll to the queue when you were already on Today");
 }
 
 // --- "Who's overdue?" — the leads list, filtered to the same set that was
@@ -157,7 +157,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
 // --- Other list reads land somewhere you can act.
 // (/deals is a redirect: it presets the opportunity filter and hands off to
 // the leads list, so that's where the radar legitimately lands.)
-for (const [tool, want] of [["deal_radar", "#/leads"], ["get_tasks", "#/"], ["get_appointments", "#/calendar"]]) {
+for (const [tool, want] of [["deal_radar", "#/leads"], ["get_tasks", "#/today"], ["get_appointments", "#/calendar"]]) {
   await goto("#/settings");
   const r = await run(tool);
   const got = Object.values(r.result).find(Array.isArray) || [];

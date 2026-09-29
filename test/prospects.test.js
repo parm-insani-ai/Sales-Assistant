@@ -88,9 +88,10 @@ if (today.reasons.some((r) => !r)) fail("a prospect has no reason");
 if (today.why.some((n) => !n)) fail("a prospect has no drafter-safe reasons");
 for (const [k, name] of Object.entries(today.excluded)) if (today.names.includes(name)) fail(`${name} (${k}) should have been left alone`);
 
-// --- 2. On Home, with a Review that drafts the opener and waits.
-console.log("\nHome:");
-await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(500);
+// --- 2. On Today, with a Review that drafts the opener and waits.
+console.log("\nToday:");
+await p.evaluate(() => { location.hash = "#/today"; }); await p.waitForTimeout(500);
+await p.waitForSelector(".plays-slot .row", { timeout: 10000 }).catch(() => {});
 const home = await p.evaluate(() => {
   const rows = [...document.querySelectorAll(".plays-slot .row")].map((r) => ({ title: r.querySelector(".strong")?.textContent || "", sub: r.querySelector(".small")?.textContent || "", btn: r.querySelector("button.btn, a.btn")?.textContent.trim() }));
   return rows.filter((r) => /^Owner/.test(r.title));
@@ -156,7 +157,7 @@ const voice = await p.evaluate(async () => {
 });
 console.log("\nvoice:", JSON.stringify({ n: voice.n, first: voice.first && voice.first.customer, reasons: voice.first && voice.first.reasons, note: voice.note.slice(0, 60) }));
 if (voice.n !== 3 || !voice.first || !voice.first.reasons.length) fail("the agent tool doesn't return today's prospects with reasons");
-if (voice.hash !== "#/") fail("the agent tool didn't land on Home");
+if (voice.hash !== "#/today") fail("the agent tool didn't land on Today");
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

@@ -26,6 +26,7 @@ const LOADERS = {
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
+  today: () => import("./views/today.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -122,7 +123,12 @@ const PAGES = {
   "/deliveries": { title: "Deliveries", render: lazyView("deliveries", "renderDeliveries") },
   "/calendar": { title: "Calendar", render: renderCalendar },
   "/goals": { title: "Goals & Commission", render: lazyView("goals", "renderGoals") },
-  "/tools": { title: "Tools", render: lazyView("tools", "renderTools") },
+  // The day's work: the queue and the to-dos, off Home so Home is the
+  // glance and this is the doing.
+  "/today": { title: "Today", render: lazyView("today", "renderToday") },
+  // The Tools tab is gone: everything on it is under "+". An old link lands
+  // on Home with the "+" sheet open.
+  "/tools": { title: "Tools", render: () => { navigate("/"); setTimeout(() => document.getElementById("quick-add").click(), 0); } },
   "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/team": { title: "Team", render: lazyView("team", "renderTeam") },
@@ -188,7 +194,7 @@ function parentOf(base, param, roots) {
   if (param && roots.includes(base)) return base;
   if (param && base === "/inbox") return "/comms";
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
-  return roots.includes("/tools") && base !== "/settings" && base !== "/insights" && base !== "/team" ? "/tools" : "/";
+  return "/";
 }
 
 function updateTabs(base) {
@@ -268,7 +274,8 @@ initPullToRefresh();
 
 // Quick-add: context-aware based on the current tab. One modal holds
 // everything — the add-a-record actions up top, every tool below — rendered
-// as one uniform tile grid. There is deliberately no separate Tools screen.
+// as one uniform tile grid. There is no separate Tools screen: the tab bar
+// is the daily loop (Home, Leads, Today, Comms) and this is the rest.
 document.getElementById("quick-add").addEventListener("click", () => {
   // The store's "+" is the manager's actions — an email, the welcome, a
   // nudge, the reach-outs, targets — not a rep's add-a-record menu.
@@ -303,7 +310,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
       wrap.appendChild(tools.toolGrid(items, close));
     };
     section("Add new", keys.map((k) => byKey[k]));
-    section("Tools", tools.TOOL_LINKS);
+    section("Tools", tools.toolLinks());
     return wrap;
   }));
 });
@@ -318,7 +325,6 @@ if (backend.isSignedIn()) {
   readStore().catch(() => null).then(() => {
     const base = location.hash.replace(/^#/, "") || "/";
     if (applyMode()) { if (base === "/") navigate("/"); updateTabs(currentBase()); }
-    else if (base === "/tools") navigate("/tools"); // the Management view tile depends on the answer
   });
   // The store's target for this rep, if a manager set one, becomes the goal
   // the whole app rallies around — Goals, Home, the radar's pace.

@@ -1,6 +1,6 @@
-// Tools — everything that isn't the daily loop (queue, customers, comms).
-// One list, rendered both as this page and inside the "+" sheet, so a tool
-// never exists in one place and not the other.
+// Tools — everything that isn't the daily loop (Home, Leads, Today, Comms).
+// One list, rendered as the lower half of the "+" sheet, so every tool is
+// one tap from any screen and none of them needs a tab.
 
 import { navigate } from "../router.js";
 import { icon } from "../icons.js";
@@ -27,7 +27,15 @@ export const TOOL_LINKS = [
   { icon: "settings", label: "Settings", fn: () => navigate("/settings") },
 ];
 
-// Shared tile grid, used by this page and the "+" sheet.
+// The tools for this person. A manager or admin who also sells can step
+// over to the store's app from here.
+export function toolLinks() {
+  return canManage()
+    ? [{ icon: "store", label: "Management view", fn: () => { setViewMode("manage"); location.hash = "#/"; location.reload(); } }, ...TOOL_LINKS]
+    : TOOL_LINKS;
+}
+
+// Shared tile grid, used by the "+" sheet (and the store's own).
 export function toolGrid(items, onPick) {
   const grid = document.createElement("div");
   grid.className = "qa-grid";
@@ -40,16 +48,4 @@ export function toolGrid(items, onPick) {
     grid.appendChild(tile);
   });
   return grid;
-}
-
-export function renderTools(view) {
-  const el = document.createElement("div");
-  // A manager or admin who also sells can step over to the store's app.
-  const links = canManage() ? [{ icon: "store", label: "Management view", fn: () => { setViewMode("manage"); location.hash = "#/"; location.reload(); } }, ...TOOL_LINKS] : TOOL_LINKS;
-  el.innerHTML = `
-    <div class="fab-note" style="margin:4px 2px 14px;text-align:left">Your day runs on Home, Leads and Comms. This is the rest — pricing, tracking and setup.</div>
-    <div class="tools-slot"></div>
-  `;
-  view.appendChild(el);
-  el.querySelector(".tools-slot").appendChild(toolGrid(links));
 }

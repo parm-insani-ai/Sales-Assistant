@@ -43,7 +43,7 @@ another device pulls everything down.
 ## Teams and the manager board
 
 A **store** groups accounts on one project: reps and one or more managers. A
-manager sees the board under **Tools → Team** — every rep's touches,
+manager sees the board under **+ → Team** — every rep's touches,
 appointments set and shown, units against goal and pace, untouched new
 leads and overdue follow-ups, today and month to date — and can open a rep's
 lists and any customer on them, read-only. Reps keep their own books and
@@ -74,12 +74,12 @@ Setup:
      on conflict do nothing;
    ```
 
-3. Open **Tools → Team**, name the store and tap **Create the store**. You
+3. Open **+ → Team**, name the store and tap **Create the store**. You
    join it as its first manager and get an invite link. To make someone else
    a manager, add their sign-in email in the admin section with the role set
    to Manager (they need to have signed up first).
 4. Each rep signs in to their own cloud account, taps the invite link (or
-   types the code under Tools → Team), and they're on the board.
+   types the code under + → Team), and they're on the board.
 
 The board reads the reps' synced records, so a rep's numbers are as current
 as their last sync.
@@ -121,7 +121,7 @@ goes through a database function that checks the manager relationship:
   comes down (amortised at their rate) and the value drifts (about 12% a
   year), a like-for-like on the shared lot lands at their payment, the
   contract runs out, or a lease is six months from its end. A rep has it
-  under Tools → Timing with a follow-up set for that month (one at a time
+  under + → Timing with a follow-up set for that month (one at a time
   or all at once); the manager has it as the Timing and Lease ends views
   on Customers, handing a customer to their rep as a to-do due in that
   month. Both assistants answer "when does it make sense for Dana" and

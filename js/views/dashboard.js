@@ -1,18 +1,18 @@
-// Home dashboard: the day at a glance — follow-ups due, tasks, deliveries, stats.
+// Home dashboard: the day at a glance — what is happening right now, the
+// calendar, the numbers, what is coming up. The day's work (the queue and
+// the to-dos) is the Today tab.
 
 import * as store from "../store.js";
 import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
-import { esc, currency, relativeDay, daysFromToday, phoneDisplay, telHref, smsHref } from "../utils.js";
-import { taskListEl, openTaskForm } from "./tasks.js";
+import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
 import { monthSummary, apptFunnel } from "./goals.js";
-import { emptyState } from "../components.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
-import { getPlays, dismissPlay } from "../plays.js";
+import { getPlays } from "../plays.js";
 import { getNudges } from "../nudges.js";
 import { bookCheap, warmBook } from "../assess.js";
-import { reviewTouch, reviewProspect } from "../touches.js";
+import { reviewTouch } from "../touches.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -61,6 +61,16 @@ export function renderDashboard(view) {
 
     <div class="nudge-slot"></div>
 
+    <div class="card card-tap today-card" data-goto="/today" style="margin-bottom:6px">
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">${icon("checkline")} Today</div>
+          <div class="row-sub today-sub"></div>
+        </div>
+        <div class="row-meta strong">›</div>
+      </div>
+    </div>
+
     <div class="card card-tap" data-goto="/calendar" style="margin-bottom:6px">
       <div class="row">
         <div class="row-main">
@@ -81,26 +91,16 @@ export function renderDashboard(view) {
 
     ${goalCard(mtd, s)}
 
-    <div class="plays-slot"></div>
-
     ${upcomingFollowUps.length ? `<div class="section-title">Coming up</div><div class="upcoming-list"></div>` : ""}
-
-    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>To-dos</span>
-      <button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>
-    </div>
-    <div class="tasks-slot"></div>
 
     ${activeDeliveries.length ? `<div class="section-title">Deliveries in prep</div><div class="deliv-list"></div>` : ""}
   `;
   view.appendChild(el);
 
-  // The work queue — every reason to contact someone today, ranked, each with
-  // its own one-tap action. This is the single list; Comms and the old call
-  // list used to render their own versions of the same signals.
-  // Above the day's queue: the handful of things that stop being true if you
-  // wait. The queue is what to work today; this is what is happening now, and
-  // mixing them into one ranked list buried the urgent under the merely due.
+  // Above everything: the handful of things that stop being true if you
+  // wait. The queue (on Today) is what to work today; this is what is
+  // happening now, and mixing them into one ranked list buried the urgent
+  // under the merely due.
   const nudgeSlot = el.querySelector(".nudge-slot");
   function paintNudges() {
     const list = getNudges({ limit: 4 });
@@ -137,104 +137,28 @@ export function renderDashboard(view) {
     paintNudges();
   }, 60000);
 
-  // The play sheet is the expensive part of this screen — it runs the Deal
-  // Radar over every customer. Paint everything else first and fill it in on
-  // the next tick, so opening Home shows the day immediately instead of a
-  // blank screen for as long as the radar takes. (Cached now, so the wait is
-  // only ever paid once per change to the book; this keeps first paint quick
-  // even that once.)
-  const playsSlot = el.querySelector(".plays-slot");
-  playsSlot.innerHTML = `<div class="section-title">Today's queue</div>`;
-  // The radar prices every customer against every unit on the lot. When its
-  // answer isn't current — first launch, a lot that changed overnight — that
-  // runs a slice at a time in the background, and the queue says so instead
-  // of the whole screen going stiff until it's done.
-  const readyPlays = () => { if (document.body.contains(playsSlot)) paintPlays(); };
-  if (bookCheap()) setTimeout(readyPlays, 0);
+  // The Today card: how much is on the queue and how many to-dos. The queue
+  // is the Deal Radar's read of every customer; when that isn't current
+  // (first launch, a lot that changed overnight) it runs a slice at a time
+  // in the background and the card says so, then fills in. Home paints at
+  // once either way.
+  const todaySub = el.querySelector(".today-sub");
+  const todos = `${openTasks.length} to-do${openTasks.length === 1 ? "" : "s"}`;
+  const sayQueue = () => {
+    if (!todaySub.isConnected) return;
+    const n = getPlays(40).length;
+    todaySub.textContent = `${n ? `${n} in the queue` : "Queue clear"} · ${todos} · tap to work them`;
+  };
+  if (bookCheap()) setTimeout(sayQueue, 0);
   else {
-    playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
-      <div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
-    const prog = playsSlot.querySelector(".radar-progress");
-    warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; })
-      .then(readyPlays, readyPlays);
-  }
-  function paintPlays() {
-  const plays = getPlays(40);
-  if (!plays.length) {
-    playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
-      <div class="card"><div class="muted small" style="text-align:center">All caught up — nothing to chase right now.</div></div>`;
-  } else {
-    playsSlot.innerHTML = `<div class="section-title">Today's queue <span class="muted">· ${plays.length}</span></div>`;
-    const box = document.createElement("div");
-    box.className = "card";
-    plays.forEach((p) => {
-      const row = document.createElement("div");
-      row.className = "row";
-      row.style.cssText = "align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)";
-      row.innerHTML = `
-        <span style="color:var(--brand);display:inline-flex;flex:none">${icon(p.icon)}</span>
-        <div class="row-main" style="min-width:0">
-          <div class="strong" style="font-size:0.92rem">${esc(p.title)}</div>
-          <div class="small muted">${esc(p.sub)}</div>
-        </div>
-        ${p.taskId
-          ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-draft="${p.taskId}">Review</button>`
-          : p.prospectId && !p.route
-          ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-prospect="${p.prospectId}">Review</button>`
-          : p.href
-          ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${/^tel:/.test(p.href) ? "Call" : "Text"}</a>`
-          : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}
-        <button class="modal-close" data-play-x aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>`;
-      const act = row.querySelector("a");
-      if (act) act.addEventListener("click", () => {
-        store.logActivity("touch");
-        row.style.opacity = "0.45";
-      });
-      // A plan text: written for this customer now, from their context and
-      // the conversation so far, then put in front of the salesperson. The
-      // thread opens with the draft in the box; sending is their tap.
-      const draft = row.querySelector("[data-play-draft]");
-      if (draft) draft.addEventListener("click", async () => {
-        draft.disabled = true; draft.textContent = "Drafting…";
-        try { await reviewTouch(p.taskId); }
-        finally { draft.disabled = false; draft.textContent = "Review"; }
-      });
-      const pro = row.querySelector("[data-play-prospect]");
-      if (pro) pro.addEventListener("click", async () => {
-        pro.disabled = true; pro.textContent = "Drafting…";
-        try { await reviewProspect(p.prospectId); }
-        finally { pro.disabled = false; pro.textContent = "Review"; }
-      });
-      const go = row.querySelector("[data-play-go]");
-      if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
-      row.querySelector("[data-play-x]").addEventListener("click", () => {
-        dismissPlay(p);
-        row.remove();
-        box.dispatchEvent(new CustomEvent("viniva:played"));
-      });
-      box.appendChild(row);
-    });
-    if (box.lastChild) box.lastChild.style.borderBottom = "none";
-    playsSlot.appendChild(box);
-    // Emptying the queue by dismissal should read as "done", not as a blank.
-    const done = () => {
-      if (!box.querySelector(".row")) {
-        playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
-          <div class="card"><div class="muted small" style="text-align:center">Queue cleared — nice work.</div></div>`;
-      }
-    };
-    box.addEventListener("viniva:played", done);
-  }
+    todaySub.textContent = `Reading the book… · ${todos}`;
+    warmBook((done, total, phase) => { if (todaySub.isConnected && total > 200) todaySub.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}% · ${todos}`; })
+      .then(sayQueue, sayQueue);
   }
 
   // Upcoming
   const up = el.querySelector(".upcoming-list");
   if (up) upcomingFollowUps.forEach((l) => up.appendChild(followUpCard(l, true)));
-
-  // Tasks
-  // A screenful of tasks, not the whole book's worth — see taskListEl.
-  el.querySelector(".tasks-slot").appendChild(taskListEl({ limit: 8 }));
-  el.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
 
   // Appointments today (own + external calendars)
   const al = el.querySelector(".appt-list");

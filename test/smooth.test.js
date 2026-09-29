@@ -75,28 +75,35 @@ console.log("radar caching:");
   if (r.afterLead.v === r.changedId) fail("the radar still ranks a customer first whose payment just dropped to $5 — it served a stale answer");
 }
 
-// --- Home paints the day before it computes the play sheet.
-console.log("\nHome:");
+// --- Home paints the day at once; Today paints its heading before it
+// computes the play sheet, then fills in.
+console.log("\nHome and Today:");
 {
   await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(150);
-  const r = await p.evaluate(() => new Promise((res) => {
+  const h = await p.evaluate(() => new Promise((res) => {
     location.hash = "#/";
-    // Immediately after the synchronous mount: the hero should be there and
-    // the play rows should not be yet.
-    setTimeout(() => {
-      const hero = !!document.querySelector(".hero");
-      const rowsNow = document.querySelectorAll(".plays-slot .row").length;
-      const t0 = performance.now();
-      const poll = () => {
-        const rows = document.querySelectorAll(".plays-slot .row").length;
-        if (rows || performance.now() - t0 > 5000) return res({ hero, rowsNow, rowsLater: rows, filledInMs: Math.round(performance.now() - t0) });
-        requestAnimationFrame(poll);
-      };
-      poll();
-    }, 0);
+    setTimeout(() => res({ hero: !!document.querySelector(".hero"), today: document.querySelector(".today-sub")?.textContent || "" }), 0);
   }));
-  console.log("  " + JSON.stringify(r));
-  if (!r.hero) fail("Home mounted without its hero");
+  console.log("  Home: " + JSON.stringify(h));
+  if (!h.hero) fail("Home mounted without its hero");
+  if (!/to-do/.test(h.today)) fail("Home's Today card doesn't say how many to-dos there are: " + h.today);
+  const r = await p.evaluate(() => new Promise((res) => {
+    location.hash = "#/today";
+    // Immediately after the mount: the queue's heading should be there and
+    // the play rows should not be yet.
+    const t0 = performance.now();
+    let heading = false, rowsNow = null;
+    const poll = () => {
+      const slot = document.querySelector(".plays-slot");
+      if (slot && rowsNow == null) { heading = /Today's queue/.test(slot.textContent); rowsNow = slot.querySelectorAll(".row").length; }
+      const rows = slot ? slot.querySelectorAll(".row").length : 0;
+      if (rows || performance.now() - t0 > 5000) return res({ heading, rowsNow, rowsLater: rows, filledInMs: Math.round(performance.now() - t0) });
+      requestAnimationFrame(poll);
+    };
+    poll();
+  }));
+  console.log("  Today: " + JSON.stringify(r));
+  if (!r.heading) fail("Today mounted without the queue's heading");
   if (!r.rowsLater) fail("the play sheet never filled in");
   if (r.filledInMs > 3000) fail(`the play sheet took ${r.filledInMs}ms to appear`);
 
@@ -109,9 +116,9 @@ console.log("\nHome:");
     if (more) more.click();
     return { before, label, after: rows(), nodes: document.querySelector("#view").querySelectorAll("*").length };
   });
-  console.log("  tasks on Home:", JSON.stringify(t));
-  if (t.before > 12) fail(`Home drew ${t.before} tasks — the whole book's worth again`);
-  if (!/610 more/.test(t.label)) fail(`the "show more" row says "${t.label}", not how many are hidden`);
+  console.log("  tasks on Today:", JSON.stringify(t));
+  if (t.before > 14) fail(`Today drew ${t.before} tasks — the whole book's worth again`);
+  if (!/606 more/.test(t.label)) fail(`the "show more" row says "${t.label}", not how many are hidden`);
   if (t.after <= t.before) fail("tapping the show-more row showed nothing more");
 }
 

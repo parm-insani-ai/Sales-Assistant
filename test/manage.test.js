@@ -142,18 +142,21 @@ await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector
 // --- A rep keeps the salesperson's app.
 const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);
 await rep.goto(APP + "/#/");
-await rep.waitForSelector(".plays-slot", { timeout: 20000 });
+await rep.waitForSelector(".today-card", { timeout: 20000 });
 await rep.waitForTimeout(800);
 const repHome = await rep.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn") }));
 console.log("rep home:", JSON.stringify(repHome));
-if (repHome.mg || repHome.tabs.join() !== "Home,Leads,Voice,Tools,Comms" || !repHome.voice) fail("a rep got the store's app: " + JSON.stringify(repHome));
-const repTools = await rep.evaluate(async () => { location.hash = "#/tools"; await new Promise((r) => setTimeout(r, 400)); return [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()); });
+if (repHome.mg || repHome.tabs.join() !== "Home,Leads,Voice,Today,Comms" || !repHome.voice) fail("a rep got the store's app: " + JSON.stringify(repHome));
+const repTools = await rep.evaluate(async () => { document.getElementById("quick-add").click(); await new Promise((r) => setTimeout(r, 400)); const out = [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()); document.querySelector(".modal-close")?.click(); return out; });
 if (repTools.includes("Management view")) fail("a rep is offered the management view");
 
 // --- A manager who also sells: sales app by default, with a switch each way.
 await rpc("tm", "set_member_role", { member: U1, new_role: "manager", store: st.id });
 const both = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);
-await both.goto(APP + "/#/tools");
+await both.goto(APP + "/#/");
+// The tools live under "+"; the Management view tile depends on the store's answer about who this is.
+await both.waitForFunction(async () => (await import("/js/team.js")).canManage(), null, { timeout: 15000 });
+await both.evaluate(() => document.getElementById("quick-add").click());
 await both.waitForFunction(() => [...document.querySelectorAll(".qa-label")].some((n) => n.textContent.trim() === "Management view"), null, { timeout: 15000 });
 const stillSales = await both.evaluate(() => !document.body.classList.contains("management"));
 if (!stillSales) fail("a manager with a book was switched to the store's app by default");
@@ -163,7 +166,7 @@ await both.waitForFunction(() => /As of/.test(document.body.textContent), null, 
 const switched = await both.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
 if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 5) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
 await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) => /Sales view/.test(t.textContent)).click(); });
-await both.waitForSelector(".plays-slot", { timeout: 20000 });
+await both.waitForSelector(".today-card", { timeout: 20000 });
 const back = await both.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: document.querySelectorAll(".tabbar .tab").length }));
 if (back.mg || back.tabs !== 5) fail("the switch back to the sales view didn't take: " + JSON.stringify(back));
 

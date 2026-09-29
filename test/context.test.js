@@ -77,7 +77,7 @@ if (added.plan.filter((s) => s.day <= 7).length < 6) fail("fewer than six touche
 if (added.plan[0].ch !== "text" || added.plan[0].intent !== "intro") fail("the first step isn't the intro text");
 if (!added.plan.every((s) => s.of === 13)) fail("steps don't know the plan's length");
 
-// --- 2. The first text is on Home, drafted from the context, held for a tap.
+// --- 2. The first text is on Today's queue, drafted from the context, held for a tap.
 console.log("\nHome — the first text:");
 // The day-zero steps are timed (five minutes, two hours). Move the clock on
 // rather than wait: every timed step's moment has now passed.
@@ -88,7 +88,8 @@ await p.evaluate(async () => {
     .forEach((t) => store.update("tasks", t.id, { readyAt: new Date(Date.now() - 60000).toISOString() }));
 });
 await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(100);
-await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
+await p.evaluate(() => { location.hash = "#/today"; }); await p.waitForTimeout(400);
+await p.waitForSelector(".plays-slot .row", { timeout: 10000 }).catch(() => {});
 const home = await p.evaluate(() => {
   const rows = [...document.querySelectorAll(".plays-slot .row")].map((r) => ({ title: r.querySelector(".strong")?.textContent, sub: r.querySelector(".small")?.textContent, btn: r.querySelector("button.btn, a.btn")?.textContent.trim() }));
   return rows.filter((r) => /Parm/.test(r.title || ""));
