@@ -1285,7 +1285,10 @@ function dealRow(lead, m) {
 // The opportunity view: customers ranked by how ready they are to trade, each
 // with a pitchable deal. This is the Leads list sorted differently, so it
 // renders inside the Leads page rather than owning a tab of its own.
-export function renderDeals(view, { embedded = false } = {}) {
+// `only(lead)` narrows the ranked list to the customers a screen's own
+// filters allow (the Leads chips, search and audience filter under the
+// lens). Returns { redraw } so that screen can re-narrow it in place.
+export function renderDeals(view, { embedded = false, only = null } = {}) {
   const leadsWithData = store.all("leads").some((l) => l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate);
   // The radar can quote the full Nissan lineup whether or not a unit is on the
   // lot, so it only stalls when there is nothing at all to price against.
@@ -1304,12 +1307,12 @@ export function renderDeals(view, { embedded = false } = {}) {
   if (!leadsWithData) {
     list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("dollar", "ico-xl")}</div><div class="strong">No customer data yet</div><div class="small">Import an AutoAlert equity export (current payment, payoff, value) and the radar fills with ready-to-pitch deals.</div><button class="btn btn-primary btn-block" data-act="import" style="margin-top:16px">${icon("file")} Import customers</button></div>`;
     list.querySelector('[data-act="import"]').addEventListener("click", () => navigate("/import"));
-    return;
+    return { redraw() { return 0; } };
   }
   if (!haveInventory) {
     list.innerHTML = `<div class="empty"><div class="empty-icon">${icon("car", "ico-xl")}</div><div class="strong">Nothing to price against</div><div class="small">Import your inventory so the radar can match real stock numbers as well as the new lineup.</div><button class="btn btn-primary btn-block" data-act="inv" style="margin-top:16px">${icon("file")} Import inventory</button></div>`;
     list.querySelector('[data-act="inv"]').addEventListener("click", () => navigate("/import"));
-    return;
+    return { redraw() { return 0; } };
   }
 
   const s = store.getSettings();
@@ -1334,20 +1337,26 @@ export function renderDeals(view, { embedded = false } = {}) {
 
   const countEl = controls.querySelector("#band-count");
   const redraw = () => {
-    const { rows, overBand, overCap, noBaseline } = topOpportunities(50, { withCounts: true });
+    const all = topOpportunities(100000, { withCounts: true });
+    const { overBand, overCap, noBaseline } = all;
+    let rows = only ? all.rows.filter((o) => only(o.lead)) : all.rows;
+    const outside = all.rows.length - rows.length;
+    rows = rows.slice(0, 50);
     list.innerHTML = "";
     // Always say what the controls are doing — otherwise a slider that filters
     // nobody (because no one has a current payment on file) looks broken.
     const bits = [`${rows.length} shown`];
+    if (outside) bits.push(`${outside} outside the filter`);
     if (overBand) bits.push(`${overBand} over the +${currency(store.getSettings().dealMatchBand)}/mo band`);
     if (overCap) bits.push(`${overCap} over the ceiling`);
     if (noBaseline) bits.push(`${noBaseline} with no current payment on file — the band can't filter these, use the ceiling`);
     countEl.textContent = bits.join(" · ");
     if (!rows.length) {
-      list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">Nothing matches these settings. Widen the tolerance, raise the ceiling, switch Finance/Lease, or add inventory.</div>`;
-      return;
+      list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">${outside ? "Nobody in this filter has a deal at these settings — pick another chip, clear the search, or widen the tolerance." : "Nothing matches these settings. Widen the tolerance, raise the ceiling, switch Finance/Lease, or add inventory."}</div>`;
+      return 0;
     }
     rows.forEach((o) => list.appendChild(opportunityCard(o)));
+    return rows.length;
   };
 
   controls.querySelectorAll("[data-method]").forEach((b) =>
@@ -1367,6 +1376,7 @@ export function renderDeals(view, { embedded = false } = {}) {
   capSlider.addEventListener("change", () => { store.updateSettings({ dealMaxPayment: Number(capSlider.value) }); redraw(); });
 
   redraw();
+  return { redraw };
 }
 
 function opportunityCard({ lead, best, score, reasons }) {

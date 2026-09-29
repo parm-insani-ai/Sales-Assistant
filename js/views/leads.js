@@ -172,6 +172,20 @@ export function renderLeads(view, { param }) {
   view.appendChild(wrap);
 
   const hzOf = (l) => (timingReady() ? hz.byId.get(l.id) || null : null);
+  // The ranked list under the lens, when it's on: { redraw } from renderDeals.
+  let lens = null;
+  // Does a customer pass the chip, the search and the audience filter? The
+  // plain list and the ranked list narrow by the same rule.
+  const passes = (l) => {
+    if (filter === "active" && ["delivered", "lost"].includes(l.stage)) return false;
+    if (filter === "due" && !(!["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0)) return false;
+    if (filter === "timing" && !(timingReady() && hz.byId.has(l.id))) return false;
+    if (!["all", "active", "due", "timing"].includes(filter) && l.stage !== filter) return false;
+    const q = search.toLowerCase();
+    if (q && !haystack(l).includes(q)) return false;
+    if (aud && !inAudience(aud, l)) return false;
+    return true;
+  };
 
   function draw() {
     const q = search.toLowerCase();
@@ -218,9 +232,9 @@ export function renderLeads(view, { param }) {
     // sitting directly on the list they filter. Under the lens, or while
     // selecting, the parts that don't apply aren't drawn at all.
     wrap.innerHTML = `
-      ${ranked ? "" : `<div class="searchbar">
+      <div class="searchbar">
         <input type="search" placeholder="Search leads…" value="${esc(search)}" />
-      </div>`}
+      </div>
       ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
         <button class="btn btn-ghost btn-sm" data-act="sel-all" style="flex:0 0 auto">Select all shown</button>
@@ -231,9 +245,9 @@ export function renderLeads(view, { param }) {
       <div class="btn-row lead-actions">
         <button class="btn btn-primary" data-act="add-lead">Add customer</button>
         <button class="btn btn-ghost" data-act="select">Select</button>
-        <button class="btn ${ranked ? "btn-primary" : "btn-ghost"}" data-act="opp" aria-pressed="${ranked}">By opportunity</button>
+        <button class="btn ${ranked ? "btn-primary" : "btn-ghost"}" data-act="opp" aria-pressed="${ranked}">${ranked ? "✓ By opportunity" : "By opportunity"}</button>
       </div>`}
-      ${ranked ? "" : `<div class="lead-chips">
+      ${`<div class="lead-chips">
         <button class="btn btn-sm ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}">${icon("search")} ${aud ? "Filter on" : "Filter"}</button>
         ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}">${esc(c.label)}</button>`).join("")}
       </div>
@@ -268,13 +282,14 @@ export function renderLeads(view, { param }) {
       if (tb) tb.textContent = timingLabel();
       if (filter === "timing") renderList();
     });
+    // Under the lens the same chips, search and filter narrow the ranked
+    // list, and the lit button is the way back to the plain one.
+    lens = null;
     if (ranked) {
-      renderDeals(listEl, { embedded: true });
-      on('[data-act="add-lead"]', () => openLeadForm());
-      on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
-      return;
-    }
-    if (!list.length) {
+      listEl.innerHTML = `<div class="lead-summary small muted">Ranked by how ready they are to trade, each with the deal. The chips, search and filter above narrow it. Tap <b>✓ By opportunity</b> for the plain list.</div>`;
+      lens = renderDeals(listEl, { embedded: true, only: passes });
+      const cnt0 = wrap.querySelector(".aud-count"); if (cnt0) cnt0.textContent = String(lens.redraw());
+    } else if (!list.length) {
       listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
     } else if (spot) {
       // Back from a customer: put the same cards back, then the same scroll.
@@ -295,8 +310,14 @@ export function renderLeads(view, { param }) {
       // A breath after the last keystroke, then one redraw of the list —
       // not a redraw per key over three thousand customers.
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { if (wrap.isConnected) renderList(); }, 90);
+      searchTimer = setTimeout(() => { if (wrap.isConnected) refreshList(); }, 90);
     });
+    // The list, or the ranked list under the lens, re-narrowed in place.
+    function refreshList() {
+      if (!lens) return renderList();
+      const n = lens.redraw();
+      const cnt = wrap.querySelector(".aud-count"); if (cnt) cnt.textContent = String(n);
+    }
 
     // Switching filters re-renders only the list and updates the active chip in
     // place — rebuilding the whole view would snap the scrollable filter row
@@ -311,7 +332,7 @@ export function renderLeads(view, { param }) {
             x.classList.toggle("btn-primary", active);
             x.classList.toggle("btn-ghost", !active);
           });
-          renderList();
+          refreshList();
         }));
     }
 

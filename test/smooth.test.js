@@ -314,8 +314,19 @@ console.log("\nBy opportunity:");
   console.log("  on:", JSON.stringify(s));
   if (!s.lit) fail("the button doesn't light up when the lens is on");
   if (!s.ranked) fail("tapping By opportunity didn't show the ranked view");
-  if (s.chips) fail("the chips are still showing under the lens — it's over the whole book");
+  if (!s.chips) fail("the chips should stay under the lens — they narrow the ranked list");
   if (!s.row || !s.row.includes("add-lead")) fail("Add customer disappeared under the lens");
+  // The chips narrow the ranked list: nobody 'working' has a deal on file
+  // here, so that chip empties it, and All brings it back.
+  const dealCards = () => p.evaluate(() => document.querySelectorAll(".deals-list .card").length);
+  await p.evaluate(() => document.querySelector('[data-filter="all"]').click()); await p.waitForTimeout(300);
+  const under = await dealCards();
+  await p.evaluate(() => document.querySelector('[data-filter="working"]').click()); await p.waitForTimeout(300);
+  const narrowed = await dealCards();
+  await p.evaluate(() => document.querySelector('[data-filter="all"]').click()); await p.waitForTimeout(300);
+  const widened = await dealCards();
+  console.log("  ranked list under All:", under, "· under Working:", narrowed, "· back to All:", widened);
+  if (!under || narrowed !== 0 || widened !== under) fail(`the chips don't narrow the ranked list: ${under} → ${narrowed} → ${widened}`);
 
   await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(100);
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(300);
