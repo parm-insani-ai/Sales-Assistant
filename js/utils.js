@@ -7,9 +7,19 @@ export function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}${rand}`;
 }
 
+// toLocaleString builds a formatter on every call — a few microseconds
+// that add up to a tenth of a second when the radar scores three thousand
+// customers. The same amount formats the same way, so remember it.
+const CUR = new Map();
 export function currency(n) {
   const v = Number(n) || 0;
-  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  let s = CUR.get(v);
+  if (s === undefined) {
+    s = v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+    if (CUR.size > 5000) CUR.clear();
+    CUR.set(v, s);
+  }
+  return s;
 }
 
 export function currency2(n) {

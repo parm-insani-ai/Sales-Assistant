@@ -369,7 +369,9 @@ function optionsForVehicle(lead, v, opts = {}) {
   // "No cash down entered" is not the same as "$0 down": the first shows an
   // advertised lease as advertised, the second reprices it to zero down.
   const downGiven = opts.down != null && opts.down !== "";
-  const base = financeBase(lead, opts.down);
+  // The radar resolves the customer's side once per customer, not once per
+  // vehicle, and passes it in.
+  const base = opts.base || financeBase(lead, opts.down);
   const sp = specialFor(v);
   // New units carry the taxable add-ons (AVP, freight, air tax, tire levy) in
   // the price and plate registration as the untaxed fee; used units keep the
@@ -532,7 +534,9 @@ export function equity(lead) {
 //   null     no defensible trade value (only the wash assumption), so unknown
 // A missing trade value must never read as "negative the whole payoff".
 export function equityDetail(lead) {
-  const inp = dealInputs(lead);
+  return equityFromInputs(dealInputs(lead));
+}
+function equityFromInputs(inp) {
   if (inp.value.v == null || inp.value.src === "wash") return { v: null, src: null };
   if (inp.payoff.v == null) return { v: null, src: null };
   const solid = inp.value.src === "known" && inp.payoff.src === "known";
@@ -550,23 +554,32 @@ function yearsOwned(iso) {
 // Returns { score (0-100), reasons[] } — the reasons are the "why" chips.
 export function scoreOpportunity(lead, best) {
   const s = store.getSettings();
+  const eqD = equityDetail(lead);
+  const theirs = lead.currentApr != null && lead.currentApr !== "" ? Number(lead.currentApr) : inferApr(lead);
+  return scoreParts(lead, {
+    has: !!best, cur: lead.currentPayment, monthly: best ? best.monthly : null,
+    apr: best && best.apr != null ? best.apr : null, special: best ? best.special : null,
+    eq: eqD.v, eqSrc: eqD.src, theirs, band: s.dealMatchBand || 50,
+  });
+}
+// The same score from the parts, so the radar can score from a price sheet
+// (equity and the customer's rate already resolved) without pricing again.
+function scoreParts(lead, { has, cur, monthly, apr, special, eq, eqSrc, theirs, band }) {
+  const s = store.getSettings();
   const reasons = [];
   let score = 0;
 
-  const cur = lead.currentPayment;
-  if (cur != null && best) {
-    const delta = best.monthly - cur;
+  if (cur != null && has) {
+    const delta = monthly - cur;
     if (delta <= -20) { score += 48; reasons.push(`${currency(Math.round(-delta))}/mo less`); }
-    else if (delta <= (s.dealMatchBand || 50)) { score += 40; reasons.push("Same payment"); }
+    else if (delta <= (band || 50)) { score += 40; reasons.push("Same payment"); }
     else if (delta <= 100) { score += 22; reasons.push(`+${currency(Math.round(delta))}/mo`); }
     else { score += 6; }
-  } else if (best) {
+  } else if (has) {
     score += 10; // can still pitch a fresh vehicle even without their payment
   }
 
-  const eqD = equityDetail(lead);
-  const eq = eqD.v;
-  const eqTag = eqD.src === "est" ? "~" : "";
+  const eqTag = eqSrc === "est" ? "~" : "";
   if (eq != null && eq >= 3000) { score += 20; reasons.push(`${eqTag}${currency(eq)} equity`); }
   else if (eq != null && eq > 0) { score += 10; reasons.push("Positive equity"); }
   else if (eq != null && eq < -2000) { reasons.push(`${eqTag}${currency(-eq)} upside down`); }
@@ -583,8 +596,7 @@ export function scoreOpportunity(lead, best) {
 
   // Rate story: their rate (on file, or solved from payment + payoff +
   // maturity) vs the actual program rate on the matched deal.
-  const theirs = lead.currentApr != null && lead.currentApr !== "" ? Number(lead.currentApr) : inferApr(lead);
-  const progApr = best && best.apr != null ? best.apr : null;
+  const progApr = has && apr != null ? apr : null;
   if (theirs != null && progApr != null && theirs - progApr >= 1.5) {
     score += 14; reasons.push(`~${theirs}% now → ${progApr}% program`);
   } else if (theirs != null && theirs > (s.defaultApr || 0) + 1) {
@@ -592,7 +604,7 @@ export function scoreOpportunity(lead, best) {
   }
 
   // The incentive is pitch material — keep it ahead of the reason cap.
-  if (best && best.special) { score += 10; reasons.splice(Math.min(1, reasons.length), 0, `🏷 ${best.special}`); }
+  if (has && special) { score += 10; reasons.splice(Math.min(1, reasons.length), 0, `🏷 ${special}`); }
 
   return { score: Math.min(100, Math.round(score)), reasons: reasons.slice(0, 3) };
 }
@@ -675,63 +687,266 @@ export function pitchList(lead, n = 3, opts = {}) {
 // Anything else changing (a text marked read, a call logged) leaves the cache
 // alone, which is the point of per-collection counters.
 //
-// A customer's price depends on their own numbers and on the inventory,
-// specials and settings — not on any other customer. So when only customers
-// changed (a contact logged, a note added, a stage moved), the radar keeps
-// every customer whose record is unchanged and re-prices only the ones
-// that changed: one deal run instead of three thousand. Inventory, specials
-// or settings changing re-prices everyone, as it must.
-let radarCache = { global: "", leads: -1, rows: null, counts: null, others: null, per: null };
-function radarGlobalKey() {
-  return ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
+// Two stages, because two very different things change:
+//
+//   Pricing. A customer's payment on each vehicle depends on their own
+//   numbers, the lot, the specials and the money settings — not on any other
+//   customer, and not on the band, the ceiling or the deal type. That is the
+//   expensive part (every customer against every vehicle), so it is done once
+//   per customer into a PRICE SHEET: the monthly, the program rate and the
+//   program label for every vehicle, financed and leased, plus how well the
+//   vehicle fits what they drive. When only customers changed (a contact
+//   logged, a stage moved) the sheets of the unchanged ones are kept and the
+//   changed ones are priced again: one deal run instead of three thousand.
+//
+//   Picking. The band, the ceiling and the deal type decide which row on the
+//   sheet is the one to pitch, whether it makes the radar, and the score.
+//   That is a scan of a few dozen numbers per customer, so moving a slider
+//   re-picks the whole book in a few frames instead of re-pricing it — which
+//   held the screen for the length of a full pricing run before.
+let radarCache = { price: "", leads: -1, pick: "", rows: null, counts: null, others: null, per: null, cols: null };
+
+// The settings the deal math reads. The band, the ceiling and the deal type
+// are deliberately not here: they change what is picked, never what a
+// vehicle costs.
+const PRICE_SETTINGS = ["defaultApr", "defaultTerm", "taxRate", "docFee", "avpRogue", "avpOther", "feeFreight", "feeAirTax", "feeTireLevy", "feePlateReg", "tradeMarginPct", "tradeRecon", "tradeKmPerYear", "tradeKmRate", "leaseRates", "residuals", "leaseMoneyFactor", "leaseTerm", "leaseResidualPct"];
+let priceSettingsMemo = { gen: -1, fp: "" };
+function priceSettingsFp() {
+  const gen = store.generation("settings");
+  if (priceSettingsMemo.gen !== gen) {
+    const s = store.getSettings();
+    priceSettingsMemo = { gen, fp: fingerprint(PRICE_SETTINGS.map((k) => `${k}=${JSON.stringify(s[k] ?? null)}`).join(";")) };
+  }
+  return priceSettingsMemo.fp;
+}
+// What the price sheets depend on, as in-memory counters.
+function priceKey() {
+  return `${store.generation("vehicles")}|${store.generation("specials")}|${priceSettingsFp()}`;
+}
+// What the pick depends on. A slider being dragged previews its value here
+// before it is saved, so the list follows the knob without a settings write
+// (and a database write) on every pixel.
+let pickPreview = null;
+export function previewPick(p) { pickPreview = p ? { ...(pickPreview || {}), ...p } : null; }
+function pickParams() {
+  const s = store.getSettings();
+  const band = pickPreview && pickPreview.band != null ? Number(pickPreview.band) : s.dealMatchBand != null ? Number(s.dealMatchBand) : 50;
+  const cap = pickPreview && pickPreview.cap != null ? Number(pickPreview.cap) || 0 : Number(s.dealMaxPayment) || 0;
+  const method = (pickPreview && pickPreview.method) || s.dealMethod || "both";
+  return { band, cap, method };
+}
+function pickKey() { const p = pickParams(); return `${p.band}|${p.cap}|${p.method}`; }
+
+// The sheet's columns: one per distinct vehicle on offer. Twelve new Rogue
+// SVs at the same price are one column — the options depend on the price,
+// model, trim, year and condition and on nothing else about the unit — and
+// the first such unit stands for the column. Sorted by signature so the
+// order is the same after a relaunch (the store hands records back in a
+// different order than they were saved in), which is what lets last
+// launch's sheets be reused.
+let colCache = { key: "", cols: null };
+const sigOf = (v) => `${v.year}|${v.make}|${v.model}|${v.trim}|${v.price}|${v.condition}|${v.lineup ? 1 : 0}`;
+function columns() {
+  const key = `${store.generation("vehicles")}|${store.generation("specials")}`;
+  if (colCache.cols && colCache.key === key) return colCache.cols;
+  const bySig = new Map();
+  candidateVehicles().forEach((v) => { const sig = sigOf(v); if (!bySig.has(sig)) bySig.set(sig, v); });
+  const sigs = [...bySig.keys()].sort();
+  const units = sigs.map((sig) => bySig.get(sig));
+  colCache = { key, cols: { sigs, units, cls: units.map((v) => classifyUnit(v)) } };
+  return colCache.cols;
+}
+
+// Program labels are a handful of strings shared by thousands of sheets;
+// a sheet holds an index into this table.
+let labels = [];
+const labelIdx = new Map();
+function internLabel(s) {
+  let i = labelIdx.get(s);
+  if (i == null) { i = labels.length; labels.push(s); labelIdx.set(s, i); }
+  return i;
+}
+
+// One customer, priced against every column. Row j of the sheet is column
+// j >> 1, financed when j is even and leased when it is odd; NaN where that
+// option doesn't exist (a lease-only program, a deal type that can't be
+// built). Null when there is nothing about the customer to price.
+function priceSheet(l, cols) {
+  const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
+  if (!hasData) return null;
+  const n = cols.units.length;
+  const monthly = new Float64Array(2 * n).fill(NaN);
+  const apr = new Float32Array(2 * n).fill(NaN);
+  const label = new Int16Array(2 * n).fill(-1);
+  const fit = new Int16Array(n);
+  // The customer's side of every deal — trade, payoff, rate — resolved once,
+  // not once per vehicle.
+  const s = store.getSettings();
+  const inp = dealInputs(l);
+  const base = { down: 0, tradeAllowance: inp.value.v || 0, tradePayoff: inp.payoff.v || 0, fees: 0, taxRate: s.taxRate, apr: num(s.defaultApr) };
+  const owned = classify(String(l.vehicleInterest || ""));
+  for (let i = 0; i < n; i++) {
+    const v = cols.units[i];
+    optionsForVehicle(l, v, { method: "both", base }).forEach((o) => {
+      const j = 2 * i + (o.method === "lease" ? 1 : 0);
+      monthly[j] = o.monthly;
+      apr[j] = o.apr != null ? Number(o.apr) : NaN;
+      label[j] = o.special ? internLabel(String(o.special)) : -1;
+    });
+    fit[i] = fitScore(owned, cols.cls[i], v);
+  }
+  const eqD = equityFromInputs(inp);
+  const theirs = l.currentApr != null && l.currentApr !== "" ? Number(l.currentApr) : inferApr(l);
+  return { monthly, apr, label, fit, eq: eqD.v, eqSrc: eqD.src, theirs };
+}
+
+// A row on the radar. The pitch (`best`) and the like-for-like
+// `replacement` are built from the sheet the first time they are asked for
+// — one deal run for one vehicle — so re-picking the book makes three
+// thousand light rows, not three thousand priced deals.
+class RadarRow {
+  constructor(lead, cols, sheet, j, rep, score, reasons) {
+    this.lead = lead; this.score = score; this.reasons = reasons;
+    this._cols = cols; this._sheet = sheet; this._j = j; this._rep = rep;
+  }
+  get best() { return materialize(this.lead, this._cols, this._sheet, this._j); }
+  get replacement() { return materialize(this.lead, this._cols, this._sheet, this._rep); }
+}
+// The closest deal for someone the radar turned away, and why.
+class RadarMiss {
+  constructor(lead, cols, sheet, j, why) { this.lead = lead; this.why = why; this._cols = cols; this._sheet = sheet; this._j = j; }
+  get best() { return materialize(this.lead, this._cols, this._sheet, this._j); }
+}
+// A built row is kept on the sheet, which lives as long as the customer's
+// record and the pricing do — so a re-pick that lands on the same vehicle
+// (nearly all of them) hands back the row already built.
+function materialize(lead, cols, sheet, j) {
+  const mat = sheet.mat || (sheet.mat = new Map());
+  let row = mat.get(j);
+  if (row !== undefined) return row;
+  const v = cols.units[j >> 1], method = j & 1 ? "lease" : "finance";
+  const o = optionsForVehicle(lead, v, { method }).find((x) => x.method === method);
+  const cur = lead.currentPayment != null ? lead.currentPayment : null;
+  row = o ? { ...o, vehicle: v, delta: cur != null ? o.monthly - cur : null } : null;
+  mat.set(j, row);
+  return row;
+}
+
+// One customer through the band, the ceiling and the deal type: which row
+// to pitch, whether they make the radar, and the score. The same choice as
+// pickPitch() makes from priced rows — "can they move?" answered by the
+// payment (the best fit within the band, else the closest payment) and
+// "what would they come to see?" by what they drive (the best fit of all).
+function pickOne(l, sheet, cols, { band, cap, method }) {
+  if (!sheet) return { kind: "none" };
+  const cur = l.currentPayment != null ? Number(l.currentPayment) : null;
+  const m = sheet.monthly, fit = sheet.fit, n2 = m.length;
+  let rep = -1, repFit = 0, repClose = 0, repMon = 0;
+  let best = -1, bestFit = 0, bestClose = 0, bestMon = 0;
+  let near = -1, nearClose = 0;
+  for (let j = 0; j < n2; j++) {
+    if (method === "finance" && (j & 1)) continue;
+    if (method === "lease" && !(j & 1)) continue;
+    const mo = m[j];
+    if (mo !== mo) continue; // NaN: no such option
+    const f = fit[j >> 1];
+    const close = cur != null ? Math.abs(mo - cur) : mo;
+    if (rep < 0 || f > repFit || (f === repFit && (close < repClose || (close === repClose && mo < repMon)))) { rep = j; repFit = f; repClose = close; repMon = mo; }
+    if (cur == null) continue;
+    if (near < 0 || close < nearClose) { near = j; nearClose = close; }
+    if (mo - cur <= band && (best < 0 || f > bestFit || (f === bestFit && (close < bestClose || (close === bestClose && mo < bestMon))))) { best = j; bestFit = f; bestClose = close; bestMon = mo; }
+  }
+  if (rep < 0) return { kind: "none" };
+  const j = cur == null ? rep : best >= 0 ? best : near;
+  const mo = m[j];
+  const delta = cur != null ? mo - cur : null;
+  // The ones the radar turns away are still an answer — "the closest deal
+  // is +$210/mo, because of the negative equity" — so keep them for the
+  // read of the book (closestDeal).
+  if (cap && mo > cap) return { kind: "cap", j };
+  // Only surface customers whose new payment stays within their tolerance.
+  if (delta != null && delta > band) return { kind: "band", j };
+  const a = sheet.apr[j];
+  const { score, reasons } = scoreParts(l, { has: true, cur, monthly: mo, apr: a === a ? a : null, special: sheet.label[j] >= 0 ? labels[sheet.label[j]] : null, eq: sheet.eq, eqSrc: sheet.eqSrc, theirs: sheet.theirs, band });
+  if (score <= 0) return { kind: "quiet", noBaseline: delta == null };
+  return { kind: "row", noBaseline: delta == null, j, rep, score, reasons };
+}
+
+// The whole book through the pick: the ranked rows, the near misses, the
+// counts the controls explain themselves with.
+function pickAll(per, leads, cols) {
+  const params = pickParams();
+  const out = [], others = new Map();
+  let overBand = 0, overCap = 0, noBaseline = 0;
+  for (const l of leads) {
+    const e = per.get(l.id);
+    const r = pickOne(l, e ? e.sheet : null, cols, params);
+    if (r.kind === "cap") { overCap++; others.set(l.id, new RadarMiss(l, cols, e.sheet, r.j, "cap")); }
+    else if (r.kind === "band") { overBand++; others.set(l.id, new RadarMiss(l, cols, e.sheet, r.j, "band")); }
+    else if (r.kind === "row") { if (r.noBaseline) noBaseline++; out.push(new RadarRow(l, cols, e.sheet, r.j, r.rep, r.score, r.reasons)); }
+    else if (r.kind === "quiet" && r.noBaseline) noBaseline++;
+  }
+  out.sort((a, b) => b.score - a.score);
+  return { rows: out, others, counts: { overBand, overCap, noBaseline }, pick: `${params.band}|${params.cap}|${params.method}` };
 }
 
 export function topOpportunities(limit = 50, opts = {}) {
-  const global = radarGlobalKey(), leads = store.generation("leads");
-  if (!radarCache.rows || radarCache.global !== global || radarCache.leads !== leads) {
-    const full = computeOpportunities(radarCache.global === global ? radarCache.per : null);
-    radarCache = { global, leads, rows: full.rows, others: full.others, per: full.per, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
+  if (!radarCurrent()) {
+    const price = priceKey(), leads = store.generation("leads");
+    const full = computeOpportunities(radarCache.price === price ? radarCache.per : null);
+    radarCache = { price, leads, pick: full.pick, rows: full.rows, others: full.others, per: full.per, cols: full.cols, counts: full.counts };
     radarStats.syncRuns++;
-    rememberRadar();
+    if (full.priced) rememberRadar();
   }
   const rows = radarCache.rows.slice(0, limit);
   return opts.withCounts ? { rows, ...radarCache.counts } : rows;
 }
 
-// Is the radar's answer current for what's on file right now? Screens ask
-// this before they lean on it: when it isn't, they paint without it and
-// warm it in the background rather than freezing while it computes.
 export function radarCurrent() {
-  return !!radarCache.rows && radarCache.global === radarGlobalKey() && radarCache.leads === store.generation("leads");
+  return !!radarCache.rows && radarCache.price === priceKey() && radarCache.leads === store.generation("leads") && radarCache.pick === pickKey();
 }
-// Current, or close enough to catch up in one tick: an answer exists and
-// only customers changed since (a contact logged, today's prospects
-// stamped), so bringing it up to date re-prices a handful, not the book.
-// A lot, a special or a setting that changed means everyone again — that
-// is the case that warms in the background.
+// Current, or close enough to catch up in one tick: the book is priced
+// against this lot and these money settings, so whatever moved since — a
+// slider, a contact logged, today's prospects stamped — is a re-pick and a
+// handful of customers priced, not the book. A lot, a special or a money
+// setting that changed means everyone again — that is the case that warms
+// in the background.
 export function radarCheap() {
-  return !!radarCache.rows && radarCache.global === radarGlobalKey();
+  return !!radarCache.per && radarCache.price === priceKey();
 }
 
 // What the radar's answer depends on, as content rather than in-memory
 // counters (which restart at zero every launch): the lot, the specials,
-// the deal settings, and whose phone this is.
+// the deal settings, and whose phone this is. (assess.js keys its read of
+// the book on this; the band is part of that read.)
 export function radarContentKey() {
   const s = store.getSettings();
   const deal = ["dealMatchBand", "dealMaxPayment", "dealMethod", "defaultApr", "defaultTerm", "taxRate", "docFee", "avpRogue", "avpOther", "feeFreight", "feeAirTax", "feeTireLevy", "feePlateReg", "tradeMarginPct", "tradeRecon", "leaseRates", "residuals", "leaseMoneyFactor"].map((k) => `${k}=${JSON.stringify(s[k] ?? null)}`).join(";");
+  return "radar:v1:" + ownerFp() + ":" + fingerprint(deal) + ":" + lotFp();
+}
+// What the price sheets depend on, as content: the same without the band,
+// the ceiling and the deal type, which a sheet is priced regardless of.
+function priceContentKey() {
+  return "sheets:v1:" + ownerFp() + ":" + priceSettingsFp() + ":" + lotFp();
+}
+function ownerFp() {
+  let owner = ""; try { owner = localStorage.getItem("viniva:owner") || ""; } catch { /* no owner */ }
+  return fingerprint(owner);
+}
+function lotFp() {
   // Sorted: the store hands records back in a different order after a
   // relaunch than the order they were saved in.
   const lot = store.all("vehicles").map((v) => `${v.id}|${v.price}|${v.status}|${v.condition}|${v.trim}|${v.year}|${v.model}`).sort().join(",");
   const sp = store.all("specials").map((x) => JSON.stringify(x)).sort().join(",");
-  let owner = ""; try { owner = localStorage.getItem("viniva:owner") || ""; } catch { /* no owner */ }
-  return "radar:v1:" + fingerprint(owner) + ":" + fingerprint(deal) + ":" + fingerprint(lot) + ":" + fingerprint(sp);
+  return fingerprint(lot) + ":" + fingerprint(sp);
 }
 
-export const radarStats = { syncRuns: 0, warmRuns: 0, priced: 0, restored: 0, warming: false, attempts: 0 };
-export function radarDebug() { return { rows: radarCache.rows ? radarCache.rows.length : null, global: radarCache.global, leads: radarCache.leads, genLeads: store.generation("leads"), genGlobal: radarGlobalKey(), per: radarCache.per ? radarCache.per.size : 0 }; }
+export const radarStats = { syncRuns: 0, warmRuns: 0, priced: 0, restored: 0, warming: false, attempts: 0, picks: 0 };
+export function radarDebug() { return { rows: radarCache.rows ? radarCache.rows.length : null, price: radarCache.price, pick: radarCache.pick, leads: radarCache.leads, genLeads: store.generation("leads"), genPrice: priceKey(), genPick: pickKey(), per: radarCache.per ? radarCache.per.size : 0 }; }
 
-// Serialise the per-customer prices for the next launch. A row carries the
-// customer object; only the id is stored and the record is rejoined on load.
+// Serialise a structure that carries customer objects for the next launch:
+// only the id is stored and the record is rejoined on load. (assess.js keeps
+// its read of the book this way.)
 export function stripLead(x) {
   if (!x || typeof x !== "object") return x;
   if (Array.isArray(x)) return x.map(stripLead);
@@ -747,16 +962,19 @@ export function rejoinLead(x, byId) {
   for (const k of Object.keys(x)) out[k] = rejoinLead(x[k], byId);
   return out;
 }
+
+// The price sheets kept for the next launch, under the columns and the
+// label table they were priced with. Typed arrays go into IndexedDB as they
+// are, so three thousand sheets are a few megabytes and one write.
 let rememberTimer = null;
 function rememberRadar() {
-  if (!radarCache.per) return;
+  if (!radarCache.per || !radarCache.cols) return;
   clearTimeout(rememberTimer);
   rememberTimer = setTimeout(() => {
     try {
-      const key = radarContentKey();
       const per = [];
-      radarCache.per.forEach((v, id) => per.push([id, v.stamp, stripLead(v.r)]));
-      cacheSet("radar", { key, at: Date.now(), per }).catch(() => {});
+      radarCache.per.forEach((v, id) => per.push(v.sheet ? [id, v.stamp, v.sheet.monthly, v.sheet.apr, v.sheet.label, v.sheet.fit, v.sheet.eq, v.sheet.eqSrc, v.sheet.theirs] : [id, v.stamp, null]));
+      cacheSet("radar", { key: priceContentKey(), at: Date.now(), sigs: radarCache.cols.sigs, labels: labels.slice(), per }).catch(() => {});
     } catch { /* the cache is a convenience */ }
   }, 1500);
 }
@@ -765,10 +983,20 @@ async function restoreRadar() {
   radarStats.restored = 1;
   try {
     const saved = await cacheGet("radar");
-    if (!saved || saved.key !== radarContentKey()) return null;
+    if (!saved || saved.key !== priceContentKey() || !Array.isArray(saved.sigs) || !Array.isArray(saved.per)) return null;
+    const cols = columns();
+    if (saved.sigs.length !== cols.sigs.length || saved.sigs.some((s, i) => s !== cols.sigs[i])) return null;
+    // Last launch's label table may not be this launch's: re-index.
+    const remap = (saved.labels || []).map((s) => internLabel(String(s)));
     const byId = new Map(store.all("leads").map((l) => [l.id, l]));
     const per = new Map();
-    saved.per.forEach(([id, stamp, r]) => { if (byId.has(id)) per.set(id, { stamp, r: rejoinLead(r, byId) }); });
+    saved.per.forEach(([id, stamp, monthly, apr, label, fit, eq, eqSrc, theirs]) => {
+      if (!byId.has(id)) return;
+      if (!monthly) { per.set(id, { stamp, sheet: null }); return; }
+      if (monthly.length !== 2 * cols.sigs.length) return;
+      for (let k = 0; k < label.length; k++) if (label[k] >= 0) label[k] = remap[label[k]] ?? -1;
+      per.set(id, { stamp, sheet: { monthly, apr, label, fit, eq, eqSrc, theirs } });
+    });
     return per;
   } catch { return null; }
 }
@@ -786,49 +1014,45 @@ export function warmRadar(onProgress) {
     // Last launch's prices, when the lot and the settings are as they were:
     // a customer whose record hasn't changed is not priced again.
     const restored = await restoreRadar();
-    if (restored && !radarCache.per) radarCache = { ...radarCache, per: restored, global: radarGlobalKey(), rows: radarCache.rows };
+    if (restored && !radarCache.per) radarCache = { ...radarCache, per: restored, price: priceKey(), cols: columns() };
+    let priced = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       radarStats.attempts++;
-      const global = radarGlobalKey(), leads = store.generation("leads");
-      const prev = radarCache.global === global ? radarCache.per : null;
+      const price = priceKey(), leads = store.generation("leads");
+      const prev = radarCache.price === price ? radarCache.per : null;
       const full = await computeOpportunitiesAsync(prev, onProgress);
+      priced = priced || full.priced;
       // The book moved underneath (a sync landed): price what changed and go again.
-      if (global !== radarGlobalKey() || leads !== store.generation("leads")) {
-        radarCache = { global, leads: -1, rows: radarCache.rows || [], others: full.others, per: full.per, counts: radarCache.counts };
+      if (price !== priceKey() || leads !== store.generation("leads")) {
+        radarCache = { price, leads: -1, pick: "", rows: radarCache.rows || [], others: full.others, per: full.per, cols: full.cols, counts: radarCache.counts };
         continue;
       }
-      radarCache = { global, leads, rows: full.rows, others: full.others, per: full.per, counts: { overBand: full.overBand, overCap: full.overCap, noBaseline: full.noBaseline } };
+      radarCache = { price, leads, pick: full.pick, rows: full.rows, others: full.others, per: full.per, cols: full.cols, counts: full.counts };
       break;
     }
     radarStats.warmRuns++;
-    rememberRadar();
+    if (priced) rememberRadar();
     try { window.dispatchEvent(new CustomEvent("viniva-radar", { detail: { rows: radarCache.rows ? radarCache.rows.length : 0 } })); } catch { /* no window */ }
   })().finally(() => { warming = null; radarStats.warming = false; });
   return warming;
 }
 
+// The sheets brought up to date — everyone whose record changed since they
+// were priced, priced again — then the whole book picked. `priced` says
+// whether anyone was, so the remembered sheets are rewritten only when
+// they changed.
 async function computeOpportunitiesAsync(prev, onProgress) {
-  const s = store.getSettings();
-  const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
-  const cap = Number(s.dealMaxPayment) || 0;
-  const method = s.dealMethod || "both";
+  const cols = columns();
   const per = new Map();
-  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0, others: new Map(), per };
-  const out = [];
-  const others = new Map();
-  let overBand = 0, overCap = 0, noBaseline = 0;
   const leads = store.all("leads");
-  let sliceStart = performance.now(), done = 0;
+  if (!cols.units.length) return { rows: [], counts: { overBand: 0, overCap: 0, noBaseline: 0 }, others: new Map(), per, cols, pick: pickKey(), priced: false };
+  let sliceStart = performance.now(), done = 0, priced = false;
   for (const l of leads) {
     const was = prev && prev.get(l.id);
-    let r;
-    if (was && was.stamp === l.updatedAt) r = was.r;
-    else { r = priceOne(l, { band, cap, method }); radarStats.priced++; }
-    per.set(l.id, { stamp: l.updatedAt, r });
-    if (r.kind === "cap") { overCap++; others.set(l.id, r.other); }
-    else if (r.kind === "band") { overBand++; others.set(l.id, r.other); }
-    else if (r.kind === "row") { if (r.noBaseline) noBaseline++; out.push(r.row.lead === l ? r.row : { ...r.row, lead: l }); }
-    else if (r.kind === "quiet" && r.noBaseline) noBaseline++;
+    let sheet;
+    if (was && was.stamp === l.updatedAt) sheet = was.sheet;
+    else { sheet = priceSheet(l, cols); radarStats.priced++; priced = true; }
+    per.set(l.id, { stamp: l.updatedAt, sheet });
     done++;
     // About a frame and a half of work, then let the screen breathe.
     if (performance.now() - sliceStart > 24) {
@@ -837,59 +1061,26 @@ async function computeOpportunitiesAsync(prev, onProgress) {
       sliceStart = performance.now();
     }
   }
-  out.sort((a, b) => b.score - a.score);
-  return { rows: out, overBand, overCap, noBaseline, others, per };
-}
-
-// One customer, priced. `kind` says where they landed: on the radar (row),
-// turned away over the ceiling or the band (other), priced but not worth
-// showing, or not priceable at all.
-function priceOne(l, { band, cap, method }) {
-  const hasData = l.currentPayment != null || l.currentValue != null || l.payoff != null || l.leaseEnd || l.purchaseDate;
-  if (!hasData) return { kind: "none" };
-  const rows = dealsForLead(l, { method });
-  const best = pickPitch(rows, l);
-  if (!best) return { kind: "none" };
-  // The ones the radar turns away are still an answer — "the closest deal
-  // is +$210/mo, because of the negative equity" — so keep them for the
-  // read of the book (closestDeal).
-  if (cap && best.monthly > cap) return { kind: "cap", other: { best, why: "cap" } };
-  // Only surface customers whose new payment stays within their tolerance.
-  if (best.delta != null && best.delta > band) return { kind: "band", other: { best, why: "band" } };
-  const { score, reasons } = scoreOpportunity(l, best);
-  if (score <= 0) return { kind: "quiet", noBaseline: best.delta == null };
-  // What to pitch, as opposed to what fits: the replacement for what they
-  // drive, from the same priced rows (assess.js reads it).
-  const replacement = pickPitch(rows, l, { preferReplacement: true });
-  return { kind: "row", noBaseline: best.delta == null, row: { lead: l, best, score, reasons, replacement } };
+  radarStats.picks++;
+  return { ...pickAll(per, leads, cols), per, cols, priced };
 }
 
 function computeOpportunities(prev) {
-  const s = store.getSettings();
-  const band = s.dealMatchBand != null ? s.dealMatchBand : 50;
-  // A ceiling on the monthly payment itself. The band compares against what
-  // they pay today, so it can't filter anyone whose payment we don't know —
-  // a paid-off customer has no baseline. The cap applies to everyone.
-  const cap = Number(s.dealMaxPayment) || 0;
-  const method = s.dealMethod || "both";
+  const cols = columns();
   const per = new Map();
-  if (!candidateVehicles().length) return { rows: [], overBand: 0, overCap: 0, noBaseline: 0, others: new Map(), per };
-  const out = [];
-  const others = new Map();
-  let overBand = 0, overCap = 0, noBaseline = 0;
-  store.all("leads").forEach((l) => {
+  const leads = store.all("leads");
+  if (!cols.units.length) return { rows: [], counts: { overBand: 0, overCap: 0, noBaseline: 0 }, others: new Map(), per, cols, pick: pickKey(), priced: false };
+  let priced = false;
+  leads.forEach((l) => {
     const was = prev && prev.get(l.id);
-    // Same record as last time: same price. (A row carries the lead object;
-    // it is the same object when nothing about it changed.)
-    const r = was && was.stamp === l.updatedAt ? was.r : priceOne(l, { band, cap, method });
-    per.set(l.id, { stamp: l.updatedAt, r });
-    if (r.kind === "cap") { overCap++; others.set(l.id, r.other); }
-    else if (r.kind === "band") { overBand++; others.set(l.id, r.other); }
-    else if (r.kind === "row") { if (r.noBaseline) noBaseline++; out.push(r.row.lead === l ? r.row : { ...r.row, lead: l }); }
-    else if (r.kind === "quiet" && r.noBaseline) noBaseline++;
+    // Same record as last time: same sheet.
+    let sheet;
+    if (was && was.stamp === l.updatedAt) sheet = was.sheet;
+    else { sheet = priceSheet(l, cols); radarStats.priced++; priced = true; }
+    per.set(l.id, { stamp: l.updatedAt, sheet });
   });
-  out.sort((a, b) => b.score - a.score);
-  return { rows: out, overBand, overCap, noBaseline, others, per };
+  radarStats.picks++;
+  return { ...pickAll(per, leads, cols), per, cols, priced };
 }
 
 // The closest deal for a customer the radar turned away (over the band or
@@ -1336,7 +1527,7 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
     </div>`;
 
   const countEl = controls.querySelector("#band-count");
-  const redraw = () => {
+  const paint = () => {
     const all = topOpportunities(100000, { withCounts: true });
     const { overBand, overCap, noBaseline } = all;
     let rows = only ? all.rows.filter((o) => only(o.lead)) : all.rows;
@@ -1347,7 +1538,7 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
     // nobody (because no one has a current payment on file) looks broken.
     const bits = [`${rows.length} shown`];
     if (outside) bits.push(`${outside} outside the filter`);
-    if (overBand) bits.push(`${overBand} over the +${currency(store.getSettings().dealMatchBand)}/mo band`);
+    if (overBand) bits.push(`${overBand} over the +${currency(pickParams().band)}/mo band`);
     if (overCap) bits.push(`${overCap} over the ceiling`);
     if (noBaseline) bits.push(`${noBaseline} with no current payment on file — the band can't filter these, use the ceiling`);
     countEl.textContent = bits.join(" · ");
@@ -1359,34 +1550,44 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
     return rows.length;
   };
 
-  // A new band, ceiling or deal type re-prices the book. Doing that inside
-  // the slider's own event froze the screen for the length of it — the knob
-  // stuck, then the list jumped. Now the list dims and says it's updating,
-  // the radar re-prices a slice at a time yielding to the screen (the same
-  // path Home warms on), and the list redraws when it's current. Moves that
-  // land while it's working are folded into the same run.
-  const update = () => {
+  // The book priced against this lot: a new band, ceiling or deal type is a
+  // re-pick from the price sheets — a few frames for three thousand
+  // customers — and the list follows the knob as it moves. The book not yet
+  // priced (a cold launch, a lot that changed): the list dims and says it's
+  // updating while the radar prices a slice at a time yielding to the screen
+  // (the same path Home warms on), and paints when it's current.
+  let warmingList = false;
+  const redraw = () => {
+    if (radarCheap()) { list.classList.remove("deals-stale"); return paint(); }
+    if (warmingList) return 0;
+    warmingList = true;
     list.classList.add("deals-stale");
     countEl.textContent = "Updating…";
     warmRadar((done, total) => { if (total > 300) countEl.textContent = `Updating… ${Math.round((done / total) * 100)}%`; })
-      .then(() => { if (!el.isConnected) return; if (!radarCurrent()) return update(); list.classList.remove("deals-stale"); redraw(); })
-      .catch(() => { if (el.isConnected) { list.classList.remove("deals-stale"); redraw(); } });
+      .catch(() => {})
+      .then(() => { warmingList = false; if (el.isConnected) redraw(); });
+    return 0;
   };
+  // One paint per frame while a slider is dragged, whatever the rate of
+  // input events.
+  let frame = 0;
+  const preview = (p) => { previewPick(p); if (!frame) frame = requestAnimationFrame(() => { frame = 0; if (el.isConnected) redraw(); }); };
+  const settle = (patch) => { previewPick(null); if (frame) { cancelAnimationFrame(frame); frame = 0; } store.updateSettings(patch); redraw(); };
+  window.addEventListener("viniva-leaving", () => previewPick(null), { once: true });
   controls.querySelectorAll("[data-method]").forEach((b) =>
     b.addEventListener("click", () => {
-      store.updateSettings({ dealMethod: b.dataset.method });
       controls.querySelectorAll("[data-method]").forEach((x) => x.classList.toggle("active", x === b));
-      update();
+      settle({ dealMethod: b.dataset.method });
     }));
   const slider = controls.querySelector("#band-slider");
   const bandVal = controls.querySelector("#band-val");
-  slider.addEventListener("input", () => { bandVal.textContent = `+${currency(Number(slider.value))}/mo`; });
-  slider.addEventListener("change", () => { store.updateSettings({ dealMatchBand: Number(slider.value) }); update(); });
+  slider.addEventListener("input", () => { bandVal.textContent = `+${currency(Number(slider.value))}/mo`; preview({ band: Number(slider.value) }); });
+  slider.addEventListener("change", () => settle({ dealMatchBand: Number(slider.value) }));
   const capSlider = controls.querySelector("#cap-slider");
   const capVal = controls.querySelector("#cap-val");
   const capText = (v) => (v ? currency(v) + "/mo" : "off");
-  capSlider.addEventListener("input", () => { capVal.textContent = capText(Number(capSlider.value)); });
-  capSlider.addEventListener("change", () => { store.updateSettings({ dealMaxPayment: Number(capSlider.value) }); update(); });
+  capSlider.addEventListener("input", () => { capVal.textContent = capText(Number(capSlider.value)); preview({ cap: Number(capSlider.value) }); });
+  capSlider.addEventListener("change", () => settle({ dealMaxPayment: Number(capSlider.value) }));
 
   redraw();
   return { redraw };

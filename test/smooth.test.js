@@ -350,38 +350,51 @@ console.log("\nBy opportunity:");
 }
 
 // --- "It's not smooth loading the changes when I move the payment sliders."
-// A new band re-prices the whole book. Done inside the slider's change
-// event that froze the screen for ~400ms here (longer on a phone): the knob
-// stuck, then the list jumped. Now the event returns at once, the list dims
-// and says it's updating while the radar re-prices in slices, and it
-// redraws once the answer is current — with the new band applied.
+// "It needs to be way faster at updating."
+// A new band used to re-price the whole book — ~400ms here, longer on a
+// phone — first inside the slider's own event (the knob stuck, then the list
+// jumped), then in the background behind a dimmed list (smooth, but a wait).
+// The band, the ceiling and the deal type don't change what a vehicle
+// costs, only which one is picked: the book is priced once into per-customer
+// price sheets, and a slider move re-picks from them. So the list follows
+// the knob as it moves, and the change event paints the new answer within
+// a couple of frames — no dimming, no wait.
 console.log("payment sliders:");
 {
   await p.evaluate(() => { location.hash = "#/deals"; }); await p.waitForTimeout(400);
   await p.waitForSelector("#band-slider");
+  await p.waitForFunction(async () => { const d = await import("/js/views/dealbuilder.js"); return d.radarCurrent(); }, null, { timeout: 20000 });
   const r = await p.evaluate(async () => {
     const db = await import("/js/views/dealbuilder.js");
+    const store = await import("/js/store.js");
     const s = document.querySelector("#band-slider");
-    s.value = "120";
+    const list = document.querySelector(".deals-list");
+    // The list shows fifty at most, so the band's effect is read from the
+    // count it turns away.
+    const shown = () => Number((document.querySelector("#band-count").textContent.match(/(\d+) over the/) || [0, 0])[1]);
+    const priced0 = db.radarStats.priced;
+    // Dragging: the list previews the knob's value before it is let go.
+    s.value = "0";
+    s.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const tight = { shown: shown(), label: document.querySelector("#band-count").textContent, saved: store.getSettings().dealMatchBand };
+    // Let go at a wide band: the change event itself paints the answer.
+    s.value = "200";
     const t0 = performance.now();
     s.dispatchEvent(new Event("input", { bubbles: true }));
     s.dispatchEvent(new Event("change", { bubbles: true }));
     const blocked = performance.now() - t0;
-    const list = document.querySelector(".deals-list");
-    const dimmed = list.classList.contains("deals-stale");
-    const label = document.querySelector("#band-count").textContent;
-    // Longest gap between frames while it works = the worst freeze.
-    let worst = 0, last = performance.now(), frames = 0;
-    await new Promise((res) => { const tick = () => { const now = performance.now(); worst = Math.max(worst, now - last); last = now; frames++; if (list.classList.contains("deals-stale") || frames < 5) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
-    const total = performance.now() - t0;
-    return { blocked: Math.round(blocked), dimmed, label, worst: Math.round(worst), total: Math.round(total), current: db.radarCurrent(), band: (await import("/js/store.js")).getSettings().dealMatchBand, cards: list.querySelectorAll(".card").length };
+    const wide = { shown: shown(), current: db.radarCurrent(), saved: store.getSettings().dealMatchBand, dimmed: list.classList.contains("deals-stale"), cards: list.querySelectorAll(".card").length };
+    return { blocked: Math.round(blocked * 10) / 10, tight, wide, repriced: db.radarStats.priced - priced0 };
   });
   console.log("  " + JSON.stringify(r));
-  if (r.blocked > 100) fail(`the slider's change event blocked the screen for ${r.blocked}ms`);
-  if (!r.dimmed || !/Updating/.test(r.label)) fail("the list didn't dim and say it was updating");
-  if (r.worst > 250) fail(`the screen froze for ${r.worst}ms while the radar re-priced`);
-  if (r.total > 5000) fail(`the list took ${r.total}ms to come current`);
-  if (!r.current || r.band !== 120 || !r.cards) fail(`the list didn't redraw with the new band: ${JSON.stringify(r)}`);
+  if (r.blocked > 120) fail(`the slider's change event took ${r.blocked}ms to paint the new answer`);
+  if (r.tight.saved === 0) fail("dragging the slider wrote the settings before it was let go");
+  if (!/over the \+\$0\/mo band/.test(r.tight.label)) fail("the list didn't follow the knob while it was dragged: " + r.tight.label);
+  if (r.wide.saved !== 200 || !r.wide.current) fail(`letting go didn't save the band and bring the radar current: ${JSON.stringify(r.wide)}`);
+  if (r.wide.dimmed || !r.wide.cards) fail("the list waited on a re-price instead of painting at once");
+  if (!r.tight.shown || r.wide.shown >= r.tight.shown) fail(`widening the band from +$0 to +$200 didn't let more through: ${r.tight.shown} → ${r.wide.shown} over the band`);
+  if (r.repriced) fail(`a slider move priced ${r.repriced} customers again — it should only re-pick`);
 }
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
