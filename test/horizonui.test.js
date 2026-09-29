@@ -76,7 +76,11 @@ if (!leasesTab.months[0].startsWith(m2)) fail("the soonest lease comes first: " 
 // --- The Timing chip on Leads: the same read, soonest first, month and reason on the card.
 await rep.evaluate(() => { location.hash = "#/leads"; });
 await rep.waitForSelector('[data-filter="timing"]', { timeout: 15000 });
-await rep.click('[data-filter="timing"]');
+// The count is on the chip before it's tapped — read in the background as Leads opens.
+await rep.waitForFunction(() => /^Timing \d/.test(document.querySelector('[data-filter="timing"]')?.textContent.trim() || ""), null, { timeout: 10000 }).catch(() => fail("the Timing chip doesn't carry its count before it's tapped: " + "see below"));
+const tapped = await rep.evaluate(() => { const t0 = performance.now(); document.querySelector('[data-filter="timing"]').click(); return performance.now() - t0; });
+console.log("timing chip switch took", Math.round(tapped), "ms");
+if (tapped > 250) fail("switching to the Timing chip lagged: " + Math.round(tapped) + "ms");
 await rep.waitForFunction(() => document.querySelectorAll(".lead-list .hz-line").length >= 3, null, { timeout: 10000 });
 const chip = await rep.evaluate(() => ({
   chip: document.querySelector('[data-filter="timing"]')?.textContent.trim(),

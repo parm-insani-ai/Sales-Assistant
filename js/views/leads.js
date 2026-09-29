@@ -29,7 +29,7 @@ import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
 import { inAudience } from "../outreach.js";
 import { openAudienceFilter, audienceLabel } from "./audience.js";
-import { horizonBook, monthLabel } from "../horizon.js";
+import { horizonFor, monthLabel } from "../horizon.js";
 import { makeMatcher } from "../match.js";
 
 // The words a customer can be found by, lowercased once per record rather
@@ -39,6 +39,46 @@ function haystack(l) {
   let h = HAY.get(l);
   if (h == null) { h = [l.name, l.phone, l.vehicleInterest, l.source, l.notes].join(" ").toLowerCase(); HAY.set(l, h); }
   return h;
+}
+
+// ---- Timing, read once per book and kept ----
+// The Timing chip's count and list are the whole book priced against the
+// lot (horizon.js), which is too much to do inside a tap. It's read once,
+// in slices so the screen keeps moving, and kept until the book, the lot or
+// the settings change — so the chip carries its number the moment Leads
+// opens and switching to it costs nothing.
+let hz = { key: "", rows: null, byId: null, warming: null };
+const hzKey = () => ["leads", "vehicles", "settings"].map((n) => store.generation(n)).join("|");
+function timingReady() { return !!hz.rows && hz.key === hzKey(); }
+function timingRows() { return timingReady() ? hz.rows : null; }
+function timingLabel() { return timingReady() ? `Timing ${hz.rows.length.toLocaleString()}` : "Timing …"; }
+function warmTiming() {
+  if (timingReady()) return Promise.resolve(hz.rows);
+  if (hz.warming) return hz.warming;
+  // The read replaces `hz` when it lands — and lands synchronously on a
+  // small book — so the promise is held here, not looked up afterwards.
+  const run = (async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const key = hzKey();
+      const leads = store.all("leads");
+      const s = store.getSettings();
+      const lot = store.all("vehicles");
+      const o = { now: new Date(), defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot.length ? makeMatcher(lot, s) : null };
+      const out = [];
+      for (let i = 0; i < leads.length; i += 150) {
+        leads.slice(i, i + 150).forEach((l) => { const h = horizonFor(l, o); if (h && h.m != null) out.push({ lead: l, hz: h }); });
+        if (i + 150 < leads.length) await new Promise((r) => setTimeout(r, 0));
+      }
+      if (key !== hzKey()) continue; // the book moved under the read; go again
+      out.sort((a, b) => a.hz.m - b.hz.m || String(a.lead.name || "").localeCompare(String(b.lead.name || "")));
+      hz = { key, rows: out, byId: new Map(out.map((r) => [r.lead.id, r.hz])), warming: null };
+      return out;
+    }
+    hz.warming = null;
+    return hz.rows || [];
+  })();
+  if (!timingReady()) hz.warming = run;
+  return run;
 }
 
 export function renderLeads(view, { param }) {
@@ -125,27 +165,14 @@ export function renderLeads(view, { param }) {
   const wrap = document.createElement("div");
   view.appendChild(wrap);
 
-  // The Timing chip: every owner in the month their window opens (see
-  // horizon.js), soonest first, the month and the reason on the card. Read
-  // once per draw, only when the chip is on — it prices the whole book.
-  let timingCache = null;
-  function timingRows() {
-    const leads = store.all("leads");
-    if (timingCache && timingCache.leads === leads) return timingCache.rows;
-    const s = store.getSettings();
-    const lot = store.all("vehicles");
-    const rows = horizonBook(leads, { now: new Date(), defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot.length ? makeMatcher(lot, s) : null }).filter((r) => r.hz.m != null);
-    timingCache = { leads, rows };
-    return rows;
-  }
-  const hzOf = (l) => { const r = timingCache && timingCache.rows.find((x) => x.lead.id === l.id); return r ? r.hz : null; };
+  const hzOf = (l) => (timingReady() ? hz.byId.get(l.id) || null : null);
 
   function draw() {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
-    else if (filter === "timing") list = timingRows().map((r) => r.lead);
+    else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
@@ -175,7 +202,7 @@ export function renderLeads(view, { param }) {
       { id: "all", label: withCount("All", "all") },
       { id: "active", label: withCount("Active", "active") },
       { id: "due", label: withCount("Due follow-ups", "due") },
-      { id: "timing", label: filter === "timing" ? `Timing ${timingRows().length.toLocaleString()}` : "Timing" },
+      { id: "timing", label: timingLabel() },
       ...LEAD_STAGES.map((s) => ({ id: s.id, label: withCount(s.label, s.id) })),
     ];
 
@@ -227,6 +254,14 @@ export function renderLeads(view, { param }) {
     on('[data-act="aud-email"]', () => blast("email"));
 
     const listEl = wrap.querySelector(".lead-list");
+    // The Timing count, when it isn't already known: read the book in the
+    // background and fill the chip in place — and the list, if it's on.
+    if (!timingReady()) warmTiming().then(() => {
+      if (!wrap.isConnected) return;
+      const tb = wrap.querySelector('[data-filter="timing"]');
+      if (tb) tb.textContent = timingLabel();
+      if (filter === "timing") renderList();
+    });
     if (ranked) {
       renderDeals(listEl, { embedded: true });
       on('[data-act="add-lead"]', () => openLeadForm());
@@ -270,9 +305,6 @@ export function renderLeads(view, { param }) {
             x.classList.toggle("btn-primary", active);
             x.classList.toggle("btn-ghost", !active);
           });
-          // Timing's count is only worth computing when it's on.
-          const tb = wrap.querySelector('[data-filter="timing"]');
-          if (tb) tb.textContent = filter === "timing" ? `Timing ${timingRows().length.toLocaleString()}` : "Timing";
           renderList();
         }));
     }
@@ -354,6 +386,14 @@ export function renderLeads(view, { param }) {
     el.innerHTML = "";
     const cnt = wrap.querySelector(".aud-count");
     if (cnt) cnt.textContent = filtered.length.toLocaleString();
+    // Timing before the book has been read for it: a moment, then the list
+    // (the warm-up above redraws when it lands).
+    if (filter === "timing" && !timingReady()) {
+      shown = 0;
+      el.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Reading the book for timing…</div></div>`;
+      warmTiming().then(() => { if (wrap.isConnected && filter === "timing") renderList(); });
+      return;
+    }
     if (!filtered.length) {
       shown = 0;
       el.innerHTML = emptyState("users", filter === "timing" ? "Nobody to time yet" : "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : filter === "timing" ? "Owners with a trade value, a payment or a lease end on file get a month here — the month it starts to make sense." : "Nothing in this filter yet.");
@@ -361,7 +401,7 @@ export function renderLeads(view, { param }) {
     }
     // Timing: a line above the list saying what it is.
     if (filter === "timing" && !selecting && !search && !aud) {
-      const rows = timingRows();
+      const rows = timingRows() || [];
       const now = rows.filter((r) => r.hz.m === 0).length, six = rows.filter((r) => r.hz.m > 0 && r.hz.m <= 6).length;
       const summary = document.createElement("div");
       summary.className = "lead-summary small muted";
@@ -439,7 +479,7 @@ export function renderLeads(view, { param }) {
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
     if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
     else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
-    else if (filter === "timing") list = timingRows().map((r) => r.lead);
+    else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
