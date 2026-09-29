@@ -308,7 +308,6 @@ function renderApptDetail(view, id) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Calendar</button>
     <div class="card">
       <div class="row-title" style="font-size:1.3rem">${icon(t.icon)} ${esc(a.title || t.label)}</div>
       <div class="row-sub" style="margin-top:4px">${esc(a.customerName || "")}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
@@ -339,7 +338,6 @@ function renderApptDetail(view, id) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/calendar"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openAppointmentForm(a));
   el.querySelector('[data-act="ics"]').addEventListener("click", () => addToCalendar(a));
   const leadBtn = el.querySelector('[data-act="lead"]');

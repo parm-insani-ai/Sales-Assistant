@@ -247,6 +247,10 @@ body.typing #app, body.kb-open #app {
 }
 .icon-btn:active { transform: scale(0.9); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+/* The back arrow in the top left: a quiet round button, the chevron only. */
+#topbar-back { flex: none; margin-right: 6px; }
+#topbar-back svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+#topbar-back[hidden] { display: none !important; }
 /* .icon-btn sets display, which beats the UA rule for [hidden] — so a hidden
    button stays on screen. Say it explicitly. */
 .topbar-actions [hidden] { display: none !important; }

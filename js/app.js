@@ -1,6 +1,6 @@
 // App bootstrap: routing, page titles, quick-add menu, service worker.
 
-import { route, startRouter, currentBase, navigate } from "./router.js";
+import { route, startRouter, currentBase, navigate, goBack } from "./router.js";
 import * as store from "./store.js";
 import { interceptSmsLinks } from "./sms.js";
 import { initViewport } from "./viewport.js";
@@ -168,13 +168,27 @@ function mount(base, ctx) {
   document.getElementById("topbar-actions").querySelectorAll(":scope > :not(#quick-add)")
     .forEach((n) => n.remove());
   document.getElementById("quick-add").hidden = false;
-  title.textContent = ctx.param ? detailTitle(base) : page.title;
+  // The top left is a back arrow on any screen you can go back from — a
+  // customer, a tool, a conversation — and nothing on a tab's own screen.
+  // No words: the screen says what it is. (A conversation puts the
+  // customer's name there itself.)
+  title.textContent = "";
+  const roots = [...document.querySelectorAll(".tabbar .tab[data-route]")].map((t) => t.dataset.route);
+  const sub = !!ctx.param || !roots.includes(base);
+  const back = document.getElementById("topbar-back");
+  back.hidden = !sub;
+  back.onclick = () => goBack(parentOf(base, ctx.param, roots));
   page.render(view, ctx);
   updateTabs(base);
 }
 
-function detailTitle(base) {
-  return { "/leads": "Lead", "/inventory": "Vehicle", "/deliveries": "Delivery", "/calendar": "Appointment", "/inbox": "Conversation" }[base] || "Details";
+// Where "back" lands when there's no history to step through: a detail
+// page to its list, a tool to the tab it belongs to.
+function parentOf(base, param, roots) {
+  if (param && roots.includes(base)) return base;
+  if (param && base === "/inbox") return "/comms";
+  if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
+  return roots.includes("/tools") && base !== "/settings" && base !== "/insights" && base !== "/team" ? "/tools" : "/";
 }
 
 function updateTabs(base) {

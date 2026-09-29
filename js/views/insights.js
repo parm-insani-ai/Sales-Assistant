@@ -33,7 +33,6 @@ export function renderInsights(view) {
   }
 
   function draw() {
-    const bar0 = document.getElementById("page-title"); if (bar0) bar0.textContent = "Insights";
     if (!team || !isManager(team)) {
       el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's numbers are the manager's. Your own are under Goals in the sales view." : "Set up the store under Team first."}</div>`;
       return;

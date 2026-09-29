@@ -85,7 +85,6 @@ export function renderImport(view) {
   try { preType = sessionStorage.getItem("import-type") || ""; sessionStorage.removeItem("import-type"); } catch {}
 
   el.innerHTML = `
-    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Home</button>
     <div class="card">
       <div class="strong" style="font-size:1.1rem">Import a spreadsheet</div>
       <p class="small muted">Load an <b>Excel (.xlsx)</b> or <b>CSV</b> file — an inventory export from vAuto, a customer/equity export from AutoAlert, or your own prospect list.</p>
@@ -112,7 +111,6 @@ export function renderImport(view) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/"));
 
   // Show the outreach toggle only for lead/prospect imports.
   const typeSel = el.querySelector("#imp-type");

@@ -61,7 +61,6 @@ export function renderCustomers(view) {
   }
 
   function draw() {
-    const bar = document.getElementById("page-title"); if (bar) bar.textContent = "Customers";
     if (!team || !isManager(team)) {
       el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's book is the manager's. Your own customers are under Leads in the sales view." : "Set up the store under Team first."}</div>`;
       return;

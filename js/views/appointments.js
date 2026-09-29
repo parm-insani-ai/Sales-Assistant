@@ -47,7 +47,6 @@ export function renderAppointments(view) {
   }
 
   function draw() {
-    const bar = document.getElementById("page-title"); if (bar) bar.textContent = "Appointments";
     if (!team || !isManager(team)) {
       el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's board is the manager's. Your own appointments are under Calendar in the sales view." : "Set up the store under Team first."}</div>`;
       return;

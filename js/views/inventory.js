@@ -179,7 +179,6 @@ function renderVehicleDetail(view, id) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Inventory</button>
     <div class="card">
       <div class="row">
         <div class="row-main"><div class="row-title" style="font-size:1.3rem">${esc(vehicleName(v))}</div></div>
@@ -220,7 +219,6 @@ function renderVehicleDetail(view, id) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/inventory"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openVehicleForm(v));
   el.querySelector('[data-act="marketplace"]').addEventListener("click", () => openMarketplaceBuilder(v));
   el.querySelector('[data-act="quote"]').addEventListener("click", () => {

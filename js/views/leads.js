@@ -929,7 +929,6 @@ function renderLeadDetail(view, id) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Leads</button>
 
     <div class="card">
       <div class="row">
@@ -1008,7 +1007,6 @@ function renderLeadDetail(view, id) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/leads"));
   el.querySelectorAll('[data-act="money"]').forEach((n) => n.addEventListener("click", () => openMoneyForm(l)));
   // Tap-to-edit: the name box opens the form focused on that field.
   el.querySelectorAll("[data-edit]").forEach((n) =>

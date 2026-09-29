@@ -32,7 +32,6 @@ export function renderSettings(view) {
   const sampleLoaded = hasSampleData();
   const el = document.createElement("div");
   el.innerHTML = `
-    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Home</button>
 
     <div class="section-title">Your info</div>
     <div class="card">
@@ -197,7 +196,6 @@ export function renderSettings(view) {
   `;
   view.appendChild(el);
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/"));
   el.querySelector('[data-act="csv"]').addEventListener("click", () => (location.hash = "/import"));
 
   el.querySelector('[data-act="sample"]').addEventListener("click", async () => {

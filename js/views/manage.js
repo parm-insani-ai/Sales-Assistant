@@ -62,7 +62,6 @@ export function renderManageHome(view) {
   }
 
   function draw() {
-    const bar = document.getElementById("page-title"); if (bar) bar.textContent = isAdmin(team) ? "Admin" : "Manager";
     if (!team) { drawNoStore(); return; }
     const manager = isManager(team);
     const stats = board && board.storeId === team.id ? board.stats : null;

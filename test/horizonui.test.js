@@ -36,12 +36,13 @@ await rep.goto(APP + "/#/horizon");
 await rep.waitForSelector(".hz-row", { timeout: 20000 });
 const timing = await rep.evaluate(() => ({
   title: document.querySelector("#page-title")?.textContent.trim(),
+  back: !document.querySelector("#topbar-back")?.hidden,
   plan: document.querySelector(".mg-plan .strong")?.textContent.trim(),
   sections: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()),
   rows: [...document.querySelectorAll(".hz-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.replace(/\s+/g, " ").trim(), why: r.querySelector(".row-reasons").textContent.trim(), btn: r.querySelector("button")?.textContent.trim() })),
 }));
 console.log("timing:", JSON.stringify(timing, null, 1));
-if (timing.title !== "Timing") fail("the screen isn't titled Timing");
+if (timing.title || !timing.back) fail("a tool screen should carry the back arrow and no words in the top left: " + JSON.stringify({ title: timing.title, back: timing.back }));
 if (!/2 ready now · 1 open up in the next six months/.test(timing.plan || "")) fail("the plan line: " + timing.plan);
 const byName = Object.fromEntries(timing.rows.map((r) => [r.name.replace(/\s*(Now|[A-Z][a-z]{2} \d{4})$/, ""), r]));
 if (!byName["Rich Now"] || !/Now$/.test(byName["Rich Now"].name) || !/equity now/.test(byName["Rich Now"].why)) fail("Rich Now should be now: " + JSON.stringify(byName["Rich Now"]));

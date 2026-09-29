@@ -117,7 +117,6 @@ function renderDeliveryDetail(view, id) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <button class="btn btn-ghost btn-sm" data-act="back" style="margin-bottom:12px">← Deliveries</button>
     <div class="card">
       <div class="row">
         <div class="row-main">
@@ -181,7 +180,6 @@ function renderDeliveryDetail(view, id) {
 
   function refresh() { view.innerHTML = ""; renderDeliveryDetail(view, id); }
 
-  el.querySelector('[data-act="back"]').addEventListener("click", () => goBack("/deliveries"));
   el.querySelector('[data-act="edit"]').addEventListener("click", () => openDeliveryForm(d));
   el.querySelector('[data-act="add-item"]').addEventListener("click", () => {
     openModal("Add item", (close) => {
