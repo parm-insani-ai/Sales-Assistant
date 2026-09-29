@@ -86,9 +86,13 @@ await rep.waitForFunction(() => document.querySelectorAll(".lead-list .hz-line")
 const chip = await rep.evaluate(() => ({
   chip: document.querySelector('[data-filter="timing"]')?.textContent.trim(),
   summary: document.querySelector(".lead-summary")?.textContent.replace(/\s+/g, " ").trim(),
-  cards: [...document.querySelectorAll(".lead-list [data-lead-id]")].map((c) => ({ name: c.querySelector(".row-title").textContent.trim(), hz: c.querySelector(".hz-line")?.textContent.replace(/\s+/g, " ").trim() })),
+  cards: [...document.querySelectorAll(".lead-list [data-lead-id]")].map((c) => ({ name: c.querySelector(".row-title").textContent.trim(), hz: c.querySelector(".hz-line")?.textContent.replace(/\s+/g, " ").trim(), meta: c.querySelector(".row-meta")?.textContent.replace(/\s+/g, " ").trim() })),
 }));
 console.log("leads timing chip:", JSON.stringify(chip, null, 1));
+// "Why do some customers in Timing have a Now badge and a Worth a call
+// badge?" — the tier answers how strong, the month answers when; under
+// Timing only the month is a badge (the reasons still say the strength).
+if (chip.cards.some((c) => /Hot|Strong|Worth a call/.test(c.meta || ""))) fail("a Timing card carries the tier badge next to its month: " + JSON.stringify(chip.cards.map((c) => c.meta)));
 if (chip.chip !== "Timing 4") fail("the chip should carry the count: " + chip.chip);
 if (!/2 ready now · 1 open up in the next six months/.test(chip.summary || "")) fail("the summary line: " + chip.summary);
 if (chip.cards.length !== 4 || !/^Now /.test(chip.cards[0].hz) || !/^Now /.test(chip.cards[1].hz) || chip.cards[2].name !== "Lease Next Year" || !new RegExp("^" + label(5) + " Lease ends").test(chip.cards[2].hz) || chip.cards[3].name !== "Finance Later") fail("the Timing chip isn't soonest first with the month on each: " + JSON.stringify(chip.cards));

@@ -545,8 +545,11 @@ function cardHTML(l, { quick = false, hz = null } = {}) {
   const timing = hz ? `<div class="row-reasons hz-line">${hz.m === 0 ? '<span class="badge badge-due">Now</span>' : `<span class="badge badge-soon">${esc(monthLabel(hz.at))}</span>`} ${esc(hz.why)}</div>` : "";
   // The read of this customer: how strong, and the reasons, right on the
   // card. A quick redraw re-reads this one customer rather than the book.
+  // Under Timing the card answers WHEN, and its badge is the month — the
+  // tier ("Worth a call") answers how strong, and next to "Now" the two
+  // read as one contradictory verdict. The reasons still say the strength.
   const a = quick ? assessQuick(l.id) : assessment(l.id);
-  const tier = a && a.tier ? `<span class="badge ${a.tier.badge}" style="margin-right:6px">${esc(a.tier.label)}</span>` : "";
+  const tier = a && a.tier && !hz ? `<span class="badge ${a.tier.badge}" style="margin-right:6px">${esc(a.tier.label)}</span>` : "";
   const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
   // The last contact, on the card — so logging one is visibly registered.
   const contact = l.lastContacted
