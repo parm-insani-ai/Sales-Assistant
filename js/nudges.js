@@ -99,6 +99,26 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
     });
   });
 
+  // --- 0b. A reminder whose time has come. The salesperson set the moment
+  // themselves, the action is whatever they wrote, and ticking it off (on
+  // Today) makes it go away — all three tests, by construction.
+  store.all("tasks")
+    .filter((t) => !t.done && t.remindAt && t.channel === "reminder")
+    .forEach((t) => {
+      const at = apptTime(t.remindAt);
+      if (!isFinite(at) || at > now || now - at > 24 * HOUR) return;
+      const mins = Math.round((now - at) / MIN);
+      out.push({
+        key: `rem:${t.id}`,
+        urgency: Math.min(97, 90 + Math.floor(mins / 30)),
+        kind: "reminder",
+        title: `⏰ ${t.title}`,
+        sub: `Reminder for ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${mins >= 2 ? ` · ${human(mins)} ago` : ""} — tick it off on Today.`,
+        route: "/today",
+        at: new Date(at).toISOString(),
+      });
+    });
+
   // --- 1. A customer replied and is waiting on you.
   // The most perishable thing in the app, and until now nothing surfaced it
   // outside the Comms tab — you had to go and look.

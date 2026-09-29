@@ -138,7 +138,7 @@ export function getPlays(limit = 6) {
   // 4. Follow-ups due today (with a ready one-tap when the task carries a body).
   const nowISO = new Date(now).toISOString();
   store.all("tasks")
-    .filter((t) => !t.done && t.leadId && t.channel && t.due && t.due <= todayK)
+    .filter((t) => !t.done && t.leadId && t.channel && t.channel !== "reminder" && t.due && t.due <= todayK)
     // A timed step (the welcome text, five minutes after adding someone)
     // isn't on the queue until its minute.
     .filter((t) => !t.readyAt || t.readyAt <= nowISO)

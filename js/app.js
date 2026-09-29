@@ -13,6 +13,7 @@ import { renderInventory, openVehicleForm } from "./views/inventory.js";
 import { openTaskForm } from "./views/tasks.js";
 import { renderCalendar, openAppointmentForm } from "./views/calendar.js";
 import { warmBook } from "./assess.js";
+import { startReminderWatch } from "./reminders.js";
 
 // Screens off Home's path — and the voice assistant with every tool it can
 // call — load the first time they're opened, not at launch. A launch used to
@@ -344,6 +345,9 @@ if (backend.isSignedIn()) {
 // something it reads changes; a cold read of three thousand people is a few
 // hundred milliseconds that shouldn't be paid on a tap.
 setTimeout(() => { try { warmBook(); } catch {} }, 2500);
+// Reminders fire on this phone while the app is open (the cloud's sweep
+// covers it when it isn't).
+startReminderWatch();
 
 // Start cloud sync if it's configured and signed in (no-op otherwise).
 sync.init();

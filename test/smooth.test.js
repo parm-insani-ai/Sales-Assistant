@@ -95,7 +95,7 @@ console.log("\nHome and Today:");
     let heading = false, rowsNow = null;
     const poll = () => {
       const slot = document.querySelector(".plays-slot");
-      if (slot && rowsNow == null) { heading = /Today's queue/.test(slot.textContent); rowsNow = slot.querySelectorAll(".row").length; }
+      if (slot && rowsNow == null) { heading = /Today's queue/.test(document.querySelector('[data-fold="today:queue"] .fold-title')?.textContent || ""); rowsNow = slot.querySelectorAll(".row").length; }
       const rows = slot ? slot.querySelectorAll(".row").length : 0;
       if (rows || performance.now() - t0 > 5000) return res({ heading, rowsNow, rowsLater: rows, filledInMs: Math.round(performance.now() - t0) });
       requestAnimationFrame(poll);

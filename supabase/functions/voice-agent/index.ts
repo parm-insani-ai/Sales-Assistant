@@ -1057,9 +1057,29 @@ async function handleSweep(body: any): Promise<Response> {
     // Written by the app (store.publishPrefs) — the server has no other way
     // to know what time it is where the salesperson is.
     const cfg = (await rows("prefs"))[0] || {};
-    if (cfg.proactive === false) { report.push({ uid: uid.slice(0, 8), skipped: "switched off" }); continue; }
     const offset = Number(cfg.tzOffsetMinutes);
     const tzOffset = isFinite(offset) ? offset : 0;
+
+    // Reminders the salesperson set themselves (a task with remindAt, in
+    // their local wall-clock time) fire at that moment — proactive switch,
+    // quiet hours and business hours notwithstanding: they asked for it.
+    // Once each; a reminder more than a day past is left alone.
+    let remindersPushed = 0;
+    {
+      const already = await sentNudges(uid);
+      const due = (await rows("tasks")).filter((t: any) => {
+        if (t.done || t.channel !== "reminder" || !t.remindAt) return false;
+        const at = wallClockMs(t.remindAt, tzOffset);
+        return isFinite(at) && at <= now && now - at <= 24 * 3600 * 1000 && !already[`rem:${t.id}`];
+      });
+      for (const t of due) {
+        remindersPushed += await sendPush(uid, { title: "Reminder", body: String(t.title || "").slice(0, 120), tag: `rem:${t.id}`, url: "./#/today" });
+        already[`rem:${t.id}`] = new Date().toISOString();
+      }
+      if (due.length) await rememberNudges(uid, already);
+    }
+
+    if (cfg.proactive === false) { report.push({ uid: uid.slice(0, 8), skipped: "switched off", reminders: remindersPushed }); continue; }
     const localNow = new Date(now - tzOffset * 60000);
     const localHour = localNow.getUTCHours();
     const localDow = localNow.getUTCDay();

@@ -1,34 +1,63 @@
-// Today — the day's work in one place: the queue (every reason to contact
-// someone today, ranked, each with its own one-tap action) and the to-dos.
-// This was the lower half of Home. Home is the day at a glance — what's
-// happening right now, the calendar, the numbers — and this tab is what to
-// do about it.
+// Today — the day's work in one place, in three drop-downs: the queue
+// (every reason to contact someone today, ranked, each with its own
+// one-tap action), the reminders (a time that taps you on the shoulder),
+// and the to-dos. This was the lower half of Home. Home is the day at a
+// glance — what's happening right now, the calendar, the numbers — and
+// this tab is what to do about it. Each section remembers whether you
+// left it open.
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
 import { esc } from "../utils.js";
-import { taskListEl, openTaskForm } from "./tasks.js";
+import { taskListEl, openTaskForm, openReminderForm } from "./tasks.js";
 import { icon } from "../icons.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { bookCheap, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
+import { fold, foldCount } from "../fold.js";
+import { reminders } from "../reminders.js";
+import { pushEnabled } from "../push.js";
 
 export function renderToday(view) {
   const el = document.createElement("div");
-  el.innerHTML = `
-    <div class="plays-slot"></div>
-
-    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>To-dos</span>
-      <button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>
-    </div>
-    <div class="tasks-slot"></div>
-  `;
   view.appendChild(el);
-  mountQueue(el.querySelector(".plays-slot"));
+
+  // 1. The queue.
+  const playsSlot = document.createElement("div");
+  playsSlot.className = "plays-slot";
+  const queue = fold({ key: "today:queue", title: "Today's queue", open: true, body: playsSlot });
+  el.appendChild(queue);
+  mountQueue(playsSlot, { onCount: (n) => foldCount(queue, n), heading: false });
+
+  // 2. Reminders — with the note on where they land when the app is closed.
+  const remCount = () => reminders().length;
+  const remBody = document.createElement("div");
+  const remList = () => taskListEl({ kind: "reminder", limit: 20, empty: "No reminders. Tap + Add and pick a time — it'll notify you then, and sit under Right now on Home until you tick it off.", onChange: () => foldCount(rem, remCount()) });
+  remBody.appendChild(remList());
+  const note = document.createElement("div");
+  note.className = "hint";
+  note.style.margin = "6px 2px 0";
+  remBody.appendChild(note);
+  const rem = fold({ key: "today:reminders", title: "Reminders", count: remCount(), open: true, body: remBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-reminder">+ Add</button>` });
+  el.appendChild(rem);
+  rem.querySelector('[data-act="add-reminder"]').addEventListener("click", () => openReminderForm());
+  pushEnabled().then((on) => {
+    if (!note.isConnected) return;
+    note.textContent = on
+      ? "A reminder notifies this phone at its time, app open or closed."
+      : "With the app open a reminder shows here at its time. To get it when the app is closed, turn on notifications under Settings → Notifications.";
+  }).catch(() => {});
+
+  // 3. To-dos.
+  const todoBody = document.createElement("div");
+  const todoCount = () => store.all("tasks").filter((t) => !t.done && !(t.remindAt && t.channel === "reminder")).length;
   // A screenful of to-dos, the rest behind a button — see taskListEl.
-  el.querySelector(".tasks-slot").appendChild(taskListEl({ limit: 12 }));
-  el.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
+  const todos = fold({ key: "today:todos", title: "To-dos", count: todoCount(), open: true, body: todoBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>` });
+  todoBody.appendChild(taskListEl({ limit: 12, onChange: () => foldCount(todos, todoCount()) }));
+  el.appendChild(todos);
+  todos.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
+  // A "tasks-slot" the assistant can scroll to ("what's on my plate").
+  todoBody.classList.add("tasks-slot");
 }
 
 // How many are on the queue right now, or null while the book is still
@@ -46,12 +75,14 @@ export function queueCount() {
 // tick, so the screen shows at once. When the radar's answer isn't current
 // (first launch, a lot that changed overnight) it runs a slice at a time in
 // the background, and the queue says so instead of the screen going stiff.
-export function mountQueue(playsSlot) {
-  playsSlot.innerHTML = `<div class="section-title">Today's queue</div>`;
+export function mountQueue(playsSlot, { onCount = null, heading = true } = {}) {
+  const head = (extra = "") => (heading ? `<div class="section-title">Today's queue${extra}</div>` : "");
+  const say = (n) => { if (onCount) { try { onCount(n); } catch { /* optional */ } } };
+  playsSlot.innerHTML = head();
   const readyPlays = () => { if (document.body.contains(playsSlot)) paintPlays(); };
   if (bookCheap()) setTimeout(readyPlays, 0);
   else {
-    playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
+    playsSlot.innerHTML = `${head()}
       <div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
     const prog = playsSlot.querySelector(".radar-progress");
     warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; })
@@ -59,12 +90,13 @@ export function mountQueue(playsSlot) {
   }
   function paintPlays() {
     const plays = getPlays(40);
+    say(plays.length);
     if (!plays.length) {
-      playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
+      playsSlot.innerHTML = `${head()}
         <div class="card"><div class="muted small" style="text-align:center">All caught up — nothing to chase right now.</div></div>`;
       return;
     }
-    playsSlot.innerHTML = `<div class="section-title">Today's queue <span class="muted">· ${plays.length}</span></div>`;
+    playsSlot.innerHTML = head(` <span class="muted">· ${plays.length}</span>`);
     const box = document.createElement("div");
     box.className = "card";
     plays.forEach((p) => {
@@ -110,6 +142,7 @@ export function mountQueue(playsSlot) {
       row.querySelector("[data-play-x]").addEventListener("click", () => {
         dismissPlay(p);
         row.remove();
+        say(box.querySelectorAll(".row").length);
         box.dispatchEvent(new CustomEvent("viniva:played"));
       });
       box.appendChild(row);
@@ -119,7 +152,7 @@ export function mountQueue(playsSlot) {
     // Emptying the queue by dismissal should read as "done", not as a blank.
     box.addEventListener("viniva:played", () => {
       if (!box.querySelector(".row")) {
-        playsSlot.innerHTML = `<div class="section-title">Today's queue</div>
+        playsSlot.innerHTML = `${head()}
           <div class="card"><div class="muted small" style="text-align:center">Queue cleared — nice work.</div></div>`;
       }
     });

@@ -1,5 +1,8 @@
-// The customer's page is the customer: the details, stage, texting consent,
-// contact history and the actions sit behind the "i" on the name box.
+// The customer's page is the customer: the name box with the ways to reach
+// them, then everything else as drop-downs — the context and the next
+// moves open, the read, the options, the plan, the details, the stage, the
+// history and the actions closed until they're wanted. A drop-down
+// remembers whether it was left open.
 const { launch } = require("./browser.js");
 (async () => {
 const APP = "http://127.0.0.1:8137";
@@ -18,27 +21,57 @@ await p.addInitScript(() => {
   }));
 });
 await p.goto(APP + "/#/leads/a");
-await p.waitForFunction(() => document.querySelector(".info-btn"), null, { timeout: 15000 });
-const page = await p.evaluate(() => ({ titles: [...document.querySelectorAll("#view .section-title")].map((t) => t.textContent.trim().split(" ·")[0]), badge: !!document.querySelector("#view > div > .card .badge"), info: !!document.querySelector(".info-btn") }));
+await p.waitForFunction(() => document.querySelector('[data-fold="lead:actions"]'), null, { timeout: 15000 });
+const page = await p.evaluate(() => ({
+  folds: [...document.querySelectorAll("#view details.fold")].map((d) => [d.dataset.fold, d.open]),
+  titles: [...document.querySelectorAll("#view .fold-title")].map((t) => t.textContent.trim().split(" ·")[0]),
+  badge: document.querySelector('#view .lead-head [data-act="stage-badge"]')?.textContent.trim(),
+  info: !!document.querySelector(".info-btn"),
+  hist: [...document.querySelectorAll("#view .hist-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
+  phone: document.querySelector('#view [data-edit="phone"]')?.textContent.replace(/\s+/g, " ").trim(),
+  stages: document.querySelectorAll("#view [data-stage]").length,
+  actions: ["edit", "deliver", "delete", "logsale", "appointment", "cadence", "referral", "find-car", "log-email", "log-contact"].filter((a) => document.querySelector(`#view [data-act="${a}"]`)).length,
+  // What's actually on screen: only the open drop-downs' bodies.
+  visibleBodies: [...document.querySelectorAll("#view .fold-body")].filter((c) => (c.checkVisibility ? c.checkVisibility() : c.getBoundingClientRect().height > 0)).length,
+}));
 console.log("page:", JSON.stringify(page));
-for (const gone of ["Texting consent", "Quick stage update", "Details", "Email history", "Actions"]) if (page.titles.includes(gone)) fail(`"${gone}" is still on the page`);
-if (!page.info) fail("no i button on the name box");
+const open = Object.fromEntries(page.folds);
+if (page.info) fail("the i button is still on the name box — its sections are drop-downs now");
+if (!["Context", "Next moves", "Details", "Stage", "Contact history", "Actions"].every((t) => page.titles.includes(t))) fail("a section is missing: " + JSON.stringify(page.titles));
+if (!open["lead:context"] || !open["lead:moves"]) fail("the context and the next moves should start open");
+if (open["lead:details"] || open["lead:stage"] || open["lead:history"] || open["lead:actions"] || open["lead:plan"]) fail("the record's sections should start closed: " + JSON.stringify(page.folds));
+if (page.badge !== "Working") fail("the stage isn't on the name box: " + page.badge);
+if (!/555-1111/.test(page.phone || "")) fail("the details aren't on the page");
+if (page.hist.length !== 2 || !/Can I come by Saturday/.test(page.hist[0]) || !/Logged call.*asked about the SV/.test(page.hist[1])) fail("the contact history isn't newest first with the text and the logged call: " + JSON.stringify(page.hist));
+if (page.stages < 5 || page.actions !== 10) fail("stage chips or actions are missing: " + JSON.stringify(page));
+if (page.visibleBodies !== 2) fail(`${page.visibleBodies} drop-downs are open on arrival, not the two (context, next moves) — the page should read at a glance`);
 
-await p.click(".info-btn");
-await p.waitForFunction(() => document.querySelector(".modal .hist-list"), null, { timeout: 5000 });
-const sheet = await p.evaluate(() => ({ titles: [...document.querySelectorAll(".modal .section-title")].map((t) => t.textContent.trim().split(" ·")[0]), hist: [...document.querySelectorAll(".modal .hist-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()), phone: document.querySelector('.modal [data-edit="phone"]')?.textContent.replace(/\s+/g, " ").trim(), stages: document.querySelectorAll(".modal [data-stage]").length, actions: ["edit", "deliver", "delete", "logsale", "appointment", "cadence", "referral", "find-car", "log-email", "log-contact"].filter((a) => document.querySelector(`.modal [data-act="${a}"]`)).length }));
-console.log("sheet:", JSON.stringify(sheet));
-if (!["Details", "Stage", "Contact history", "Actions"].every((t) => sheet.titles.includes(t))) fail("the sheet is missing a section: " + JSON.stringify(sheet.titles));
-if (!/555-1111/.test(sheet.phone || "")) fail("the details aren't in the sheet");
-if (sheet.hist.length !== 2 || !/Can I come by Saturday/.test(sheet.hist[0]) || !/Logged call.*asked about the SV/.test(sheet.hist[1])) fail("the contact history isn't newest first with the text and the logged call: " + JSON.stringify(sheet.hist));
-if (sheet.stages < 5 || sheet.actions !== 10) fail("stage chips or actions are missing from the sheet: " + JSON.stringify(sheet));
-
-// A stage change from the sheet closes it and moves the customer.
-await p.click('.modal [data-stage="appointment"]');
+// Tapping the stage badge opens the Stage drop-down; a stage change from it
+// moves the customer and the page redraws with the drop-down still open.
+await p.click('#view [data-act="stage-badge"]');
+await p.waitForTimeout(300);
+const opened = await p.evaluate(() => document.querySelector('[data-fold="lead:stage"]').open);
+if (!opened) fail("tapping the stage badge didn't open the Stage drop-down");
+await p.click('#view [data-stage="appointment"]');
 await p.waitForTimeout(400);
-const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { stage: s.get("leads", "a").stage, modal: !!document.querySelector(".modal"), page: !!document.querySelector(".info-btn") }; });
+const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { stage: s.get("leads", "a").stage, badge: document.querySelector('[data-act="stage-badge"]')?.textContent.trim(), stageOpen: document.querySelector('[data-fold="lead:stage"]')?.open, contextOpen: document.querySelector('[data-fold="lead:context"]')?.open }; });
 console.log("after stage:", JSON.stringify(after));
-if (after.stage !== "appointment" || after.modal || !after.page) fail("the stage change didn't close the sheet and redraw: " + JSON.stringify(after));
+if (after.stage !== "appointment" || after.badge !== "Appointment" || !after.stageOpen || !after.contextOpen) fail("the stage change didn't take, or the drop-downs didn't come back as they were: " + JSON.stringify(after));
+
+// Closing a drop-down is remembered across visits.
+await p.evaluate(() => { document.querySelector('[data-fold="lead:context"]').open = false; document.querySelector('[data-fold="lead:context"]').dispatchEvent(new Event("toggle")); });
+await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(300);
+await p.evaluate(() => { location.hash = "#/leads/a"; }); await p.waitForTimeout(400);
+const remembered = await p.evaluate(() => ({ context: document.querySelector('[data-fold="lead:context"]')?.open, stage: document.querySelector('[data-fold="lead:stage"]')?.open }));
+console.log("remembered:", JSON.stringify(remembered));
+if (remembered.context !== false || remembered.stage !== true) fail("the drop-downs didn't come back the way they were left: " + JSON.stringify(remembered));
+
+// Sent here to record consent: the details open on arrival.
+await p.evaluate(() => { sessionStorage.setItem("leads-open-info", "a"); location.hash = "#/leads"; });
+await p.waitForTimeout(200);
+await p.evaluate(() => { location.hash = "#/leads/a"; }); await p.waitForTimeout(500);
+const details = await p.evaluate(() => ({ open: document.querySelector('[data-fold="lead:details"]')?.open, consent: !!document.querySelector('[data-act="consent-express"]') }));
+if (!details.open || !details.consent) fail("arriving to record consent didn't open the details: " + JSON.stringify(details));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

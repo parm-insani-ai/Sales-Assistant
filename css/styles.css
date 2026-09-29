@@ -1649,3 +1649,19 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
   .modal-backdrop { left: 236px; }
   #toast-root { left: 236px; bottom: 32px; }
 }
+
+/* --- Drop-down sections (fold.js): a heading you tap to open or close --- */
+.fold { display: block; }
+.fold > summary.fold-head { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.fold > summary.fold-head::-webkit-details-marker { display: none; }
+.fold > summary.fold-head::marker { content: ""; }
+.fold-title { min-width: 0; }
+.fold-right { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.fold-chev { width: 22px; height: 22px; color: var(--muted); display: inline-flex; transition: transform 0.18s ease; }
+.fold-chev svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.fold[open] > summary .fold-chev { transform: rotate(180deg); }
+.fold:not([open]) > summary.fold-head { margin-bottom: 4px; }
+.fold-body > .section-title:first-child { margin-top: 4px; }
+/* A reminder row: the time it fires, and red once it has. */
+.rem-when { font-variant-numeric: tabular-nums; }
+.rem-due .rem-when { color: var(--danger); font-weight: 600; }
