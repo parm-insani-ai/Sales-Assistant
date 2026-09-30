@@ -16,7 +16,7 @@ const msg = (id, from, subject, snippet, text, unread, ago) => ({ id, threadId: 
   payload: { mimeType: "multipart/alternative", headers: [{ name: "From", value: from }, { name: "To", value: "parm.test@gmail.com" }, { name: "Subject", value: subject }, { name: "Message-ID", value: `<${id}@mail.example>` }],
     parts: [{ mimeType: "text/plain", body: { data: b64(text) } }, { mimeType: "text/html", body: { data: b64("<p>" + text + "</p>") } }] } });
 const inbox = {
-  m1: msg("m1", "Dana Muise <dana@example.com>", "Re: the Rogue", "Saturday works for me", "Saturday works for me.\n\nSee you at 10?", true, 3600000),
+  m1: msg("m1", "Dana Muise <dana@example.com>", "Re: the Rogue", "Saturday works for me", "Saturday works for me.\n\nSee you at 10? Directions: https://maps.example/oregans.\n\nOn Mon, Sep 28, 2026 at 2:00 PM Parm <parm.test@gmail.com> wrote:\n> Does Saturday work for a test drive?", true, 3600000),
   m2: msg("m2", "Uncle Bob <bob@family.example>", "Dinner Sunday", "Are you coming", "Are you coming to dinner Sunday?", false, 7200000),
   m3: msg("m3", "no-reply@newsletter.example", "This week's deals", "Big savings", "Big savings inside.", true, 10800000),
 };
@@ -57,8 +57,33 @@ if (!list.rows[0].unread || list.rows[1].unread || !list.rows[2].unread) fail("u
 // --- Open Dana's: the whole text, her page one tap away, a reply in the same thread.
 await p.click(".mail-list .conv-row");
 await p.waitForFunction(() => /See you at 10\?/.test(document.querySelector(".modal .mail-body")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("the message text didn't load"));
-const open = await p.evaluate(() => ({ title: document.querySelector(".modal h2")?.textContent.trim(), customer: document.querySelector('.modal [data-act="open-customer"]')?.textContent.trim(), body: document.querySelector(".modal .mail-body")?.textContent }));
+const open = await p.evaluate(() => ({
+  title: document.querySelector(".modal h2")?.textContent.trim(),
+  customer: document.querySelector('.modal [data-act="open-customer"]')?.textContent.trim(),
+  body: document.querySelector(".modal .mail-body")?.textContent,
+  from: document.querySelector(".modal .mail-from")?.textContent.replace(/\s+/g, " ").trim(),
+  link: document.querySelector('.modal [data-act="open-in"]')?.getAttribute("href"),
+  linkText: document.querySelector('.modal [data-act="open-in"]')?.textContent.trim(),
+  quoteHidden: !document.querySelector(".modal .mail-quote")?.checkVisibility(),
+  href: document.querySelector(".modal .mail-body a")?.getAttribute("href"),
+  replyHidden: !document.querySelector(".modal #mail-reply-text")?.checkVisibility(),
+  detailsHidden: !document.querySelector(".modal .mail-details")?.checkVisibility(),
+  full: document.querySelector(".modal").classList.contains("modal-mail"),
+}));
+console.log("open:", JSON.stringify(open, null, 1));
 if (open.title !== "Re: the Rogue" || !/Dana Muise/.test(open.customer || "") || /<p>/.test(open.body || "")) fail("the message view is wrong: " + JSON.stringify(open));
+if (!/Dana Muise\s*customer.*to me/.test(open.from || "")) fail("the sender row should read like the mail apps (name, customer tag, time, 'to me'): " + open.from);
+if (open.link !== "https://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1" || open.linkText !== "Open in Gmail") fail("Open in Gmail should link to this thread in Gmail: " + open.link + " / " + open.linkText);
+if (!open.quoteHidden || !/Does Saturday work/.test(open.body || "")) fail("the quoted history should be folded behind the dots: " + JSON.stringify(open));
+if (open.href !== "https://maps.example/oregans") fail("links in the text should be tappable, without the trailing period: " + open.href);
+if (!open.replyHidden || !open.full) fail("the reply box waits for a Reply tap, and the email takes the full sheet: " + JSON.stringify(open));
+if (!open.detailsHidden) fail("the full addresses stay folded until the sender row is tapped");
+await p.click(".modal .mail-from");
+if (!(await p.evaluate(() => document.querySelector(".modal .mail-details").checkVisibility() && /dana@example\.com/.test(document.querySelector(".modal .mail-details").textContent)))) fail("tapping the sender should show From / To / Date");
+await p.click(".modal .mail-quote-btn");
+if (!(await p.evaluate(() => document.querySelector(".modal .mail-quote").checkVisibility()))) fail("the dots should unfold the quoted text");
+await p.click('.modal [data-act="reply"]');
+await p.waitForSelector(".modal #mail-reply-text", { state: "visible", timeout: 3000 });
 await p.fill(".modal #mail-reply-text", "10 is perfect — see you then.");
 await p.click('.modal [data-act="send-reply"]');
 await p.waitForFunction(() => !document.querySelector(".modal"), null, { timeout: 8000 }).catch(() => fail("the reply didn't send: " + ""));

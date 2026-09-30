@@ -22,7 +22,7 @@ import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured, lastAutoEmailError } from "../email.js";
 import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
-import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, replyToMessage, composeEmail, customerFor, markRead } from "../mailbox.js";
+import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, replyToMessage, composeEmail, customerFor, markRead, messageLink, parseAddress } from "../mailbox.js";
 import { onPull } from "../pulltorefresh.js";
 import { openLeadForm } from "./leads.js";
 import { formatDateTime } from "../utils.js";
@@ -59,6 +59,43 @@ function when(iso) {
   const today = new Date().toISOString().slice(0, 10);
   const clock = t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   return t.toISOString().slice(0, 10) === today ? clock : formatDate(iso);
+}
+
+// A steady colour per sender, the way the mail apps colour their avatars.
+function avatarColor(key) {
+  let h = 0;
+  for (const c of String(key || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} 40% 46%)`;
+}
+
+// The text as a mail app shows it: links tappable, and the quoted history
+// of the thread ("On … wrote:", "> …", Outlook's "From: / Sent:") folded
+// behind three dots so what's new is what you read.
+function mailHtml(text) {
+  const t = String(text || "").replace(/\r\n/g, "\n");
+  const { fresh, quoted } = splitQuoted(t);
+  let html = linkify(fresh);
+  if (quoted) html += `<button class="mail-quote-btn" type="button" aria-label="Show quoted text">•••</button><div class="mail-quote">${linkify(quoted)}</div>`;
+  return html;
+}
+function splitQuoted(t) {
+  const lines = t.split("\n");
+  let cut = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim(), next = (lines[i + 1] || "").trim();
+    if ((/^On .{4,}/.test(l) && (/wrote:$/.test(l) || /wrote:$/.test(next))) ||
+        /^-{2,}\s*Original Message\s*-{2,}$/i.test(l) || /^_{5,}$/.test(l) ||
+        (/^From: .+/.test(l) && /^(Sent|Date): /.test(next)) || l.startsWith(">")) { cut = i; break; }
+  }
+  if (cut <= 0) return { fresh: t.trim(), quoted: "" };
+  return { fresh: lines.slice(0, cut).join("\n").trim(), quoted: lines.slice(cut).join("\n").trim() };
+}
+function linkify(text) {
+  return String(text).split(/(https?:\/\/[^\s<>"']+)/g).map((p, i) => {
+    if (!(i % 2)) return esc(p);
+    const m = /^(.*?)([.,;:!?)]*)$/.exec(p);
+    return `<a href="${esc(m[1])}" target="_blank" rel="noopener">${esc(m[1])}</a>${esc(m[2])}`;
+  }).join("");
 }
 
 function timeAgo(iso) {
@@ -259,31 +296,62 @@ export function renderComms(view) {
     return row;
   }
 
-  // One email: who, when, the whole text, and the reply box under it.
+  // One email, the way Gmail or Outlook on a phone shows one: the subject
+  // up top, the sender with a coloured avatar and "to me" (tap for the full
+  // addresses), the text at reading size with the thread's history folded
+  // away, then Reply, Open in Gmail/Outlook, and the customer.
   function openMessage(m, lead) {
     markRead(m.id);
+    const who = m.from.name || m.from.addr || "Unknown";
+    const appName = m.provider === "outlook" ? "Outlook" : "Gmail";
+    const link = messageLink(m);
     openModal(m.subject || "(no subject)", (close) => {
       const wrap = document.createElement("div");
+      wrap.className = "mail-view";
       wrap.innerHTML = `
-        <div class="mail-meta">
-          <div class="row-main" style="min-width:0"><div class="strong">${esc(m.from.name || m.from.addr)}</div><div class="small muted">${esc(m.from.addr)}${m.to ? ` · to ${esc(m.to)}` : ""}</div></div>
-          <div class="small muted" style="flex:none">${esc(formatDateTime(m.at))}</div>
+        <div class="mail-from" role="button" aria-expanded="false" title="Show details">
+          <div class="conv-av mail-av" style="background:${avatarColor(m.from.addr || who)}">${esc(initials(who))}</div>
+          <div class="mail-from-main">
+            <div class="mail-from-name"><span>${esc(who)}</span>${lead ? `<span class="conv-tag">customer</span>` : ""}<span class="mail-from-time">${esc(formatDateTime(m.at))}</span></div>
+            <div class="mail-from-sub">to ${esc(toLabel(m))} <span class="chev">▼</span></div>
+          </div>
         </div>
-        <div class="btn-row" style="margin-top:10px">
-          ${lead ? `<button class="btn btn-ghost btn-sm" data-act="open-customer" style="flex:1">${icon("users")} ${esc(lead.name)}</button>` : `<button class="btn btn-ghost btn-sm" data-act="add-customer" style="flex:1">${icon("users")} Add as customer</button>`}
-        </div>
+        <dl class="mail-details" hidden>
+          <dt>From</dt><dd>${esc(m.from.name ? `${m.from.name} <${m.from.addr}>` : m.from.addr)}</dd>
+          <dt>To</dt><dd>${esc(m.to || mailboxAccount() || "me")}</dd>
+          <dt>Date</dt><dd>${esc(fullDate(m.at))}</dd>
+        </dl>
         <div class="mail-body muted">Loading…</div>
-        <div class="mail-reply" style="margin-top:14px">
-          <div class="field"><label>Reply</label><textarea id="mail-reply-text" placeholder="Write your reply…"></textarea></div>
+        <div class="mail-actions">
+          <button class="btn btn-primary" data-act="reply">${icon("send")} Reply</button>
+          ${link ? `<a class="btn btn-ghost" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener">${icon("mail")} Open in ${appName}</a>` : ""}
+          ${lead ? `<button class="btn btn-ghost" data-act="open-customer">${icon("users")} ${esc(lead.name)}</button>` : `<button class="btn btn-ghost" data-act="add-customer">${icon("plus")} Add as customer</button>`}
+        </div>
+        <div class="mail-reply" hidden>
+          <div class="field"><label>Reply to ${esc(who)}</label><textarea id="mail-reply-text" placeholder="Write your reply…"></textarea></div>
           <button class="btn btn-primary btn-block" data-act="send-reply">${icon("send")} Send reply</button>
           <div class="hint" id="mail-reply-out"></div>
         </div>`;
+      const from = wrap.querySelector(".mail-from"), details = wrap.querySelector(".mail-details");
+      from.addEventListener("click", () => { const open = details.hidden; details.hidden = !open; from.setAttribute("aria-expanded", String(open)); });
       const body = wrap.querySelector(".mail-body");
-      messageBody(m).then((t) => { body.classList.remove("muted"); body.textContent = t || "(no text)"; }).catch((e) => { body.textContent = `Couldn't load the message: ${e.message || e}`; });
+      messageBody(m).then((t) => {
+        body.classList.remove("muted");
+        body.innerHTML = t ? mailHtml(t) : "(no text)";
+        const qb = body.querySelector(".mail-quote-btn");
+        if (qb) qb.addEventListener("click", () => { body.querySelector(".mail-quote").classList.add("open"); qb.remove(); });
+      }).catch((e) => { body.textContent = `Couldn't load the message: ${e.message || e}`; });
       const oc = wrap.querySelector('[data-act="open-customer"]');
       if (oc) oc.addEventListener("click", () => { close(); navigate(`/leads/${lead.id}`); });
       const ac = wrap.querySelector('[data-act="add-customer"]');
       if (ac) ac.addEventListener("click", () => { close(); openLeadForm(null, { prefill: { name: m.from.name || "", email: m.from.addr } }); });
+      const replyBox = wrap.querySelector(".mail-reply");
+      wrap.querySelector('[data-act="reply"]').addEventListener("click", () => {
+        replyBox.hidden = false;
+        const ta = replyBox.querySelector("textarea");
+        ta.focus();
+        replyBox.scrollIntoView({ block: "end", behavior: "smooth" });
+      });
       const btn = wrap.querySelector('[data-act="send-reply"]');
       const out = wrap.querySelector("#mail-reply-out");
       btn.addEventListener("click", async () => {
@@ -297,7 +365,20 @@ export function renderComms(view) {
         } catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
       });
       return wrap;
-    });
+    }, { focus: false, className: "modal-mail" });
+  }
+
+  // "to me" when it came to the connected address, like the mail apps say.
+  function toLabel(m) {
+    const me = (mailboxAccount() || "").toLowerCase();
+    const to = String(m.to || "");
+    if (!to || (me && to.toLowerCase().includes(me))) return "me";
+    const p = parseAddress(to.split(",")[0]);
+    return p.name || p.addr || "me";
+  }
+  function fullDate(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? "" : d.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   }
 
   // A new email to anyone — a customer picked from the book, or any address.

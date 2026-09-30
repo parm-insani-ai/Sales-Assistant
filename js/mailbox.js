@@ -134,7 +134,7 @@ async function gmailReply(msg, text) {
 // ---- Outlook ----
 async function outlookList() {
   const token = await outlookAccessToken();
-  const url = `${GRAPH}/me/messages?$top=40&$orderby=receivedDateTime desc&$select=id,conversationId,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,internetMessageId`;
+  const url = `${GRAPH}/me/messages?$top=40&$orderby=receivedDateTime desc&$select=id,conversationId,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,internetMessageId,webLink`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((j.error && j.error.message) || `Mail fetch failed (${res.status})`);
@@ -142,8 +142,21 @@ async function outlookList() {
     id: m.id, threadId: m.conversationId || "", provider: "outlook",
     from: { name: String(m.from?.emailAddress?.name || "").trim(), addr: String(m.from?.emailAddress?.address || "").toLowerCase() },
     to: (m.toRecipients || []).map((r) => r.emailAddress && r.emailAddress.address).filter(Boolean).join(", "),
-    subject: m.subject || "", snippet: m.bodyPreview || "", at: m.receivedDateTime || "", unread: m.isRead === false, messageId: m.internetMessageId || "",
+    subject: m.subject || "", snippet: m.bodyPreview || "", at: m.receivedDateTime || "", unread: m.isRead === false, messageId: m.internetMessageId || "", webLink: m.webLink || "",
   }));
+}
+
+// Where this message lives in the mail app itself. Gmail's web address for
+// a thread opens the Gmail app on a phone that has it (and Gmail in the
+// browser otherwise); Outlook hands each message its own link.
+export function messageLink(m) {
+  if (!m) return "";
+  if (m.provider === "gmail") {
+    const acct = state.account || mailboxAccount();
+    return `https://mail.google.com/mail/${acct ? `?authuser=${encodeURIComponent(acct)}` : "u/0/"}#all/${encodeURIComponent(m.threadId || m.id)}`;
+  }
+  if (m.provider === "outlook") return m.webLink || `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(m.id)}`;
+  return "";
 }
 async function outlookBody(msg) {
   const token = await outlookAccessToken();

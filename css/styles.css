@@ -1702,8 +1702,36 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* --- The mailbox on Comms → Email: a message, read and answered in place --- */
 .mail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mail-head .mail-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mail-subject { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; margin-bottom: 6px; }
-.mail-meta { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-.mail-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 0.95rem; }
-.mail-reply textarea { width: 100%; min-height: 96px; resize: vertical; }
+/* An open email, laid out the way the mail apps lay one out: the subject
+   as the headline, a sender row with a coloured avatar and "to me" that
+   unfolds into the full addresses, the text at reading size with the
+   thread's quoted history folded behind Gmail's three dots, and the
+   actions — Reply, Open in Gmail — under the text. The sheet takes the
+   whole screen so a long email scrolls inside it. */
+.modal-mail { height: 96dvh; max-height: 96dvh; display: flex; flex-direction: column; }
+.modal-mail .modal-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.modal-mail .modal-header { margin-bottom: 14px; align-items: flex-start; }
+.modal-mail .modal-header h2 { font-size: 1.15rem; line-height: 1.3; overflow-wrap: anywhere; }
+.mail-from { display: flex; align-items: center; gap: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mail-av { width: 40px; height: 40px; color: #fff; font-size: 0.95rem; }
+.mail-from-main { flex: 1; min-width: 0; }
+.mail-from-name { display: flex; align-items: baseline; gap: 8px; font-weight: 700; font-size: 0.95rem; }
+.mail-from-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-from-time { margin-left: auto; flex: none; font-size: 0.74rem; font-weight: 500; color: var(--muted); }
+.mail-from-sub { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+.mail-from-sub .chev { font-size: 0.7rem; transition: transform .15s; }
+.mail-from[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.mail-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0 52px; font-size: 0.8rem; }
+.mail-details[hidden] { display: none; }
+.mail-details dt { color: var(--muted); }
+.mail-details dd { margin: 0; overflow-wrap: anywhere; color: var(--text-2); }
+.mail-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 1rem; color: var(--text); }
+.mail-body a { color: var(--brand-strong); text-decoration: underline; text-underline-offset: 2px; }
+.mail-quote-btn { display: block; margin-top: 12px; padding: 0 11px; height: 22px; line-height: 22px; border-radius: 11px; border: none; background: var(--surface-2); color: var(--muted); font-size: 0.8rem; letter-spacing: .1em; cursor: pointer; }
+.mail-quote { display: none; margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border-strong); color: var(--muted); font-size: 0.92rem; }
+.mail-quote.open { display: block; }
+.mail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+.mail-actions .btn { flex: 1 1 auto; padding: 11px 14px; font-size: 0.9rem; }
+.mail-reply { margin-top: 14px; }
+.mail-reply textarea { width: 100%; min-height: 110px; resize: vertical; font-size: 1rem; line-height: 1.5; }
 .conv-row .conv-subject { display: block; font-size: 0.86rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

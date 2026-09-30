@@ -15,12 +15,12 @@ export function closeAllModals() {
   openSheets.clear();
 }
 
-export function openModal(title, render, { onClose, focus = true } = {}) {
+export function openModal(title, render, { onClose, focus = true, className = "" } = {}) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
 
   const modal = document.createElement("div");
-  modal.className = "modal";
+  modal.className = `modal${className ? ` ${className}` : ""}`;
   modal.setAttribute("role", "dialog");
   modal.setAttribute("aria-modal", "true");
 
