@@ -22,7 +22,8 @@ import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured, lastAutoEmailError } from "../email.js";
 import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
-import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, replyToMessage, composeEmail, customerFor, markRead, messageLink, mailAppLink, parseAddress } from "../mailbox.js";
+import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, messageContent, attachmentBlob, replyToMessage, composeEmail, customerFor, markRead, messageLink, mailAppLink, parseAddress } from "../mailbox.js";
+import { draftEmail } from "../maildraft.js";
 import { onPull } from "../pulltorefresh.js";
 import { openLeadForm } from "./leads.js";
 import { formatDateTime } from "../utils.js";
@@ -330,6 +331,7 @@ export function renderComms(view) {
             <dt>Date</dt><dd>${esc(fullDate(m.at))}</dd>
           </dl>
           <div class="mail-body muted">Loading…</div>
+          <div class="mail-atts" hidden></div>
         </div>
         <div class="mail-foot mail-actions">
           <button class="mail-pill" data-act="reply">${icon("reply")} Reply</button>
@@ -339,11 +341,25 @@ export function renderComms(view) {
       const from = wrap.querySelector(".mail-from"), details = wrap.querySelector(".mail-details");
       from.addEventListener("click", (e) => { if (e.target.closest("[data-act]")) return; const open = details.hidden; details.hidden = !open; from.setAttribute("aria-expanded", String(open)); });
       const body = wrap.querySelector(".mail-body");
-      messageBody(m).then((t) => {
+      messageContent(m).then(async (c) => {
         body.classList.remove("muted");
-        body.innerHTML = t ? mailHtml(t) : "(no text)";
-        const qb = body.querySelector(".mail-quote-btn");
-        if (qb) qb.addEventListener("click", () => { body.querySelector(".mail-quote").classList.add("open"); qb.remove(); });
+        // An email with pictures or a laid-out table is shown as the HTML
+        // it is; a plain one reads better as text — our type, the quoted
+        // history folded, links tappable, dark mode.
+        const rich = !!c.html && (/<img\b|<table\b/i.test(c.html) || !c.text);
+        const cids = new Map();
+        if (rich) {
+          // The pictures the HTML refers to by content id are fetched first,
+          // so they're in the page when it draws.
+          const inline = c.attachments.filter((a) => a.cid && /^image\//.test(a.type));
+          await Promise.all(inline.map(async (a) => { try { cids.set(a.cid, URL.createObjectURL(await attachmentBlob(m, a))); } catch { /* shown as a broken picture */ } }));
+          renderHtml(body, c.html, cids);
+        } else {
+          body.innerHTML = c.text ? mailHtml(c.text) : "(no text)";
+          const qb = body.querySelector(".mail-quote-btn");
+          if (qb) qb.addEventListener("click", () => { body.querySelector(".mail-quote").classList.add("open"); qb.remove(); });
+        }
+        drawAttachments(wrap.querySelector(".mail-atts"), m, c.attachments.filter((a) => !(a.cid && cids.has(a.cid))));
       }).catch((e) => { body.textContent = `Couldn't load the message: ${e.message || e}`; });
       const oc = wrap.querySelector('[data-act="open-customer"]');
       if (oc) oc.addEventListener("click", () => { close(); navigate(`/leads/${lead.id}`); });
@@ -361,6 +377,85 @@ export function renderComms(view) {
       wrap.querySelectorAll('[data-act="reply"]').forEach((b) => b.addEventListener("click", () => openCompose({ replyTo: m })));
       return wrap;
     }, { focus: false, className: "modal-mail" });
+  }
+
+  // An HTML email as the mail apps show it: in a frame of its own, no
+  // scripts, pictures in place (cid: ones swapped for the fetched bytes),
+  // links opening outside, the quoted history folded behind three dots,
+  // and the frame sized to its content so the page scrolls as one.
+  function renderHtml(body, html, cids) {
+    const withPics = html.replace(/(src\s*=\s*["']?)cid:([^"'\s>]+)/gi, (all, pre, cid) => cids.has(cid) ? `${pre}${cids.get(cid)}` : all);
+    const style = `<style>
+      html,body{margin:0;padding:0;background:#fff;color:#0f1720;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow-wrap:anywhere;word-break:break-word}
+      img{max-width:100%!important;height:auto!important} table{max-width:100%!important} a{color:#195438}
+      body.fold .gmail_quote,body.fold blockquote[type="cite"],body.fold #divRplyFwdMsg,body.fold #divRplyFwdMsg~*,body.fold #appendonsend~*{display:none!important}
+    </style><base target="_blank">`;
+    body.innerHTML = `<iframe class="mail-html" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" title="Email"></iframe>`;
+    const f = body.querySelector("iframe");
+    const size = () => { try { f.style.height = Math.max(40, f.contentDocument.documentElement.scrollHeight) + "px"; } catch { /* the frame is gone */ } };
+    f.addEventListener("load", () => {
+      const doc = f.contentDocument;
+      doc.body.classList.add("fold");
+      size();
+      doc.querySelectorAll("img").forEach((im) => { im.addEventListener("load", size); im.addEventListener("error", size); });
+      setTimeout(size, 400);
+      if (doc.querySelector('.gmail_quote, blockquote[type="cite"], #divRplyFwdMsg, #appendonsend')) {
+        const qb = document.createElement("button");
+        qb.className = "mail-quote-btn"; qb.type = "button"; qb.setAttribute("aria-label", "Show quoted text"); qb.textContent = "•••";
+        qb.addEventListener("click", () => { doc.body.classList.remove("fold"); qb.remove(); size(); setTimeout(size, 300); });
+        body.appendChild(qb);
+      }
+    });
+    f.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">${style}</head><body>${withPics}</body></html>`;
+  }
+
+  // What's attached: pictures as thumbnails that open full size, anything
+  // else as a chip that opens or saves the file.
+  function drawAttachments(box, m, atts) {
+    if (!atts.length) return;
+    box.hidden = false;
+    box.innerHTML = `<div class="mail-atts-head">${icon("paperclip")} ${atts.length} attachment${atts.length > 1 ? "s" : ""}</div><div class="mail-atts-list"></div>`;
+    const list = box.querySelector(".mail-atts-list");
+    atts.forEach((a) => {
+      const pic = /^image\//.test(a.type);
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = `mail-att${pic ? " mail-att-pic" : ""}`;
+      el.innerHTML = pic ? `<span class="mail-att-thumb">${icon("image")}</span><span class="mail-att-name">${esc(a.name)}</span>`
+        : `<span class="mail-att-ico">${icon("file")}</span><span class="mail-att-main"><span class="mail-att-name">${esc(a.name)}</span><span class="mail-att-size">${fileSize(a.size)}</span></span>`;
+      list.appendChild(el);
+      if (pic && a.size < 8 * 1024 * 1024) {
+        attachmentBlob(m, a).then((b) => { const u = URL.createObjectURL(b); el.querySelector(".mail-att-thumb").innerHTML = `<img src="${u}" alt="">`; el.dataset.url = u; }).catch(() => {});
+      }
+      el.addEventListener("click", async () => {
+        if (pic) {
+          if (!el.dataset.url) { try { el.dataset.url = URL.createObjectURL(await attachmentBlob(m, a)); } catch (e) { toast(`Couldn't open ${a.name}: ${e.message || e}`, "danger"); return; } }
+          return openPhoto(el.dataset.url, a.name);
+        }
+        // A window opened by the tap can be pointed at the file once it's here;
+        // one opened after the wait would be blocked as a popup.
+        const w = window.open("", "_blank");
+        try { const u = URL.createObjectURL(await attachmentBlob(m, a)); if (w) w.location = u; else location.href = u; }
+        catch (e) { if (w) w.close(); toast(`Couldn't open ${a.name}: ${e.message || e}`, "danger"); }
+      });
+    });
+  }
+
+  // A picture full size, with a way to keep or share it.
+  function openPhoto(url, name) {
+    const box = document.createElement("div");
+    box.className = "photo-box";
+    box.innerHTML = `<div class="photo-bar"><button class="mail-bar-btn" data-act="close" aria-label="Close">${icon("back")}</button><span class="mail-bar-title">${esc(name)}</span><a class="mail-bar-btn" href="${url}" download="${esc(name)}" aria-label="Save" title="Save">${icon("download")}</a></div><div class="photo-body"><img src="${url}" alt="${esc(name)}"></div>`;
+    box.querySelector('[data-act="close"]').addEventListener("click", () => box.remove());
+    box.querySelector(".photo-body").addEventListener("click", () => box.remove());
+    document.body.appendChild(box);
+  }
+
+  function fileSize(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+    return `${(n / 1048576).toFixed(n < 10 * 1048576 ? 1 : 0)} MB`;
   }
 
   // Hand the message to the mail app on the phone. If the phone hasn't
@@ -409,18 +504,68 @@ export function renderComms(view) {
         <div class="mail-bar">
           <button class="mail-bar-btn" data-act="back" aria-label="Back">${icon("back")}</button>
           <span class="mail-bar-title">${re ? "Reply" : "Compose"}</span>
+          <button class="mail-bar-btn" data-act="draft" aria-label="Write it for me" title="Write it for me">${icon("sparkles")}</button>
+          <button class="mail-bar-btn" data-act="attach" aria-label="Attach a file or photo" title="Attach a file or photo">${icon("paperclip")}</button>
           <button class="mail-bar-btn mail-bar-send" data-act="send" aria-label="Send" title="Send">${icon("send")}</button>
+          <input type="file" id="mc-files" multiple hidden>
         </div>
         <div class="mail-page mc-page">
           ${from ? `<div class="mc-row"><span class="mc-label">From</span><span class="mc-from">${esc(from)}</span></div>` : ""}
-          <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="email" id="mc-to" placeholder="" value="${esc(prefill.to || "")}" autocomplete="off">${re ? "" : `<button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button>`}</div>
+          <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="text" id="mc-to" inputmode="email" placeholder="" value="${esc(prefill.to || "")}" autocomplete="off" autocapitalize="off">${re ? "" : `<button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button>`}</div>
+          <div class="mc-row"><label class="mc-label" for="mc-cc">Cc</label><input type="text" id="mc-cc" inputmode="email" placeholder="" value="${esc(prefill.cc || "")}" autocomplete="off" autocapitalize="off"></div>
           <div class="mc-row"><label class="mc-label" for="mc-subject">Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}" autocomplete="off"></div>
+          <div class="mc-atts" hidden></div>
           <div class="hint" id="mc-out"></div>
           <textarea id="mc-text" class="mc-body" placeholder="Compose email">${esc(prefill.text || "")}</textarea>
           ${re ? `<div class="mc-quote"><button class="mail-quote-btn" type="button" aria-label="Show quoted text">•••</button><div class="mail-quote"></div></div>` : ""}
         </div>`;
       wrap.querySelector('[data-act="back"]').addEventListener("click", close);
       if (re) setTimeout(() => wrap.querySelector("#mc-text").focus(), 80); // straight into the reply, To and Subject being set
+      const out = wrap.querySelector("#mc-out");
+
+      // Files and photos to send: picked from the phone, shown as chips
+      // (pictures as thumbnails), each removable.
+      const files = [];
+      const attsBox = wrap.querySelector(".mc-atts"), fileIn = wrap.querySelector("#mc-files");
+      const paintFiles = () => {
+        attsBox.hidden = !files.length;
+        attsBox.innerHTML = "";
+        files.forEach((f, i) => {
+          const chip = document.createElement("span");
+          chip.className = "mc-att";
+          const pic = /^image\//.test(f.type);
+          chip.innerHTML = `${pic ? `<img class="mc-att-thumb" alt="">` : `<span class="mc-att-ico">${icon("file")}</span>`}<span class="mc-att-name">${esc(f.name)}</span><span class="mc-att-size">${fileSize(f.size)}</span><button type="button" class="mc-att-x" aria-label="Remove ${esc(f.name)}">×</button>`;
+          if (pic) chip.querySelector("img").src = URL.createObjectURL(f);
+          chip.querySelector(".mc-att-x").addEventListener("click", () => { files.splice(i, 1); paintFiles(); });
+          attsBox.appendChild(chip);
+        });
+      };
+      wrap.querySelector('[data-act="attach"]').addEventListener("click", () => fileIn.click());
+      fileIn.addEventListener("change", () => {
+        [...fileIn.files].forEach((f) => files.push(f));
+        fileIn.value = "";
+        const total = files.reduce((s, f) => s + f.size, 0);
+        if (total > 25 * 1024 * 1024) { out.textContent = `That's ${fileSize(total)} of files — email takes about 25 MB at most`; }
+        paintFiles();
+      });
+
+      // The assistant writes it, from the conversation and what's typed so
+      // far; the salesperson edits and sends.
+      const draftBtn = wrap.querySelector('[data-act="draft"]');
+      draftBtn.addEventListener("click", async () => {
+        const ta = wrap.querySelector("#mc-text"), sub = wrap.querySelector("#mc-subject");
+        draftBtn.disabled = true; draftBtn.classList.add("busy"); out.textContent = "Writing…";
+        const was = ta.placeholder; ta.placeholder = "Writing…";
+        try {
+          const d = await draftEmail({ to: wrap.querySelector("#mc-to").value, replyTo: re, subject: sub.value.trim(), notes: ta.value.trim() });
+          ta.value = d.body;
+          if (d.subject && !sub.value.trim()) sub.value = d.subject;
+          out.textContent = "";
+          toast(d.customer ? `Drafted from your conversation with ${d.customer.split(" ")[0]} — read it over` : "Drafted — read it over");
+          ta.focus();
+        } catch (e) { out.textContent = `✗ ${e.message || "Couldn't draft it"}`; }
+        finally { draftBtn.disabled = false; draftBtn.classList.remove("busy"); ta.placeholder = was; }
+      });
       const pick = wrap.querySelector('[data-act="pick"]');
       if (pick) pick.addEventListener("click", () => openPeoplePicker("email", (l) => {
         wrap.querySelector("#mc-to").value = l.email || "";
@@ -435,15 +580,16 @@ export function renderComms(view) {
           q.textContent = quoted;
         }).catch(() => { q.textContent = "(couldn't load the original)"; });
       }
-      const btn = wrap.querySelector('[data-act="send"]'), out = wrap.querySelector("#mc-out");
+      const btn = wrap.querySelector('[data-act="send"]');
       btn.addEventListener("click", async () => {
-        const to = wrap.querySelector("#mc-to").value.trim(), subject = wrap.querySelector("#mc-subject").value.trim(), text = wrap.querySelector("#mc-text").value.trim();
+        const to = wrap.querySelector("#mc-to").value.trim(), cc = wrap.querySelector("#mc-cc").value.trim(), subject = wrap.querySelector("#mc-subject").value.trim(), text = wrap.querySelector("#mc-text").value.trim();
         if (!to || !subject) { out.textContent = "Add an address and a subject"; return; }
         if (re && !text) { out.textContent = "Write your reply first"; return; }
-        btn.disabled = true; out.textContent = "Sending…";
+        if (cc && !cc.split(/[,;]/).every((a) => /@/.test(a))) { out.textContent = "Check the Cc addresses"; return; }
+        btn.disabled = true; out.textContent = files.length ? `Sending with ${files.length} file${files.length > 1 ? "s" : ""}…` : "Sending…";
         try {
-          if (re) { await replyToMessage(re, text, quoted); toast(`Replied to ${re.from.name || re.from.addr}`, "success"); }
-          else { await composeEmail({ to, subject, text }); toast(`Sent to ${to}`, "success"); }
+          if (re) { await replyToMessage(re, text, quoted, { cc, files }); toast(`Replied to ${re.from.name || re.from.addr}`, "success"); }
+          else { await composeEmail({ to, cc, subject, text, files }); toast(`Sent to ${to}`, "success"); }
           close();
         } catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
       });

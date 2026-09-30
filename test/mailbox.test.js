@@ -23,7 +23,7 @@ const inbox = {
 await p.route("https://gmail.googleapis.com/**", (route) => {
   const req = route.request(); const u = req.url();
   if (/\/profile/.test(u)) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ emailAddress: "parm.test@gmail.com" }) });
-  if (/\/messages\/send$/.test(u)) { sent.push(JSON.parse(req.postData())); return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "s" + sent.length }) }); }
+  if (/\/messages\/send(\?|$)/.test(u)) { sent.push(JSON.parse(req.postData())); return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "s" + sent.length }) }); }
   if (/\/messages\?/.test(u)) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ messages: Object.keys(inbox).map((id) => ({ id })) }) });
   const m = /\/messages\/(m\d)/.exec(u);
   if (m && inbox[m[1]]) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(inbox[m[1]]) });
@@ -168,7 +168,7 @@ const compose = await p.evaluate(() => ({
   bodyTall: (document.querySelector(".modal #mc-text")?.getBoundingClientRect().height || 0) > 180,
 }));
 console.log("compose:", JSON.stringify(compose));
-if (compose.from !== "parm.test@gmail.com" || compose.rows !== "From|To|Subject") fail("compose should read From / To / Subject like the mail apps: " + JSON.stringify(compose));
+if (compose.from !== "parm.test@gmail.com" || compose.rows !== "From|To|Cc|Subject") fail("compose should read From / To / Cc / Subject like the mail apps: " + JSON.stringify(compose));
 if (compose.title !== "Compose" || !compose.sendInBar) fail("compose should have Gmail's top bar: back arrow, 'Compose', send arrow: " + JSON.stringify(compose));
 if (!compose.full || !compose.bodyTall) fail("compose should take the full sheet with a tall message area: " + JSON.stringify(compose));
 await p.fill(".modal #mc-to", "ken@example.com");

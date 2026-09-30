@@ -1774,6 +1774,43 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
    reply carries the original quoted under the message area. */
 .mc-quote { flex: none; padding-bottom: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mc-quote .mail-quote-btn { margin-top: 0; }
+.mail-bar-btn.busy svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Files going out: chips under the subject, pictures as thumbnails. */
+.mc-atts { flex: none; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 2px; }
+.mc-atts[hidden] { display: none; }
+.mc-att { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 6px 6px 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); font-size: 0.82rem; }
+.mc-att-thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex: none; }
+.mc-att-ico { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); color: var(--text-2); flex: none; }
+.mc-att-ico svg { width: 18px; height: 18px; }
+.mc-att-name { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.mc-att-size { color: var(--muted); flex: none; }
+.mc-att-x { flex: none; width: 24px; height: 24px; border: none; border-radius: 50%; background: none; color: var(--muted); font-size: 1.1rem; line-height: 1; cursor: pointer; }
+/* An HTML email in its frame; the attachments under it. */
+.mail-html { display: block; width: 100%; border: none; height: 40px; background: #fff; border-radius: 8px; }
+.mail-body:has(.mail-html) { white-space: normal; }
+.mail-atts { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.mail-atts-head { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); margin-bottom: 10px; }
+.mail-atts-head svg { width: 15px; height: 15px; }
+.mail-atts-list { display: flex; flex-wrap: wrap; gap: 10px; }
+.mail-att { appearance: none; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; max-width: 100%; -webkit-tap-highlight-color: transparent; }
+.mail-att:active { background: var(--surface-2); }
+.mail-att-ico { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-2); color: var(--text-2); display: grid; place-items: center; flex: none; }
+.mail-att-ico svg { width: 18px; height: 18px; }
+.mail-att-main { display: flex; flex-direction: column; min-width: 0; }
+.mail-att-name { font-size: 0.86rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.mail-att-size { font-size: 0.74rem; color: var(--muted); }
+.mail-att-pic { flex-direction: column; align-items: stretch; gap: 6px; padding: 6px; width: calc(50% - 5px); }
+.mail-att-thumb { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px; background: var(--surface-2); color: var(--muted); display: grid; place-items: center; overflow: hidden; }
+.mail-att-thumb svg { width: 26px; height: 26px; }
+.mail-att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mail-att-pic .mail-att-name { font-size: 0.78rem; text-align: center; max-width: none; }
+/* A picture full size. */
+.photo-box { position: fixed; inset: 0; z-index: 80; background: #000; display: flex; flex-direction: column; }
+.photo-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: calc(6px + var(--safe-top)) 8px 6px; color: #fff; }
+.photo-bar .mail-bar-btn, .photo-bar .mail-bar-title { color: #fff; }
+.photo-body { flex: 1; min-height: 0; display: grid; place-items: center; padding: 0 0 calc(12px + var(--safe-bottom)); }
+.photo-body img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .mc-page { display: flex; flex-direction: column; padding-top: 0; }
 .mc-row { flex: none; display: flex; align-items: center; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--border); }
 .mc-label { flex: none; width: 60px; font-size: 0.9rem; color: var(--muted); }

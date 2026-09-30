@@ -43,6 +43,8 @@ const PATHS = {
   reply: '<path d="M9 16 4 11l5-5"/><path d="M20 19v-3.5a4.5 4.5 0 0 0-4.5-4.5H4"/>',
   external: '<path d="M18 13.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5.5"/><path d="M15 3h6v6"/><path d="m10 14 11-11"/>',
   more: '<circle cx="12" cy="5.5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="18.5" r="1.4"/>',
+  paperclip: '<path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2.4"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.8-4.8a1.5 1.5 0 0 0-2.1 0L6 19"/>',
 };
 
 export function icon(name, extra = "") {
