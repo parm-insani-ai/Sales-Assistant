@@ -143,7 +143,9 @@ export function openSaleForm(existing, prefill = {}, onDone) {
       [
         { name: "customerName", label: "Customer", value: sale.customerName, required: true },
         { name: "vehicle", label: "Vehicle", value: sale.vehicle, placeholder: "2024 RAV4 XLE" },
-        { name: "saleDate", label: "Sale date", value: sale.saleDate || todayISO(), type: "date" },
+        { name: "saleDate", label: "Sale date", value: sale.saleDate || todayISO(), type: "date", half: true },
+        // The target sheet counts sales by category.
+        { name: "newUsed", label: "New / used", value: sale.newUsed || "", type: "select", half: true, options: [{ value: "", label: "—" }, { value: "New", label: "New" }, { value: "Used", label: "Used" }] },
         { name: "frontGross", label: "Front gross", value: sale.frontGross, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
         { name: "backGross", label: "Back gross", value: sale.backGross, type: "number", inputmode: "decimal", half: true, placeholder: "0" },
         { name: "commission", label: "Your commission", value: sale.commission, type: "number", inputmode: "decimal", placeholder: "0", hint: "What you actually get paid on this deal." },

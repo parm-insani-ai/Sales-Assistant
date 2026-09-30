@@ -916,6 +916,9 @@ export function openLeadForm(existing, opts = {}) {
         { name: "phone", label: "Phone", value: l.phone, type: "tel", inputmode: "tel", half: true, placeholder: "(555) 123-4567" },
         { name: "email", label: "Email", value: l.email, type: "email", half: true, placeholder: "jane@email.com" },
         { name: "vehicleInterest", label: "Vehicle of interest", value: l.vehicleInterest, placeholder: "2024 RAV4 XLE" },
+        // New or used: the target sheet counts conversations by category.
+        { name: "shopping", label: "Shopping for", value: l.shopping || "", type: "select", half: true,
+          options: [{ value: "", label: "New or used?" }, { value: "New", label: "New" }, { value: "Used", label: "Used" }] },
         { name: "source", label: "Lead source", value: l.source || "Walk-in", type: "select",
           options: ["Walk-in", "Internet", "Phone-in", "Referral", "Repeat", "Service", "Other"] },
         { name: "stage", label: "Stage", value: l.stage || "new", type: "select",

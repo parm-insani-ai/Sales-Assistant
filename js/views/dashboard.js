@@ -6,7 +6,9 @@ import * as store from "../store.js";
 import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
-import { monthSummary, apptFunnel } from "./goals.js";
+import { monthSummary } from "./goals.js";
+import { salesTarget, openTargetForm } from "../target.js";
+import { fold } from "../fold.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getPlays } from "../plays.js";
@@ -89,7 +91,7 @@ export function renderDashboard(view) {
       <div class="stat card-tap" data-goto="/goals"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month ›</div></div>
     </div>
 
-    ${goalCard(mtd, s)}
+    <div class="target-slot"></div>
 
     ${upcomingFollowUps.length ? `<div class="section-title">Coming up</div><div class="upcoming-list"></div>` : ""}
 
@@ -156,6 +158,14 @@ export function renderDashboard(view) {
       .then(sayQueue, sayQueue);
   }
 
+  // The month's sales target, worked like the store's target sheet.
+  const mountTarget = () => {
+    const slot = el.querySelector(".target-slot");
+    if (!slot) return;
+    slot.replaceChildren(targetSection(mtd, store.getSettings(), mountTarget));
+  };
+  mountTarget();
+
   // Upcoming
   const up = el.querySelector(".upcoming-list");
   if (up) upcomingFollowUps.forEach((l) => up.appendChild(followUpCard(l, true)));
@@ -207,27 +217,51 @@ function externalMini(e) {
   return el;
 }
 
-function goalCard(mtd, s) {
-  const funnel = apptFunnel();
-  const apptPct = s.goalAppointments > 0 ? Math.min(100, Math.round((funnel.set / s.goalAppointments) * 100)) : 0;
-  const unitPct = s.goalUnits > 0 ? Math.min(100, Math.round((mtd.units / s.goalUnits) * 100)) : 0;
+// The store's monthly target sheet, on Home: the target by category, the
+// closing ratio, the customers that calls for, and — counted from the
+// book as the month goes — spoken to, sold, closing, what's left, and
+// this week's share. Its customer log is the app: Leads, contacts, sales.
+function targetSection(mtd, s, redraw) {
+  const t = salesTarget();
+  const p = t.plan;
+  const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+  const n = (v) => (v == null ? "—" : String(v));
+  const row = (label, target, need, sold, spoke, closing, strong = false) => `
+    <tr class="${strong ? "tgt-total" : ""}"><th scope="row">${label}</th><td>${n(target)}</td><td>${n(need)}</td><td>${n(sold)}</td><td>${n(spoke)}</td><td>${pct(closing)}</td></tr>`;
+  const month = new Date().toLocaleDateString("en-US", { month: "long" });
+  const unitPct = p.target > 0 ? Math.min(100, Math.round((t.sold / p.target) * 100)) : 0;
+  const hit = p.target > 0 && t.sold >= p.target;
+  const behind = t.expectedByNow - t.spoke;
+  const paceLine = !p.need ? "" : hit ? `<span style="color:var(--success)">${icon("check")} Target reached.</span>`
+    : behind > 0 ? `${behind} conversation${behind === 1 ? "" : "s"} behind pace for day ${t.day} of ${t.daysIn}.`
+    : `On pace — ${t.spoke} of ${p.need} spoken with by day ${t.day} of ${t.daysIn}.`;
   const commPct = s.goalCommission > 0 ? Math.min(100, Math.round((mtd.commission / s.goalCommission) * 100)) : 0;
-  return `
-    <div class="card card-tap" data-goto="/goals" style="margin-top:12px">
-      <div class="row"><div class="strong">Monthly goal</div><div class="small muted">Details ›</div></div>
-      <div style="margin-top:10px">
-        <div class="row small"><span class="muted">Appointments set</span><span class="mono">${funnel.set} / ${s.goalAppointments || 0}${funnel.showRate ? ` · ${funnel.showRate}% show` : ""}</span></div>
-        <div class="progress"><span style="width:${apptPct}%;background:var(--brand)"></span></div>
-      </div>
-      <div style="margin-top:10px">
-        <div class="row small"><span class="muted">Units</span><span class="mono">${mtd.units} / ${s.goalUnits || 0}</span></div>
-        <div class="progress"><span style="width:${unitPct}%"></span></div>
-      </div>
-      <div style="margin-top:10px">
-        <div class="row small"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
-        <div class="progress"><span style="width:${commPct}%;background:var(--accent)"></span></div>
-      </div>
-    </div>`;
+  const body = document.createElement("div");
+  body.className = "card target-card";
+  body.innerHTML = `
+    <div class="row">
+      <div class="row-main"><div class="strong">${esc(month)}</div><div class="small muted">Units ÷ closing ratio = customers to speak with</div></div>
+      <button class="btn btn-sm ${p.target ? "btn-ghost" : "btn-primary"}" data-act="set-target" style="flex:none">${p.target ? "Set target" : "Set your target"}</button>
+    </div>
+    ${p.target ? `
+    <table class="tgt" style="margin-top:10px">
+      <thead><tr><th></th><th title="Units you plan to sell">Target</th><th title="Customers to speak with — units ÷ closing ratio">Talk to</th><th title="Sold this month">Sold</th><th title="Customers spoken with this month">Spoke to</th><th title="Sold ÷ spoken with">Closing</th></tr></thead>
+      <tbody>
+        ${p.split ? row("New", p.targetNew, p.needNew, t.soldNew, t.spokeNew, t.closingNew) + row("Used", p.targetUsed, p.needUsed, t.soldUsed, t.spokeUsed, t.closingUsed) : ""}
+        ${row("Total", p.target, p.need, t.sold, t.spoke, t.closing, true)}
+      </tbody>
+    </table>
+    <div class="progress"><span style="width:${unitPct}%;background:${hit ? "var(--success)" : "var(--brand)"}"></span></div>
+    <div class="small muted" style="margin-top:6px">${t.remainingUnits} unit${t.remainingUnits === 1 ? "" : "s"} to go · ${t.remainingTalks} more conversation${t.remainingTalks === 1 ? "" : "s"} · ${pct(t.attainment)} of target</div>
+    ${paceLine ? `<div class="small" style="margin-top:4px">${paceLine}</div>` : ""}
+    <div class="small" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span class="strong">Week ${t.week} of ${t.weeks}:</span> ${t.spokeWeek} of ${t.perWeek} conversation${t.perWeek === 1 ? "" : "s"} · ${t.appts} appointment${t.appts === 1 ? "" : "s"} set${s.goalAppointments ? ` of ${s.goalAppointments}` : ""}</div>
+    ${t.spokeUnsplit || t.soldUnsplit ? `<div class="small muted" style="margin-top:4px">${[t.spokeUnsplit ? `${t.spokeUnsplit} spoken with not marked new or used (Shopping, on their page)` : "", t.soldUnsplit ? `${t.soldUnsplit} sale${t.soldUnsplit === 1 ? "" : "s"} not marked new or used` : ""].filter(Boolean).join(" · ")}.</div>` : ""}
+    ${s.targetSetBy === "manager" && s.goalUnits && s.goalUnits !== p.target ? `<div class="small muted" style="margin-top:4px">Your manager's target is ${s.goalUnits} units.</div>` : ""}
+    ` : `<div class="small muted" style="margin-top:10px">Set how many new and used units you plan to sell and the closing ratio you expect, and this works out how many customers you need to speak with — then counts them as you go.</div>`}
+    <div class="row small" style="margin-top:10px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)} <a href="#/goals" class="muted" style="margin-left:6px">Goals ›</a></span></div>
+    <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
+  body.querySelector('[data-act="set-target"]').addEventListener("click", () => openTargetForm(redraw));
+  return fold({ key: "home:target", title: "Sales target", open: true, body });
 }
 
 function apptMini(a) {

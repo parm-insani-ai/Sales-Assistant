@@ -1665,3 +1665,11 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* A reminder row: the time it fires, and red once it has. */
 .rem-when { font-variant-numeric: tabular-nums; }
 .rem-due .rem-when { color: var(--danger); font-weight: 600; }
+
+/* --- The monthly sales target sheet on Home (target.js) --- */
+.tgt { width: 100%; border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+.tgt th, .tgt td { padding: 5px 4px; text-align: right; border-bottom: 1px solid var(--border); }
+.tgt th { font-weight: 600; color: var(--muted); font-size: 0.7rem; letter-spacing: 0.02em; text-transform: uppercase; }
+.tgt th[scope="row"] { text-align: left; color: var(--text); font-size: 0.84rem; text-transform: none; letter-spacing: 0; }
+.tgt tbody tr:last-child th, .tgt tbody tr:last-child td { border-bottom: 0; }
+.tgt .tgt-total th, .tgt .tgt-total td { font-weight: 700; }

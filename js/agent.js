@@ -13,6 +13,7 @@ import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
 import { topOpportunities, dealsForLead, equityDetail, warmRadar } from "./views/dealbuilder.js";
+import { salesTarget } from "./target.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
 import { afterSale, afterAppointmentBooked, afterDeliveryComplete, closeFollowUps } from "./connections.js";
 import { getOccasions } from "./occasions.js";
@@ -92,6 +93,7 @@ const TOOLS = [
   { name: "get_nudges", description: "What needs attention RIGHT NOW — customers waiting on a reply, appointments about to start that aren't confirmed, appointments that have passed with no outcome, deliveries with prep outstanding, deals gone quiet. Use for 'what needs me now?', 'anything urgent?', 'am I missing anything?'. Different from get_plays: this is time-critical, that is the day's queue.", input_schema: { type: "object", properties: {} } },
   { name: "get_prospects", description: "Today's prospects: the customers on file (imported owners, past customers) the app has picked out today because a car can be sold to them now — equity, a payment-matched deal, a lease coming due, years in the same vehicle. Use for 'who should I reach out to today', 'who can I sell a car to', 'work the book', 'who's worth a call'. Each comes with the reasons and a drafted opener the salesperson approves. Puts the list on Today.", input_schema: { type: "object", properties: {} } },
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
+  { name: "sales_target", description: "The monthly sales target sheet — 'how am I doing against my target?', 'how many customers do I need to talk to?', 'am I on pace?', 'what's my closing ratio?'. New and used unit targets, the closing ratio expected, customers to speak with, spoken with so far, sold, remaining, pace, and this week's share.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "tools", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
   { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale. Capture EVERYTHING said about them in the same call: contact details, the vehicle, and all the context fields (trim, features, new/used, budget, timeline, trade, who else, what matters) plus the whole thing in `notes`. Their follow-up plan starts automatically.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string", description: "e.g. \"Nissan Rogue\" or \"2026 Rogue SV\"" }, phone: { type: "string" }, email: { type: "string" }, followUp: { type: "string" }, ...CONTEXT_PROPS }, required: ["name"] } },
@@ -622,6 +624,18 @@ export async function execTool(name, p = {}) {
         thisWeek: brief(weeks[0]), lastWeek: brief(weeks[1]),
         insights: coachInsights(weeks, { current: true }).map((i) => i.text),
       }, note: "" };
+    }
+    case "sales_target": case "get_target": {
+      const t = salesTarget();
+      const pc = (v) => (v == null ? null : Math.round(v * 100));
+      navigate("/", ".target-slot");
+      return { result: {
+        month: t.mKey, targetNew: t.plan.targetNew, targetUsed: t.plan.targetUsed, target: t.plan.target,
+        closingRatioExpectedPct: pc(t.plan.closingNew), customersToSpeakWith: t.plan.need, customersToSpeakWithNew: t.plan.needNew, customersToSpeakWithUsed: t.plan.needUsed,
+        spokenWith: t.spoke, spokenWithNew: t.spokeNew, spokenWithUsed: t.spokeUsed, sold: t.sold, soldNew: t.soldNew, soldUsed: t.soldUsed,
+        actualClosingPct: pc(t.closing), remainingUnits: t.remainingUnits, conversationsRemaining: t.remainingTalks, targetAttainmentPct: pc(t.attainment),
+        dayOfMonth: t.day, daysInMonth: t.daysIn, behindPaceBy: Math.max(0, t.expectedByNow - t.spoke), week: t.week, weeks: t.weeks, thisWeekSpokenWith: t.spokeWeek, thisWeekShare: t.perWeek, appointmentsSet: t.appts,
+      }, note: t.plan.target ? `${t.sold} of ${t.plan.target} sold, ${t.spoke} of ${t.plan.need} customers spoken with` : "no target set yet — Set your target on Home" };
     }
     case "get_link_activity": {
       const links = store.all("links")
