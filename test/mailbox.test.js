@@ -82,8 +82,12 @@ const page = await p.evaluate(() => ({
   pills: [...document.querySelectorAll(".modal .mail-actions .mail-pill")].map((b) => b.textContent.trim()).join("|"),
   handle: document.querySelector(".modal .modal-handle")?.checkVisibility() || false,
   footFixed: (() => { const f = document.querySelector(".modal .mail-foot"); if (!f || f.closest(".mail-page")) return false; const r = f.getBoundingClientRect(); return Math.abs(r.bottom - innerHeight) < 1; })(),
+  // The pills sit as high off the bottom as the tab bar's labels do (16px
+  // plus the home-indicator inset, which is 0 here).
+  pillGap: (() => { const pill = document.querySelector(".modal .mail-foot .mail-pill"); return pill ? Math.round(innerHeight - pill.getBoundingClientRect().bottom) : -1; })(),
 }));
 if (!page.footFixed) fail("Reply / Open in Gmail should sit in a footer pinned to the bottom, outside the scrolling page: " + JSON.stringify(page));
+if (page.pillGap !== 16) fail("the pills should sit 16px off the bottom, as the tab bar's labels do: " + page.pillGap);
 if (!page.bar || page.chip !== "Customer" || !page.edge || page.handle) fail("the email should be a full page with a back arrow, no sheet handle, and the subject carrying a Customer chip: " + JSON.stringify(page));
 if (page.pills !== "Reply|Open in Gmail") fail("the pills along the bottom should be Reply and Open in Gmail: " + page.pills);
 if (open.link !== "https://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1" || !/Open in Gmail/.test(document_or(open.linkText))) fail("Open in Gmail should link to this thread in Gmail: " + open.link + " / " + open.linkText);

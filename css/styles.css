@@ -1759,7 +1759,10 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* The pills sit in a footer under the scrolling page, so they stay put
    however long the email is. */
 .mail-actions { display: flex; gap: 10px; }
-.mail-foot { flex: none; padding: 10px 20px calc(10px + var(--safe-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+/* The same air under the pills as under the tab bar's labels (6px on the
+   tab + 10px on the bar, over the home-indicator inset), so they sit where
+   the navigation sits on every other screen. */
+.mail-foot { flex: none; padding: 12px 20px calc(16px + var(--safe-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
 .mail-pill {
   flex: 1 1 0; min-width: 0; height: 40px; padding: 0 12px; border-radius: 20px;
   border: 1px solid var(--border-strong); background: none; color: var(--text);
