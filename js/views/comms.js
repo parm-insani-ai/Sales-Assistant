@@ -309,31 +309,42 @@ export function renderComms(view) {
       const wrap = document.createElement("div");
       wrap.className = "mail-view";
       wrap.innerHTML = `
-        <div class="mail-from" role="button" aria-expanded="false" title="Show details">
-          <div class="conv-av mail-av" style="background:${avatarColor(m.from.addr || who)}">${esc(initials(who))}</div>
-          <div class="mail-from-main">
-            <div class="mail-from-name"><span>${esc(who)}</span>${lead ? `<span class="conv-tag">customer</span>` : ""}<span class="mail-from-time">${esc(formatDateTime(m.at))}</span></div>
-            <div class="mail-from-sub">to ${esc(toLabel(m))} <span class="chev">▼</span></div>
+        <div class="mail-bar">
+          <button class="mail-bar-btn" data-act="back" aria-label="Back">${icon("back")}</button>
+          <span class="mail-bar-title"></span>
+          ${link ? `<a class="mail-bar-btn" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener" aria-label="Open in ${appName}" title="Open in ${appName}">${icon("external")}</a>` : ""}
+          ${lead ? `<button class="mail-bar-btn" data-act="open-customer" aria-label="${esc(lead.name)}" title="${esc(lead.name)}">${icon("users")}</button>` : `<button class="mail-bar-btn" data-act="add-customer" aria-label="Add as customer" title="Add as customer">${icon("plus")}</button>`}
+        </div>
+        <div class="mail-page">
+          <h1 class="mail-subject">${esc(m.subject || "(no subject)")}${lead ? ` <span class="mail-chip">Customer</span>` : ""}</h1>
+          <div class="mail-from" role="button" aria-expanded="false" title="Show details">
+            <div class="conv-av mail-av" style="background:${avatarColor(m.from.addr || who)}">${esc(initials(who))}</div>
+            <div class="mail-from-main">
+              <div class="mail-from-name"><span>${esc(who)}</span><span class="mail-from-time">${esc(when(m.at))}</span></div>
+              <div class="mail-from-sub">to ${esc(toLabel(m))} <span class="chev">▼</span></div>
+            </div>
+            <button class="mail-bar-btn mail-from-reply" data-act="reply" aria-label="Reply" title="Reply">${icon("reply")}</button>
           </div>
-        </div>
-        <dl class="mail-details" hidden>
-          <dt>From</dt><dd>${esc(m.from.name ? `${m.from.name} <${m.from.addr}>` : m.from.addr)}</dd>
-          <dt>To</dt><dd>${esc(m.to || mailboxAccount() || "me")}</dd>
-          <dt>Date</dt><dd>${esc(fullDate(m.at))}</dd>
-        </dl>
-        <div class="mail-body muted">Loading…</div>
-        <div class="mail-actions">
-          <button class="btn btn-primary" data-act="reply">${icon("send")} Reply</button>
-          ${link ? `<a class="btn btn-ghost" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener">${icon("mail")} Open in ${appName}</a>` : ""}
-          ${lead ? `<button class="btn btn-ghost" data-act="open-customer">${icon("users")} ${esc(lead.name)}</button>` : `<button class="btn btn-ghost" data-act="add-customer">${icon("plus")} Add as customer</button>`}
-        </div>
-        <div class="mail-reply" hidden>
-          <div class="field"><label>Reply to ${esc(who)}</label><textarea id="mail-reply-text" placeholder="Write your reply…"></textarea></div>
-          <button class="btn btn-primary btn-block" data-act="send-reply">${icon("send")} Send reply</button>
-          <div class="hint" id="mail-reply-out"></div>
+          <dl class="mail-details" hidden>
+            <dt>From</dt><dd>${esc(m.from.name ? `${m.from.name} <${m.from.addr}>` : m.from.addr)}</dd>
+            <dt>To</dt><dd>${esc(m.to || mailboxAccount() || "me")}</dd>
+            <dt>Date</dt><dd>${esc(fullDate(m.at))}</dd>
+          </dl>
+          <div class="mail-body muted">Loading…</div>
+          <div class="mail-actions">
+            <button class="mail-pill" data-act="reply">${icon("reply")} Reply</button>
+            ${link ? `<a class="mail-pill" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener">${icon("external")} Open in ${appName}</a>` : ""}
+          </div>
+          <div class="mail-reply" hidden>
+            <div class="mail-reply-head">${icon("reply")} <span>Reply to ${esc(who)}</span></div>
+            <textarea id="mail-reply-text" placeholder="Write your reply…"></textarea>
+            <button class="btn btn-primary btn-block" data-act="send-reply">${icon("send")} Send</button>
+            <div class="hint" id="mail-reply-out"></div>
+          </div>
         </div>`;
+      wrap.querySelector('[data-act="back"]').addEventListener("click", close);
       const from = wrap.querySelector(".mail-from"), details = wrap.querySelector(".mail-details");
-      from.addEventListener("click", () => { const open = details.hidden; details.hidden = !open; from.setAttribute("aria-expanded", String(open)); });
+      from.addEventListener("click", (e) => { if (e.target.closest("[data-act]")) return; const open = details.hidden; details.hidden = !open; from.setAttribute("aria-expanded", String(open)); });
       const body = wrap.querySelector(".mail-body");
       messageBody(m).then((t) => {
         body.classList.remove("muted");
@@ -345,21 +356,20 @@ export function renderComms(view) {
       if (oc) oc.addEventListener("click", () => { close(); navigate(`/leads/${lead.id}`); });
       const ac = wrap.querySelector('[data-act="add-customer"]');
       if (ac) ac.addEventListener("click", () => { close(); openLeadForm(null, { prefill: { name: m.from.name || "", email: m.from.addr } }); });
-      const oi = wrap.querySelector('[data-act="open-in"]');
-      if (oi) oi.addEventListener("click", (e) => {
+      wrap.querySelectorAll('[data-act="open-in"]').forEach((oi) => oi.addEventListener("click", (e) => {
         if (oi.dataset.web) return; // the app wasn't there last time — let the web link through
         const app = mailAppLink(m);
         if (!app || !app.app) return; // desktop: the anchor opens the web mailbox
         e.preventDefault();
-        openMailApp(app.href, oi, appName);
-      });
+        openMailApp(app.href, oi.classList.contains("mail-pill") ? oi : null, appName);
+      }));
       const replyBox = wrap.querySelector(".mail-reply");
-      wrap.querySelector('[data-act="reply"]').addEventListener("click", () => {
+      wrap.querySelectorAll('[data-act="reply"]').forEach((b) => b.addEventListener("click", () => {
         replyBox.hidden = false;
         const ta = replyBox.querySelector("textarea");
         ta.focus();
         replyBox.scrollIntoView({ block: "end", behavior: "smooth" });
-      });
+      }));
       const btn = wrap.querySelector('[data-act="send-reply"]');
       const out = wrap.querySelector("#mail-reply-out");
       btn.addEventListener("click", async () => {
@@ -383,8 +393,7 @@ export function renderComms(view) {
   function openMailApp(href, btn, appName) {
     const t = setTimeout(() => {
       if (document.hidden) return;
-      btn.dataset.web = "1";
-      btn.innerHTML = `${icon("mail")} Open ${appName} on the web`;
+      if (btn) { btn.dataset.web = "1"; btn.innerHTML = `${icon("external")} Open ${appName} on the web`; }
       toast(`The ${appName} app didn't open — tap again for ${appName} on the web`);
     }, 1800);
     document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(t); }, { once: true });
@@ -413,12 +422,19 @@ export function renderComms(view) {
       const wrap = document.createElement("div");
       wrap.className = "mail-compose";
       wrap.innerHTML = `
-        ${from ? `<div class="mc-row"><span class="mc-label">From</span><span class="mc-from">${esc(from)}</span></div>` : ""}
-        <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="email" id="mc-to" placeholder="name@email.com" value="${esc(prefill.to || "")}" autocomplete="off"><button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button></div>
-        <div class="mc-row"><label class="mc-label" for="mc-subject">Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}" autocomplete="off"></div>
-        <textarea id="mc-text" class="mc-body" placeholder="Write your email…">${esc(prefill.text || "")}</textarea>
-        <button class="btn btn-primary btn-block" data-act="send">${icon("send")} Send</button>
-        <div class="hint" id="mc-out"></div>`;
+        <div class="mail-bar">
+          <button class="mail-bar-btn" data-act="back" aria-label="Back">${icon("back")}</button>
+          <span class="mail-bar-title">Compose</span>
+          <button class="mail-bar-btn mail-bar-send" data-act="send" aria-label="Send" title="Send">${icon("send")}</button>
+        </div>
+        <div class="mail-page mc-page">
+          ${from ? `<div class="mc-row"><span class="mc-label">From</span><span class="mc-from">${esc(from)}</span></div>` : ""}
+          <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="email" id="mc-to" placeholder="" value="${esc(prefill.to || "")}" autocomplete="off"><button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button></div>
+          <div class="mc-row"><label class="mc-label" for="mc-subject">Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}" autocomplete="off"></div>
+          <div class="hint" id="mc-out"></div>
+          <textarea id="mc-text" class="mc-body" placeholder="Compose email">${esc(prefill.text || "")}</textarea>
+        </div>`;
+      wrap.querySelector('[data-act="back"]').addEventListener("click", close);
       wrap.querySelector('[data-act="pick"]').addEventListener("click", () => openPeoplePicker("email", (l) => {
         wrap.querySelector("#mc-to").value = l.email || "";
         const sub = wrap.querySelector("#mc-subject"); if (!sub.value && l.vehicleInterest) sub.value = `About the ${l.vehicleInterest}`;

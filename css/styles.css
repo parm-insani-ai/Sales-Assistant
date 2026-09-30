@@ -1702,43 +1702,80 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* --- The mailbox on Comms → Email: a message, read and answered in place --- */
 .mail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mail-head .mail-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* An open email, laid out the way the mail apps lay one out: the subject
-   as the headline, a sender row with a coloured avatar and "to me" that
-   unfolds into the full addresses, the text at reading size with the
-   thread's quoted history folded behind Gmail's three dots, and the
-   actions — Reply, Open in Gmail — under the text. The sheet takes the
-   whole screen so a long email scrolls inside it. */
-.modal-mail { height: 96dvh; max-height: 96dvh; display: flex; flex-direction: column; }
-.modal-mail .modal-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
-.modal-mail .modal-header { margin-bottom: 14px; align-items: flex-start; }
-.modal-mail .modal-header h2 { font-size: 1.15rem; line-height: 1.3; overflow-wrap: anywhere; }
+/* An open email and a new one are full pages, not sheets — the way Gmail
+   and Outlook on a phone do it. No handle, no rounded top, no ×: a top
+   bar with a back arrow on the left and the actions as plain icons on the
+   right (send, in compose). Under it, an email reads Gmail's way: the
+   subject as a light headline with a label chip, a sender row with a
+   coloured avatar, the time and a reply arrow, "to me ▾" that unfolds the
+   addresses, the text at reading size with quoted history behind three
+   dots, and outlined pills — Reply, Open in Gmail — along the bottom. */
+.modal.modal-mail {
+  position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none;
+  border-radius: 0; border: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; animation: slideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.modal-mail .modal-handle, .modal-mail .modal-header { display: none; }
+.modal-mail .modal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mail-view, .mail-compose { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mail-bar {
+  flex: none; display: flex; align-items: center; gap: 4px;
+  padding: calc(6px + var(--safe-top)) 8px 6px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.mail-bar-title { flex: 1; min-width: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; padding-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-bar-btn {
+  flex: none; width: 44px; height: 44px; border-radius: 50%; border: none; background: none;
+  color: var(--text-2); display: grid; place-items: center; cursor: pointer; text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.mail-bar-btn:active { background: var(--surface-2); }
+.mail-bar-btn svg { width: 23px; height: 23px; }
+.mail-bar-send { color: var(--brand-strong); }
+.mail-bar-send:disabled { opacity: .4; }
+.mail-page { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 14px 20px calc(24px + var(--safe-bottom)); }
+.mail-subject { font-size: 1.35rem; font-weight: 500; line-height: 1.3; letter-spacing: -0.01em; margin: 4px 0 18px; overflow-wrap: anywhere; }
+.mail-chip { display: inline-block; vertical-align: 3px; margin-left: 6px; padding: 2px 8px; border-radius: 6px; background: var(--brand-tint); color: var(--brand-strong); font-size: 0.72rem; font-weight: 600; letter-spacing: 0; }
 .mail-from { display: flex; align-items: center; gap: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.mail-av { width: 40px; height: 40px; color: #fff; font-size: 0.95rem; }
+.mail-av { width: 42px; height: 42px; color: #fff; font-size: 1rem; font-weight: 500; }
 .mail-from-main { flex: 1; min-width: 0; }
-.mail-from-name { display: flex; align-items: baseline; gap: 8px; font-weight: 700; font-size: 0.95rem; }
+.mail-from-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; font-size: 0.95rem; }
 .mail-from-name > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mail-from-time { margin-left: auto; flex: none; font-size: 0.74rem; font-weight: 500; color: var(--muted); }
-.mail-from-sub { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); }
-.mail-from-sub .chev { font-size: 0.7rem; transition: transform .15s; }
+.mail-from-time { flex: none; font-size: 0.76rem; font-weight: 400; color: var(--muted); }
+.mail-from-sub { display: flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--muted); margin-top: 1px; }
+.mail-from-sub .chev { font-size: 0.6rem; transition: transform .15s; }
 .mail-from[aria-expanded="true"] .chev { transform: rotate(180deg); }
-.mail-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0 52px; font-size: 0.8rem; }
+.mail-from-reply { width: 40px; height: 40px; margin-right: -8px; }
+.mail-from-reply svg { width: 21px; height: 21px; }
+.mail-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0 0 54px; font-size: 0.8rem; }
 .mail-details[hidden] { display: none; }
 .mail-details dt { color: var(--muted); }
 .mail-details dd { margin: 0; overflow-wrap: anywhere; color: var(--text-2); }
-.mail-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 1rem; color: var(--text); }
+.mail-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 18px; font-size: 1rem; color: var(--text); }
 .mail-body a { color: var(--brand-strong); text-decoration: underline; text-underline-offset: 2px; }
 .mail-quote-btn { display: block; margin-top: 12px; padding: 0 11px; height: 22px; line-height: 22px; border-radius: 11px; border: none; background: var(--surface-2); color: var(--muted); font-size: 0.8rem; letter-spacing: .1em; cursor: pointer; }
 .mail-quote { display: none; margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border-strong); color: var(--muted); font-size: 0.92rem; }
 .mail-quote.open { display: block; }
-.mail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
-.mail-actions .btn { flex: 1 1 auto; padding: 11px 14px; font-size: 0.9rem; }
-/* Compose, the same full sheet: From / To / Subject as hairline rows with
-   the label on the left, and the message area taking whatever is left. */
-.modal-compose .modal-body { display: flex; flex-direction: column; }
-.mail-compose { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.mc-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.mail-actions { display: flex; gap: 10px; margin-top: 26px; }
+.mail-pill {
+  flex: 1 1 0; min-width: 0; height: 40px; padding: 0 12px; border-radius: 20px;
+  border: 1px solid var(--border-strong); background: none; color: var(--text);
+  font: inherit; font-size: 0.9rem; font-weight: 500; text-decoration: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.mail-pill:active { background: var(--surface-2); }
+.mail-pill svg { width: 18px; height: 18px; flex: none; }
+.mail-reply { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
+.mail-reply-head { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+.mail-reply-head svg { width: 16px; height: 16px; }
+.mail-reply textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 1rem; line-height: 1.5; margin-bottom: 10px; }
+/* Compose: From / To / Subject as hairline rows with the label on the
+   left, the message taking the rest; Send is the arrow in the top bar. */
+.mc-page { display: flex; flex-direction: column; padding-top: 0; }
+.mc-row { flex: none; display: flex; align-items: center; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--border); }
 .mc-label { flex: none; width: 60px; font-size: 0.9rem; color: var(--muted); }
-.mc-from { font-size: 1rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-from { font-size: 1rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mail-compose .mc-row input, .mail-compose .mc-body {
   flex: 1; min-width: 0; width: 100%;
   border: none; background: none; padding: 0; margin: 0;
@@ -1747,11 +1784,14 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mail-compose .mc-row input:focus, .mail-compose .mc-body:focus { outline: none; box-shadow: none; }
 .mc-pick {
   flex: none; width: 34px; height: 34px; border-radius: 50%; border: none;
-  background: var(--surface-2); color: var(--text-2); display: grid; place-items: center; cursor: pointer;
+  background: none; color: var(--text-2); display: grid; place-items: center; cursor: pointer;
 }
-.mc-pick svg { width: 18px; height: 18px; }
-.mail-compose .mc-body { flex: 1; min-height: 200px; padding: 14px 0; line-height: 1.55; resize: none; }
-.mail-compose .btn-block { flex: none; margin-top: 8px; }
-.mail-reply { margin-top: 14px; }
-.mail-reply textarea { width: 100%; min-height: 110px; resize: vertical; font-size: 1rem; line-height: 1.5; }
+.mc-pick svg { width: 20px; height: 20px; }
+.mail-compose .mc-body { flex: 1; min-height: 220px; padding: 16px 0; line-height: 1.55; resize: none; }
+.mail-compose .hint:empty { display: none; }
+.mail-compose .hint { flex: none; padding: 8px 0 0; }
+@media (min-width: 640px) {
+  .modal.modal-mail { position: relative; inset: auto; max-width: 620px; height: 88dvh; border-radius: 26px; border: 1px solid var(--border); overflow: hidden; }
+  .mail-bar { padding-top: 6px; }
+}
 .conv-row .conv-subject { display: block; font-size: 0.86rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -59,11 +59,11 @@ await p.click(".mail-list .conv-row");
 await p.waitForFunction(() => /See you at 10\?/.test(document.querySelector(".modal .mail-body")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("the message text didn't load"));
 const open = await p.evaluate(() => ({
   title: document.querySelector(".modal h2")?.textContent.trim(),
-  customer: document.querySelector('.modal [data-act="open-customer"]')?.textContent.trim(),
+  customer: document.querySelector('.modal [data-act="open-customer"]')?.getAttribute("aria-label"),
   body: document.querySelector(".modal .mail-body")?.textContent,
   from: document.querySelector(".modal .mail-from")?.textContent.replace(/\s+/g, " ").trim(),
   link: document.querySelector('.modal [data-act="open-in"]')?.getAttribute("href"),
-  linkText: document.querySelector('.modal [data-act="open-in"]')?.textContent.trim(),
+  linkText: [...document.querySelectorAll('.modal [data-act="open-in"]')].map((a) => a.textContent.trim() || a.getAttribute("aria-label")).join("|"),
   quoteHidden: !document.querySelector(".modal .mail-quote")?.checkVisibility(),
   href: document.querySelector(".modal .mail-body a")?.getAttribute("href"),
   replyHidden: !document.querySelector(".modal #mail-reply-text")?.checkVisibility(),
@@ -72,8 +72,18 @@ const open = await p.evaluate(() => ({
 }));
 console.log("open:", JSON.stringify(open, null, 1));
 if (open.title !== "Re: the Rogue" || !/Dana Muise/.test(open.customer || "") || /<p>/.test(open.body || "")) fail("the message view is wrong: " + JSON.stringify(open));
-if (!/Dana Muise\s*customer.*to me/.test(open.from || "")) fail("the sender row should read like the mail apps (name, customer tag, time, 'to me'): " + open.from);
-if (open.link !== "https://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1" || open.linkText !== "Open in Gmail") fail("Open in Gmail should link to this thread in Gmail: " + open.link + " / " + open.linkText);
+if (!/Dana Muise.*to me/.test(open.from || "")) fail("the sender row should read like the mail apps (name, time, 'to me'): " + open.from);
+await p.waitForTimeout(400); // past the slide-in
+const page = await p.evaluate(() => ({
+  bar: !!document.querySelector(".modal .mail-bar [data-act='back']"),
+  chip: document.querySelector(".modal .mail-subject .mail-chip")?.textContent.trim(),
+  edge: (() => { const r = document.querySelector(".modal").getBoundingClientRect(); return Math.abs(r.top) < 1 && Math.abs(r.left) < 1 && Math.abs(r.width - innerWidth) < 1 && Math.abs(r.height - innerHeight) < 1; })(),
+  pills: [...document.querySelectorAll(".modal .mail-actions .mail-pill")].map((b) => b.textContent.trim()).join("|"),
+  handle: document.querySelector(".modal .modal-handle")?.checkVisibility() || false,
+}));
+if (!page.bar || page.chip !== "Customer" || !page.edge || page.handle) fail("the email should be a full page with a back arrow, no sheet handle, and the subject carrying a Customer chip: " + JSON.stringify(page));
+if (page.pills !== "Reply|Open in Gmail") fail("the pills along the bottom should be Reply and Open in Gmail: " + page.pills);
+if (open.link !== "https://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1" || !/Open in Gmail/.test(document_or(open.linkText))) fail("Open in Gmail should link to this thread in Gmail: " + open.link + " / " + open.linkText);
 if (!open.quoteHidden || !/Does Saturday work/.test(open.body || "")) fail("the quoted history should be folded behind the dots: " + JSON.stringify(open));
 if (open.href !== "https://maps.example/oregans") fail("links in the text should be tappable, without the trailing period: " + open.href);
 if (!open.replyHidden || !open.full) fail("the reply box waits for a Reply tap, and the email takes the full sheet: " + JSON.stringify(open));
@@ -94,6 +104,7 @@ if (links.gd.app || links.gd.href !== "https://mail.google.com/mail/?authuser=pa
 if (!links.oa.app || links.oa.href !== "ms-outlook://emails/message/open?restid=AAMkAG%3D&account=parm.test%40gmail.com") fail("phones should open Outlook's app on the message: " + JSON.stringify(links.oa));
 if (links.od.app || links.od.href !== o_web(links)) fail("desktop Outlook should use the message's own web link: " + JSON.stringify(links.od));
 function o_web() { return "https://outlook.live.com/mail/0/deeplink/read/AAMkAG%3D"; }
+function document_or(s) { return s || ""; }
 await p.click(".modal .mail-from");
 if (!(await p.evaluate(() => document.querySelector(".modal .mail-details").checkVisibility() && /dana@example\.com/.test(document.querySelector(".modal .mail-details").textContent)))) fail("tapping the sender should show From / To / Date");
 await p.click(".modal .mail-quote-btn");
@@ -124,6 +135,8 @@ await p.waitForTimeout(300);
 await p.click('[data-act="compose"]');
 await p.waitForSelector(".modal #mc-to", { timeout: 5000 });
 const compose = await p.evaluate(() => ({
+  title: document.querySelector(".modal .mail-bar-title")?.textContent.trim(),
+  sendInBar: !!document.querySelector(".modal .mail-bar [data-act='send']"),
   from: document.querySelector(".modal .mc-from")?.textContent.trim(),
   rows: [...document.querySelectorAll(".modal .mc-label")].map((l) => l.textContent.trim()).join("|"),
   full: document.querySelector(".modal").classList.contains("modal-mail"),
@@ -131,6 +144,7 @@ const compose = await p.evaluate(() => ({
 }));
 console.log("compose:", JSON.stringify(compose));
 if (compose.from !== "parm.test@gmail.com" || compose.rows !== "From|To|Subject") fail("compose should read From / To / Subject like the mail apps: " + JSON.stringify(compose));
+if (compose.title !== "Compose" || !compose.sendInBar) fail("compose should have Gmail's top bar: back arrow, 'Compose', send arrow: " + JSON.stringify(compose));
 if (!compose.full || !compose.bodyTall) fail("compose should take the full sheet with a tall message area: " + JSON.stringify(compose));
 await p.fill(".modal #mc-to", "ken@example.com");
 await p.fill(".modal #mc-subject", "Your Kicks is in");
