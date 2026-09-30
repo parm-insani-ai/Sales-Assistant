@@ -377,11 +377,10 @@ body.typing #app, body.kb-open #app {
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  /* The tab bar is ~83px; the rest is deliberate slack so the last row clears
-     the bar and the page doesn't stop dead the moment you reach the bottom of
-     the content. Enough to feel like room, not so much that a short list looks
-     like it's floating above an empty screen. */
-  padding: 18px 20px calc(117px + var(--safe-bottom));
+  /* The tab bar sits below this, in flow, so the bottom padding is only the
+     slack the last row needs to clear the raised voice button, plus a
+     breath — not a screen of blank to scroll into. */
+  padding: 18px 20px 44px;
   /* `clip` rather than `hidden`: it contains a too-wide row without turning
      this into a scroll container. */
   overflow-x: clip;

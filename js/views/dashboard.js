@@ -6,7 +6,7 @@ import * as store from "../store.js";
 import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
-import { monthSummary, apptFunnel, saleCard, openSaleForm } from "./goals.js";
+import { monthSummary } from "./goals.js";
 import { salesTarget, openTargetForm } from "../target.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
@@ -234,28 +234,7 @@ function targetSection(mtd, s, redraw) {
     <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
     <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
   body.querySelector('[data-act="set-target"]').addEventListener("click", () => openTargetForm(redraw));
-  const wrap = document.createElement("div");
-  wrap.appendChild(fold({ key: "home:target", title: "Sales target", open: true, body }));
-  // The month's sales and the appointment funnel, under the target — what
-  // the Goals page used to hold.
-  const f = apptFunnel();
-  const sales = mtd.sales.slice().sort((a, b) => (b.saleDate || "").localeCompare(a.saleDate || ""));
-  const salesBody = document.createElement("div");
-  salesBody.className = "sales-slot";
-  salesBody.innerHTML = `
-    <div class="card" style="margin-bottom:10px">
-      <div class="row small"><span class="muted">Appointments</span><span class="mono">${f.set} set · ${f.confirmed} confirmed · ${f.showed} showed · ${f.sold} sold</span></div>
-      <div class="row small" style="margin-top:6px"><span class="muted">Show rate · appointment → sold</span><span class="mono">${f.showRate}% · ${f.closeRate}%</span></div>
-      <div class="row small" style="margin-top:6px"><span class="muted">Gross · avg commission per unit</span><span class="mono">${currency(mtd.totalGross)} · ${mtd.units ? currency(Math.round(mtd.commission / mtd.units)) : "$0"}</span></div>
-    </div>
-    <div class="sales-list"></div>`;
-  const list = salesBody.querySelector(".sales-list");
-  if (!sales.length) list.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">No sales logged yet this month. Tap + Log sale after you close a deal (or tell the assistant).</div></div>`;
-  else sales.forEach((sale) => list.appendChild(saleCard(sale)));
-  const salesFold = fold({ key: "home:sales", title: "Sales this month", count: mtd.units, open: false, body: salesBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-sale">+ Log sale</button>` });
-  salesFold.querySelector('[data-act="add-sale"]').addEventListener("click", () => openSaleForm(null, {}, redraw));
-  wrap.appendChild(salesFold);
-  return wrap;
+  return fold({ key: "home:target", title: "Sales target", open: true, body });
 }
 
 function apptMini(a) {
