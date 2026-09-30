@@ -115,9 +115,10 @@ const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "90
 await rep.goto(APP + "/#/goals");
 await rep.waitForFunction(async () => { const s = await import("/js/store.js"); return s.getSettings().goalUnits === 15 && s.getSettings().goalAppointments === 40; }, null, { timeout: 15000 });
 await rep.evaluate(() => { location.hash = "#/"; }); await rep.waitForTimeout(300);
-await rep.evaluate(() => { location.hash = "#/goals"; }); await rep.waitForTimeout(500);
-const goals = await rep.evaluate(() => document.body.textContent.includes("Targets set by your manager"));
-if (!goals) fail("the rep's Goals page doesn't say the targets came from the manager");
+await rep.evaluate(() => { location.hash = "#/goals"; }); await rep.waitForTimeout(600);
+// The Goals page is the Sales target on Home now.
+const goals = await rep.evaluate(() => ({ hash: location.hash, said: (document.querySelector(".target-card")?.textContent || "").includes("set by your manager") }));
+if (goals.hash !== "#/" || !goals.said) fail("the rep's target doesn't say it came from the manager: " + JSON.stringify(goals));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

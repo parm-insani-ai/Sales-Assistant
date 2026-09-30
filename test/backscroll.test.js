@@ -51,7 +51,7 @@ console.log("browser back →", after);
 if (Math.abs(after - before) > 40) fail(`the browser's back didn't land where you were: ${before} → ${after}`);
 
 // --- Today scrolled, Leads by the tab, Today by the tab: the same place.
-await p.click('.tabbar a[data-route="/today"]');
+await p.click('.tabbar a[data-route="/log"]');
 await p.waitForSelector(".plays-slot .row", { timeout: 10000 });
 await settle(400);
 await scrollTo(500);
@@ -63,7 +63,7 @@ await settle();
 const leadsAgain = await top();
 console.log("leads by tab →", leadsAgain, "(was", before + ")");
 if (Math.abs(leadsAgain - before) > 40) fail(`the Leads tab didn't come back where it was: ${before} → ${leadsAgain}`);
-await p.click('.tabbar a[data-route="/today"]');
+await p.click('.tabbar a[data-route="/log"]');
 await p.waitForSelector(".plays-slot .row", { timeout: 10000 });
 await settle();
 const homeAfter = await top();
@@ -71,7 +71,7 @@ console.log("today by tab →", homeAfter, "(was", homeBefore + ")");
 if (Math.abs(homeAfter - homeBefore) > 40) fail(`the Today tab didn't come back where it was: ${homeBefore} → ${homeAfter}`);
 
 // --- Tapping the tab you're on goes to the top; a fresh jump starts at the top.
-await p.click('.tabbar a[data-route="/today"]');
+await p.click('.tabbar a[data-route="/log"]');
 await settle(900);
 if ((await top()) > 5) fail("re-tapping the Today tab didn't go to the top: " + (await top()));
 await p.evaluate(async () => { const r = await import("/js/router.js"); r.navigate("/leads"); });

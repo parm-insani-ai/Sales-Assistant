@@ -6,7 +6,8 @@ import * as store from "../store.js";
 import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
-import { monthSummary } from "./goals.js";
+import { monthSummary, apptFunnel, saleCard, openSaleForm } from "./goals.js";
+import { loggedInMonth } from "../logbook.js";
 import { salesTarget, openTargetForm } from "../target.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
@@ -63,10 +64,10 @@ export function renderDashboard(view) {
 
     <div class="nudge-slot"></div>
 
-    <div class="card card-tap today-card" data-goto="/today" style="margin-bottom:6px">
+    <div class="card card-tap today-card" data-goto="/log" style="margin-bottom:6px">
       <div class="row">
         <div class="row-main">
-          <div class="row-title">${icon("checkline")} Today</div>
+          <div class="row-title">${icon("checkline")} Log</div>
           <div class="row-sub today-sub"></div>
         </div>
         <div class="row-meta strong">›</div>
@@ -88,7 +89,7 @@ export function renderDashboard(view) {
       <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
       <div class="stat card-tap" data-goto="/leads"><div class="stat-value">${activeLeads.length}</div><div class="stat-label">Active leads ›</div></div>
       <div class="stat card-tap" data-goto="/deliveries"><div class="stat-value">${activeDeliveries.length}</div><div class="stat-label">Deliveries in prep ›</div></div>
-      <div class="stat card-tap" data-goto="/goals"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month ›</div></div>
+      <div class="stat card-tap" data-goto="/soldlog"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month ›</div></div>
     </div>
 
     <div class="target-slot"></div>
@@ -145,11 +146,12 @@ export function renderDashboard(view) {
   // in the background and the card says so, then fills in. Home paints at
   // once either way.
   const todaySub = el.querySelector(".today-sub");
-  const todos = `${openTasks.length} to-do${openTasks.length === 1 ? "" : "s"}`;
+  const loggedN = loggedInMonth().length;
+  const todos = `${loggedN} logged this month · ${openTasks.length} to-do${openTasks.length === 1 ? "" : "s"}`;
   const sayQueue = () => {
     if (!todaySub.isConnected) return;
     const n = getPlays(40).length;
-    todaySub.textContent = `${n ? `${n} in the queue` : "Queue clear"} · ${todos} · tap to work them`;
+    todaySub.textContent = `${n ? `${n} in the queue` : "Queue clear"} · ${todos}`;
   };
   if (bookCheap()) setTimeout(sayQueue, 0);
   else {
@@ -264,12 +266,33 @@ function targetSection(mtd, s, redraw) {
     ${p.split ? `<div class="tg-cats">${cat("New", t.soldNew, p.targetNew, t.spokeNew, p.needNew)}${cat("Used", t.soldUsed, p.targetUsed, t.spokeUsed, p.needUsed)}</div>` : ""}
     <div class="tg-chips">${read}</div>
     ${t.spokeUnsplit || t.soldUnsplit ? `<div class="small muted" style="margin-top:8px">${[t.spokeUnsplit ? `${t.spokeUnsplit} spoken with aren't marked new or used yet` : "", t.soldUnsplit ? `${t.soldUnsplit} sale${t.soldUnsplit === 1 ? "" : "s"} not marked new or used` : ""].filter(Boolean).join(" · ")} — say it when you add them, or set Shopping on their page.</div>` : ""}
-    ${s.targetSetBy === "manager" && s.goalUnits && s.goalUnits !== p.target ? `<div class="small muted" style="margin-top:6px">Your manager's target is ${s.goalUnits} units.</div>` : ""}
+    ${s.targetSetBy === "manager" ? `<div class="small muted" style="margin-top:6px">${icon("check")} Target set by your manager for this month${s.goalUnits && s.goalUnits !== p.target ? ` — ${s.goalUnits} units` : ""}.</div>` : ""}
     ` : `<div class="small muted" style="margin-top:10px">Set your new and used units and the closing ratio you expect, and this works out how many customers to speak with — then counts them as you add customers, log contacts and log sales.</div>`}
-    <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)} <a href="#/goals" class="muted" style="margin-left:6px">Goals ›</a></span></div>
+    <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
     <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
   body.querySelector('[data-act="set-target"]').addEventListener("click", () => openTargetForm(redraw));
-  return fold({ key: "home:target", title: "Sales target", open: true, body });
+  const wrap = document.createElement("div");
+  wrap.appendChild(fold({ key: "home:target", title: "Sales target", open: true, body }));
+  // The month's sales and the appointment funnel, under the target — what
+  // the Goals page used to hold.
+  const f = apptFunnel();
+  const sales = mtd.sales.slice().sort((a, b) => (b.saleDate || "").localeCompare(a.saleDate || ""));
+  const salesBody = document.createElement("div");
+  salesBody.className = "sales-slot";
+  salesBody.innerHTML = `
+    <div class="card" style="margin-bottom:10px">
+      <div class="row small"><span class="muted">Appointments</span><span class="mono">${f.set} set · ${f.confirmed} confirmed · ${f.showed} showed · ${f.sold} sold</span></div>
+      <div class="row small" style="margin-top:6px"><span class="muted">Show rate · appointment → sold</span><span class="mono">${f.showRate}% · ${f.closeRate}%</span></div>
+      <div class="row small" style="margin-top:6px"><span class="muted">Gross · avg commission per unit</span><span class="mono">${currency(mtd.totalGross)} · ${mtd.units ? currency(Math.round(mtd.commission / mtd.units)) : "$0"}</span></div>
+    </div>
+    <div class="sales-list"></div>`;
+  const list = salesBody.querySelector(".sales-list");
+  if (!sales.length) list.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">No sales logged yet this month. Tap + Log sale after you close a deal (or tell the assistant).</div></div>`;
+  else sales.forEach((sale) => list.appendChild(saleCard(sale)));
+  const salesFold = fold({ key: "home:sales", title: "Sales this month", count: mtd.units, open: false, body: salesBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-sale">+ Log sale</button>` });
+  salesFold.querySelector('[data-act="add-sale"]').addEventListener("click", () => openSaleForm(null, {}, redraw));
+  wrap.appendChild(salesFold);
+  return wrap;
 }
 
 function apptMini(a) {

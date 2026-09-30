@@ -31,6 +31,7 @@ import { openAudienceFilter, audienceLabel } from "./audience.js";
 import { horizonFor, monthLabel } from "../horizon.js";
 import { makeMatcher } from "../match.js";
 import { fold, openFold } from "../fold.js";
+import { inLog, logCustomer } from "../logbook.js";
 
 // The words a customer can be found by, lowercased once per record rather
 // than once per keystroke per customer.
@@ -126,10 +127,6 @@ export function renderLeads(view, { param }) {
   // only when it's empty — the count on the screen says so either way.
   const blast = (channel) => {
     const a = { ...aud };
-    if (!a.stages || !a.stages.length) {
-      if (filter === "active") a.stages = ["new", "working", "appointment", "negotiating"];
-      else if (filter !== "all" && filter !== "due") a.stages = [filter];
-    }
     try { sessionStorage.setItem("outreach-audience", JSON.stringify({ channel, audience: a })); } catch {}
     navigate("/outreach");
   };
@@ -151,8 +148,9 @@ export function renderLeads(view, { param }) {
   sessionStorage.removeItem("leads-filter");
   let opp = preset === "opportunity" || (!preset && recall(OPP_KEY) === "1");
   if (preset === "opportunity") preset = null;
+  const CHIPS = ["tocontact", "contacted", "due", "timing", "all"];
   const rem = recall(REMEMBER);
-  let filter = preset || (rem && rem !== "opportunity" ? rem : null) || "all";
+  let filter = [preset, rem].find((f) => CHIPS.includes(f)) || "tocontact";
   // A jump from elsewhere (a preset) is a new list; the spot only applies to
   // the list it was saved on.
   if (spot && (preset || !isReturn() || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
@@ -176,11 +174,12 @@ export function renderLeads(view, { param }) {
   let lens = null;
   // Does a customer pass the chip, the search and the audience filter? The
   // plain list and the ranked list narrow by the same rule.
+  const dueNow = (l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0;
   const passes = (l) => {
-    if (filter === "active" && ["delivered", "lost"].includes(l.stage)) return false;
-    if (filter === "due" && !(!["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0)) return false;
+    if (filter === "tocontact" && (inLog(l) || l.lastContacted)) return false;
+    if (filter === "contacted" && (inLog(l) || !l.lastContacted)) return false;
+    if (filter === "due" && !dueNow(l)) return false;
     if (filter === "timing" && !(timingReady() && hz.byId.has(l.id))) return false;
-    if (!["all", "active", "due", "timing"].includes(filter) && l.stage !== filter) return false;
     const q = search.toLowerCase();
     if (q && !haystack(l).includes(q)) return false;
     if (aud && !inAudience(aud, l)) return false;
@@ -190,10 +189,10 @@ export function renderLeads(view, { param }) {
   function draw() {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
-    if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
-    else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
+    if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted);
+    else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
+    else if (filter === "due") list = list.filter(dueNow);
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
-    else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
 
@@ -205,25 +204,24 @@ export function renderLeads(view, { param }) {
       return (b.createdAt || "").localeCompare(a.createdAt || "");
     });
 
-    // Every chip carries its count. The default is Active, which hides
-    // delivered and lost — and an imported book of past customers is almost
-    // entirely "delivered", so a fresh install opened on 61 of 2,923 and it read
-    // as the other 2,862 having been lost. With "All 2,923" sitting beside
-    // "Active 61" the hidden rows are a number on screen, not a mystery.
+    // Every chip carries its count. Outreach is the book nobody is working
+    // yet — the imported owners — so it opens on the ones still to be
+    // contacted; the customers being worked are on Log. "All" is everyone,
+    // so nobody is ever out of reach of the search.
     const everyone = store.all("leads");
     const n = {
-      active: everyone.filter((l) => !["delivered", "lost"].includes(l.stage)).length,
-      due: everyone.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0).length,
+      tocontact: everyone.filter((l) => !inLog(l) && !l.lastContacted).length,
+      contacted: everyone.filter((l) => !inLog(l) && l.lastContacted).length,
+      due: everyone.filter(dueNow).length,
       all: everyone.length,
     };
-    LEAD_STAGES.forEach((st) => { n[st.id] = everyone.filter((l) => l.stage === st.id).length; });
     const withCount = (label, id) => (n[id] == null ? label : `${label} ${n[id].toLocaleString()}`);
     const chips = [
-      { id: "all", label: withCount("All", "all") },
-      { id: "active", label: withCount("Active", "active") },
+      { id: "tocontact", label: withCount("To contact", "tocontact") },
+      { id: "contacted", label: withCount("Contacted", "contacted") },
       { id: "due", label: withCount("Due follow-ups", "due") },
       { id: "timing", label: timingLabel() },
-      ...LEAD_STAGES.map((s) => ({ id: s.id, label: withCount(s.label, s.id) })),
+      { id: "all", label: withCount("All", "all") },
     ];
 
     // Selecting is a job on the plain list; the lens waits until Done.
@@ -233,7 +231,7 @@ export function renderLeads(view, { param }) {
     // selecting, the parts that don't apply aren't drawn at all.
     wrap.innerHTML = `
       <div class="searchbar">
-        <input type="search" placeholder="Search leads…" value="${esc(search)}" />
+        <input type="search" placeholder="Search customers…" value="${esc(search)}" />
       </div>
       ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
@@ -290,7 +288,7 @@ export function renderLeads(view, { param }) {
       lens = renderDeals(listEl, { embedded: true, only: passes });
       const cnt0 = wrap.querySelector(".aud-count"); if (cnt0) cnt0.textContent = String(lens.redraw());
     } else if (!list.length) {
-      listEl.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : "Tap + to add your first customer.");
+      listEl.innerHTML = emptyState("users", filter === "tocontact" ? "Everyone's been contacted" : "Nobody here", search ? "Try a different search." : filter === "tocontact" ? "Import your owner book and the ones still to reach show here." : "Tap + to add a customer — they land on Log.");
     } else if (spot) {
       // Back from a customer: put the same cards back, then the same scroll.
       const s = spot; spot = null;
@@ -504,10 +502,10 @@ export function renderLeads(view, { param }) {
   function applyFilter() {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
-    if (filter === "active") list = list.filter((l) => !["delivered", "lost"].includes(l.stage));
-    else if (filter === "due") list = list.filter((l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0);
+    if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted);
+    else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
+    else if (filter === "due") list = list.filter(dueNow);
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
-    else if (filter !== "all") list = list.filter((l) => l.stage === filter);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
     // Timing keeps its own order: the month the window opens, soonest first.
@@ -935,7 +933,7 @@ export function openLeadForm(existing, opts = {}) {
             store.update("leads", existing.id, data);
             toast("Lead updated", "success");
           } else {
-            const lead = store.create("leads", data);
+            const lead = store.create("leads", { ...data, loggedAt: new Date().toISOString() });
             const n = maybeStartCadence(lead.id);
             toast(n ? `Lead added — ${n}-step follow-up plan started` : "Lead added", "success");
           }
@@ -987,10 +985,15 @@ function renderLeadDetail(view, id) {
           : `<button class="btn btn-ghost btn-sm" data-add="email" style="flex:1">${icon("mail")} Email</button>`}
       </div>
       <div class="kv" data-act="contacted" style="cursor:pointer;margin-top:4px;padding:4px 0"><span class="k">Last contacted</span><span class="v">${contactLine(l)}</span></div>
+      ${inLog(l) ? "" : `<button class="btn btn-primary btn-sm btn-block" data-act="to-log" style="margin-top:8px">${icon("checkline")} Move to Log — I'm working this customer</button>`}
       ${contractBanner(l, { tap: true })}
     </div>
   `;
   view.appendChild(el);
+  // Outreach → Log: they showed promise, they're being worked. Counts as
+  // this month's conversation on the sales target.
+  const toLog = el.querySelector('[data-act="to-log"]');
+  if (toLog) toLog.addEventListener("click", () => { logCustomer(l.id); toast(`${l.name} is on your Log`, "success"); renderRefresh(view, id); });
 
   // --- Context: what we know about them. Every text in the plan is written from this.
   const lines = profileLines(l);

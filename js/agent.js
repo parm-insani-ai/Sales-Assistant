@@ -13,7 +13,8 @@ import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
 import { topOpportunities, dealsForLead, equityDetail, warmRadar } from "./views/dealbuilder.js";
-import { salesTarget, markSpokenWith, inferShopping } from "./target.js";
+import { salesTarget, inferShopping } from "./target.js";
+import { logCustomer } from "./logbook.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
 import { afterSale, afterAppointmentBooked, afterDeliveryComplete, closeFollowUps } from "./connections.js";
 import { getOccasions } from "./occasions.js";
@@ -91,7 +92,7 @@ const TOOLS = [
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
   { name: "get_nudges", description: "What needs attention RIGHT NOW — customers waiting on a reply, appointments about to start that aren't confirmed, appointments that have passed with no outcome, deliveries with prep outstanding, deals gone quiet. Use for 'what needs me now?', 'anything urgent?', 'am I missing anything?'. Different from get_plays: this is time-critical, that is the day's queue.", input_schema: { type: "object", properties: {} } },
-  { name: "get_prospects", description: "Today's prospects: the customers on file (imported owners, past customers) the app has picked out today because a car can be sold to them now — equity, a payment-matched deal, a lease coming due, years in the same vehicle. Use for 'who should I reach out to today', 'who can I sell a car to', 'work the book', 'who's worth a call'. Each comes with the reasons and a drafted opener the salesperson approves. Puts the list on Today.", input_schema: { type: "object", properties: {} } },
+  { name: "get_prospects", description: "Today's prospects: the customers on file (imported owners, past customers) the app has picked out today because a car can be sold to them now — equity, a payment-matched deal, a lease coming due, years in the same vehicle. Use for 'who should I reach out to today', 'who can I sell a car to', 'work the book', 'who's worth a call'. Each comes with the reasons and a drafted opener the salesperson approves. Puts the list on Log.", input_schema: { type: "object", properties: {} } },
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
   { name: "sales_target", description: "The monthly sales target sheet — 'how am I doing against my target?', 'how many customers do I need to talk to?', 'am I on pace?', 'what's my closing ratio?'. New and used unit targets, the closing ratio expected, customers to speak with, spoken with so far, sold, remaining, pace, and this week's share.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
@@ -143,7 +144,7 @@ function buildSystem(ctx) {
     // the follow-up plan is written from it, so a detail dropped here is a
     // generic message later.
     `CONTEXT IS THE PRODUCT. When the salesperson says anything about a customer beyond a name and a number — what they want, the trim, a feature they love, new or used, a budget, a timeline, a trade-in, who else is deciding, why they're shopping, how they came in — capture ALL of it: the structured parts in the context fields AND the whole remark, in the salesperson's words, in \`notes\`. Never drop a detail and never summarise it away. "Add Parm, 902 555 1234, he's after a Rogue, loves the SV moonroof, open to new or used, wants to be around thirty" is ONE create_lead call with name, phone, vehicle "Nissan Rogue", trim "SV", features ["moonroof"], newUsed "either", budget 30000, and notes holding the sentence. A remark about someone already on file is add_context.`,
-    `A new customer's follow-up plan starts by itself — texts and calls over 90 days, each text drafted from their context and held on Today for the salesperson's OK. Say so in one clause ("follow-up plan's started, first text is waiting for your OK on Today"). Never say they need to set anything up.`,
+    `A new customer's follow-up plan starts by itself — texts and calls over 90 days, each text drafted from their context and held on Log for the salesperson's OK. Say so in one clause ("follow-up plan's started, first text is waiting for your OK on Log"). Never say they need to set anything up.`,
     // The screen follows the conversation. The list tools put their results on
     // screen as tappable rows, so the spoken reply's job is to hand over to
     // what the salesperson is now looking at — not to read the list back to
@@ -319,7 +320,7 @@ function matchesVehicle(v, want) {
 const ROUTES = {
   home: "/", dashboard: "/", leads: "/leads", customers: "/leads", inventory: "/inventory",
   calculator: "/calculator", deliveries: "/deliveries", calendar: "/calendar", schedule: "/calendar",
-  goals: "/goals", radar: "/deals", deals: "/deals", prospecting: "/today", tools: "/tools", today: "/today", queue: "/today", todos: "/today", tasks: "/today",
+  goals: "/", target: "/", radar: "/deals", deals: "/deals", prospecting: "/log", tools: "/tools", today: "/log", log: "/log", logbook: "/log", queue: "/log", todos: "/log", tasks: "/log", outreach: "/leads",
   comms: "/comms", communication: "/comms", messages: "/comms",
   soldlog: "/soldlog", sold: "/soldlog", tracker: "/soldlog",
   coach: "/coach",
@@ -366,7 +367,7 @@ export async function execTool(name, p = {}) {
       // happens to contain it.
       if (list.length) {
         try {
-          sessionStorage.setItem("leads-filter", p.stage || (p.needsFollowUp ? "due" : "all"));
+          sessionStorage.setItem("leads-filter", p.needsFollowUp ? "due" : "all");
           if (p.query) sessionStorage.setItem("leads-search", p.query);
         } catch { }
         navigate("/leads");
@@ -518,7 +519,7 @@ export async function execTool(name, p = {}) {
         list = list.filter((x) => x.due && String(x.due).slice(0, 10) <= iso);
       }
       list.sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
-      if (list.length) navigate("/today", ".tasks-slot");
+      if (list.length) navigate("/log", ".tasks-slot");
       return { result: { count: list.length, tasks: list.slice(0, 20).map((x) => ({ title: x.title, due: x.due || null, priority: x.priority || "normal" })) }, note: "" };
     }
     case "get_deliveries": {
@@ -602,15 +603,15 @@ export async function execTool(name, p = {}) {
         canText: !!c.lead.phone,
       }));
       const stats = prospectStats();
-      if (rows.length) navigate("/today", ".plays-slot");
+      if (rows.length) navigate("/log", ".plays-slot");
       return { result: { prospects: rows, note: rows.length
-        ? `today's ${rows.length}, best first — each on Today with a Review button that drafts the opener; ${stats.eligibleNow} more in the book with a reason`
+        ? `today's ${rows.length}, best first — each on Log with a Review button that drafts the opener; ${stats.eligibleNow} more in the book with a reason`
         : (stats.withReason ? "everyone with a reason has been reached or surfaced recently — tomorrow brings the next handful" : "nobody on file has enough data to price a deal — import an equity export") }, note: "" };
     }
     case "get_plays": {
       const plays = getPlays(6).map((p) => ({ play: p.title, why: p.sub, oneTapReady: !!p.href }));
       // Today's queue lives most of a page down Home — land on it, not above it.
-      if (plays.length) navigate("/today", ".plays-slot");
+      if (plays.length) navigate("/log", ".plays-slot");
       return { result: { plays, note: plays.length ? "ordered hottest first" : "nothing urgent — a good time for prospecting calls" }, note: "" };
     }
     case "get_coach": case "weekly_review": {
@@ -675,11 +676,11 @@ export async function execTool(name, p = {}) {
       // Everything else said about them, structured where it can be and kept
       // whole in the notes either way.
       addContext(lead.id, { ...p, note: p.notes || p.note || "" });
-      // Telling the app about a customer is the conversation the sales
-      // target counts: they're spoken with as of now, no second step.
-      markSpokenWith(lead.id, "in person");
+      // Telling the app about a customer puts them in the log — the
+      // conversation the sales target counts, no second step.
+      logCustomer(lead.id);
       const n = maybeStartCadence(lead.id);
-      const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held on Today for the salesperson's OK — nothing sends on its own.` : "";
+      const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held on Log for the salesperson's OK — nothing sends on its own.` : "";
       return { result: `created lead ${lead.name}.${plan}`, note: `added ${lead.name}${n ? ` — ${n}-step follow-up plan started` : ""}` };
     }
     case "update_lead": {
@@ -706,7 +707,7 @@ export async function execTool(name, p = {}) {
       const started = ["new", "working"].includes(lead.stage) ? maybeStartCadence(lead.id) : 0;
       const what = r && r.changed.length ? r.changed.join(", ") : "nothing new";
       return {
-        result: `noted for ${lead.name}: ${what}.${started ? ` Follow-up plan started (${started} touches); first text waiting on Today.` : ""} ${planSummary(lead.id)}`.trim(),
+        result: `noted for ${lead.name}: ${what}.${started ? ` Follow-up plan started (${started} touches); first text waiting on Log.` : ""} ${planSummary(lead.id)}`.trim(),
         note: `noted for ${lead.name}`,
       };
     }

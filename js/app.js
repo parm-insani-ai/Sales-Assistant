@@ -27,7 +27,7 @@ const LOADERS = {
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
-  today: () => import("./views/today.js"),
+  log: () => import("./views/log.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -123,10 +123,13 @@ const PAGES = {
   "/calculator": { title: "Deal Calculator", render: lazyView("calculator", "renderCalculator") },
   "/deliveries": { title: "Deliveries", render: lazyView("deliveries", "renderDeliveries") },
   "/calendar": { title: "Calendar", render: renderCalendar },
-  "/goals": { title: "Goals & Commission", render: lazyView("goals", "renderGoals") },
-  // The day's work: the queue and the to-dos, off Home so Home is the
-  // glance and this is the doing.
-  "/today": { title: "Today", render: lazyView("today", "renderToday") },
+  // The log: the customers being worked and the day's work on them — the
+  // queue, the month's log, reminders, to-dos. Home is the glance; this is
+  // the doing. (It was "Today"; old links still land.)
+  "/log": { title: "Log", render: lazyView("log", "renderLog") },
+  "/today": { title: "Log", render: () => navigate("/log") },
+  // The Goals page is folded into the Sales target on Home.
+  "/goals": { title: "Sales target", render: () => navigate("/", ".target-slot") },
   // The Tools tab is gone: everything on it is under "+". An old link lands
   // on Home with the "+" sheet open.
   "/tools": { title: "Tools", render: () => { navigate("/"); setTimeout(() => document.getElementById("quick-add").click(), 0); } },
@@ -276,7 +279,7 @@ initPullToRefresh();
 // Quick-add: context-aware based on the current tab. One modal holds
 // everything — the add-a-record actions up top, every tool below — rendered
 // as one uniform tile grid. There is no separate Tools screen: the tab bar
-// is the daily loop (Home, Leads, Today, Comms) and this is the rest.
+// is the daily loop (Home, Outreach, Log, Comms) and this is the rest.
 document.getElementById("quick-add").addEventListener("click", () => {
   // The store's "+" is the manager's actions — an email, the welcome, a
   // nudge, the reach-outs, targets — not a rep's add-a-record menu.
@@ -294,7 +297,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
     spif: { icon: "award", label: "Spif", fn: () => openSpifForm() },
   };
   // The most relevant add-action for the current tab goes first.
-  const primaryFor = { "/leads": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/goals": "sale", "/soldlog": "soldlog", "/spiffs": "spif" };
+  const primaryFor = { "/leads": "lead", "/log": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/soldlog": "soldlog", "/spiffs": "spif" };
   const order = ["lead", "referral", "task", "appt", "sale", "soldlog", "vehicle", "delivery", "spif"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;

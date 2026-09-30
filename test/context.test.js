@@ -88,7 +88,7 @@ await p.evaluate(async () => {
     .forEach((t) => store.update("tasks", t.id, { readyAt: new Date(Date.now() - 60000).toISOString() }));
 });
 await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(100);
-await p.evaluate(() => { location.hash = "#/today"; }); await p.waitForTimeout(400);
+await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
 await p.waitForSelector(".plays-slot .row", { timeout: 10000 }).catch(() => {});
 const home = await p.evaluate(() => {
   const rows = [...document.querySelectorAll(".plays-slot .row")].map((r) => ({ title: r.querySelector(".strong")?.textContent, sub: r.querySelector(".small")?.textContent, btn: r.querySelector("button.btn, a.btn")?.textContent.trim() }));

@@ -146,7 +146,7 @@ await rep.waitForSelector(".today-card", { timeout: 20000 });
 await rep.waitForTimeout(800);
 const repHome = await rep.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn") }));
 console.log("rep home:", JSON.stringify(repHome));
-if (repHome.mg || repHome.tabs.join() !== "Home,Leads,Voice,Today,Comms" || !repHome.voice) fail("a rep got the store's app: " + JSON.stringify(repHome));
+if (repHome.mg || repHome.tabs.join() !== "Home,Outreach,Voice,Log,Comms" || !repHome.voice) fail("a rep got the store's app: " + JSON.stringify(repHome));
 const repTools = await rep.evaluate(async () => { document.getElementById("quick-add").click(); await new Promise((r) => setTimeout(r, 400)); const out = [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()); document.querySelector(".modal-close")?.click(); return out; });
 if (repTools.includes("Management view")) fail("a rep is offered the management view");
 

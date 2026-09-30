@@ -30,6 +30,7 @@ await p.addInitScript(() => {
     settings: { salesperson: "Parm", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));
 });
 await p.goto(APP + "/#/leads");
+await p.waitForSelector('[data-filter="all"]', { timeout: 20000 }); await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
 await p.waitForTimeout(4000); // the list, and the warm read of the book
 
 const t = await p.evaluate(async () => {

@@ -8,6 +8,7 @@
 // Views and the voice agent call these instead of hand-rolling partial updates.
 
 import * as store from "./store.js";
+import { logCustomer } from "./logbook.js";
 import { deferPlan } from "./cadence.js";
 
 // Find a lead by (case-insensitive) name — used to link records created from a
@@ -41,6 +42,8 @@ export function afterSale(leadId, { vehicle = "", fromDelivery = false } = {}) {
   const lead = leadId ? store.get("leads", leadId) : null;
   if (!lead) return;
   if (lead.stage !== "delivered") store.update("leads", lead.id, { stage: "sold" });
+  // A sale is the surest engagement there is: they're in the log.
+  logCustomer(lead.id);
   closeFollowUps(lead.id);
   // The Deal Radar-matched inventory vehicle is no longer available.
   if (lead.vehicleId) {
@@ -109,6 +112,8 @@ export function afterAppointmentBooked(leadId, when = "") {
   if (lead && ["new", "working"].includes(lead.stage)) {
     store.update("leads", lead.id, { stage: "appointment" });
   }
+  // Booked means engaged: an outreach customer with an appointment is in the log.
+  if (lead) logCustomer(lead.id);
   // The plan's texts step aside for the appointment: the ones before it would
   // only compete with the confirmation, and the ones after should wait for
   // how it went.

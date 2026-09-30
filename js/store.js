@@ -993,8 +993,12 @@ export function logContact(leadId, { via = "call", at = null, notes = "" } = {})
     const rec = create("calls", { leadId, dir: "out", via, at: when, outcome: "reached", notes, logged: true });
     const lead = get("leads", leadId);
     // The newest contact is the last one, whichever order they were logged in.
-    if (lead && (!lead.lastContacted || when >= lead.lastContacted)) {
-      update("leads", leadId, { lastContacted: when, lastContactVia: via });
+    // A logged conversation puts an outreach customer in the log (logbook.js).
+    if (lead) {
+      const patch = {};
+      if (!lead.lastContacted || when >= lead.lastContacted) { patch.lastContacted = when; patch.lastContactVia = via; }
+      if (!lead.loggedAt) patch.loggedAt = when;
+      if (Object.keys(patch).length) update("leads", leadId, patch);
     }
     logActivity("touch");
     return rec;

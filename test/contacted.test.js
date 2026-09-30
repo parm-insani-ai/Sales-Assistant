@@ -27,6 +27,8 @@ await p.addInitScript(() => {
 });
 await p.goto(APP + "/#/leads");
 await p.waitForTimeout(700);
+// Ann and Bob are being worked (on Log); Outreach shows them under All.
+await p.click('[data-filter="all"]'); await p.waitForTimeout(300);
 
 const slide = async (name) => {
   const card = p.locator(".swipe-card", { hasText: name }).first();

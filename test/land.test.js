@@ -95,7 +95,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
   await settle();
   console.log("get_plays →", r.hash, "| plays:", (r.result.plays || []).length);
   if (!(r.result.plays || []).length) fail("no plays for a salesperson with three overdue follow-ups");
-  if (r.hash !== "#/today") fail("asking for your plays didn't take you to them: " + r.hash);
+  if (r.hash !== "#/log") fail("asking for your plays didn't take you to them: " + r.hash);
 
   // And onto the queue itself, which sits most of a page below the top of Home.
   const where = await p.evaluate(() => {
@@ -117,7 +117,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
 // hashchange, so this used to be a total no-op: no repaint, no scroll, and the
 // voice panel never docked either.
 {
-  await goto("#/today");
+  await goto("#/log");
   await p.evaluate(() => { document.querySelector(".view").scrollTop = 0; });
   let navigated = 0;
   await p.evaluate(() => { window.__navs = 0; window.addEventListener("viniva-navigated", () => { window.__navs++; }); });
@@ -157,7 +157,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
 // --- Other list reads land somewhere you can act.
 // (/deals is a redirect: it presets the opportunity filter and hands off to
 // the leads list, so that's where the radar legitimately lands.)
-for (const [tool, want] of [["deal_radar", "#/leads"], ["get_tasks", "#/today"], ["get_appointments", "#/calendar"]]) {
+for (const [tool, want] of [["deal_radar", "#/leads"], ["get_tasks", "#/log"], ["get_appointments", "#/calendar"]]) {
   await goto("#/settings");
   const r = await run(tool);
   const got = Object.values(r.result).find(Array.isArray) || [];

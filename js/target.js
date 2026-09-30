@@ -6,14 +6,15 @@
 // you — remaining to target, conversations remaining, pace, actual
 // closing ratio, target attainment, and the week's share of the work.
 //
-// The sheet's customer log is the app itself: every customer on Leads,
-// every contact logged (a call, text or email — or Call, Text or Email
-// tapped on their page), every sale in the sold log. Nothing is typed
-// twice. A customer's "New / Used" is the Shopping field on their record;
+// The sheet's customer log is the app's log (logbook.js): every customer
+// logged this month — added by hand or by voice, or moved over from
+// Outreach once they showed promise — and every sale in the sold log.
+// Nothing is typed twice. A customer's "New / Used" is the Shopping field on their record;
 // a sale's is on the deal.
 
 import * as store from "./store.js";
 import { openModal, buildForm, toast } from "./components.js";
+import { loggedInMonth, loggedAtOf } from "./logbook.js";
 
 export const STORE_CLOSING_PCT = 42;
 const num = (v) => Number(v) || 0;
@@ -49,19 +50,12 @@ export function targetPlan(s = store.getSettings()) {
   return { split, targetNew, targetUsed, target, closingNew, closingUsed, needNew, needUsed, need: split ? needNew + needUsed : need(target, closingNew) };
 }
 
-// Every outbound contact this month, as (customer, day of month).
-function contactEvents(mKey, leads) {
-  const out = [];
-  const push = (id, at) => { if (id && mk(at) === mKey) out.push({ leadId: id, day: dayOf(at) }); };
-  store.all("calls").forEach((c) => { if ((c.dir || "out") === "out") push(c.leadId, c.at || c.createdAt); });
-  store.all("texts").forEach((t) => { if (t.dir === "out") push(t.leadId, t.at || t.createdAt); });
-  store.all("emails").forEach((e) => { if (e.direction === "out") push(e.leadId, e.sentAt || e.receivedAt || e.createdAt); });
-  leads.forEach((l) => push(l.id, l.lastContacted));
-  return out;
+// The month's log — every customer logged this month — as (customer, day
+// of month). This is the sheet's customer log: the conversations counted.
+function logEvents(mKey, leads) {
+  return loggedInMonth(mKey, leads).map((l) => ({ leadId: l.id, day: dayOf(loggedAtOf(l)) }));
 }
 
-// New or used, from the Shopping field or from what was said about them
-// (the context's "new or used" — "open to either" is neither).
 export function shoppingOf(l) {
   const v = String((l && (l.shopping || (l.profile && l.profile.newUsed))) || "").toLowerCase();
   return v === "new" ? "New" : v === "used" ? "Used" : "";
@@ -96,7 +90,7 @@ export function salesTarget(now = new Date()) {
   const mKey = monthKeyOf(now);
   const leads = store.all("leads");
   const byId = new Map(leads.map((l) => [l.id, l]));
-  const events = contactEvents(mKey, leads);
+  const events = logEvents(mKey, leads);
   const spoken = new Set(events.map((e) => e.leadId));
   let spokeNew = 0, spokeUsed = 0;
   spoken.forEach((id) => { const c = shoppingOf(byId.get(id)); if (c === "New") spokeNew++; else if (c === "Used") spokeUsed++; });
@@ -144,12 +138,14 @@ export function openTargetForm(onDone) {
         { name: "targetUsed", label: "Used units this month", value: num(s.targetUsed) || "", type: "number", inputmode: "numeric", half: true, placeholder: "0" },
         { name: "closingNew", label: "Closing ratio, new (%)", value: Number(s.closingNew) > 0 ? s.closingNew : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true },
         { name: "closingUsed", label: "Closing ratio, used (%)", value: Number(s.closingUsed) > 0 ? s.closingUsed : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true, hint: `The store benchmark is ${STORE_CLOSING_PCT}%. Units ÷ ratio = the customers you have to speak with.` },
+        { name: "goalAppointments", label: "Appointments set this month", value: s.goalAppointments || "", type: "number", inputmode: "numeric", half: true, placeholder: "30" },
+        { name: "goalCommission", label: "Commission goal ($)", value: s.goalCommission || "", type: "number", inputmode: "decimal", half: true, placeholder: "8000" },
       ],
       {
         submitLabel: "Set target",
         onSubmit: (data) => {
           const targetNew = num(data.targetNew), targetUsed = num(data.targetUsed);
-          const patch = { targetNew, targetUsed, closingNew: num(data.closingNew) || STORE_CLOSING_PCT, closingUsed: num(data.closingUsed) || STORE_CLOSING_PCT };
+          const patch = { targetNew, targetUsed, closingNew: num(data.closingNew) || STORE_CLOSING_PCT, closingUsed: num(data.closingUsed) || STORE_CLOSING_PCT, goalAppointments: num(data.goalAppointments), goalCommission: num(data.goalCommission) };
           if (targetNew + targetUsed > 0) { patch.goalUnits = targetNew + targetUsed; patch.targetSetBy = "rep"; }
           store.updateSettings(patch);
           const plan = targetPlan(store.getSettings());

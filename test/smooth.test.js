@@ -88,7 +88,7 @@ console.log("\nHome and Today:");
   if (!h.hero) fail("Home mounted without its hero");
   if (!/to-do/.test(h.today)) fail("Home's Today card doesn't say how many to-dos there are: " + h.today);
   const r = await p.evaluate(() => new Promise((res) => {
-    location.hash = "#/today";
+    location.hash = "#/log";
     // Immediately after the mount: the queue's heading should be there and
     // the play rows should not be yet.
     const t0 = performance.now();
@@ -258,8 +258,9 @@ console.log("\nback from a customer:");
   if (fresh.top !== 0 || fresh.cards > 60) fail("a fresh visit didn't start at the top");
 }
 
-// --- The filter: All first and by default, and the chip you tapped last is
-// the one you're on when you come back — a jump from Home doesn't change it.
+// --- The filter: "To contact" first and by default (Outreach is the book
+// still to be reached), and the chip you tapped last is the one you're on
+// when you come back — a jump from Home doesn't change it.
 console.log("\nLeads filter memory:");
 {
   const chips = () => p.evaluate(() => ({
@@ -270,15 +271,15 @@ console.log("\nLeads filter memory:");
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
   const fresh = await chips();
   console.log("  fresh:", JSON.stringify(fresh));
-  if (fresh.order.join(",") !== "all,active,due") fail(`chips are ordered ${fresh.order.join(", ")}`);
-  if (fresh.on !== "all") fail(`the default filter is ${fresh.on}, not All`);
+  if (fresh.order.join(",") !== "tocontact,contacted,due") fail(`chips are ordered ${fresh.order.join(", ")}`);
+  if (fresh.on !== "tocontact") fail(`the default filter is ${fresh.on}, not To contact`);
 
-  await p.evaluate(() => document.querySelector('[data-filter="active"]').click()); await p.waitForTimeout(100);
+  await p.evaluate(() => document.querySelector('[data-filter="contacted"]').click()); await p.waitForTimeout(100);
   await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(150);
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
   const back = await chips();
-  console.log("  after tapping Active, leaving and returning:", JSON.stringify(back));
-  if (back.on !== "active") fail(`came back on ${back.on}, not the Active chip that was tapped`);
+  console.log("  after tapping Contacted, leaving and returning:", JSON.stringify(back));
+  if (back.on !== "contacted") fail(`came back on ${back.on}, not the Contacted chip that was tapped`);
 
   // A stat card on Home presets "due" for one visit only.
   await p.evaluate(() => { sessionStorage.setItem("leads-filter", "due"); location.hash = "#/"; }); await p.waitForTimeout(100);
@@ -289,7 +290,7 @@ console.log("\nLeads filter memory:");
   const after = await chips();
   console.log("  jump from Home to Due:", jump.on, "| next visit:", after.on);
   if (jump.on !== "due") fail("a preset from Home didn't land on Due");
-  if (after.on !== "active") fail(`the jump overwrote the remembered filter (now ${after.on})`);
+  if (after.on !== "contacted") fail(`the jump overwrote the remembered filter (now ${after.on})`);
 }
 
 // --- "By opportunity" is a button beside Add customer and Select, not a
@@ -328,7 +329,7 @@ console.log("\nBy opportunity:");
   const dealCards = () => p.evaluate(() => document.querySelectorAll(".deals-list .card").length);
   await p.evaluate(() => document.querySelector('[data-filter="all"]').click()); await p.waitForTimeout(300);
   const under = await dealCards();
-  await p.evaluate(() => document.querySelector('[data-filter="working"]').click()); await p.waitForTimeout(300);
+  await p.evaluate(() => document.querySelector('[data-filter="due"]').click()); await p.waitForTimeout(300);
   const narrowed = await dealCards();
   await p.evaluate(() => document.querySelector('[data-filter="all"]').click()); await p.waitForTimeout(300);
   const widened = await dealCards();

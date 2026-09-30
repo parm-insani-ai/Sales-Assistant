@@ -18,13 +18,14 @@ await p.addInitScript(() => {
   const pad = (n) => String(n).padStart(2, "0");
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const hourAgo = new Date(now.getTime() - 3600000).toISOString();
-  const lead = (id, shopping, extra = {}) => ({ id, name: "Customer " + id, phone: "9025550" + id.padStart(3, "0"), stage: "working", vehicleInterest: "Rogue", shopping, ...x, ...extra });
+  // Logged this month: leads 1–7 (8 is an owner nobody has logged; 9 was logged last year).
+  const lead = (id, shopping, extra = {}) => ({ id, name: "Customer " + id, phone: "9025550" + id.padStart(3, "0"), stage: "working", vehicleInterest: "Rogue", shopping, loggedAt: Number(id) <= 7 ? hourAgo : Number(id) === 9 ? "2025-03-03T12:00:00.000Z" : null, ...x, ...extra });
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
       // Four new-car shoppers spoken with this month (a logged call, a sent text, an email out, Call tapped on the page).
       lead("1", "New"), lead("2", "New"), lead("3", "New"), lead("4", "New", { lastContacted: hourAgo, lastContactVia: "call" }),
-      // Two used, one not marked — and one nobody has spoken with.
-      lead("5", "Used"), lead("6", "Used"), lead("7", ""), lead("8", "New"),
+      // Two used, one not marked — and an owner nobody has logged.
+      lead("5", "Used"), lead("6", "Used"), lead("7", ""), lead("8", "New", { stage: "delivered" }),
       // A customer contacted twice counts once; one contacted last year doesn't count.
       lead("9", "New", { lastContacted: "2025-03-03T12:00:00.000Z" }),
     ],
@@ -54,7 +55,7 @@ await p.waitForSelector(".target-card", { timeout: 15000 });
 const t = await p.evaluate(async () => { const m = await import("/js/target.js"); const r = m.salesTarget(); return { ...r, plan: r.plan }; });
 console.log("sheet:", JSON.stringify({ plan: t.plan, spoke: [t.spoke, t.spokeNew, t.spokeUsed, t.spokeUnsplit], sold: [t.sold, t.soldNew, t.soldUsed], closing: t.closing, remaining: [t.remainingUnits, t.remainingTalks], week: [t.week, t.weeks, t.perWeek, t.spokeWeek], appts: t.appts }));
 if (t.plan.needNew !== 15 || t.plan.needUsed !== 10 || t.plan.need !== 25 || t.plan.target !== 10) fail("units ÷ 42% rounded up should be 15 new, 10 used, 25: " + JSON.stringify(t.plan));
-if (t.spoke !== 7 || t.spokeNew !== 4 || t.spokeUsed !== 2 || t.spokeUnsplit !== 1) fail("spoken with should count 7 customers once each (4 new, 2 used, 1 unmarked), not the inbound text or last year's call: " + JSON.stringify([t.spoke, t.spokeNew, t.spokeUsed, t.spokeUnsplit]));
+if (t.spoke !== 7 || t.spokeNew !== 4 || t.spokeUsed !== 2 || t.spokeUnsplit !== 1) fail("spoken with should be the month's log: 7 customers (4 new, 2 used, 1 unmarked), not the owner nobody logged or last year's: " + JSON.stringify([t.spoke, t.spokeNew, t.spokeUsed, t.spokeUnsplit]));
 if (t.sold !== 3 || t.soldNew !== 2 || t.soldUsed !== 1) fail("sold this month should be 3 (2 new, 1 used): " + JSON.stringify([t.sold, t.soldNew, t.soldUsed]));
 if (Math.round(t.closing * 100) !== 43 || Math.round(t.closingNew * 100) !== 50 || Math.round(t.closingUsed * 100) !== 50) fail("closing ratios: " + JSON.stringify([t.closing, t.closingNew, t.closingUsed]));
 if (t.remainingUnits !== 7 || t.remainingTalks !== 18) fail("remaining: " + JSON.stringify([t.remainingUnits, t.remainingTalks]));
@@ -87,6 +88,7 @@ if (home.goalCard) fail("the old Monthly goal card is still on Home");
 // --- Set target: the sheet recalculates, and the unit goal follows the total.
 await p.click('.target-card [data-act="set-target"]');
 await p.waitForSelector('.modal input[name="targetNew"]', { timeout: 5000 });
+await p.waitForTimeout(350); // the sheet's own focus lands after its slide-up
 await p.fill('.modal input[name="targetNew"]', "8");
 await p.fill('.modal input[name="closingNew"]', "50");
 await p.click(".modal button[type=submit]");

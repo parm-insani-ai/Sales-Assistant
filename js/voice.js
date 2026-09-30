@@ -10,7 +10,8 @@ import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
-import { markSpokenWith, inferShopping } from "./target.js";
+import { inferShopping } from "./target.js";
+import { logCustomer } from "./logbook.js";
 import { agentConfigured, createAgentSession, showLotOnScreen } from "./agent.js";
 import { answerLot } from "./lot.js";
 import { isOutreach, parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
@@ -116,12 +117,13 @@ function between(t, startRe, stopRe) {
 // ---------- Command parser ----------
 const NAV = [
   { re: /\b(home|dashboard)\b/, route: "/", label: "Home" },
-  { re: /\b(leads?|customers?|pipeline|prospects?)\b/, route: "/leads", label: "Leads" },
+  { re: /\b(log|logbook|logged)\b/, route: "/log", label: "Log" },
+  { re: /\b(outreach|leads?|customers?|pipeline|prospects?)\b/, route: "/leads", label: "Outreach" },
   { re: /\b(inventory|vehicles?|cars?|stock)\b/, route: "/inventory", label: "Inventory" },
   { re: /\b(deal|calculator|payment)\b/, route: "/calculator", label: "the deal calculator" },
   { re: /\b(deliver(y|ies))\b/, route: "/deliveries", label: "Deliveries" },
   { re: /\b(calendar|appointments?|schedule)\b/, route: "/calendar", label: "Calendar" },
-  { re: /\b(goals?|commissions?)\b/, route: "/goals", label: "Goals" },
+  { re: /\b(goals?|targets?|commissions?)\b/, route: "/", label: "Home" },
   { re: /\b(settings|preferences)\b/, route: "/settings", label: "Settings" },
 ];
 
@@ -215,8 +217,8 @@ export function executeCommand(cmd) {
         source: "Voice", followUp: cmd.followUp || null, phone: "", email: "", notes: "", shopping: cmd.shopping || "",
       });
       addContext(lead.id, { note: cmd.notes || "" });
-      // Adding them by voice is the conversation the sales target counts.
-      markSpokenWith(lead.id, "in person");
+      // Adding them by voice puts them in the log — the conversation the sales target counts.
+      logCustomer(lead.id);
       const n = maybeStartCadence(lead.id);
       navigate(`/leads/${lead.id}`);
       return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan` : ""}. Add their phone number to start texting.`;
@@ -232,7 +234,7 @@ export function executeCommand(cmd) {
         saleDate: isoOffset(0), commission: cmd.commission ?? null,
         frontGross: cmd.frontGross ?? null, backGross: cmd.backGross ?? null, notes: "",
       });
-      navigate("/goals");
+      navigate("/", ".target-slot");
       return `Logged the sale${cmd.customerName ? " for " + cmd.customerName : ""}${cmd.commission ? ", commission $" + cmd.commission : ""}. Nice work!`;
     }
     case "appointment": {

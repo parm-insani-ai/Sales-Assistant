@@ -99,7 +99,7 @@ goes through a database function that checks the manager relationship:
   never imported still has the lot for their radar, and the manager's read
   of a customer prices every one of them against it: what they could drive
   for the money they pay now.
-- **Reminders** — Today → Reminders in the rep's app: a to-do with a
+- **Reminders** — Log → Reminders in the rep's app: a to-do with a
   time. The function's ten-minute sweep pushes it at that time (quiet
   hours and the proactive switch don't hold it back — the rep asked), once;
   with the app open the phone shows it itself. Needs notifications on

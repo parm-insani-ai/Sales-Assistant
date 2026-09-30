@@ -90,7 +90,7 @@ for (const [k, name] of Object.entries(today.excluded)) if (today.names.includes
 
 // --- 2. On Today, with a Review that drafts the opener and waits.
 console.log("\nToday:");
-await p.evaluate(() => { location.hash = "#/today"; }); await p.waitForTimeout(500);
+await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(500);
 await p.waitForSelector(".plays-slot .row", { timeout: 10000 }).catch(() => {});
 const home = await p.evaluate(() => {
   const rows = [...document.querySelectorAll(".plays-slot .row")].map((r) => ({ title: r.querySelector(".strong")?.textContent || "", sub: r.querySelector(".small")?.textContent || "", btn: r.querySelector("button.btn, a.btn")?.textContent.trim() }));
@@ -157,7 +157,7 @@ const voice = await p.evaluate(async () => {
 });
 console.log("\nvoice:", JSON.stringify({ n: voice.n, first: voice.first && voice.first.customer, reasons: voice.first && voice.first.reasons, note: voice.note.slice(0, 60) }));
 if (voice.n !== 3 || !voice.first || !voice.first.reasons.length) fail("the agent tool doesn't return today's prospects with reasons");
-if (voice.hash !== "#/today") fail("the agent tool didn't land on Today");
+if (voice.hash !== "#/log") fail("the agent tool didn't land on Today");
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

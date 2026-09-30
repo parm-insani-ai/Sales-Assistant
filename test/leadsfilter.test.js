@@ -28,6 +28,8 @@ await p.addInitScript(() => {
 });
 await p.goto(APP + "/#/leads");
 await p.waitForSelector('[data-act="audience"]');
+// Outreach opens on the owners still to contact; the filter is tried over everyone.
+await p.click('[data-filter="all"]'); await p.waitForTimeout(250);
 const names = () => p.evaluate(() => [...document.querySelectorAll(".lead-list .row-title")].map((n) => n.textContent.trim()).sort().join(","));
 if ((await names()) !== "Civic Owner,Dana Muise,Frontier Owner,Lee Wong,Pat Roy,Rogue Owner") fail("the whole book isn't shown before filtering: " + (await names()));
 
@@ -44,13 +46,11 @@ if (shown.names !== "Dana Muise,Pat Roy") fail("paid-off Sentra owners: " + show
 if (!/2 match · Sentra owners · paid off/.test(shown.bar || "")) fail("the filter bar doesn't say who and how many: " + shown.bar);
 if (!/Filter on/.test(shown.chip || "") || !shown.kept) fail("the chip doesn't show the filter is on / it isn't remembered");
 
-// --- A stage chip narrows on top of the filter, and the count follows.
-await p.click('[data-filter="working"]');
-await p.waitForTimeout(250);
-shown = await p.evaluate(() => ({ names: [...document.querySelectorAll(".lead-list .row-title")].map((n) => n.textContent.trim()).join(","), count: document.querySelector(".aud-count")?.textContent }));
-if (shown.names !== "Pat Roy" || shown.count !== "1") fail("chip + filter: " + JSON.stringify(shown));
+// --- A chip narrows on top of the filter, and the count follows.
 await p.click('[data-filter="all"]');
 await p.waitForTimeout(250);
+shown = await p.evaluate(() => ({ names: [...document.querySelectorAll(".lead-list .row-title")].map((n) => n.textContent.trim()).sort().join(","), count: document.querySelector(".aud-count")?.textContent }));
+if (shown.names !== "Dana Muise,Pat Roy" || shown.count !== "2") fail("chip + filter: " + JSON.stringify(shown));
 
 // --- Edit: body style instead of a model.
 await p.click('[data-act="aud-edit"]');
