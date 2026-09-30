@@ -1756,7 +1756,10 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mail-quote-btn { display: block; margin-top: 12px; padding: 0 11px; height: 22px; line-height: 22px; border-radius: 11px; border: none; background: var(--surface-2); color: var(--muted); font-size: 0.8rem; letter-spacing: .1em; cursor: pointer; }
 .mail-quote { display: none; margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border-strong); color: var(--muted); font-size: 0.92rem; }
 .mail-quote.open { display: block; }
-.mail-actions { display: flex; gap: 10px; margin-top: 26px; }
+/* The pills sit in a footer under the scrolling page, so they stay put
+   however long the email is. */
+.mail-actions { display: flex; gap: 10px; }
+.mail-foot { flex: none; padding: 10px 20px calc(10px + var(--safe-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
 .mail-pill {
   flex: 1 1 0; min-width: 0; height: 40px; padding: 0 12px; border-radius: 20px;
   border: 1px solid var(--border-strong); background: none; color: var(--text);
@@ -1766,12 +1769,11 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 }
 .mail-pill:active { background: var(--surface-2); }
 .mail-pill svg { width: 18px; height: 18px; flex: none; }
-.mail-reply { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
-.mail-reply-head { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
-.mail-reply-head svg { width: 16px; height: 16px; }
-.mail-reply textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 1rem; line-height: 1.5; margin-bottom: 10px; }
 /* Compose: From / To / Subject as hairline rows with the label on the
-   left, the message taking the rest; Send is the arrow in the top bar. */
+   left, the message taking the rest; Send is the arrow in the top bar. A
+   reply carries the original quoted under the message area. */
+.mc-quote { flex: none; padding-bottom: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mc-quote .mail-quote-btn { margin-top: 0; }
 .mc-page { display: flex; flex-direction: column; padding-top: 0; }
 .mc-row { flex: none; display: flex; align-items: center; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--border); }
 .mc-label { flex: none; width: 60px; font-size: 0.9rem; color: var(--muted); }

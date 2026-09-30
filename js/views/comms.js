@@ -312,7 +312,6 @@ export function renderComms(view) {
         <div class="mail-bar">
           <button class="mail-bar-btn" data-act="back" aria-label="Back">${icon("back")}</button>
           <span class="mail-bar-title"></span>
-          ${link ? `<a class="mail-bar-btn" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener" aria-label="Open in ${appName}" title="Open in ${appName}">${icon("external")}</a>` : ""}
           ${lead ? `<button class="mail-bar-btn" data-act="open-customer" aria-label="${esc(lead.name)}" title="${esc(lead.name)}">${icon("users")}</button>` : `<button class="mail-bar-btn" data-act="add-customer" aria-label="Add as customer" title="Add as customer">${icon("plus")}</button>`}
         </div>
         <div class="mail-page">
@@ -331,16 +330,10 @@ export function renderComms(view) {
             <dt>Date</dt><dd>${esc(fullDate(m.at))}</dd>
           </dl>
           <div class="mail-body muted">Loading…</div>
-          <div class="mail-actions">
-            <button class="mail-pill" data-act="reply">${icon("reply")} Reply</button>
-            ${link ? `<a class="mail-pill" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener">${icon("external")} Open in ${appName}</a>` : ""}
-          </div>
-          <div class="mail-reply" hidden>
-            <div class="mail-reply-head">${icon("reply")} <span>Reply to ${esc(who)}</span></div>
-            <textarea id="mail-reply-text" placeholder="Write your reply…"></textarea>
-            <button class="btn btn-primary btn-block" data-act="send-reply">${icon("send")} Send</button>
-            <div class="hint" id="mail-reply-out"></div>
-          </div>
+        </div>
+        <div class="mail-foot mail-actions">
+          <button class="mail-pill" data-act="reply">${icon("reply")} Reply</button>
+          ${link ? `<a class="mail-pill" data-act="open-in" href="${esc(link)}" target="_blank" rel="noopener">${icon("external")} Open in ${appName}</a>` : ""}
         </div>`;
       wrap.querySelector('[data-act="back"]').addEventListener("click", close);
       const from = wrap.querySelector(".mail-from"), details = wrap.querySelector(".mail-details");
@@ -363,25 +356,9 @@ export function renderComms(view) {
         e.preventDefault();
         openMailApp(app.href, oi.classList.contains("mail-pill") ? oi : null, appName);
       }));
-      const replyBox = wrap.querySelector(".mail-reply");
-      wrap.querySelectorAll('[data-act="reply"]').forEach((b) => b.addEventListener("click", () => {
-        replyBox.hidden = false;
-        const ta = replyBox.querySelector("textarea");
-        ta.focus();
-        replyBox.scrollIntoView({ block: "end", behavior: "smooth" });
-      }));
-      const btn = wrap.querySelector('[data-act="send-reply"]');
-      const out = wrap.querySelector("#mail-reply-out");
-      btn.addEventListener("click", async () => {
-        const text = wrap.querySelector("#mail-reply-text").value.trim();
-        if (!text) { out.textContent = "Write something first"; return; }
-        btn.disabled = true; out.textContent = "Sending…";
-        try {
-          await replyToMessage(m, text);
-          toast(`Replied to ${m.from.name || m.from.addr}`, "success");
-          close();
-        } catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
-      });
+      // Reply is Gmail's reply: the compose page, To and Subject filled in,
+      // the original quoted under the message area, sent in the thread.
+      wrap.querySelectorAll('[data-act="reply"]').forEach((b) => b.addEventListener("click", () => openCompose({ replyTo: m })));
       return wrap;
     }, { focus: false, className: "modal-mail" });
   }
@@ -416,39 +393,62 @@ export function renderComms(view) {
   // A new email to anyone — a customer picked from the book, or any address.
   // Laid out like the mail apps' compose: From, To and Subject as hairline
   // rows, the message filling the rest of the screen, Send underneath.
+  // With `replyTo`, it's a reply: To is the sender, Subject "Re: …", and the
+  // original sits quoted under the message area behind three dots, as it
+  // does in Gmail. The reply goes out in the same thread.
   function openCompose(prefill = {}) {
     const from = mailboxAccount();
-    openModal("New email", (close) => {
+    const re = prefill.replyTo || null;
+    if (re) {
+      prefill = { ...prefill, to: re.from.name ? `${re.from.name} <${re.from.addr}>` : re.from.addr, subject: /^re:/i.test(re.subject || "") ? re.subject : `Re: ${re.subject || ""}` };
+    }
+    openModal(re ? "Reply" : "New email", (close) => {
       const wrap = document.createElement("div");
       wrap.className = "mail-compose";
       wrap.innerHTML = `
         <div class="mail-bar">
           <button class="mail-bar-btn" data-act="back" aria-label="Back">${icon("back")}</button>
-          <span class="mail-bar-title">Compose</span>
+          <span class="mail-bar-title">${re ? "Reply" : "Compose"}</span>
           <button class="mail-bar-btn mail-bar-send" data-act="send" aria-label="Send" title="Send">${icon("send")}</button>
         </div>
         <div class="mail-page mc-page">
           ${from ? `<div class="mc-row"><span class="mc-label">From</span><span class="mc-from">${esc(from)}</span></div>` : ""}
-          <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="email" id="mc-to" placeholder="" value="${esc(prefill.to || "")}" autocomplete="off"><button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button></div>
+          <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="email" id="mc-to" placeholder="" value="${esc(prefill.to || "")}" autocomplete="off">${re ? "" : `<button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button>`}</div>
           <div class="mc-row"><label class="mc-label" for="mc-subject">Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}" autocomplete="off"></div>
           <div class="hint" id="mc-out"></div>
           <textarea id="mc-text" class="mc-body" placeholder="Compose email">${esc(prefill.text || "")}</textarea>
+          ${re ? `<div class="mc-quote"><button class="mail-quote-btn" type="button" aria-label="Show quoted text">•••</button><div class="mail-quote"></div></div>` : ""}
         </div>`;
       wrap.querySelector('[data-act="back"]').addEventListener("click", close);
-      wrap.querySelector('[data-act="pick"]').addEventListener("click", () => openPeoplePicker("email", (l) => {
+      if (re) setTimeout(() => wrap.querySelector("#mc-text").focus(), 80); // straight into the reply, To and Subject being set
+      const pick = wrap.querySelector('[data-act="pick"]');
+      if (pick) pick.addEventListener("click", () => openPeoplePicker("email", (l) => {
         wrap.querySelector("#mc-to").value = l.email || "";
         const sub = wrap.querySelector("#mc-subject"); if (!sub.value && l.vehicleInterest) sub.value = `About the ${l.vehicleInterest}`;
       }));
+      let quoted = "";
+      if (re) {
+        const q = wrap.querySelector(".mail-quote"), qb = wrap.querySelector(".mail-quote-btn");
+        qb.addEventListener("click", () => { q.classList.add("open"); qb.remove(); });
+        messageBody(re).then((t) => {
+          quoted = `On ${fullDate(re.at)}, ${re.from.name || re.from.addr} <${re.from.addr}> wrote:\n${String(t || "").split("\n").map((l) => `> ${l}`).join("\n")}`;
+          q.textContent = quoted;
+        }).catch(() => { q.textContent = "(couldn't load the original)"; });
+      }
       const btn = wrap.querySelector('[data-act="send"]'), out = wrap.querySelector("#mc-out");
       btn.addEventListener("click", async () => {
         const to = wrap.querySelector("#mc-to").value.trim(), subject = wrap.querySelector("#mc-subject").value.trim(), text = wrap.querySelector("#mc-text").value.trim();
         if (!to || !subject) { out.textContent = "Add an address and a subject"; return; }
+        if (re && !text) { out.textContent = "Write your reply first"; return; }
         btn.disabled = true; out.textContent = "Sending…";
-        try { await composeEmail({ to, subject, text }); toast(`Sent to ${to}`, "success"); close(); }
-        catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
+        try {
+          if (re) { await replyToMessage(re, text, quoted); toast(`Replied to ${re.from.name || re.from.addr}`, "success"); }
+          else { await composeEmail({ to, subject, text }); toast(`Sent to ${to}`, "success"); }
+          close();
+        } catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
       });
       return wrap;
-    }, { className: "modal-mail modal-compose" });
+    }, { className: "modal-mail modal-compose", focus: !re });
   }
 
   // ---- Email, with no mailbox connected: what the app has logged ----

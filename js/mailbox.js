@@ -111,20 +111,21 @@ async function gmailBody(msg) {
   const html = gmailPart(m.payload, "text/html");
   return html ? stripHtml(html) : (m.snippet || "");
 }
-async function gmailReply(msg, text) {
+async function gmailReply(msg, text, quoted = "") {
   const token = await gmailAccessToken();
+  const body = quoted ? `${text}\n\n${quoted}` : text;
   const subject = /^re:/i.test(msg.subject || "") ? msg.subject : `Re: ${msg.subject || ""}`;
   const raw = [
     `To: ${msg.from.name ? `${msg.from.name} <${msg.from.addr}>` : msg.from.addr}`,
     `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
-    msg.messageId ? `In-Reply-To: ${msg.messageId}` : "",
-    msg.messageId ? `References: ${msg.messageId}` : "",
+    msg.messageId ? `In-Reply-To: ${msg.messageId}` : null,
+    msg.messageId ? `References: ${msg.messageId}` : null,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: base64",
-    "",
-    btoa(unescape(encodeURIComponent(String(text || "")))),
-  ].filter((l) => l !== "").join("\r\n");
+    "", // the blank line that ends the headers — dropping it would fold the body into them
+    btoa(unescape(encodeURIComponent(String(body || "")))),
+  ].filter((l) => l !== null).join("\r\n");
   const res = await fetch(`${GMAIL}/messages/send`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ raw: b64urlEncode(raw), threadId: msg.threadId || undefined }) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((j.error && j.error.message) || `Gmail send failed (${res.status})`);
@@ -227,10 +228,12 @@ export async function messageBody(msg) {
   return body;
 }
 
-// Reply in the same thread, from the connected mailbox. A reply to a
-// customer is logged in their history too.
-export async function replyToMessage(msg, text) {
-  if (msg.provider === "gmail") await gmailReply(msg, text); else await outlookReply(msg, text);
+// Reply in the same thread, from the connected mailbox. `quoted` is the
+// original under the reply, as the mail apps send it (Gmail only —
+// Outlook's reply endpoint appends the original itself). A reply to a
+// customer is logged in their history too, the reply text alone.
+export async function replyToMessage(msg, text, quoted = "") {
+  if (msg.provider === "gmail") await gmailReply(msg, text, quoted); else await outlookReply(msg, text);
   const lead = customerFor(msg.from.addr, msg.from.name);
   if (lead) {
     logEmail(lead.id, { direction: "out", subject: /^re:/i.test(msg.subject || "") ? msg.subject : `Re: ${msg.subject || ""}`, body: text, via: msg.provider });

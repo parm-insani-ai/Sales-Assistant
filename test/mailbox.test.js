@@ -66,7 +66,8 @@ const open = await p.evaluate(() => ({
   linkText: [...document.querySelectorAll('.modal [data-act="open-in"]')].map((a) => a.textContent.trim() || a.getAttribute("aria-label")).join("|"),
   quoteHidden: !document.querySelector(".modal .mail-quote")?.checkVisibility(),
   href: document.querySelector(".modal .mail-body a")?.getAttribute("href"),
-  replyHidden: !document.querySelector(".modal #mail-reply-text")?.checkVisibility(),
+  replyHidden: !document.querySelector(".modal #mc-text"),
+  topOpen: !!document.querySelector(".modal .mail-bar [data-act='open-in']"),
   detailsHidden: !document.querySelector(".modal .mail-details")?.checkVisibility(),
   full: document.querySelector(".modal").classList.contains("modal-mail"),
 }));
@@ -80,13 +81,16 @@ const page = await p.evaluate(() => ({
   edge: (() => { const r = document.querySelector(".modal").getBoundingClientRect(); return Math.abs(r.top) < 1 && Math.abs(r.left) < 1 && Math.abs(r.width - innerWidth) < 1 && Math.abs(r.height - innerHeight) < 1; })(),
   pills: [...document.querySelectorAll(".modal .mail-actions .mail-pill")].map((b) => b.textContent.trim()).join("|"),
   handle: document.querySelector(".modal .modal-handle")?.checkVisibility() || false,
+  footFixed: (() => { const f = document.querySelector(".modal .mail-foot"); if (!f || f.closest(".mail-page")) return false; const r = f.getBoundingClientRect(); return Math.abs(r.bottom - innerHeight) < 1; })(),
 }));
+if (!page.footFixed) fail("Reply / Open in Gmail should sit in a footer pinned to the bottom, outside the scrolling page: " + JSON.stringify(page));
 if (!page.bar || page.chip !== "Customer" || !page.edge || page.handle) fail("the email should be a full page with a back arrow, no sheet handle, and the subject carrying a Customer chip: " + JSON.stringify(page));
 if (page.pills !== "Reply|Open in Gmail") fail("the pills along the bottom should be Reply and Open in Gmail: " + page.pills);
 if (open.link !== "https://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1" || !/Open in Gmail/.test(document_or(open.linkText))) fail("Open in Gmail should link to this thread in Gmail: " + open.link + " / " + open.linkText);
 if (!open.quoteHidden || !/Does Saturday work/.test(open.body || "")) fail("the quoted history should be folded behind the dots: " + JSON.stringify(open));
 if (open.href !== "https://maps.example/oregans") fail("links in the text should be tappable, without the trailing period: " + open.href);
 if (!open.replyHidden || !open.full) fail("the reply box waits for a Reply tap, and the email takes the full sheet: " + JSON.stringify(open));
+if (open.topOpen) fail("the top bar shouldn't carry a second Open in Gmail — the pill is the one");
 if (!open.detailsHidden) fail("the full addresses stay folded until the sender row is tapped");
 // Open in Gmail on a phone goes to the app: Android by an intent that names
 // Gmail (falling back to the web), iPhone by Gmail's own scheme (it won't
@@ -109,15 +113,36 @@ await p.click(".modal .mail-from");
 if (!(await p.evaluate(() => document.querySelector(".modal .mail-details").checkVisibility() && /dana@example\.com/.test(document.querySelector(".modal .mail-details").textContent)))) fail("tapping the sender should show From / To / Date");
 await p.click(".modal .mail-quote-btn");
 if (!(await p.evaluate(() => document.querySelector(".modal .mail-quote").checkVisibility()))) fail("the dots should unfold the quoted text");
-await p.click('.modal [data-act="reply"]');
-await p.waitForSelector(".modal #mail-reply-text", { state: "visible", timeout: 3000 });
-await p.fill(".modal #mail-reply-text", "10 is perfect — see you then.");
-await p.click('.modal [data-act="send-reply"]');
-await p.waitForFunction(() => !document.querySelector(".modal"), null, { timeout: 8000 }).catch(() => fail("the reply didn't send: " + ""));
+// --- Reply is Gmail's reply: the compose page with To and Subject set, the
+// original quoted under the message area, sent in the thread.
+await p.click('.modal .mail-foot [data-act="reply"]');
+await p.waitForSelector(".modal-compose #mc-text", { state: "visible", timeout: 3000 });
+await p.waitForFunction(() => /wrote:/.test(document.querySelector(".modal-compose .mail-quote")?.textContent || ""), null, { timeout: 5000 }).catch(() => fail("the original didn't load under the reply"));
+await p.waitForTimeout(250); // the cursor lands in the message a beat after the page opens
+const rp = await p.evaluate(() => ({
+  title: document.querySelector(".modal-compose .mail-bar-title")?.textContent.trim(),
+  to: document.querySelector(".modal-compose #mc-to").value, subject: document.querySelector(".modal-compose #mc-subject").value,
+  quoteHidden: !document.querySelector(".modal-compose .mail-quote").checkVisibility(),
+  quote: document.querySelector(".modal-compose .mail-quote").textContent,
+  focused: document.hasFocus() ? (document.activeElement && document.activeElement.id) : "mc-text", // headless windows may hold no focus at all
+  pick: !!document.querySelector(".modal-compose [data-act='pick']"),
+}));
+console.log("reply page:", JSON.stringify(rp));
+if (rp.title !== "Reply" || rp.to !== "Dana Muise <dana@example.com>" || rp.subject !== "Re: the Rogue") fail("the reply page should be the compose page with To and Subject set: " + JSON.stringify(rp));
+if (!rp.quoteHidden || !/^On .*Dana Muise <dana@example\.com> wrote:\n> Saturday works for me\./.test(rp.quote) || rp.pick) fail("the original should sit quoted behind the dots, and no customer picker on a reply: " + JSON.stringify(rp));
+if (rp.focused !== "mc-text") fail("a reply should start with the cursor in the message: " + rp.focused);
+await p.fill(".modal-compose #mc-text", "10 is perfect — see you then.");
+await p.click('.modal-compose [data-act="send"]');
+await p.waitForFunction(() => !document.querySelector(".modal-compose"), null, { timeout: 8000 }).catch(() => fail("the reply didn't send"));
+if (!(await p.evaluate(() => !!document.querySelector(".modal .mail-body")))) fail("after sending, the email should still be open underneath, as in Gmail");
 const reply = sent[0];
 const raw = reply && Buffer.from(String(reply.raw).replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
 console.log("reply headers:", raw ? raw.split("\r\n").slice(0, 4).join(" | ") : "(none)");
 if (!reply || reply.threadId !== "thm1" || !/^To: Dana Muise <dana@example\.com>/m.test(raw) || !/^In-Reply-To: <m1@mail\.example>/m.test(raw)) fail("the reply isn't in Dana's thread: " + JSON.stringify(reply));
+const sentBody = raw && Buffer.from(raw.split("\r\n\r\n")[1] || "", "base64").toString("utf8");
+if (!/^10 is perfect — see you then\.\n\nOn .* wrote:\n> Saturday works for me\./.test(sentBody || "")) fail("the reply should carry the quoted original under it, like Gmail: " + JSON.stringify(sentBody));
+await p.click('.modal [data-act="back"]');
+await p.waitForFunction(() => !document.querySelector(".modal"), null, { timeout: 3000 }).catch(() => fail("back didn't close the email"));
 const logged = await p.evaluate(async () => { const s = await import("/js/store.js"); return { emails: s.all("emails").map((e) => `${e.leadId}:${e.direction}:${e.via}:${e.subject}`), via: s.get("leads", "a").lastContactVia, read: !document.querySelector(".mail-list .conv-row").classList.contains("conv-unread") }; });
 if (!logged.emails.includes("a:out:gmail:Re: the Rogue") || logged.via !== "email" || !logged.read) fail("the reply wasn't logged to Dana, or the message wasn't marked read: " + JSON.stringify(logged));
 
