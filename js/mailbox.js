@@ -158,6 +158,29 @@ export function messageLink(m) {
   if (m.provider === "outlook") return m.webLink || `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(m.id)}`;
   return "";
 }
+
+// The same message in the phone's own mail app, where the platform allows
+// it. Android Chrome takes an intent link that names the Gmail package and
+// Gmail opens the very conversation (falling back to the web link when
+// the app isn't there). The Gmail app on iPhone only lets other apps open
+// its compose screen, so there the button opens the Gmail app itself —
+// the email is at the top of the inbox. Outlook's app on either phone
+// opens a message by its id. Anywhere else it's the web link. Returns
+// { href, app } where app is true when href targets an installed app.
+export function mailAppLink(m, ua = navigator.userAgent) {
+  const web = messageLink(m);
+  if (!web) return null;
+  const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua);
+  if (m.provider === "gmail" && android) {
+    return { app: true, href: `intent://${web.replace(/^https:\/\//, "")}#Intent;scheme=https;package=com.google.android.gm;S.browser_fallback_url=${encodeURIComponent(web)};end` };
+  }
+  if (m.provider === "gmail" && ios) return { app: true, href: "googlegmail://" };
+  if (m.provider === "outlook" && (android || ios)) {
+    const acct = state.account || mailboxAccount();
+    return { app: true, href: `ms-outlook://emails/message/open?restid=${encodeURIComponent(m.id)}${acct ? `&account=${encodeURIComponent(acct)}` : ""}` };
+  }
+  return { app: false, href: web };
+}
 async function outlookBody(msg) {
   const token = await outlookAccessToken();
   const m = await fetch(`${GRAPH}/me/messages/${encodeURIComponent(msg.id)}?$select=body`, { headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text"' } }).then((r) => r.json());

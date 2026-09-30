@@ -78,6 +78,22 @@ if (!open.quoteHidden || !/Does Saturday work/.test(open.body || "")) fail("the 
 if (open.href !== "https://maps.example/oregans") fail("links in the text should be tappable, without the trailing period: " + open.href);
 if (!open.replyHidden || !open.full) fail("the reply box waits for a Reply tap, and the email takes the full sheet: " + JSON.stringify(open));
 if (!open.detailsHidden) fail("the full addresses stay folded until the sender row is tapped");
+// Open in Gmail on a phone goes to the app: Android by an intent that names
+// Gmail (falling back to the web), iPhone by Gmail's own scheme (it won't
+// take a link to one email), Outlook by its message deep link.
+const links = await p.evaluate(async () => {
+  const mb = await import("/js/mailbox.js");
+  const g = { provider: "gmail", id: "m1", threadId: "thm1" }, o = { provider: "outlook", id: "AAMkAG=", webLink: "https://outlook.live.com/mail/0/deeplink/read/AAMkAG%3D" };
+  const A = "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/128 Mobile", I = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Safari/604.1", D = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) Chrome/128";
+  return { ga: mb.mailAppLink(g, A), gi: mb.mailAppLink(g, I), gd: mb.mailAppLink(g, D), oa: mb.mailAppLink(o, A), od: mb.mailAppLink(o, D) };
+});
+console.log("app links:", JSON.stringify(links, null, 1));
+if (!links.ga.app || links.ga.href !== "intent://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1#Intent;scheme=https;package=com.google.android.gm;S.browser_fallback_url=https%3A%2F%2Fmail.google.com%2Fmail%2F%3Fauthuser%3Dparm.test%2540gmail.com%23all%2Fthm1;end") fail("Android should hand the thread to the Gmail app by intent: " + JSON.stringify(links.ga));
+if (!links.gi.app || links.gi.href !== "googlegmail://") fail("iPhone should open the Gmail app: " + JSON.stringify(links.gi));
+if (links.gd.app || links.gd.href !== "https://mail.google.com/mail/?authuser=parm.test%40gmail.com#all/thm1") fail("desktop should keep the web link: " + JSON.stringify(links.gd));
+if (!links.oa.app || links.oa.href !== "ms-outlook://emails/message/open?restid=AAMkAG%3D&account=parm.test%40gmail.com") fail("phones should open Outlook's app on the message: " + JSON.stringify(links.oa));
+if (links.od.app || links.od.href !== o_web(links)) fail("desktop Outlook should use the message's own web link: " + JSON.stringify(links.od));
+function o_web() { return "https://outlook.live.com/mail/0/deeplink/read/AAMkAG%3D"; }
 await p.click(".modal .mail-from");
 if (!(await p.evaluate(() => document.querySelector(".modal .mail-details").checkVisibility() && /dana@example\.com/.test(document.querySelector(".modal .mail-details").textContent)))) fail("tapping the sender should show From / To / Date");
 await p.click(".modal .mail-quote-btn");

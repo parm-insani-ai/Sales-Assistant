@@ -22,7 +22,7 @@ import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured, lastAutoEmailError } from "../email.js";
 import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
-import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, replyToMessage, composeEmail, customerFor, markRead, messageLink, parseAddress } from "../mailbox.js";
+import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, replyToMessage, composeEmail, customerFor, markRead, messageLink, mailAppLink, parseAddress } from "../mailbox.js";
 import { onPull } from "../pulltorefresh.js";
 import { openLeadForm } from "./leads.js";
 import { formatDateTime } from "../utils.js";
@@ -345,6 +345,14 @@ export function renderComms(view) {
       if (oc) oc.addEventListener("click", () => { close(); navigate(`/leads/${lead.id}`); });
       const ac = wrap.querySelector('[data-act="add-customer"]');
       if (ac) ac.addEventListener("click", () => { close(); openLeadForm(null, { prefill: { name: m.from.name || "", email: m.from.addr } }); });
+      const oi = wrap.querySelector('[data-act="open-in"]');
+      if (oi) oi.addEventListener("click", (e) => {
+        if (oi.dataset.web) return; // the app wasn't there last time — let the web link through
+        const app = mailAppLink(m);
+        if (!app || !app.app) return; // desktop: the anchor opens the web mailbox
+        e.preventDefault();
+        openMailApp(app.href, oi, appName);
+      });
       const replyBox = wrap.querySelector(".mail-reply");
       wrap.querySelector('[data-act="reply"]').addEventListener("click", () => {
         replyBox.hidden = false;
@@ -366,6 +374,21 @@ export function renderComms(view) {
       });
       return wrap;
     }, { focus: false, className: "modal-mail" });
+  }
+
+  // Hand the message to the mail app on the phone. If the phone hasn't
+  // switched away within a moment the app isn't installed: the button
+  // turns into the web link, so the next tap opens Gmail/Outlook in the
+  // browser (a popup after a timer would be blocked; a tap won't be).
+  function openMailApp(href, btn, appName) {
+    const t = setTimeout(() => {
+      if (document.hidden) return;
+      btn.dataset.web = "1";
+      btn.innerHTML = `${icon("mail")} Open ${appName} on the web`;
+      toast(`The ${appName} app didn't open — tap again for ${appName} on the web`);
+    }, 1800);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(t); }, { once: true });
+    location.href = href;
   }
 
   // "to me" when it came to the connected address, like the mail apps say.
