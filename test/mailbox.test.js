@@ -107,8 +107,15 @@ await p.waitForTimeout(300);
 // --- Compose: a new email to anyone, from the connected address.
 await p.click('[data-act="compose"]');
 await p.waitForSelector(".modal #mc-to", { timeout: 5000 });
-const composeBtn = await p.evaluate(() => document.querySelector('.modal [data-act="send"]')?.textContent.trim());
-if (!/from parm\.test@gmail\.com/.test(composeBtn || "")) fail("compose doesn't say which address it sends from: " + composeBtn);
+const compose = await p.evaluate(() => ({
+  from: document.querySelector(".modal .mc-from")?.textContent.trim(),
+  rows: [...document.querySelectorAll(".modal .mc-label")].map((l) => l.textContent.trim()).join("|"),
+  full: document.querySelector(".modal").classList.contains("modal-mail"),
+  bodyTall: (document.querySelector(".modal #mc-text")?.getBoundingClientRect().height || 0) > 180,
+}));
+console.log("compose:", JSON.stringify(compose));
+if (compose.from !== "parm.test@gmail.com" || compose.rows !== "From|To|Subject") fail("compose should read From / To / Subject like the mail apps: " + JSON.stringify(compose));
+if (!compose.full || !compose.bodyTall) fail("compose should take the full sheet with a tall message area: " + JSON.stringify(compose));
 await p.fill(".modal #mc-to", "ken@example.com");
 await p.fill(".modal #mc-subject", "Your Kicks is in");
 await p.fill(".modal #mc-text", "Hi Ken, the Kicks arrived today.");

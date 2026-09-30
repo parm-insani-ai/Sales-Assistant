@@ -382,14 +382,19 @@ export function renderComms(view) {
   }
 
   // A new email to anyone — a customer picked from the book, or any address.
+  // Laid out like the mail apps' compose: From, To and Subject as hairline
+  // rows, the message filling the rest of the screen, Send underneath.
   function openCompose(prefill = {}) {
+    const from = mailboxAccount();
     openModal("New email", (close) => {
       const wrap = document.createElement("div");
+      wrap.className = "mail-compose";
       wrap.innerHTML = `
-        <div class="field"><label>To</label><div class="btn-row" style="gap:6px"><input type="email" id="mc-to" placeholder="name@email.com" value="${esc(prefill.to || "")}" style="flex:1"><button class="btn btn-ghost btn-sm" data-act="pick" style="flex:none">Customer</button></div></div>
-        <div class="field"><label>Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}"></div>
-        <div class="field"><label>Message</label><textarea id="mc-text" rows="6">${esc(prefill.text || "")}</textarea></div>
-        <button class="btn btn-primary btn-block" data-act="send">${icon("send")} Send${mailboxAccount() ? ` from ${esc(mailboxAccount())}` : ""}</button>
+        ${from ? `<div class="mc-row"><span class="mc-label">From</span><span class="mc-from">${esc(from)}</span></div>` : ""}
+        <div class="mc-row"><label class="mc-label" for="mc-to">To</label><input type="email" id="mc-to" placeholder="name@email.com" value="${esc(prefill.to || "")}" autocomplete="off"><button class="mc-pick" data-act="pick" aria-label="Pick a customer" title="Pick a customer">${icon("users")}</button></div>
+        <div class="mc-row"><label class="mc-label" for="mc-subject">Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}" autocomplete="off"></div>
+        <textarea id="mc-text" class="mc-body" placeholder="Write your email…">${esc(prefill.text || "")}</textarea>
+        <button class="btn btn-primary btn-block" data-act="send">${icon("send")} Send</button>
         <div class="hint" id="mc-out"></div>`;
       wrap.querySelector('[data-act="pick"]').addEventListener("click", () => openPeoplePicker("email", (l) => {
         wrap.querySelector("#mc-to").value = l.email || "";
@@ -404,7 +409,7 @@ export function renderComms(view) {
         catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
       });
       return wrap;
-    });
+    }, { className: "modal-mail modal-compose" });
   }
 
   // ---- Email, with no mailbox connected: what the app has logged ----

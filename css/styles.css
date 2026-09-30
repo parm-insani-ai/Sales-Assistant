@@ -1732,6 +1732,26 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mail-quote.open { display: block; }
 .mail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
 .mail-actions .btn { flex: 1 1 auto; padding: 11px 14px; font-size: 0.9rem; }
+/* Compose, the same full sheet: From / To / Subject as hairline rows with
+   the label on the left, and the message area taking whatever is left. */
+.modal-compose .modal-body { display: flex; flex-direction: column; }
+.mail-compose { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.mc-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.mc-label { flex: none; width: 60px; font-size: 0.9rem; color: var(--muted); }
+.mc-from { font-size: 1rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-compose .mc-row input, .mail-compose .mc-body {
+  flex: 1; min-width: 0; width: 100%;
+  border: none; background: none; padding: 0; margin: 0;
+  font: inherit; font-size: 1rem; color: var(--text); box-shadow: none; border-radius: 0;
+}
+.mail-compose .mc-row input:focus, .mail-compose .mc-body:focus { outline: none; box-shadow: none; }
+.mc-pick {
+  flex: none; width: 34px; height: 34px; border-radius: 50%; border: none;
+  background: var(--surface-2); color: var(--text-2); display: grid; place-items: center; cursor: pointer;
+}
+.mc-pick svg { width: 18px; height: 18px; }
+.mail-compose .mc-body { flex: 1; min-height: 200px; padding: 14px 0; line-height: 1.55; resize: none; }
+.mail-compose .btn-block { flex: none; margin-top: 8px; }
 .mail-reply { margin-top: 14px; }
 .mail-reply textarea { width: 100%; min-height: 110px; resize: vertical; font-size: 1rem; line-height: 1.5; }
 .conv-row .conv-subject { display: block; font-size: 0.86rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
