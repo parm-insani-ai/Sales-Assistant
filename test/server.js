@@ -45,6 +45,8 @@ const emails = [];
 // Targets managers set, and the nudges (pushes) managers sent.
 const targets = new Map();
 const nudges = [];
+// Google token exchanges the app asked for (test hook /__gauths).
+const gauths = [];
 const pushes = [];
 let seq = 0;
 // Texts the app asked us to send, so a test can assert what reached "Twilio".
@@ -330,6 +332,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__stores") return json(res, 200, [...stores.values()]);
   if (url.pathname === "/__nudges") return json(res, 200, nudges);
+  if (url.pathname === "/__gauths") return json(res, 200, gauths);
   if (url.pathname === "/__welcomes") return json(res, 200, welcomes);
   if (url.pathname === "/__emails") return json(res, 200, emails);
   if (url.pathname === "/__admin") { const u = url.searchParams.get("u"); if (u) admins.add(u); return json(res, 200, [...admins]); }
@@ -358,8 +361,18 @@ const server = http.createServer((req, res) => {
       // Like the real function: anything that acts as a person needs the
       // session's bearer token. A call without one is refused, which is how
       // a test finds a client path that forgot to send it.
-      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || msg.memail || msg.nudge || msg.welcome || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
+      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || msg.memail || msg.nudge || msg.welcome || msg.gauth || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
       if (personal && !/^Bearer\s+\S+/.test(String(req.headers["authorization"] || ""))) return json(res, 401, { error: "Sign in to your cloud account in Settings — this call needs your session." });
+      // The Google token exchange, as the function does it with the secret:
+      // a code becomes tokens, a refresh becomes a fresh access token.
+      if (msg.gauth) {
+        const g = msg.gauth;
+        gauths.push(g);
+        if (!g.clientId) return json(res, 400, { error: "No Google Client ID — paste it in Settings → Email" });
+        if (g.refresh) return json(res, 200, { access_token: "gtok-refreshed", refresh_token: null, expires_in: 3600, scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send openid email" });
+        if (!g.code || !g.redirect || !g.verifier) return json(res, 400, { error: "gauth needs code + redirect" });
+        return json(res, 200, { access_token: "gtok-" + g.code, refresh_token: "grefresh", expires_in: 3600, scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send openid email" });
+      }
       // Canned diagnosis, so the Settings readout can be exercised against the
       // shapes a real misconfiguration produces.
       if (msg.smscheck) return json(res, 200, checkReply);

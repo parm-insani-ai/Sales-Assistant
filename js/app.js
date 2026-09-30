@@ -44,6 +44,7 @@ import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
 import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
+import { handleGmailRedirect, pullGmailIfStale } from "./gmail.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 import { managementMode, myStore as readStore, myTarget } from "./team.js";
@@ -362,22 +363,25 @@ initSaveState();
 // data participates in the connected graph too.
 try { reconcileLinks(); } catch {}
 
-// Outlook inbox: finish an in-flight sign-in if Microsoft just redirected
-// back, then pull new customer mail in the background.
-handleAuthRedirect()
+// Email: finish an in-flight sign-in if Google or Microsoft just redirected
+// back (Google's state is marked, so its handler goes first), then pull new
+// customer mail in the background from whichever is connected.
+handleGmailRedirect()
   .then((connected) => {
-    if (connected) {
-      toast("Outlook connected — pulling your mail", "success");
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    }
+    if (connected) { toast("Gmail connected — pulling your mail", "success"); window.dispatchEvent(new HashChangeEvent("hashchange")); }
+    return handleAuthRedirect().then((c2) => {
+      if (c2) { toast("Outlook connected — pulling your mail", "success"); window.dispatchEvent(new HashChangeEvent("hashchange")); }
+    }).catch((e) => toast(`Outlook: ${e.message || "sign-in failed"}`, "danger"));
+  })
+  .catch((e) => toast(`Gmail: ${e.message || "sign-in failed"}`, "danger"))
+  .then(() => {
     // A rep's inbox files into their own book; the manager's (management
     // mode) files into the reps' books, from the manager's Home.
-    if (!inManagement()) pullMailIfStale();
-  })
-  .catch((e) => toast(`Outlook: ${e.message || "sign-in failed"}`, "danger"));
+    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); }
+  });
 window.addEventListener("viniva-mail", (e) => {
   const n = e.detail && e.detail.linked;
-  if (n) toast(`${n} customer email${n === 1 ? "" : "s"} filed from Outlook`, "success");
+  if (n) toast(`${n} customer email${n === 1 ? "" : "s"} filed from ${(e.detail && e.detail.from) || "Outlook"}`, "success");
 });
 
 // Automated cadence emails + appointment reminder emails (optional): send

@@ -24,6 +24,7 @@ function clearErrors() { try { localStorage.removeItem("viniva:errors"); } catch
 import { testAgent, findAgentFunction } from "../agent.js";
 import { sendEmail, emailSendConfigured, emailSendVia } from "../email.js";
 import { connectOutlook, outlookConnected, outlookCanSend, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
+import { connectGmail, gmailConnected, gmailCanSend, gmailAccount, disconnectGmail, pullGmail, lastGmailPull } from "../gmail.js";
 import { shorten, shortUrl } from "../shortlink.js";
 import { enablePush, disablePush, pushEnabled, pushSupported, needsInstall, sendTestPush } from "../push.js";
 
@@ -879,12 +880,38 @@ function buildEmail(slot) {
     <div class="hint" id="ms-out"></div>
 
     <hr class="divider" />
+    <div class="strong" style="margin-bottom:6px">${icon("mail")} Gmail</div>
+    <div class="small muted" style="margin-bottom:10px">The same, for a Google account: send from your Gmail address, and customers' replies filed into their history. Reading and sending happen on this phone; the sign-in finishes through your function.</div>
+    <details class="cloud-setup" style="margin-bottom:12px">
+      <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>At <span class="mono">console.cloud.google.com</span> make a project, enable the <b>Gmail API</b>, and set up the <b>OAuth consent screen</b> (External; add each Google account that will connect under <b>Test users</b>).</li>
+        <li><b>Credentials → Create credentials → OAuth client ID</b>, type <b>Web application</b>, authorised redirect URI <span class="mono">${esc(location.origin + location.pathname)}</span></li>
+        <li>Paste the <b>Client ID</b> below. Put the <b>Client secret</b> in Supabase → Edge Functions → Secrets as <span class="mono">GOOGLE_CLIENT_SECRET</span>, and re-paste the function.</li>
+        <li>Tap Connect Gmail and allow reading and sending. Google shows an "unverified app" warning for a test app — tap <b>Advanced → Go to viniva</b>.</li>
+      </ol>
+    </details>
+    ${gmailConnected() ? `
+      <div class="small" style="margin-bottom:10px">${icon("checkline")} Connected as <b>${esc((gmailAccount() || {}).email || "your Gmail")}</b>${lastGmailPull() ? ` <span class="muted">· last checked ${esc(timeAgo(lastGmailPull()))}</span>` : ""}${gmailCanSend() ? ` <span class="muted">· sends from this address</span>` : ""}</div>
+      <div class="btn-row">
+        <button class="btn btn-sm btn-primary" id="gm-pull" type="button">Check mail now</button>
+        <button class="btn btn-sm btn-ghost" id="gm-off" type="button">Disconnect</button>
+      </div>
+    ` : `
+      <div class="field"><label>Google OAuth Client ID</label><input id="gm-client" value="${esc(s.googleClientId || "")}" placeholder="xxxxxxxxxx-xxxxxxxx.apps.googleusercontent.com"></div>
+      <button class="btn btn-sm btn-primary" id="gm-connect" type="button">Connect Gmail</button>
+    `}
+    <div class="hint" id="gm-out"></div>
+
+    <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("send")} Sending</div>
     <div class="small muted" style="margin-bottom:10px">${via === "outlook"
       ? `Emails go out from <b>${esc((outlookAccount() || {}).email || "your Outlook")}</b>.`
+      : via === "gmail"
+      ? `Emails go out from <b>${esc((gmailAccount() || {}).email || "your Gmail")}</b>.`
       : via === "function"
       ? "Emails go out through your function's Resend account. Connect your Outlook above to send from your own address instead."
-      : "Nothing can send yet — connect your Outlook above. (Without Outlook, the function can send through Resend: see below.)"}
+      : "Nothing can send yet — connect your Outlook or Gmail above. (Without either, the function can send through Resend: see below.)"}
       Tap-to-email from a customer's page always opens your mail app with the message filled in.</div>
     <label class="switch" style="margin-bottom:12px">
       <input type="checkbox" id="em-auto" ${s.emailAutoSend ? "checked" : ""}>
@@ -893,8 +920,8 @@ function buildEmail(slot) {
     <div class="field"><label>Send a test to</label><input id="em-test-to" type="email" placeholder="you@email.com" value="${esc(s.contactEmail || "")}"></div>
     <button class="btn btn-sm" id="em-test" type="button">Send a test email</button>
     <div class="hint" id="em-test-out"></div>
-    ${via === "outlook" ? "" : `<details class="cloud-setup" style="margin-top:12px">
-      <summary class="strong small">${icon("help")} Without Outlook: send through the function (Resend)</summary>
+    ${via === "outlook" || via === "gmail" ? "" : `<details class="cloud-setup" style="margin-top:12px">
+      <summary class="strong small">${icon("help")} Without Outlook or Gmail: send through the function (Resend)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
         <li>Create a free account at <span class="mono">resend.com</span> and verify a domain you own (so emails come from your address, not spam).</li>
         <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">RESEND_API_KEY</span> (from Resend) and <span class="mono">EMAIL_FROM</span> (like <span class="mono">Parm &lt;parm@yourdomain.com&gt;</span>).</li>
@@ -1147,7 +1174,7 @@ function buildEmail(slot) {
     out.textContent = "Sending…";
     try {
       await sendEmail({ to, subject: "viniva test email", text: "This is a test from viniva — automated sending is working. 🎉" });
-      out.textContent = `✓ Sent${emailSendVia() === "outlook" ? " from your Outlook" : ""}! Check that inbox (and spam, the first time).`;
+      out.textContent = `✓ Sent${emailSendVia() === "outlook" ? " from your Outlook" : emailSendVia() === "gmail" ? " from your Gmail" : ""}! Check that inbox (and spam, the first time).`;
       toast("Test email sent", "success");
     } catch (e) {
       out.textContent = `✗ ${e.message || "Send failed"}`;
@@ -1181,6 +1208,35 @@ function buildEmail(slot) {
   if (msOff) msOff.addEventListener("click", () => {
     disconnectOutlook();
     toast("Outlook disconnected");
+    buildEmail(slot);
+  });
+
+  // --- Gmail controls ---
+  const gmOut = slot.querySelector("#gm-out");
+  const gmClient = slot.querySelector("#gm-client");
+  if (gmClient) gmClient.addEventListener("change", (e) => store.updateSettings({ googleClientId: e.target.value.trim() }));
+  const gmConnect = slot.querySelector("#gm-connect");
+  if (gmConnect) gmConnect.addEventListener("click", async () => {
+    if (gmClient) store.updateSettings({ googleClientId: gmClient.value.trim() });
+    try { await connectGmail(); } catch (e) { gmOut.textContent = `✗ ${e.message}`; }
+  });
+  const gmPull = slot.querySelector("#gm-pull");
+  if (gmPull) gmPull.addEventListener("click", async () => {
+    gmPull.disabled = true;
+    gmOut.textContent = "Checking your Gmail…";
+    try {
+      const r = await pullGmail();
+      gmOut.textContent = `✓ Checked ${r.checked} message${r.checked === 1 ? "" : "s"} — ${r.linked ? `${r.linked} filed to customers` : "none from customers"}.`;
+      if (r.linked) toast(`${r.linked} customer email${r.linked === 1 ? "" : "s"} filed`, "success");
+    } catch (e) {
+      gmOut.textContent = `✗ ${e.message || "Mail check failed"}`;
+    }
+    gmPull.disabled = false;
+  });
+  const gmOff = slot.querySelector("#gm-off");
+  if (gmOff) gmOff.addEventListener("click", () => {
+    disconnectGmail();
+    toast("Gmail disconnected");
     buildEmail(slot);
   });
 }

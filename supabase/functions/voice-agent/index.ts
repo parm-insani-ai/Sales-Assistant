@@ -1952,7 +1952,7 @@ Deno.serve(async (req: Request) => {
   // public paths (a customer booking, cron with its key) carry no session and
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
-  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.nudge || body.welcome || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.nudge || body.welcome || body.gauth || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
   if (personal) {
     const caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
@@ -2051,6 +2051,26 @@ Deno.serve(async (req: Request) => {
   }
 
   // --- Optional email sending (Resend) ---
+  // Gmail sign-in: the phone gets the code from Google (PKCE), this exchanges
+  // it — Google requires the client secret for a web client, and the secret
+  // lives here, never on the phone. The tokens go back to the phone, which
+  // reads and sends from Gmail directly. Refreshes come through the same door.
+  if (body.gauth) {
+    const g = body.gauth || {};
+    const secret = Deno.env.get("GOOGLE_CLIENT_SECRET") || "";
+    const clientId = String(g.clientId || Deno.env.get("GOOGLE_CLIENT_ID") || "");
+    if (!secret) return json({ error: "Server missing GOOGLE_CLIENT_SECRET" }, 500);
+    if (!clientId) return json({ error: "No Google Client ID — paste it in Settings → Email" }, 400);
+    const form: Record<string, string> = g.refresh
+      ? { grant_type: "refresh_token", refresh_token: String(g.refresh), client_id: clientId, client_secret: secret }
+      : { grant_type: "authorization_code", code: String(g.code || ""), code_verifier: String(g.verifier || ""), redirect_uri: String(g.redirect || ""), client_id: clientId, client_secret: secret };
+    if (!g.refresh && (!form.code || !form.redirect_uri)) return json({ error: "gauth needs code + redirect" }, 400);
+    const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(form) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return json({ error: j.error_description || j.error || `Google sign-in failed (${r.status})` }, 502);
+    return json({ access_token: j.access_token, refresh_token: j.refresh_token || null, expires_in: j.expires_in || 3600, scope: j.scope || "" });
+  }
+
   if (body.email) {
     const { to, subject, text } = body.email || {};
     if (!to || !subject) return json({ error: "email needs to + subject" }, 400);

@@ -13,10 +13,12 @@ import * as store from "./store.js";
 import * as backend from "./backend.js";
 import { fillTemplate } from "./views/messages.js";
 import { outlookCanSend, sendViaOutlook } from "./msmail.js";
+import { gmailCanSend, sendViaGmail } from "./gmail.js";
 
-// Which way an email goes out: "outlook", "function", or "" for none.
+// Which way an email goes out: "outlook", "gmail", "function", or "" for none.
 export function emailSendVia() {
   if (outlookCanSend()) return "outlook";
+  if (gmailCanSend()) return "gmail";
   return (store.getSettings().agentUrl || "").trim() ? "function" : "";
 }
 export function emailSendConfigured() {
@@ -59,8 +61,9 @@ export async function sendEmail({ to, subject, text }) {
   // The salesperson's own mailbox first: it's their address, their Sent
   // Items, and nothing to set up beyond the one connection.
   if (outlookCanSend()) return sendViaOutlook({ to, subject, text });
+  if (gmailCanSend()) return sendViaGmail({ to, subject, text });
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
-  if (!url) throw new Error("Connect your Outlook in Settings → Email (or set up the function's Resend sending) — nothing can send yet");
+  if (!url) throw new Error("Connect your Outlook or Gmail in Settings → Email (or set up the function's Resend sending) — nothing can send yet");
   let res;
   try {
     res = await fetch(url, {

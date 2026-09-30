@@ -263,6 +263,32 @@ Note: a work mailbox (e.g. O'Regan's) may require IT to approve the sign-in
 the first time (Microsoft calls this admin consent). A personal
 Outlook/Hotmail account works with no approval.
 
+## Gmail (send from your Gmail address, read customer replies)
+
+The same two halves as Outlook, for a Google account. Reading and sending
+happen on the phone; only the sign-in's token exchange goes through the
+function, because Google requires the client secret for it.
+
+### One-time setup (~15 minutes)
+
+1. At [console.cloud.google.com](https://console.cloud.google.com) create a
+   project (or pick one), then **APIs & Services → Library** and enable the
+   **Gmail API**.
+2. **APIs & Services → OAuth consent screen**: External, app name "viniva",
+   your email as the contact. Under **Test users** add every Google account
+   that will connect (Google allows up to 100 without a review; each user
+   sees an "unverified app" warning and taps **Advanced → Go to viniva**).
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   type **Web application**; under **Authorised redirect URIs** add your app's
+   URL exactly as the browser shows it (e.g. `https://entoa.ai/`).
+4. Copy the **Client ID** into viniva → **Settings → Email → Gmail**, and the
+   **Client secret** into Supabase → Edge Functions → **Secrets** as
+   `GOOGLE_CLIENT_SECRET`. Re-paste the function after this update.
+5. Tap **Connect Gmail**, sign in, allow reading and sending.
+
+Outlook takes precedence when both are connected. Everything else — matching
+replies to customers, filing, automated sends — works exactly as for Outlook.
+
 ## Self-serve booking page
 
 Your personal booking link (viniva → **Settings → Booking page**) lets customers
