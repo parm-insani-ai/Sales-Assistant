@@ -906,7 +906,8 @@ export function openMoneyForm(l) {
 
 export function openLeadForm(existing, opts = {}) {
   const isEdit = !!existing;
-  const l = existing || {};
+  // A new customer can start from what's known (an email's sender, say).
+  const l = existing || opts.prefill || {};
   openModal(isEdit ? "Edit lead" : "New lead", (close) => {
     const { element } = buildForm(
       [

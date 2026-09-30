@@ -110,6 +110,7 @@ export async function handleGmailRedirect() {
   return true;
 }
 
+export async function gmailAccessToken() { return accessToken(); }
 async function accessToken() {
   const t = loadTok();
   if (!t) throw new Error("Gmail isn't connected — tap Connect Gmail in Settings → Email");

@@ -1698,3 +1698,12 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
    gives way to it rather than the other way round. */
 .topbar h1.greeting { font-size: 1.05rem; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; flex: 0 0 auto; }
 .topbar h1.greeting ~ .save-state { flex: 0 5 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* --- The mailbox on Comms → Email: a message, read and answered in place --- */
+.mail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mail-head .mail-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-subject { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; margin-bottom: 6px; }
+.mail-meta { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.mail-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 0.95rem; }
+.mail-reply textarea { width: 100%; min-height: 96px; resize: vertical; }
+.conv-row .conv-subject { display: block; font-size: 0.86rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

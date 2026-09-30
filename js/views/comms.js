@@ -22,6 +22,10 @@ import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
 import { emailSendConfigured, lastAutoEmailError } from "../email.js";
 import { inboxThreads, smsReady, smsBlocker, linkIsHot } from "../sms.js";
+import { mailboxProvider, mailboxAccount, mailboxMessages, mailboxCheckedAt, loadMailbox, refreshMailbox, mailboxStale, messageBody, replyToMessage, composeEmail, customerFor, markRead } from "../mailbox.js";
+import { onPull } from "../pulltorefresh.js";
+import { openLeadForm } from "./leads.js";
+import { formatDateTime } from "../utils.js";
 
 const TAB_KEY = "comms-tab"; // survives navigating into a thread and back
 
@@ -109,7 +113,7 @@ export function renderComms(view) {
     el.querySelectorAll("[data-tab]").forEach((b) =>
       b.addEventListener("click", () => { tab = b.dataset.tab; draw(); }));
     el.querySelector('[data-act="compose"]').addEventListener("click", () =>
-      openPeoplePicker(tab === "email" ? "email" : "text"));
+      (tab === "email" ? openCompose() : openPeoplePicker("text")));
     (tab === "messages" ? drawMessages : drawEmail)(el.querySelector("#c-body"));
   }
 
@@ -193,8 +197,137 @@ export function renderComms(view) {
     return row;
   }
 
-  // ---- Email ----
+  // ---- Email: the mailbox ----
+  // With Gmail or Outlook connected this is the inbox itself — every
+  // message, not just customers' — read and answered here. Without one,
+  // it's what the app has logged: emails sent from here and replies filed
+  // by hand.
   function drawEmail(box) {
+    const provider = mailboxProvider();
+    if (!provider) return drawEmailLog(box);
+    box.innerHTML = `
+      <div class="mail-head small muted">
+        <span class="mail-acct">${icon("mail")} ${provider === "gmail" ? "Gmail" : "Outlook"} · ${esc(mailboxAccount())}</span>
+        <span class="mail-when" style="margin-left:auto;flex:none"></span>
+        <button class="btn btn-sm btn-ghost" data-act="mail-refresh" style="flex:none">Check</button>
+      </div>
+      <div class="mail-list"></div>`;
+    const list = box.querySelector(".mail-list");
+    const whenEl = box.querySelector(".mail-when");
+    const paint = () => {
+      const msgs = mailboxMessages();
+      whenEl.textContent = mailboxCheckedAt() ? `checked ${timeAgo(mailboxCheckedAt())}` : "";
+      list.innerHTML = "";
+      if (!msgs.length) {
+        list.innerHTML = `<div class="card"><div class="muted small">${mailboxCheckedAt() ? "Your inbox is empty for now." : "Checking your inbox…"}</div></div>`;
+        return;
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "conv-list";
+      msgs.forEach((m) => wrap.appendChild(mailRow(m)));
+      list.appendChild(wrap);
+    };
+    const refresh = async () => {
+      whenEl.textContent = "Checking…";
+      try { await refreshMailbox(); } catch (e) { toast(`Mail: ${e.message || "check failed"}`, "danger"); }
+      if (box.isConnected) paint();
+    };
+    loadMailbox().then(() => { if (!box.isConnected) return; paint(); if (mailboxStale()) refresh(); });
+    box.querySelector('[data-act="mail-refresh"]').addEventListener("click", refresh);
+    onPull(refresh);
+  }
+
+  function mailRow(m) {
+    const who = m.from.name || m.from.addr || "Unknown";
+    const lead = customerFor(m.from.addr, m.from.name);
+    const row = document.createElement("div");
+    row.className = `conv-row${m.unread ? " conv-unread" : ""}`;
+    row.innerHTML = `
+      <div class="conv-av">${esc(initials(who))}</div>
+      <div class="conv-main">
+        <div class="conv-top">
+          <span class="conv-name">${esc(who)}</span>
+          <span class="conv-time">${esc(when(m.at))}</span>
+        </div>
+        <span class="conv-subject">${esc(m.subject || "(no subject)")}</span>
+        <div class="conv-bottom">
+          <span class="conv-preview">${esc(String(m.snippet || "").replace(/\s+/g, " ").slice(0, 90))}</span>
+          ${lead ? `<span class="conv-tag">customer</span>` : ""}
+        </div>
+      </div>`;
+    row.addEventListener("click", () => openMessage(m, lead));
+    return row;
+  }
+
+  // One email: who, when, the whole text, and the reply box under it.
+  function openMessage(m, lead) {
+    markRead(m.id);
+    openModal(m.subject || "(no subject)", (close) => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `
+        <div class="mail-meta">
+          <div class="row-main" style="min-width:0"><div class="strong">${esc(m.from.name || m.from.addr)}</div><div class="small muted">${esc(m.from.addr)}${m.to ? ` · to ${esc(m.to)}` : ""}</div></div>
+          <div class="small muted" style="flex:none">${esc(formatDateTime(m.at))}</div>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          ${lead ? `<button class="btn btn-ghost btn-sm" data-act="open-customer" style="flex:1">${icon("users")} ${esc(lead.name)}</button>` : `<button class="btn btn-ghost btn-sm" data-act="add-customer" style="flex:1">${icon("users")} Add as customer</button>`}
+        </div>
+        <div class="mail-body muted">Loading…</div>
+        <div class="mail-reply" style="margin-top:14px">
+          <div class="field"><label>Reply</label><textarea id="mail-reply-text" placeholder="Write your reply…"></textarea></div>
+          <button class="btn btn-primary btn-block" data-act="send-reply">${icon("send")} Send reply</button>
+          <div class="hint" id="mail-reply-out"></div>
+        </div>`;
+      const body = wrap.querySelector(".mail-body");
+      messageBody(m).then((t) => { body.classList.remove("muted"); body.textContent = t || "(no text)"; }).catch((e) => { body.textContent = `Couldn't load the message: ${e.message || e}`; });
+      const oc = wrap.querySelector('[data-act="open-customer"]');
+      if (oc) oc.addEventListener("click", () => { close(); navigate(`/leads/${lead.id}`); });
+      const ac = wrap.querySelector('[data-act="add-customer"]');
+      if (ac) ac.addEventListener("click", () => { close(); openLeadForm(null, { prefill: { name: m.from.name || "", email: m.from.addr } }); });
+      const btn = wrap.querySelector('[data-act="send-reply"]');
+      const out = wrap.querySelector("#mail-reply-out");
+      btn.addEventListener("click", async () => {
+        const text = wrap.querySelector("#mail-reply-text").value.trim();
+        if (!text) { out.textContent = "Write something first"; return; }
+        btn.disabled = true; out.textContent = "Sending…";
+        try {
+          await replyToMessage(m, text);
+          toast(`Replied to ${m.from.name || m.from.addr}`, "success");
+          close();
+        } catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
+      });
+      return wrap;
+    });
+  }
+
+  // A new email to anyone — a customer picked from the book, or any address.
+  function openCompose(prefill = {}) {
+    openModal("New email", (close) => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `
+        <div class="field"><label>To</label><div class="btn-row" style="gap:6px"><input type="email" id="mc-to" placeholder="name@email.com" value="${esc(prefill.to || "")}" style="flex:1"><button class="btn btn-ghost btn-sm" data-act="pick" style="flex:none">Customer</button></div></div>
+        <div class="field"><label>Subject</label><input type="text" id="mc-subject" value="${esc(prefill.subject || "")}"></div>
+        <div class="field"><label>Message</label><textarea id="mc-text" rows="6">${esc(prefill.text || "")}</textarea></div>
+        <button class="btn btn-primary btn-block" data-act="send">${icon("send")} Send${mailboxAccount() ? ` from ${esc(mailboxAccount())}` : ""}</button>
+        <div class="hint" id="mc-out"></div>`;
+      wrap.querySelector('[data-act="pick"]').addEventListener("click", () => openPeoplePicker("email", (l) => {
+        wrap.querySelector("#mc-to").value = l.email || "";
+        const sub = wrap.querySelector("#mc-subject"); if (!sub.value && l.vehicleInterest) sub.value = `About the ${l.vehicleInterest}`;
+      }));
+      const btn = wrap.querySelector('[data-act="send"]'), out = wrap.querySelector("#mc-out");
+      btn.addEventListener("click", async () => {
+        const to = wrap.querySelector("#mc-to").value.trim(), subject = wrap.querySelector("#mc-subject").value.trim(), text = wrap.querySelector("#mc-text").value.trim();
+        if (!to || !subject) { out.textContent = "Add an address and a subject"; return; }
+        btn.disabled = true; out.textContent = "Sending…";
+        try { await composeEmail({ to, subject, text }); toast(`Sent to ${to}`, "success"); close(); }
+        catch (e) { out.textContent = `✗ ${e.message || "Send failed"}`; btn.disabled = false; }
+      });
+      return wrap;
+    });
+  }
+
+  // ---- Email, with no mailbox connected: what the app has logged ----
+  function drawEmailLog(box) {
     const s = store.getSettings();
     const autoErr = lastAutoEmailError();
     // One row per customer, carrying their most recent email either way.
@@ -211,11 +344,21 @@ export function renderComms(view) {
       .filter((r) => r.lead)
       .sort((a, b) => b.at.localeCompare(a.at));
 
+    const connect = document.createElement("div");
+    connect.className = "card";
+    connect.style.marginBottom = "12px";
+    connect.innerHTML = `<div class="row"><div class="row-main">
+      <div class="row-title">${icon("mail")} Your inbox isn't connected</div>
+      <div class="row-sub">Connect Gmail or Outlook and your whole inbox shows here — read, reply and send from your own address.</div>
+    </div><button class="btn btn-sm btn-ghost" data-act="setup">Connect</button></div>`;
+    connect.querySelector('[data-act="setup"]').addEventListener("click", () => navigate("/settings"));
+    box.appendChild(connect);
+
     if (!rows.length) {
       const empty = document.createElement("div");
       empty.className = "card";
       empty.style.marginBottom = "12px";
-      empty.innerHTML = `<div class="muted small">No emails yet. Send one with a template, or connect Outlook so customer replies land here.</div>`;
+      empty.innerHTML = `<div class="muted small">No emails logged yet.</div>`;
       box.appendChild(empty);
     }
 
@@ -255,13 +398,10 @@ export function renderComms(view) {
             !s.emailAutoSend
               ? "Off — turn on to send due follow-up emails automatically."
               : !emailSendConfigured()
-                ? "On, but the sending function isn't set up yet."
+                ? "On, but nothing can send yet."
                 : autoErr && autoErr.setup
-                  // The app used to shout this as a toast on every launch. It's
-                  // a standing condition, so it belongs here, next to the switch
-                  // it's about.
                   ? `On, but nothing can send: ${esc(autoErr.message)}`
-                  : "On — due follow-up emails send when you open the app, and show here marked automatic."
+                  : "On — due follow-up emails send when you open the app."
           }</div>
         </div>
         <button class="btn btn-ghost btn-sm" data-act="email-settings">Set up</button>
@@ -272,8 +412,8 @@ export function renderComms(view) {
 
   // Starting a new conversation: pick the person first, the same way a
   // messages app does.
-  function openPeoplePicker(channel) {
-    openModal(channel === "email" ? "New email" : "New message", (close) => {
+  function openPeoplePicker(channel, onPick = null) {
+    openModal(channel === "email" ? "Pick a customer" : "New message", (close) => {
       const wrap = document.createElement("div");
       wrap.innerHTML = `<div class="searchbar"><input type="search" id="cp-q" placeholder="Find a customer…"></div><div id="cp-list"></div>`;
       const list = wrap.querySelector("#cp-list");
@@ -296,6 +436,7 @@ export function renderComms(view) {
             </div>${reachable ? "" : `<div class="row-meta small muted">add ${channel === "email" ? "email" : "phone"}</div>`}`;
           row.addEventListener("click", () => {
             close();
+            if (onPick) { if (!reachable) return addContactThenMessage(l); return onPick(l); }
             if (!reachable) return addContactThenMessage(l);
             if (channel === "email") return openTemplatePicker(l);
             // Texting goes to the thread, where the conversation already lives.

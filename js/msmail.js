@@ -108,6 +108,7 @@ export async function handleAuthRedirect() {
   return true;
 }
 
+export async function outlookAccessToken() { return accessToken(); }
 async function accessToken() {
   const t = loadTok();
   if (!t) throw new Error("Outlook isn't connected — tap Connect Outlook in Settings → Email");
