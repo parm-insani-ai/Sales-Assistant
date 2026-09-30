@@ -102,6 +102,7 @@ await p.waitForFunction(() => document.querySelectorAll("#v-thread .vt-bot").len
 await p.waitForTimeout(200);
 await p.evaluate(() => window.__say("I don't have it"));
 await p.waitForFunction(() => document.querySelectorAll("#v-thread .vt-bot").length === 5, null, { timeout: 5000 });
+await p.waitForTimeout(300); // the reply is spoken first, then it listens again
 v = await p.evaluate(() => ({ bot: [...document.querySelectorAll("#v-thread .vt-bot")].pop().textContent, listening: !!window.__mic.live }));
 if (!/no number for Lee yet/.test(v.bot) || !v.listening) fail("'don't have it' should be accepted and it keeps listening: " + JSON.stringify(v));
 

@@ -39,7 +39,7 @@ const r = await p.evaluate(async () => {
   };
 });
 console.log(JSON.stringify(r, null, 1));
-if (!r.stillThere || !/Not deleted\. Confirm first with ask_user: "Delete Tony Montana from your customers, with 1 open follow-up and 1 upcoming appointment\? This can't be undone\."/.test(r.first) || !/checking before deleting/.test(r.note)) fail("the first call must ask, not delete: " + JSON.stringify(r));
+if (!r.stillThere || !/Not deleted\. Confirm first with ask_user \(options \["Yes, delete Tony", "No, keep Tony"\]\): "Delete Tony Montana from your customers, with 1 open follow-up and 1 upcoming appointment\? This can't be undone\."/.test(r.first) || !/checking before deleting/.test(r.note)) fail("the first call must ask — with tappable yes/no — not delete: " + JSON.stringify(r));
 if (!r.gone || r.tasks !== "k2,k3" || r.appts !== 0 || r.texts !== 1) fail("confirmed: the customer, their open follow-up and their appointment go; done tasks, other people's tasks and the texts stay: " + JSON.stringify(r));
 if (!/deleted Tony Montana, 1 open follow-up, 1 upcoming appointment/.test(r.second) || !r.undo || r.hash !== "#/leads") fail("the reply should say what went, with an Undo on screen and the page moved off him: " + JSON.stringify(r));
 if (r.label !== "Deleting Tony") fail("the thread step should read as deleting: " + r.label);

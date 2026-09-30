@@ -43,13 +43,22 @@ await p.addInitScript(() => {
 });
 
 // The agent: first a look-up (with a word of thinking aloud), then the answer.
+// "delete Tony" gets a yes/no question with tappable answers first.
 let calls = 0;
+const answers = [];
 await p.route("**/functions/v1/voice-agent", (route) => {
   const body = route.request().postDataJSON() || {};
   if (!Array.isArray(body.messages)) return route.continue();
   calls++;
   const last = body.messages[body.messages.length - 1];
   const first = typeof last.content === "string";
+  if (first && /delete tony/i.test(last.content)) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ content: [
+    { type: "tool_use", id: "q1", name: "ask_user", input: { question: "Delete Tony Montana from your customers? This can't be undone.", options: ["Yes, delete Tony", "No, keep him"] } },
+  ], stop_reason: "tool_use" }) });
+  if (!first && Array.isArray(last.content) && last.content.some((c) => c.tool_use_id === "q1")) {
+    answers.push(last.content.find((c) => c.tool_use_id === "q1").content);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ content: [{ type: "text", text: "Kept him." }], stop_reason: "end_turn" }) });
+  }
   if (first) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ content: [
     { type: "text", text: "Let me pull her up." },
     { type: "tool_use", id: "t1", name: "get_customer", input: { name: "Ann Lee" } },
@@ -106,6 +115,24 @@ const muted = await p.evaluate(() => ({ spoke: window.__mic.spoke.length, presse
 console.log("muted:", JSON.stringify(muted));
 if (muted.spoke !== spokenBefore || muted.pressed !== "true" || !muted.listening || muted.kept !== "1") fail("muted: written not spoken, still listening, and remembered: " + JSON.stringify(muted));
 await p.click("#v-mute");
+
+// --- A question with clear answers shows them as chips; a tap answers it.
+await p.evaluate(() => window.__say("delete Tony"));
+await p.waitForSelector("#v-thread .vt-choices .vt-choice", { timeout: 8000 }).catch(() => fail("the question's answers didn't show as chips"));
+const chips = await p.evaluate(() => ({ labels: [...document.querySelectorAll("#v-thread .vt-choice")].map((b) => b.textContent), question: [...document.querySelectorAll("#v-thread .vt-bot")].pop().textContent, listening: !!window.__mic.live }));
+console.log("chips:", JSON.stringify(chips));
+if (chips.labels.join("|") !== "Yes, delete Tony|No, keep him" || !/Delete Tony Montana/.test(chips.question)) fail("the chips should be the assistant's options under its question: " + JSON.stringify(chips));
+if (!chips.listening) fail("it should still listen for a spoken answer while the chips are up");
+await p.click("#v-thread .vt-choice:nth-child(2)");
+await p.waitForFunction(() => /Kept him/.test([...document.querySelectorAll("#v-thread .vt-bot")].pop().textContent), null, { timeout: 8000 }).catch(() => fail("tapping a chip didn't answer the question"));
+const after = await p.evaluate(() => ({
+  me: [...document.querySelectorAll("#v-thread .vt-me:not(.vt-live)")].pop().textContent,
+  picked: document.querySelector("#v-thread .vt-choice.picked")?.textContent,
+  settled: !!document.querySelector("#v-thread .vt-choices.answered") && [...document.querySelectorAll("#v-thread .vt-choice")].every((b) => b.disabled),
+}));
+console.log("after tap:", JSON.stringify(after), "answer sent:", JSON.stringify(answers));
+if (after.me !== "No, keep him" || after.picked !== "No, keep him" || !after.settled) fail("the tap should read as your answer and settle the chips: " + JSON.stringify(after));
+if (answers[0] !== "No, keep him") fail("the tapped label should reach the assistant as the answer: " + JSON.stringify(answers));
 
 // --- The thread scrolls, the newest at the bottom, and the layout leaves it room.
 const layout = await p.evaluate(() => {

@@ -386,6 +386,18 @@ body.typing #app, body.kb-open #app {
 .vt-step.live::before { background: var(--brand); border-color: var(--brand); animation: step-pulse 1s ease-in-out infinite; }
 .vt-step.done::before { background: var(--brand); border-color: var(--brand); }
 .vt-steps.finished { opacity: 0.7; }
+/* Tappable answers under a question. */
+.vt-choices { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 0 2px; }
+.vt-choice {
+  appearance: none; font: inherit; font-size: 0.92rem; font-weight: 600; cursor: pointer;
+  padding: 9px 15px; border-radius: 999px;
+  border: 1.5px solid var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); color: var(--brand-strong);
+  -webkit-tap-highlight-color: transparent; transition: background 0.12s, transform 0.1s;
+}
+.vt-choice:active { transform: scale(0.97); }
+.vt-choice.picked { background: var(--brand); color: var(--brand-ink); }
+.vt-choices.answered .vt-choice:not(.picked) { opacity: 0.4; }
+.vt-choice:disabled { cursor: default; }
 @keyframes step-pulse { 50% { transform: scale(0.55); opacity: 0.5; } }
 
 /* Frosted capsule input */

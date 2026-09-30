@@ -493,8 +493,26 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         turn.appendChild(el);
         scrollThread();
       },
+      // A question with a few clear answers: chips to tap instead of
+      // answering aloud. A tap is the same as saying the label.
+      choices(labels, onPick) {
+        const box = document.createElement("div");
+        box.className = "vt-choices";
+        labels.forEach((label) => {
+          const btn = document.createElement("button");
+          btn.type = "button"; btn.className = "vt-choice"; btn.textContent = label;
+          btn.addEventListener("click", () => { if (box.classList.contains("answered")) return; btn.classList.add("picked"); onPick(label); });
+          box.appendChild(btn);
+        });
+        turn.appendChild(box);
+        scrollThread();
+      },
     };
     return api;
+  }
+  // Once a question is answered — by a tap or aloud — its chips are done.
+  function settleChoices() {
+    threadEl.querySelectorAll(".vt-choices:not(.answered)").forEach((b) => { b.classList.add("answered"); b.querySelectorAll("button").forEach((x) => { x.disabled = true; }); });
   }
 
   let rec = null;
@@ -716,11 +734,13 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     }
     busy = true;
     stopHearing();
+    settleChoices();
     addMe(said);
     textInput.value = "";
     const turn = startTurn();
 
     let reply = "";
+    let choices = [];
     let ok = true;
     let agent = null;
     try { agent = await agentSession(); } catch (e) { toast(`Voice agent: ${e && e.message ? e.message : "couldn't load"}`, "danger"); }
@@ -744,6 +764,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
           if (!n.startsWith("\u26a0")) setStatus(line + "\u2026");
         });
         reply = res.say || "Done";
+        choices = Array.isArray(res.options) ? res.options : [];
       } catch (e) {
         ok = false;
         reply = e && e.message ? e.message : "I couldn't reach the assistant";
@@ -755,6 +776,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     }
 
     turn.reply(reply, { error: !ok });
+    if (choices.length) turn.choices(choices, (label) => { stopSpeaking(); run(label); });
     setStatus(docked && reply.length > 60 ? reply.slice(0, 58).trimEnd() + "\u2026" : reply);
     wave.set("speaking");
     busy = false;

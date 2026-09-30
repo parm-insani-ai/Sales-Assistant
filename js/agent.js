@@ -82,7 +82,7 @@ CONTEXT_PROPS.notes = { type: "string", description: "EVERYTHING else said about
 // The agent's brain lives here in the app (not on the server), so it can be
 // improved and shipped via the normal auto-update — no Supabase redeploy.
 const TOOLS = [
-  { name: "ask_user", description: "Ask the salesperson ONE short question when a required detail is genuinely missing or ambiguous (e.g. which customer, or a time you can't reasonably assume). Only use when you truly can't proceed.", input_schema: { type: "object", properties: { question: { type: "string" } }, required: ["question"] } },
+  { name: "ask_user", description: "Ask the salesperson ONE short question when a required detail is genuinely missing or ambiguous (e.g. which customer, or a time you can't reasonably assume), or to confirm something that can't be undone. Only use when you truly can't proceed. When the answer is one of a few clear choices — yes or no, which of two customers, new or used, one of a few times — pass them as `options` (2 to 5 short labels) so they can just tap one; leave `options` out when the answer is free-form (a phone number, a name, a note).", input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, description: "2–5 short tappable answers, only when the answer is one of a few clear choices" } }, required: ["question"] } },
   { name: "find_customers", description: "Look up customers/leads by name/vehicle query, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
   { name: "get_customer", description: "Full details for one customer by name — contact, vehicle, position, profile, notes, the assessment, and the CONVERSATION so far (their texts, emails and calls, oldest first) with whether they're waiting on a reply.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "get_messages", description: "What people have SAID — every text, email and call on file. With `customer`: that person's whole conversation, oldest first ('what did Dana say?', 'read me Ken's email', 'did Sara get back to me?', 'where did I leave things with Moe?'). Without: everything that came in recently from everyone, newest first, each marked answered or waiting ('anything from my customers?', 'what came in today?', 'who's waiting on me?', 'any emails?'). Includes mail in the connected inbox from people not on file.", input_schema: { type: "object", properties: { customer: { type: "string" }, kind: { type: "string", enum: ["text", "email", "call"], description: "only this kind" }, hours: { type: "number", description: "without a customer: how far back (default 48)" } } } },
@@ -147,7 +147,8 @@ function buildSystem(ctx) {
     // answer exactly. Nothing in it names a tool, and that has to be fine —
     // the salesperson is describing the job, not operating a menu.
     `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
-    `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
+    `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all — or to confirm something that can't be undone. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
+    `BUTTONS OR WORDS: when the answer to your question is one of a few clear choices, give ask_user \`options\` — 2 to 5 short labels the salesperson taps instead of answering aloud: a yes/no ("Yes, delete Tony" / "No, keep him"), which customer ("Dana Muise" / "Dana Lee"), new or used, one of a few times. When the answer is free-form — a phone number, a name, a note, a date you can't guess — ask in words with no options. Options are exactly what they'd say, so the tapped label comes back to you as their answer.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
     `DELETING: "delete Tony", "remove him from the system", "get rid of that lead" → delete_customer. It won't delete until you've asked ONE confirming question (ask_user, the exact wording it hands back) and heard a clear yes; then call it again with confirmed: true. Never say there's no way to delete a customer. "Lost", "bought elsewhere", "not interested" → update_lead stage "lost" instead.`,
     `EVERY NEW CUSTOMER GETS A PHONE NUMBER. "Add Ann, she's after a Rogue" with no number → ask_user "What's Ann's number?" BEFORE create_lead, then create with the number and everything else that was said. Numbers arrive as words or split up — join them. If they say they don't have it, create with noPhone: true and move on. A customer who appears for the first time through a sale or an appointment and has no number: say so in one clause and ask for it.`,
@@ -863,7 +864,7 @@ export async function execTool(name, p = {}) {
       const openTasks = store.all("tasks").filter((t) => t.leadId === lead.id && !t.done);
       const upcoming = store.all("appointments").filter((a) => a.leadId === lead.id && a.status !== "canceled" && String(a.when) >= new Date().toISOString().slice(0, 16));
       if (p.confirmed !== true) {
-        return { result: `Not deleted. Confirm first with ask_user: "Delete ${lead.name} from your customers${openTasks.length || upcoming.length ? `, with ${[openTasks.length ? `${openTasks.length} open follow-up${openTasks.length > 1 ? "s" : ""}` : "", upcoming.length ? `${upcoming.length} upcoming appointment${upcoming.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" and ")}` : ""}? This can't be undone." Only on a clear yes, call delete_customer again with confirmed: true.`, note: `checking before deleting ${lead.name}` };
+        return { result: `Not deleted. Confirm first with ask_user (options ["Yes, delete ${lead.name.split(" ")[0]}", "No, keep ${lead.name.split(" ")[0]}"]): "Delete ${lead.name} from your customers${openTasks.length || upcoming.length ? `, with ${[openTasks.length ? `${openTasks.length} open follow-up${openTasks.length > 1 ? "s" : ""}` : "", upcoming.length ? `${upcoming.length} upcoming appointment${upcoming.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" and ")}` : ""}? This can't be undone." Only on a clear yes, call delete_customer again with confirmed: true.`, note: `checking before deleting ${lead.name}` };
       }
       // Gone, with the things that would otherwise keep nagging about them.
       // The logged texts, emails and calls stay — history isn't rewritten.
@@ -1025,11 +1026,14 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
 
       messages.push({ role: "assistant", content });
       const results = [];
-      let askId = null, question = null;
+      let askId = null, question = null, options = [];
       for (const tu of toolUses) {
         if (tu.name === "ask_user") {
           askId = tu.id;
           question = (tu.input && tu.input.question) || "Could you give me a bit more detail?";
+          // Tappable answers, when the question has a few clear ones.
+          options = Array.isArray(tu.input && tu.input.options) ? tu.input.options.map((o) => String(o || "").trim()).filter(Boolean).slice(0, 5) : [];
+          if (options.length < 2) options = [];
         } else {
           if (onProgress) onProgress(stepLabel(tu.name, tu.input));
           let out;
@@ -1041,7 +1045,7 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
       }
       // If the agent asked something, hold the other results and wait for the
       // human — we'll answer all tool calls together on the next send().
-      if (askId) { pending = { results, askId }; return { say: question, done: false }; }
+      if (askId) { pending = { results, askId }; return { say: question, done: false, options }; }
       messages.push({ role: "user", content: results });
     }
     return { say: "That needed too many steps — try breaking it into smaller asks.", done: true };
