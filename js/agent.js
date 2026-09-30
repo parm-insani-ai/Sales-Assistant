@@ -8,6 +8,7 @@
 
 import * as store from "./store.js";
 import { navigate } from "./router.js";
+import { undoToast } from "./components.js";
 import { maybeStartCadence, startCadence, planSummary } from "./cadence.js";
 import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
@@ -115,6 +116,7 @@ const TOOLS = [
   { name: "add_special", description: "Save a manufacturer/monthly special ('0% for 60 months on Rogues till Monday').", input_schema: { type: "object", properties: { model: { type: "string" }, financeApr: { type: "number" }, financeTerm: { type: "number" }, leasePayment: { type: "number" }, leaseTerm: { type: "number" }, leaseDown: { type: "number" }, leaseTrim: { type: "string", description: "trim the advertised lease applies to" }, cash: { type: "number" }, expiry: { type: "string", description: "YYYY-MM-DD" }, notes: { type: "string" } }, required: ["model"] } },
   { name: "add_spif", description: "Save a spif/bonus ('$500 on every Pathfinder this weekend').", input_schema: { type: "object", properties: { title: { type: "string" }, amount: { type: "number" }, match: { type: "string", description: "keyword a sale's vehicle must contain to count" }, expiry: { type: "string", description: "YYYY-MM-DD" }, notes: { type: "string" } }, required: ["title"] } },
   { name: "log_sale", description: "Log a CLOSED sale. Use ONLY when the salesperson clearly says the deal is done — 'sold', 'bought', 'signed', 'took delivery', 'made $X on'. Never for interest ('wants/looking at a Rogue' is create_lead or update_lead, not a sale). Capture tracker details when spoken: lead type, new/used, stock #, business manager, front vs business-office commission.", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" }, leadType: { type: "string", enum: ["Walk-in", "Hand Off", "Referral", "Facebook", "BDC", "Service", "Auto Alert", "Other"] }, newUsed: { type: "string", enum: ["New", "Used"] }, stock: { type: "string" }, bm: { type: "string", description: "business manager who worked the deal" }, frontComm: { type: "number", description: "front commission $" }, boComm: { type: "number", description: "business office commission $" } }, required: ["customer"] } },
+  { name: "delete_customer", description: "Remove a customer from the book entirely — 'delete Tony Montana', 'get rid of that lead', 'remove him from the system'. Their open follow-ups and upcoming appointments go too; texts and emails already logged stay. This can't be undone, so it runs in two steps: call it, and if `confirmed` isn't true it tells you what to confirm; ask_user that one question, and only on a clear yes call again with confirmed: true. A customer who's merely gone quiet or bought elsewhere is update_lead to stage 'lost', not this.", input_schema: { type: "object", properties: { customer: { type: "string" }, confirmed: { type: "boolean", description: "true only after the salesperson has said yes to deleting this person" } }, required: ["customer"] } },
   { name: "undo_sale", description: "Remove a sale that was logged by mistake (e.g. 'I didn't sell that car', 'that wasn't a sale'). Deletes the customer's most recent sale record and moves their stage back from sold.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
@@ -147,6 +149,7 @@ function buildSystem(ctx) {
     `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
+    `DELETING: "delete Tony", "remove him from the system", "get rid of that lead" → delete_customer. It won't delete until you've asked ONE confirming question (ask_user, the exact wording it hands back) and heard a clear yes; then call it again with confirmed: true. Never say there's no way to delete a customer. "Lost", "bought elsewhere", "not interested" → update_lead stage "lost" instead.`,
     `EVERY NEW CUSTOMER GETS A PHONE NUMBER. "Add Ann, she's after a Rogue" with no number → ask_user "What's Ann's number?" BEFORE create_lead, then create with the number and everything else that was said. Numbers arrive as words or split up — join them. If they say they don't have it, create with noPhone: true and move on. A customer who appears for the first time through a sale or an appointment and has no number: say so in one clause and ask for it.`,
     // What the salesperson knows about a customer is the product. Every text in
     // the follow-up plan is written from it, so a detail dropped here is a
@@ -854,6 +857,28 @@ export async function execTool(name, p = {}) {
       afterSale(lead.id, { vehicle: p.vehicle || "" });
       return { result: `logged sale`, note: `logged sale for ${name}` };
     }
+    case "delete_customer": case "remove_customer": case "delete_lead": {
+      const lead = findLead(p.customer || p.name);
+      if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.customer || p.name}` };
+      const openTasks = store.all("tasks").filter((t) => t.leadId === lead.id && !t.done);
+      const upcoming = store.all("appointments").filter((a) => a.leadId === lead.id && a.status !== "canceled" && String(a.when) >= new Date().toISOString().slice(0, 16));
+      if (p.confirmed !== true) {
+        return { result: `Not deleted. Confirm first with ask_user: "Delete ${lead.name} from your customers${openTasks.length || upcoming.length ? `, with ${[openTasks.length ? `${openTasks.length} open follow-up${openTasks.length > 1 ? "s" : ""}` : "", upcoming.length ? `${upcoming.length} upcoming appointment${upcoming.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" and ")}` : ""}? This can't be undone." Only on a clear yes, call delete_customer again with confirmed: true.`, note: `checking before deleting ${lead.name}` };
+      }
+      // Gone, with the things that would otherwise keep nagging about them.
+      // The logged texts, emails and calls stay — history isn't rewritten.
+      const snapshot = { lead: { ...lead }, tasks: openTasks.map((t) => ({ ...t })), appts: upcoming.map((a) => ({ ...a })) };
+      openTasks.forEach((t) => store.remove("tasks", t.id));
+      upcoming.forEach((a) => store.remove("appointments", a.id));
+      store.remove("leads", lead.id);
+      undoToast(`Deleted ${lead.name}`, () => {
+        store.restore("leads", snapshot.lead);
+        snapshot.tasks.forEach((t) => store.restore("tasks", t));
+        snapshot.appts.forEach((a) => store.restore("appointments", a));
+      });
+      if (location.hash.includes(lead.id)) navigate("/leads");
+      return { result: `deleted ${lead.name}${openTasks.length ? `, ${openTasks.length} open follow-up${openTasks.length > 1 ? "s" : ""}` : ""}${upcoming.length ? `, ${upcoming.length} upcoming appointment${upcoming.length > 1 ? "s" : ""}` : ""} — an Undo is on screen for a few seconds`, note: `deleted ${lead.name}` };
+    }
     case "undo_sale": {
       const q = String(p.customer || p.name || "").trim().toLowerCase();
       const sales = store.all("sales")
@@ -968,6 +993,7 @@ const STEP_LABELS = {
   text_customer: (i) => `Writing a text to ${i.customer || "them"}`, call_customer: (i) => `Calling ${i.customer || "them"}`,
   send_email: (i) => `Emailing ${i.customer || "them"}`, add_special: "Saving the special", add_spif: "Saving the spif",
   log_sale: (i) => `Logging the sale for ${i.customer || "them"}`, undo_sale: "Taking that sale back",
+  delete_customer: (i) => i.confirmed ? `Deleting ${i.customer || "them"}` : `Checking before deleting ${i.customer || "them"}`,
   book_appointment: (i) => `Booking ${i.customer || "the appointment"}`, appointment_outcome: "Setting the outcome",
   start_cadence: "Starting the follow-up plan", lot_lookup: "Checking the lot", mass_outreach: "Building the outreach",
   search_inventory: "Searching the network", when_it_makes_sense: "Working out the timing", lease_ends: "Listing the leases",
