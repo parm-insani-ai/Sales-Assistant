@@ -31,7 +31,7 @@ const door = () => p.evaluate(() => {
     boxType: visible[0]?.type || null,
     note: login ? login.querySelector(".login-note")?.textContent.trim() : null,
     button: login ? login.querySelector(".login-go")?.textContent.trim() : null,
-    appDrawn: !!document.querySelector("#view .hero"),
+    appDrawn: !!document.querySelector("#view .stat-grid"),
     focused: document.activeElement?.className || null,
   };
 });
@@ -110,7 +110,7 @@ if (!d.appDrawn) fail("a signed-in install didn't open on Home");
   await old.waitForTimeout(500);
   const r = await old.evaluate(() => ({
     door: !!document.querySelector("#login"),
-    app: !!document.querySelector("#view .hero"),
+    app: !!document.querySelector("#view .stat-grid"),
     carried: !!localStorage.getItem("viniva:auth") && localStorage.getItem("viniva:leads-filter") === "active",
     oldGone: !localStorage.getItem("entoa:auth"),
   }));

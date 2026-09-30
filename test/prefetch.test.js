@@ -30,7 +30,7 @@ const { launch } = require("./browser.js");
     plus6m: iso(now - 10 * 60000 + 6 * 60000),  // +6min → the customer
   });
   await p.goto("http://127.0.0.1:8137/#/");
-  await p.waitForSelector(".today-card");
+  await p.waitForSelector(".stat-grid");
   const r = await p.evaluate(async () => {
     const plays = await import("./js/plays.js");
     const store = await import("./js/store.js");

@@ -1691,3 +1691,8 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .tg-chip.tg-good { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
 .tg-chip.tg-warn { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 .tg-chip .ico { width: 14px; height: 14px; }
+
+/* Home's greeting in the top bar, one line, in line with "+". The sync pill
+   gives way to it rather than the other way round. */
+.topbar h1.greeting { font-size: 1.05rem; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; flex: 0 0 auto; }
+.topbar h1.greeting ~ .save-state { flex: 0 5 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

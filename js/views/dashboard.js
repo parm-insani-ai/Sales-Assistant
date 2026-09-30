@@ -7,19 +7,15 @@ import { stageMeta, apptType } from "../store.js";
 import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
 import { monthSummary, apptFunnel, saleCard, openSaleForm } from "./goals.js";
-import { loggedInMonth } from "../logbook.js";
 import { salesTarget, openTargetForm } from "../target.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
-import { getPlays } from "../plays.js";
 import { getNudges } from "../nudges.js";
-import { bookCheap, warmBook } from "../assess.js";
 import { reviewTouch } from "../touches.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
-  const tasks = store.all("tasks");
   const deliveries = store.all("deliveries");
   const s = store.getSettings();
 
@@ -30,7 +26,6 @@ export function renderDashboard(view) {
   const upcomingFollowUps = activeLeads
     .filter((l) => l.followUp && daysFromToday(l.followUp) > 0 && daysFromToday(l.followUp) <= 3)
     .sort((a, b) => daysFromToday(a.followUp) - daysFromToday(b.followUp));
-  const openTasks = tasks.filter((t) => !t.done);
   const activeDeliveries = deliveries.filter((d) => d.status !== "delivered");
 
   // Today's appointments (not completed/canceled).
@@ -49,31 +44,19 @@ export function renderDashboard(view) {
 
   // Month-to-date sales vs goal.
   const mtd = monthSummary();
-  const soldThisMonth = mtd.units;
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const name = s.salesperson ? `, ${s.salesperson.split(" ")[0]}` : "";
   const todayLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
+  // The greeting sits in the top bar, in line with the "+" — the page
+  // starts with the day.
+  const titleEl = document.getElementById("page-title");
+  if (titleEl) { titleEl.textContent = `${greeting}${name}`; titleEl.classList.add("greeting"); }
+
   const el = document.createElement("div");
   el.innerHTML = `
-    <div class="hero">
-      <div class="hero-title">${greeting}${esc(name)}</div>
-    </div>
-
-    <div class="nudge-slot"></div>
-
-    <div class="card card-tap today-card" data-goto="/log" style="margin-bottom:6px">
-      <div class="row">
-        <div class="row-main">
-          <div class="row-title">${icon("checkline")} Log</div>
-          <div class="row-sub today-sub"></div>
-        </div>
-        <div class="row-meta strong">›</div>
-      </div>
-    </div>
-
     <div class="card card-tap" data-goto="/calendar" style="margin-bottom:6px">
       <div class="row">
         <div class="row-main">
@@ -85,11 +68,11 @@ export function renderDashboard(view) {
     </div>
     <div class="appt-list"></div>
 
+    <div class="nudge-slot"></div>
+
     <div class="stat-grid">
       <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
-      <div class="stat card-tap" data-goto="/leads"><div class="stat-value">${activeLeads.length}</div><div class="stat-label">Active leads ›</div></div>
       <div class="stat card-tap" data-goto="/deliveries"><div class="stat-value">${activeDeliveries.length}</div><div class="stat-label">Deliveries in prep ›</div></div>
-      <div class="stat card-tap" data-goto="/soldlog"><div class="stat-value" style="color:var(--success)">${soldThisMonth}</div><div class="stat-label">Sold this month ›</div></div>
     </div>
 
     <div class="target-slot"></div>
@@ -139,26 +122,6 @@ export function renderDashboard(view) {
     if (!document.body.contains(nudgeSlot)) return clearInterval(nudgeTimer);
     paintNudges();
   }, 60000);
-
-  // The Today card: how much is on the queue and how many to-dos. The queue
-  // is the Deal Radar's read of every customer; when that isn't current
-  // (first launch, a lot that changed overnight) it runs a slice at a time
-  // in the background and the card says so, then fills in. Home paints at
-  // once either way.
-  const todaySub = el.querySelector(".today-sub");
-  const loggedN = loggedInMonth().length;
-  const todos = `${loggedN} logged this month · ${openTasks.length} to-do${openTasks.length === 1 ? "" : "s"}`;
-  const sayQueue = () => {
-    if (!todaySub.isConnected) return;
-    const n = getPlays(40).length;
-    todaySub.textContent = `${n ? `${n} in the queue` : "Queue clear"} · ${todos}`;
-  };
-  if (bookCheap()) setTimeout(sayQueue, 0);
-  else {
-    todaySub.textContent = `Reading the book… · ${todos}`;
-    warmBook((done, total, phase) => { if (todaySub.isConnected && total > 200) todaySub.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}% · ${todos}`; })
-      .then(sayQueue, sayQueue);
-  }
 
   // The month's sales target, worked like the store's target sheet.
   const mountTarget = () => {

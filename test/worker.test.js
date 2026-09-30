@@ -50,7 +50,7 @@ const regState = (p) => p.evaluate(async () => {
   await p.click("#login .login-go");
   await p.waitForTimeout(800);
   const after = await regState(p);
-  const app = await p.evaluate(() => !!document.querySelector("#view .hero"));
+  const app = await p.evaluate(() => !!document.querySelector("#view .stat-grid"));
   console.log("after signing in:", JSON.stringify({ app, ...after }));
   if (!app) fail("the app didn't open after signing in");
   if (!after.registered || !after.ready) fail("no active worker after signing in");
@@ -65,7 +65,7 @@ const regState = (p) => p.evaluate(async () => {
     const keys = await caches.keys();
     const c = await caches.open(keys[0] || "none");
     const cached = (await c.keys()).map((r) => new URL(r.url).pathname);
-    return { controlled: !!navigator.serviceWorker.controller, app: !!document.querySelector("#view .hero"),
+    return { controlled: !!navigator.serviceWorker.controller, app: !!document.querySelector("#view .stat-grid"),
       running: await runningVersion(), caches: keys, hasLogin: cached.some((u) => /\/js\/login\.js$/.test(u)), n: cached.length };
   });
   console.log("reopened under the worker:", JSON.stringify(served));

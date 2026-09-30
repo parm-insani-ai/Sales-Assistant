@@ -46,11 +46,11 @@ await p.addInitScript(() => {
 // --- Cold launch: Home paints at once, says the book is being read, then fills.
 const t0 = Date.now();
 await p.goto(APP + "/#/");
-await p.waitForFunction(() => document.querySelector(".today-card") && /Reading the book|in the queue|Queue clear/.test(document.querySelector(".today-card").textContent), null, { timeout: 8000 });
+await p.waitForFunction(() => document.querySelector(".stat-grid"), null, { timeout: 8000 });
 const firstPaint = Date.now() - t0;
-const early = await p.evaluate(() => ({ slot: document.querySelector(".today-sub")?.textContent.trim().slice(0, 40), leads: document.querySelectorAll(".row-title").length }));
+const early = await p.evaluate(async () => { const d = await import("/js/views/dealbuilder.js"); return { radarCurrent: d.radarCurrent(), leads: document.querySelectorAll(".row-title").length }; });
 console.log(`Home painted in ${firstPaint}ms:`, JSON.stringify(early));
-if (!/Reading the book/.test(early.slot || "")) fail("Home didn't say it was reading the book while the radar warmed: " + early.slot);
+if (early.radarCurrent) fail("Home waited for the radar before painting");
 
 // --- While it warms, a tap lands: switch to Inventory and back within a few frames.
 const tapAt = Date.now();
@@ -69,7 +69,7 @@ await untilCurrent();
 await p.waitForTimeout(300);
 const after = await p.evaluate(async () => {
   const d = await import("/js/views/dealbuilder.js");
-  return { stats: { ...d.radarStats }, slot: document.querySelector(".today-sub")?.textContent.trim().slice(0, 60), long: window.__long.slice().sort((a, b) => b - a).slice(0, 5), rows: d.topOpportunities(5).length };
+  return { stats: { ...d.radarStats }, long: window.__long.slice().sort((a, b) => b - a).slice(0, 5), rows: d.topOpportunities(5).length };
 });
 console.log("after the warm-up:", JSON.stringify(after));
 // One warm run prices the book; Home then stamps today's prospects, and the
@@ -78,7 +78,6 @@ console.log("after the warm-up:", JSON.stringify(after));
 // the idle re-read at launch + 2.5s brings the radar back up to date.)
 if (after.stats.warmRuns < 1 || after.stats.warmRuns > 2 || after.stats.syncRuns > 1) fail("the radar didn't warm in the background, or something forced it synchronously: " + JSON.stringify(after.stats));
 if (after.stats.priced < 700 || after.stats.priced > 720) fail("the book was priced more than once, or not at all: " + JSON.stringify(after.stats));
-if (!/in the queue|Queue clear/.test(after.slot || "") || /Reading the book/.test(after.slot || "")) fail("the queue didn't fill after the warm-up: " + after.slot);
 if (after.long.length && after.long[0] > 400) fail(`a task held the main thread ${after.long[0]}ms during the warm-up: ${JSON.stringify(after.long)}`);
 if (!after.rows) fail("the radar found nobody");
 

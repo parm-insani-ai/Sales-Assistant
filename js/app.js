@@ -183,6 +183,7 @@ function mount(base, ctx) {
   // No words: the screen says what it is. (A conversation puts the
   // customer's name there itself.)
   title.textContent = "";
+  title.classList.remove("greeting");
   const roots = [...document.querySelectorAll(".tabbar .tab[data-route]")].map((t) => t.dataset.route);
   const sub = !!ctx.param || !roots.includes(base);
   const back = document.getElementById("topbar-back");

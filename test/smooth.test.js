@@ -82,11 +82,11 @@ console.log("\nHome and Today:");
   await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(150);
   const h = await p.evaluate(() => new Promise((res) => {
     location.hash = "#/";
-    setTimeout(() => res({ hero: !!document.querySelector(".hero"), today: document.querySelector(".today-sub")?.textContent || "" }), 0);
+    setTimeout(() => res({ greeting: document.getElementById("page-title")?.textContent || "", stats: !!document.querySelector(".stat-grid") }), 0);
   }));
   console.log("  Home: " + JSON.stringify(h));
-  if (!h.hero) fail("Home mounted without its hero");
-  if (!/to-do/.test(h.today)) fail("Home's Today card doesn't say how many to-dos there are: " + h.today);
+  if (!/^Good (morning|afternoon|evening), Parm$/.test(h.greeting)) fail("the greeting isn't in the top bar: " + h.greeting);
+  if (!h.stats) fail("Home mounted without its stats");
   const r = await p.evaluate(() => new Promise((res) => {
     location.hash = "#/log";
     // Immediately after the mount: the queue's heading should be there and
