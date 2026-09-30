@@ -363,6 +363,9 @@ function makeWave(canvas) {
 // with its own recogniser fighting for the microphone — is never what the tap
 // meant, and there are two buttons that can start one now.
 let session_ = null;
+// Replies are written on the thread either way; whether they're also spoken
+// is the salesperson's call, and it sticks.
+const MUTE_KEY = "viniva:voice:mute";
 
 /**
  * Open the voice assistant.
@@ -382,15 +385,19 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   const root = document.getElementById("modal-root");
   const overlay = document.createElement("div");
   overlay.className = "voice-overlay";
+  const muted = () => { try { return localStorage.getItem(MUTE_KEY) === "1"; } catch { return false; } };
   overlay.innerHTML = `
     <div class="voice-sheet">
       <div class="voice-grip"></div>
+      <button class="voice-mute" id="v-mute" aria-label="${muted() ? "Replies are silent — tap to speak them" : "Replies are spoken — tap to keep them silent"}" aria-pressed="${muted()}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path class="on" d="M15.5 9a4 4 0 0 1 0 6"/><path class="on" d="M17.8 6.5a7.3 7.3 0 0 1 0 11"/><path class="off" d="m16 9.5 5 5m0-5-5 5"/></svg></button>
       <button class="voice-close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <div class="voice-stage">
         <canvas class="voice-wave" id="v-wave" aria-hidden="true"></canvas>
       </div>
       <div class="voice-status" id="v-status">Listening…</div>
-      <div class="voice-transcript" id="v-transcript"></div>
+      <div class="voice-thread" id="v-thread" aria-live="polite">
+        <div class="vt-me vt-live" id="v-transcript" hidden></div>
+      </div>
       <form class="voice-input" id="v-form">
         <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" enterkeyhint="send" />
         <button class="voice-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h13"/><path d="M12.5 6.5 19 12l-6.5 5.5"/></svg></button>
@@ -404,9 +411,74 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   document.body.classList.add("voice-live");
 
   const statusEl = overlay.querySelector("#v-status");
-  const transcriptEl = overlay.querySelector("#v-transcript");
+  const threadEl = overlay.querySelector("#v-thread");
+  const transcriptEl = overlay.querySelector("#v-transcript"); // your words, as they're heard
   const textInput = overlay.querySelector("#v-text");
   const wave = makeWave(overlay.querySelector("#v-wave"));
+  const muteBtn = overlay.querySelector("#v-mute");
+  muteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const on = !muted();
+    try { localStorage.setItem(MUTE_KEY, on ? "1" : "0"); } catch { }
+    muteBtn.setAttribute("aria-pressed", String(on));
+    muteBtn.setAttribute("aria-label", on ? "Replies are silent — tap to speak them" : "Replies are spoken — tap to keep them silent");
+    if (on) stopSpeaking();
+  });
+
+  // --- The thread ---
+  //
+  // The conversation, as a conversation: what you said (live, word by word,
+  // as the engine hears it), what the assistant did to answer — each step
+  // as it starts, ticked as it finishes — and what it said back, in writing.
+  // The spoken reply is the same words; reading is faster than listening
+  // and survives a noisy showroom.
+  const scrollThread = () => { threadEl.scrollTop = threadEl.scrollHeight; };
+  function showLive(text) {
+    const t = String(text || "").trim();
+    transcriptEl.hidden = !t;
+    transcriptEl.textContent = t;
+    threadEl.appendChild(transcriptEl); // always the newest thing
+    scrollThread();
+  }
+  function addMe(text) {
+    transcriptEl.hidden = true; transcriptEl.textContent = "";
+    const el = document.createElement("div");
+    el.className = "vt-me";
+    el.textContent = text;
+    threadEl.insertBefore(el, transcriptEl);
+    scrollThread();
+    return el;
+  }
+  // One answer in the making: its steps, then its reply.
+  function startTurn() {
+    const turn = document.createElement("div");
+    turn.className = "vt-turn";
+    turn.innerHTML = `<ol class="vt-steps"></ol>`;
+    threadEl.insertBefore(turn, transcriptEl);
+    const steps = turn.querySelector(".vt-steps");
+    let live = null;
+    const api = {
+      step(text) {
+        if (live) live.classList.replace("live", "done");
+        live = document.createElement("li");
+        live.className = "vt-step live";
+        live.textContent = text;
+        steps.appendChild(live);
+        scrollThread();
+      },
+      reply(text, { error = false } = {}) {
+        if (live) live.classList.replace("live", "done");
+        live = null;
+        if (!steps.children.length) steps.remove(); else steps.classList.add("finished");
+        const el = document.createElement("div");
+        el.className = `vt-bot${error ? " vt-err" : ""}`;
+        el.textContent = text;
+        turn.appendChild(el);
+        scrollThread();
+      },
+    };
+    return api;
+  }
 
   let rec = null;
   let closed = false;
@@ -598,8 +670,9 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     }
     busy = true;
     stopHearing();
-    transcriptEl.textContent = `\u201c${said}\u201d`;
+    addMe(said);
     textInput.value = "";
+    const turn = startTurn();
 
     let reply = "";
     let ok = true;
@@ -610,14 +683,19 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     // (A rep's lot, from their phone; the manager's questions all go up.)
     const lotCmd = manager ? { action: "none" } : parseCommand(said);
     if (lotCmd.action === "lot" || lotCmd.action === "outreach") {
+      turn.step(lotCmd.action === "lot" ? "Checking the lot" : "Building the outreach");
       reply = executeCommand(lotCmd) || "";
     }
     if (reply) { /* answered on the device */ } else if (agent) {
       setStatus("Thinking\u2026");
       wave.set("thinking");
+      turn.step("Thinking");
       try {
         const res = await agent.send(said, (n) => {
-          if (n && !n.startsWith("\u26a0")) setStatus(n.charAt(0).toUpperCase() + n.slice(1) + "\u2026");
+          if (!n) return;
+          const line = n.charAt(0).toUpperCase() + n.slice(1);
+          turn.step(line);
+          if (!n.startsWith("\u26a0")) setStatus(line + "\u2026");
         });
         reply = res.say || "Done";
       } catch (e) {
@@ -629,10 +707,11 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
       reply = onParser(said);
     }
 
+    turn.reply(reply, { error: !ok });
     setStatus(docked && reply.length > 60 ? reply.slice(0, 58).trimEnd() + "\u2026" : reply);
     wave.set("speaking");
     busy = false;
-    await speakAsync(reply);
+    if (!muted()) await speakAsync(reply);
     // Straight back to listening. A conversation doesn't end because one answer
     // did — the next thing said is usually a follow-up on the same subject, and
     // the agent session remembers it.
@@ -682,7 +761,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         heard += pickBest(alts, vocab);
       }
       wave.bump(0.9);
-      transcriptEl.textContent = `\u201c${(heard || interim).trim()}\u201d`;
+      showLive(heard + interim); // word by word, as it's heard
     };
     rec.onerror = (ev) => {
       hearing = false;
@@ -711,9 +790,9 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
       if (said) {
         quiet = 0;
         faults = 0;
-        transcriptEl.textContent = `\u201c${said}\u201d`;
         return run(said);
       }
+      showLive("");
       // Heard nothing. Keep the conversation open for a couple of rounds, then
       // stop rather than holding the mic open forever.
       if (++quiet >= 3) return fallbackToTyping("Still here \u2014 tap the mic or type below.");

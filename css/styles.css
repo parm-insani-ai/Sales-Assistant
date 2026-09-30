@@ -294,7 +294,7 @@ body.typing #app, body.kb-open #app {
   position: relative;
   width: 100%;
   max-width: 540px;
-  min-height: min(82vh, 720px);
+  height: min(88dvh, 760px);
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--surface) 76%, transparent);
@@ -321,31 +321,72 @@ body.typing #app, body.kb-open #app {
 .voice-close svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 .voice-close:active { transform: scale(0.9); background: color-mix(in srgb, var(--text) 14%, transparent); }
 
-/* Flowing Siri-style waveform, centered as the hero */
+.voice-mute {
+  position: absolute; top: 18px; left: 20px;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 8%, transparent); border: none; color: var(--muted);
+  cursor: pointer; display: grid; place-items: center; z-index: 2;
+}
+.voice-mute svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.voice-mute .off { display: none; }
+.voice-mute[aria-pressed="true"] .on { display: none; }
+.voice-mute[aria-pressed="true"] .off { display: block; }
+.voice-mute[aria-pressed="true"] { color: var(--danger); }
+
+/* The flowing waveform — smaller now, a status light over the thread rather
+   than the hero of the panel. */
 .voice-stage {
   position: relative;
-  flex: 1;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 150px;
+  min-height: 84px;
+  margin-top: 26px;
 }
 .voice-stage::before {
   content: "";
   position: absolute;
-  left: 6%; right: 6%; top: 50%; height: 190px;
+  left: 6%; right: 6%; top: 50%; height: 120px;
   transform: translateY(-50%);
   background: radial-gradient(58% 62% at 50% 50%, color-mix(in srgb, var(--brand) 26%, transparent), transparent 72%);
   filter: blur(26px);
   pointer-events: none;
 }
-.voice-wave { position: relative; width: 100%; height: 140px; display: block; }
+.voice-wave { position: relative; width: 100%; height: 76px; display: block; }
 .voice-status {
-  text-align: center; font-size: 1.5rem; font-weight: 600;
-  letter-spacing: -0.03em; line-height: 1.2; color: var(--text);
-  min-height: 1.3em; margin-top: 2px;
+  text-align: center; font-size: 0.95rem; font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.25; color: var(--muted);
+  min-height: 1.3em; margin: 2px 0 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.voice-transcript { text-align: center; color: var(--muted); font-size: 1rem; margin-top: 8px; min-height: 1.3em; font-weight: 450; }
+
+/* The thread: you on the right, the assistant on the left, its steps in
+   between as it works. */
+.voice-thread {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 10px; padding: 4px 2px;
+}
+.vt-me, .vt-bot {
+  max-width: 86%; padding: 10px 14px; border-radius: 18px;
+  font-size: 1rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.vt-me { align-self: flex-end; background: var(--brand); color: var(--brand-ink); border-bottom-right-radius: 6px; }
+.vt-me.vt-live { background: color-mix(in srgb, var(--brand) 22%, transparent); color: var(--text); }
+.vt-me.vt-live::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -2px; background: currentColor; animation: caret 0.9s steps(2) infinite; }
+.vt-me[hidden] { display: none; }
+@keyframes caret { to { opacity: 0; } }
+.vt-turn { align-self: flex-start; max-width: 92%; display: flex; flex-direction: column; gap: 6px; }
+.vt-bot { align-self: flex-start; background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); border-bottom-left-radius: 6px; }
+.vt-bot.vt-err { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.vt-steps { list-style: none; margin: 0; padding: 2px 6px; display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.vt-step { display: flex; align-items: center; gap: 8px; }
+.vt-step::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; }
+.vt-step.live { color: var(--text-2); }
+.vt-step.live::before { background: var(--brand); border-color: var(--brand); animation: step-pulse 1s ease-in-out infinite; }
+.vt-step.done::before { background: var(--brand); border-color: var(--brand); }
+.vt-steps.finished { opacity: 0.7; }
+@keyframes step-pulse { 50% { transform: scale(0.55); opacity: 0.5; } }
 
 /* Frosted capsule input */
 .voice-input {
@@ -1510,8 +1551,11 @@ body.voice-docked.typing #app, body.voice-docked.kb-open #app {
 /* Toasts land under the strip rather than behind it. */
 body.voice-docked #toast-root { top: calc(8px + var(--voice-strip-h, 0px)); }
 .voice-overlay.voice-docked .voice-grip,
-.voice-overlay.voice-docked .voice-transcript,
+.voice-overlay.voice-docked .voice-thread,
+.voice-overlay.voice-docked .voice-mute,
 .voice-overlay.voice-docked .voice-input { display: none; }
+.voice-overlay.voice-docked .voice-sheet { height: auto; }
+.voice-overlay.voice-docked .voice-stage { margin-top: 0; }
 .voice-overlay.voice-docked .voice-stage {
   flex: none; width: 62px; min-height: 0;
 }
@@ -1520,7 +1564,7 @@ body.voice-docked #toast-root { top: calc(8px + var(--voice-strip-h, 0px)); }
 .voice-overlay.voice-docked .voice-status {
   flex: 1; min-width: 0;
   text-align: left; font-size: 0.9rem; font-weight: 600; margin: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);
 }
 /* Wave, then what it heard, then the dismiss — the close button is first in the
    markup because it's absolutely positioned in the full panel, and left alone

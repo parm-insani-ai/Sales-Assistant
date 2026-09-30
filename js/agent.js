@@ -944,10 +944,43 @@ export async function execTool(name, p = {}) {
 //   { say:question, done:false }    — needs an answer; call send(answer) next
 // `call(messages)` asks the model and `exec(name, input)` runs a tool; the
 // defaults are the salesperson's. The manager's assistant passes its own.
+// What each step reads as while it runs, on the voice panel's thread. The
+// salesperson watches the assistant work, so the words are what it's doing
+// for them, not the tool's name.
+const STEP_LABELS = {
+  find_customers: "Looking through your customers", get_customer: (i) => `Looking up ${i.name || i.customer || "the customer"}`,
+  get_messages: (i) => i.customer ? `Reading the conversation with ${i.customer}` : "Reading what's come in",
+  get_appointments: "Checking the calendar", deal_radar: "Running the deal radar", get_stats: "Pulling this month's numbers",
+  get_tasks: "Checking your to-dos", get_deliveries: "Checking deliveries", get_occasions: "Looking for occasions",
+  get_specials: "Checking the specials", get_spiffs: "Checking the spifs", payment_quote: "Working out the payment",
+  deal_options: (i) => `Pricing options for ${i.customer || "them"}`, get_booking_link: "Getting your booking link",
+  get_link_activity: "Checking link opens", get_nudges: "Checking what needs you now", get_prospects: "Picking today's prospects",
+  get_plays: "Ranking the plays", sales_target: "Checking the target sheet", get_coach: "Pulling the week's scorecard",
+  open_page: (i) => `Opening ${i.page || "the page"}`, create_lead: (i) => `Adding ${i.name || "the customer"}`,
+  update_lead: (i) => `Updating ${i.name || "the customer"}`, add_context: (i) => `Noting that for ${i.customer || "them"}`,
+  add_task: "Adding the to-do", complete_task: "Checking it off", complete_delivery: "Marking it delivered",
+  text_customer: (i) => `Writing a text to ${i.customer || "them"}`, call_customer: (i) => `Calling ${i.customer || "them"}`,
+  send_email: (i) => `Emailing ${i.customer || "them"}`, add_special: "Saving the special", add_spif: "Saving the spif",
+  log_sale: (i) => `Logging the sale for ${i.customer || "them"}`, undo_sale: "Taking that sale back",
+  book_appointment: (i) => `Booking ${i.customer || "the appointment"}`, appointment_outcome: "Setting the outcome",
+  start_cadence: "Starting the follow-up plan", lot_lookup: "Checking the lot", mass_outreach: "Building the outreach",
+  search_inventory: "Searching the network", when_it_makes_sense: "Working out the timing", lease_ends: "Listing the leases",
+  compare_vehicles: "Opening the comparison",
+};
+export function stepLabel(name, input = {}) {
+  const l = STEP_LABELS[name];
+  if (typeof l === "function") return l(input || {});
+  if (l) return l;
+  const words = String(name || "").replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
   const messages = [];
   let pending = null; // { results:[...], askId } while awaiting a human answer
 
+  // onProgress hears the work as it happens: the model's own words when it
+  // thinks aloud before acting, each step as it starts, and what came of it.
   async function loop(onProgress) {
     for (let step = 0; step < 8; step++) {
       const resp = await call(messages);
@@ -956,6 +989,7 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
       const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
 
       if (!toolUses.length || resp.stop_reason !== "tool_use") return { say: text, done: true };
+      if (text && onProgress) onProgress(text);
 
       messages.push({ role: "assistant", content });
       const results = [];
@@ -965,6 +999,7 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
           askId = tu.id;
           question = (tu.input && tu.input.question) || "Could you give me a bit more detail?";
         } else {
+          if (onProgress) onProgress(stepLabel(tu.name, tu.input));
           let out;
           try { out = await exec(tu.name, tu.input || {}); }
           catch (e) { out = { result: `error: ${e && e.message ? e.message : e}`, note: "" }; }
