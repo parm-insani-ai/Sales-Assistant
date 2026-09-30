@@ -4,7 +4,6 @@ import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
 import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swipeable } from "../components.js";
 import { navigate, goBack, isReturn } from "../router.js";
-import { openTemplatePicker } from "./messages.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
@@ -645,6 +644,13 @@ const WAYS = [
   { via: "email", label: "Email", icon: "mail" },
 ];
 const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
+// The "Last contacted" line: when and how, or that they haven't been. It
+// updates itself when Call, Text or Email is tapped; a tap on the line
+// logs a contact made some other way.
+function contactLine(l) {
+  if (!l.lastContacted) return `<span class="muted">Not contacted yet</span>`;
+  return esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "");
+}
 
 // Log that you reached them, now, this way. The date and time are the moment
 // of the tap. Says so, offers Undo, and calls back so the view can redraw.
@@ -968,14 +974,18 @@ function renderLeadDetail(view, id) {
         <span class="badge ${st.badge}" data-act="stage-badge" style="cursor:pointer" title="Stage">${esc(st.label)}</span>
       </div>
 
-      ${(l.phone || l.email) ? `
       <div class="btn-row" style="margin-top:14px">
-        ${l.phone ? `<a class="btn btn-success btn-sm" data-act="call" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
-        <a class="btn btn-primary btn-sm" data-act="text" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>` : ""}
-        ${l.email ? `<a class="btn btn-primary btn-sm" data-act="email" style="flex:1" href="${mailtoHref(l.email)}">${icon("mail")} Email</a>` : ""}
-      </div>` : ""}
-      ${l.phone || l.email ? `<button class="btn btn-ghost btn-sm btn-block" data-act="templates" style="margin-top:8px">${icon("file")} Use a message template</button>` : ""}
-      <div class="kv" data-act="contacted" style="cursor:pointer;margin-top:4px;padding:4px 0"><span class="k">Last contacted</span><span class="v">${l.lastContacted ? esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
+        ${l.phone
+          ? `<a class="btn btn-success btn-sm" data-act="call" style="flex:1" href="${telHref(l.phone)}">${icon("phone")} Call</a>
+             <a class="btn btn-primary btn-sm" data-act="text" style="flex:1" href="${smsHref(l.phone)}">${icon("message")} Text</a>`
+          // No number on file: the same two buttons, and either adds the phone.
+          : `<button class="btn btn-ghost btn-sm" data-add="phone" style="flex:1">${icon("phone")} Call</button>
+             <button class="btn btn-ghost btn-sm" data-add="phone" style="flex:1">${icon("message")} Text</button>`}
+        ${l.email
+          ? `<a class="btn btn-primary btn-sm" data-act="email" style="flex:1" href="${mailtoHref(l.email)}">${icon("mail")} Email</a>`
+          : `<button class="btn btn-ghost btn-sm" data-add="email" style="flex:1">${icon("mail")} Email</button>`}
+      </div>
+      <div class="kv" data-act="contacted" style="cursor:pointer;margin-top:4px;padding:4px 0"><span class="k">Last contacted</span><span class="v">${contactLine(l)}</span></div>
       ${contractBanner(l, { tap: true })}
     </div>
   `;
@@ -1075,9 +1085,6 @@ function renderLeadDetail(view, id) {
   };
   window.addEventListener("viniva-sync", onSynced);
 
-  const tmplBtn = el.querySelector('[data-act="templates"]');
-  if (tmplBtn) tmplBtn.addEventListener("click", () => openTemplatePicker(l));
-
   const openerBtn = el.querySelector('[data-act="opener"]');
   if (openerBtn) openerBtn.addEventListener("click", async () => {
     openerBtn.disabled = true; openerBtn.textContent = "Drafting…";
@@ -1105,20 +1112,25 @@ function renderLeadDetail(view, id) {
     }));
   });
 
-  // Log outreach as a "touch" and stamp last-contacted when calling/texting.
-  const logTouch = () => {
+  // Log outreach as a "touch" and stamp last-contacted when calling, texting
+  // or emailing — and say so on the name box right away, no tap needed.
+  const logTouch = (via) => {
     store.logActivity("touch");
-    store.update("leads", l.id, { lastContacted: new Date().toISOString() });
+    store.update("leads", l.id, { lastContacted: new Date().toISOString(), lastContactVia: via });
+    const line = el.querySelector('.lead-head [data-act="contacted"] .v');
+    if (line) line.innerHTML = contactLine(store.get("leads", l.id) || l);
   };
   const callBtn = el.querySelector('[data-act="call"]');
-  if (callBtn) callBtn.addEventListener("click", logTouch);
+  if (callBtn) callBtn.addEventListener("click", () => logTouch("call"));
   const textBtn = el.querySelector('[data-act="text"]');
-  if (textBtn) textBtn.addEventListener("click", logTouch);
+  if (textBtn) textBtn.addEventListener("click", () => logTouch("text"));
   const emailBtn = el.querySelector('[data-act="email"]');
   if (emailBtn) emailBtn.addEventListener("click", () => {
-    logTouch();
+    logTouch("email");
     logEmail(l.id, { direction: "out", subject: "", body: "", via: "mail-app" });
   });
+  // A button for a way to reach them we don't have yet adds it.
+  el.querySelectorAll(".lead-head [data-add]").forEach((n) => n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.add })));
 
   // The deal is pre-made: best payment-matched option front and center, two
   // alternates under it, the offer text one tap away. No button hunting.
@@ -1245,7 +1257,7 @@ function renderLeadDetail(view, id) {
           <div class="kv" data-edit="email" style="cursor:pointer"><span class="k">Email</span><span class="v">${cur.email ? esc(cur.email) : "Tap to add"}</span></div>
           <div class="kv" data-edit="source" style="cursor:pointer"><span class="k">Source</span><span class="v">${esc(cur.source || "—")}</span></div>
           <div class="kv" data-edit="followUp" style="cursor:pointer"><span class="k">Follow-up</span><span class="v">${cur.followUp ? esc(relativeDay(cur.followUp)) + " (" + esc(formatDate(cur.followUp)) + ")" : "Tap to set"}</span></div>
-          <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${cur.lastContacted ? esc(formatDateTime(cur.lastContacted)) + (cur.lastContactVia ? ` <span class="muted small">· ${esc(cur.lastContactVia)}</span>` : "") : "Tap to log"}</span></div>
+          <div class="kv" data-act="contacted" style="cursor:pointer"><span class="k">Last contacted</span><span class="v">${contactLine(cur)}</span></div>
           ${linkedVehicle ? `<div class="kv"><span class="k">Matched vehicle</span><span class="v">${esc(vehicleName(linkedVehicle))}</span></div>` : ""}
           <div class="kv"><span class="k">Added</span><span class="v">${esc(formatDate(cur.createdAt))}</span></div>
           <div class="consent-card">
