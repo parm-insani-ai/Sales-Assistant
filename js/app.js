@@ -125,6 +125,9 @@ const PAGES = {
   "/calculator": { title: "Deal Calculator", render: lazyView("calculator", "renderCalculator") },
   "/deliveries": { title: "Deliveries", render: lazyView("deliveries", "renderDeliveries") },
   "/calendar": { title: "Calendar", render: renderCalendar },
+  // Every appointment in one list, with what's preset for each — the
+  // confirmation and reminder texts, your own reminders.
+  "/appts": { title: "Appointments", render: (view, ctx) => import("./views/calendar.js").then((m) => m.renderAppts(view, ctx)) },
   // The log: the customers being worked and the day's work on them — the
   // queue, the month's log, reminders, to-dos. Home is the glance; this is
   // the doing. (It was "Today"; old links still land.)
@@ -200,6 +203,7 @@ function mount(base, ctx) {
 function parentOf(base, param, roots) {
   if (param && roots.includes(base)) return base;
   if (param && base === "/inbox") return "/comms";
+  if (base === "/calendar" && param) return "/appts"; // an appointment's page backs out to the list
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
   return "/";
 }

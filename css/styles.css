@@ -1755,6 +1755,27 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .topbar h1.greeting { font-size: 1.05rem; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; flex: 0 0 auto; }
 .topbar h1.greeting ~ .save-state { flex: 0 5 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
+/* --- Appointments: the list, and what's preset for each --- */
+.appt-day { font-size: 0.8rem; font-weight: 700; color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; margin: 6px 2px 8px; }
+.appt-row .row { gap: 12px; align-items: flex-start; }
+.appt-row .appt-time { flex: none; min-width: 64px; font-size: 0.95rem; padding-top: 2px; }
+.appt-row .row-title .badge { margin-left: 6px; vertical-align: 1px; }
+.badge-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.appt-plan { color: var(--brand-strong); font-weight: 500; }
+.plan-card { display: flex; flex-direction: column; gap: 0; padding-top: 4px; padding-bottom: 4px; }
+.plan-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.plan-row:last-child { border-bottom: none; }
+.plan-ico { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); color: var(--text-2); display: grid; place-items: center; }
+.plan-ico svg { width: 17px; height: 17px; }
+.plan-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.plan-label { font-weight: 600; font-size: 0.92rem; }
+.plan-sub { font-size: 0.8rem; color: var(--muted); }
+.plan-body { font-size: 0.85rem; color: var(--text-2); margin-top: 4px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); white-space: pre-wrap; }
+.plan-send { flex: none; align-self: center; }
+.plan-check { flex: none; color: var(--brand-strong); align-self: center; }
+.plan-check svg { width: 20px; height: 20px; }
+.plan-done .plan-label { color: var(--muted); text-decoration: line-through; }
+
 /* --- The mailbox on Comms → Email: a message, read and answered in place --- */
 .mail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .mail-head .mail-acct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

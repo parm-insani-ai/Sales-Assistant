@@ -9,6 +9,10 @@ import { esc, relativeDay, daysFromToday, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { afterSale, afterAppointmentBooked, leadByName } from "../connections.js";
+import { planStatus, replanAppointment, unplanAppointment, onAppointmentConfirmed, onAppointmentOutcome, markPlanTaskDone, ensurePlans } from "../apptplan.js";
+import { fold } from "../fold.js";
+import { openText } from "../sms.js";
+import { smsHref } from "../utils.js";
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -282,14 +286,19 @@ export function openAppointmentForm(existing, prefill = {}) {
         submitLabel: isEdit ? "Save" : "Schedule",
         onSubmit: (data) => {
           const title = APPT_TYPES.find((t) => t.id === data.type)?.label || "Appointment";
-          if (isEdit) { store.update("appointments", existing.id, { ...data, title }); toast("Updated", "success"); }
-          else {
+          if (isEdit) {
+            const moved = data.when !== existing.when;
+            store.update("appointments", existing.id, { ...data, title });
+            // A new time means new reminders and a fresh confirmation text.
+            if (moved) replanAppointment(existing.id);
+            toast(moved ? "Updated — reminders and texts reset for the new time" : "Updated", "success");
+          } else {
             // Link the appointment to the customer (matching by name if it
             // wasn't opened from a lead) and move their pipeline stage.
             const leadId = a.leadId || leadByName(data.customerName)?.id || null;
-            store.create("appointments", { ...data, title, status: "scheduled", leadId });
-            afterAppointmentBooked(leadId, data.when);
-            toast("Appointment scheduled", "success");
+            const rec = store.create("appointments", { ...data, title, status: "scheduled", leadId });
+            afterAppointmentBooked(leadId, data.when, rec.id);
+            toast(leadId ? "Scheduled — confirmation text is ready on Log, reminders set" : "Appointment scheduled", "success");
           }
           close();
           window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -303,6 +312,7 @@ export function openAppointmentForm(existing, prefill = {}) {
 function renderApptDetail(view, id) {
   const a = store.get("appointments", id);
   if (!a) { view.innerHTML = emptyState("help", "Appointment not found", ""); return; }
+  try { ensurePlans(); } catch { /* the page still draws */ }
   const t = apptType(a.type);
   const lead = a.leadId ? store.get("leads", a.leadId) : null;
 
@@ -316,6 +326,7 @@ function renderApptDetail(view, id) {
     </div>
     ${a.notes ? `<div class="section-title">Notes</div><div class="card"><div style="white-space:pre-wrap">${esc(a.notes)}</div></div>` : ""}
     ${lead ? `<button class="btn btn-ghost btn-block" data-act="lead" style="margin-bottom:12px">${icon("users")} Open ${esc(lead.name)}'s lead</button>` : ""}
+    <div class="plan-slot"></div>
 
     <div class="section-title">Outcome</div>
     <div class="card">
@@ -344,23 +355,30 @@ function renderApptDetail(view, id) {
   if (leadBtn) leadBtn.addEventListener("click", () => navigate(`/leads/${a.leadId}`));
 
   const refresh = () => { view.innerHTML = ""; renderApptDetail(view, id); };
+  // What's preset for this appointment — the texts to them, the reminders
+  // to you — each with where it stands, the texts one tap to send.
+  el.querySelector(".plan-slot").appendChild(planCard(a, lead, refresh));
   el.querySelector('[data-o="confirm"]').addEventListener("click", () => {
     store.update("appointments", a.id, { confirmed: !a.confirmed });
+    if (!a.confirmed) onAppointmentConfirmed(a.id);
     toast(a.confirmed ? "Unconfirmed" : "Confirmed", "success");
     refresh();
   });
   el.querySelector('[data-o="showed"]').addEventListener("click", () => {
     store.update("appointments", a.id, { outcome: a.outcome === "showed" ? "" : "showed", confirmed: true });
+    onAppointmentOutcome(a.id);
     toast("Marked showed", "success");
     refresh();
   });
   el.querySelector('[data-o="no_show"]').addEventListener("click", () => {
     store.update("appointments", a.id, { outcome: a.outcome === "no_show" ? "" : "no_show" });
+    onAppointmentOutcome(a.id);
     toast("Marked no-show");
     refresh();
   });
   el.querySelector('[data-o="sold"]').addEventListener("click", () => {
     store.update("appointments", a.id, { outcome: "sold", confirmed: true });
+    onAppointmentOutcome(a.id);
     // Connect the funnel to units: log the sale if this deal isn't logged yet.
     const logged = store.all("sales").some((sl) => sl.apptId === a.id || (a.leadId && sl.leadId === a.leadId));
     if (!logged) {
@@ -377,6 +395,102 @@ function renderApptDetail(view, id) {
   });
 
   el.querySelector('[data-act="delete"]').addEventListener("click", async () => {
-    if (await confirmDialog("Delete this appointment?")) { store.remove("appointments", a.id); toast("Deleted"); navigate("/calendar"); }
+    if (await confirmDialog("Delete this appointment? Its reminders and texts go with it.")) { unplanAppointment(a.id); store.remove("appointments", a.id); toast("Deleted"); navigate("/appts"); }
   });
+}
+
+// --- What's preset for an appointment ---
+function planCard(a, lead, refresh) {
+  const wrap = document.createElement("div");
+  const items = planStatus(a.id);
+  const phone = (lead && lead.phone) || a.phone || "";
+  wrap.innerHTML = `<div class="section-title">Reminders &amp; texts</div><div class="card plan-card"></div>`;
+  const card = wrap.querySelector(".plan-card");
+  if (!items.length) {
+    card.innerHTML = `<div class="small muted">${a.outcome ? "Done — nothing left to remind anyone about." : !a.leadId ? "Link this appointment to a customer to preset their confirmation and reminder texts." : "This appointment has passed."}</div>`;
+    return wrap;
+  }
+  items.forEach((it) => {
+    const row = document.createElement("div");
+    row.className = `plan-row${it.done ? " plan-done" : ""}`;
+    row.innerHTML = `
+      <span class="plan-ico">${icon(it.text ? "message" : "bell")}</span>
+      <span class="plan-main">
+        <span class="plan-label">${esc(it.label)}</span>
+        <span class="plan-sub">${esc(it.done ? (it.text ? "Sent" : "Done") : it.text ? (it.ready ? "Ready to send" : `Goes on Log ${it.when}`) : it.when)}</span>
+        ${it.text && !it.done ? `<span class="plan-body">${esc(it.task.body || "")}</span>` : ""}
+      </span>
+      ${it.text && !it.done && phone ? `<button class="btn btn-sm btn-primary plan-send" data-task="${it.task.id}">Send</button>` : it.done ? `<span class="plan-check">${icon("check")}</span>` : ""}`;
+    card.appendChild(row);
+  });
+  card.querySelectorAll(".plan-send").forEach((b) => b.addEventListener("click", () => {
+    const t = store.get("tasks", b.dataset.task);
+    if (!t) return;
+    // The conversation with the text written in, or the phone's Messages
+    // app; either way the tap is the send, so the preset is done.
+    if (!openText(phone, t.body || "")) location.href = smsHref(phone, t.body || "");
+    markPlanTaskDone(t.id);
+    setTimeout(refresh, 300);
+  }));
+  return wrap;
+}
+
+// --- Every appointment, one list ---
+//
+// Coming up first, by day, each with where its presets stand; the past
+// folded away underneath. Tap one for its page.
+export function renderAppts(view) {
+  try { ensurePlans(); } catch { /* the list still draws */ }
+  const el = document.createElement("div");
+  el.innerHTML = `<div class="btn-row" style="margin-bottom:12px"><button class="btn btn-primary btn-block" data-act="new">＋ New appointment</button></div>`;
+  view.appendChild(el);
+  el.querySelector('[data-act="new"]').addEventListener("click", () => openAppointmentForm());
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const nowKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const all = store.all("appointments").filter((a) => a.status !== "canceled");
+  const upcoming = all.filter((a) => !a.outcome && String(a.when) >= nowKey).sort((x, y) => String(x.when).localeCompare(String(y.when)));
+  const past = all.filter((a) => a.outcome || String(a.when) < nowKey).sort((x, y) => String(y.when).localeCompare(String(x.when))).slice(0, 30);
+
+  const upBody = document.createElement("div");
+  if (!upcoming.length) upBody.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nothing booked ahead. Book one here or tell the assistant — "Ken's coming in Thursday at 4".</div></div>`;
+  else {
+    let lastDay = "";
+    upcoming.forEach((a) => {
+      const day = dkLocal(a.when);
+      if (day !== lastDay) { lastDay = day; const h = document.createElement("div"); h.className = "appt-day"; h.textContent = dayHeading(day); upBody.appendChild(h); }
+      upBody.appendChild(apptRow(a, now));
+    });
+  }
+  el.appendChild(fold({ key: "appts:upcoming", title: "Coming up", count: upcoming.length, open: true, body: upBody }));
+
+  const pastBody = document.createElement("div");
+  if (!past.length) pastBody.innerHTML = `<div class="card"><div class="muted small">Nothing yet.</div></div>`;
+  else past.forEach((a) => pastBody.appendChild(apptRow(a, now)));
+  el.appendChild(fold({ key: "appts:past", title: "Past", count: past.length, open: false, body: pastBody }));
+}
+
+function apptRow(a, now) {
+  const el = document.createElement("div");
+  el.className = "card card-tap appt-row";
+  const t = apptType(a.type);
+  const st = planStatus(a.id, now);
+  const texts = st.filter((i) => i.text), mine = st.filter((i) => !i.text);
+  const bits = [];
+  if (texts.length) bits.push(texts.every((i) => i.done) ? "Texts sent" : texts.some((i) => !i.done && i.ready) ? "Text ready to send" : `Text ${texts.find((i) => !i.done).when}`);
+  if (mine.length) bits.push(mine.every((i) => i.done) ? "Reminded" : `Reminds you ${mine.filter((i) => !i.done).map((i) => i.when.replace(/^today /, "")).join(" & ")}`);
+  const status = a.outcome === "sold" ? "Sold" : a.outcome === "showed" ? "Showed" : a.outcome === "no_show" ? "No-show" : a.confirmed ? "Confirmed" : "Not confirmed";
+  el.innerHTML = `
+    <div class="row">
+      <div class="row-meta strong mono appt-time">${esc(timeLabel(a.when)) || "—"}</div>
+      <div class="row-main">
+        <div class="row-title">${esc(a.customerName || a.title || t.label)} <span class="badge ${a.outcome ? "" : a.confirmed ? "badge-available" : "badge-warn"}">${esc(status)}</span></div>
+        <div class="row-sub">${icon(t.icon)} ${esc(t.label)}${a.vehicle ? " · " + esc(a.vehicle) : ""}</div>
+        ${bits.length ? `<div class="row-sub appt-plan">${esc(bits.join(" · "))}</div>` : ""}
+      </div>
+      <div class="row-meta">›</div>
+    </div>`;
+  el.addEventListener("click", () => navigate(`/calendar/${a.id}`));
+  return el;
 }

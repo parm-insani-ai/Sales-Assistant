@@ -13,6 +13,7 @@ import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getNudges } from "../nudges.js";
 import { reviewTouch } from "../touches.js";
+import { ensurePlans } from "../apptplan.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -27,6 +28,14 @@ export function renderDashboard(view) {
     .filter((l) => l.followUp && daysFromToday(l.followUp) > 0 && daysFromToday(l.followUp) <= 3)
     .sort((a, b) => daysFromToday(a.followUp) - daysFromToday(b.followUp));
   const activeDeliveries = deliveries.filter((d) => d.status !== "delivered");
+
+  // Every appointment gets its presets (confirmation text, reminders) — the
+  // ones booked before that existed, and the ones that arrived by sync.
+  try { ensurePlans(); } catch { /* the list still draws */ }
+  // Appointments still ahead — the tile counts them, the list has them all.
+  const nowLocal = new Date();
+  const nowKey = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, "0")}-${String(nowLocal.getDate()).padStart(2, "0")}T${String(nowLocal.getHours()).padStart(2, "0")}:${String(nowLocal.getMinutes()).padStart(2, "0")}`;
+  const upcomingAppts = store.all("appointments").filter((a) => a.status === "scheduled" && !a.outcome && String(a.when) >= nowKey);
 
   // Today's appointments (not completed/canceled).
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -72,7 +81,7 @@ export function renderDashboard(view) {
 
     <div class="stat-grid">
       <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
-      <div class="stat card-tap" data-goto="/deliveries"><div class="stat-value">${activeDeliveries.length}</div><div class="stat-label">Deliveries in prep ›</div></div>
+      <div class="stat card-tap" data-goto="/appts"><div class="stat-value">${upcomingAppts.length}</div><div class="stat-label">Appointments ›</div></div>
     </div>
 
     <div class="target-slot"></div>

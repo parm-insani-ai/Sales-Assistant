@@ -37,6 +37,7 @@ import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
 import { conversationFor, transcript, standingWith, recentInbound, recentDigest, loadBodies } from "./convo.js";
+import { planTasks, onAppointmentConfirmed, onAppointmentOutcome } from "./apptplan.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -900,18 +901,20 @@ export async function execTool(name, p = {}) {
       const type = ["testdrive", "delivery", "call", "appointment"].includes(p.type) ? p.type : "appointment";
       const label = { appointment: "Appointment", testdrive: "Test drive", delivery: "Delivery", call: "Phone call" }[type];
       const a2 = store.create("appointments", { type, title: label, customerName: lead.name, vehicle: p.vehicle || lead.vehicleInterest || "", when: p.when || "", status: "scheduled", confirmed: false, outcome: "", leadId: lead.id, notes: "" });
-      afterAppointmentBooked(lead.id, a2.when);
-      return { result: `booked ${label} with ${a2.customerName} at ${a2.when}`, note: `booked ${label.toLowerCase()} with ${a2.customerName || "customer"}` };
+      afterAppointmentBooked(lead.id, a2.when, a2.id);
+      const preset = planTasks(a2.id).length;
+      return { result: `booked ${label} with ${a2.customerName} at ${a2.when}${preset ? `. Preset: a confirmation text to ${a2.customerName} is ready on Log for the salesperson's OK, a reminder text goes the morning before, and the salesperson gets reminders the morning of and an hour before` : ""}${lead.phone ? "" : ". No phone on file — ask for their number so the texts can go"}`, note: `booked ${label.toLowerCase()} with ${a2.customerName || "customer"}` };
     }
     case "appointment_outcome": case "set_outcome": {
       const appt = findAppt(p.customer || p.name);
       if (!appt) return { result: "no appointment found", note: `⚠ no appointment found for ${p.customer || p.name}` };
       const o = String(p.outcome || "").toLowerCase();
-      if (o === "confirmed" || o === "confirm") { store.update("appointments", appt.id, { confirmed: true }); return { result: "confirmed", note: `confirmed ${appt.customerName}` }; }
-      if (o.includes("no")) { store.update("appointments", appt.id, { outcome: "no_show" }); return { result: "no-show", note: `marked ${appt.customerName} no-show` }; }
-      if (o.includes("show")) { store.update("appointments", appt.id, { outcome: "showed", confirmed: true }); return { result: "showed", note: `marked ${appt.customerName} showed` }; }
+      if (o === "confirmed" || o === "confirm") { store.update("appointments", appt.id, { confirmed: true }); onAppointmentConfirmed(appt.id); return { result: "confirmed", note: `confirmed ${appt.customerName}` }; }
+      if (o.includes("no")) { store.update("appointments", appt.id, { outcome: "no_show" }); onAppointmentOutcome(appt.id); return { result: "no-show", note: `marked ${appt.customerName} no-show` }; }
+      if (o.includes("show")) { store.update("appointments", appt.id, { outcome: "showed", confirmed: true }); onAppointmentOutcome(appt.id); return { result: "showed", note: `marked ${appt.customerName} showed` }; }
       if (o === "sold") {
         store.update("appointments", appt.id, { outcome: "sold", confirmed: true });
+        onAppointmentOutcome(appt.id);
         const logged = store.all("sales").some((s) => s.apptId === appt.id || (appt.leadId && s.leadId === appt.leadId));
         if (!logged) {
           store.create("sales", { customerName: appt.customerName, vehicle: appt.vehicle, saleDate: new Date().toISOString().slice(0, 10), frontGross: 0, backGross: 0, commission: 0, leadId: appt.leadId || null, apptId: appt.id });

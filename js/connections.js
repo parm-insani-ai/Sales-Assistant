@@ -10,6 +10,7 @@
 import * as store from "./store.js";
 import { logCustomer } from "./logbook.js";
 import { deferPlan } from "./cadence.js";
+import { planAppointment } from "./apptplan.js";
 
 // Find a lead by (case-insensitive) name — used to link records created from a
 // typed name (sales, deliveries, appointments) back to the customer.
@@ -106,8 +107,10 @@ export function afterDeliveryComplete(d) {
   return 3;
 }
 
-// After an appointment is booked for a lead: the pipeline moves with it.
-export function afterAppointmentBooked(leadId, when = "") {
+// After an appointment is booked for a lead: the pipeline moves with it,
+// and the appointment gets its presets — the confirmation and reminder
+// texts to the customer, the reminders to you (apptplan.js).
+export function afterAppointmentBooked(leadId, when = "", apptId = null) {
   const lead = leadId ? store.get("leads", leadId) : null;
   if (lead && ["new", "working"].includes(lead.stage)) {
     store.update("leads", lead.id, { stage: "appointment" });
@@ -118,6 +121,7 @@ export function afterAppointmentBooked(leadId, when = "") {
   // only compete with the confirmation, and the ones after should wait for
   // how it went.
   if (lead && when) deferPlan(lead.id, String(when).slice(0, 10));
+  if (apptId) planAppointment(apptId);
 }
 
 // One-time healing for records created before linking existed (or imported):
@@ -163,7 +167,7 @@ export function reconcileLinks() {
     }
     if (lead) {
       store.update("appointments", a.id, { leadId: lead.id });
-      afterAppointmentBooked(lead.id);
+      afterAppointmentBooked(lead.id, a.when, a.id);
       changed++;
     }
   });
