@@ -25,7 +25,7 @@ await p.waitForFunction(() => document.querySelector('[data-fold="lead:actions"]
 const page = await p.evaluate(() => ({
   folds: [...document.querySelectorAll("#view details.fold")].map((d) => [d.dataset.fold, d.open]),
   titles: [...document.querySelectorAll("#view .fold-title")].map((t) => t.textContent.trim().split(" ·")[0]),
-  badge: document.querySelector('#view .lead-head [data-act="stage-badge"]')?.textContent.trim(),
+  badge: document.querySelector("#view .lead-head .badge")?.textContent.trim() || null,
   info: !!document.querySelector(".info-btn"),
   hist: [...document.querySelectorAll("#view .hist-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   phone: document.querySelector('#view [data-edit="phone"]')?.textContent.replace(/\s+/g, " ").trim(),
@@ -40,23 +40,24 @@ if (page.info) fail("the i button is still on the name box — its sections are 
 if (!["Context", "Next moves", "Details", "Stage", "Contact history", "Actions"].every((t) => page.titles.includes(t))) fail("a section is missing: " + JSON.stringify(page.titles));
 if (!open["lead:context"] || !open["lead:moves"]) fail("the context and the next moves should start open");
 if (open["lead:details"] || open["lead:stage"] || open["lead:history"] || open["lead:actions"] || open["lead:plan"]) fail("the record's sections should start closed: " + JSON.stringify(page.folds));
-if (page.badge !== "Working") fail("the stage isn't on the name box: " + page.badge);
+if (page.badge) fail("a badge is on the name box — the stage lives in its own section: " + page.badge);
 if (!/555-1111/.test(page.phone || "")) fail("the details aren't on the page");
 if (page.hist.length !== 2 || !/Can I come by Saturday/.test(page.hist[0]) || !/Logged call.*asked about the SV/.test(page.hist[1])) fail("the contact history isn't newest first with the text and the logged call: " + JSON.stringify(page.hist));
 if (page.stages < 5 || page.actions !== 10) fail("stage chips or actions are missing: " + JSON.stringify(page));
 if (page.visibleBodies !== 2) fail(`${page.visibleBodies} drop-downs are open on arrival, not the two (context, next moves) — the page should read at a glance`);
 
-// Tapping the stage badge opens the Stage drop-down; a stage change from it
-// moves the customer and the page redraws with the drop-down still open.
-await p.click('#view [data-act="stage-badge"]');
+// Opening the Stage drop-down and changing the stage from it moves the
+// customer, and the page redraws with the drop-down still open.
+await p.click('#view [data-fold="lead:stage"] > summary');
 await p.waitForTimeout(300);
-const opened = await p.evaluate(() => document.querySelector('[data-fold="lead:stage"]').open);
-if (!opened) fail("tapping the stage badge didn't open the Stage drop-down");
+const opened = await p.evaluate(() => ({ open: document.querySelector('[data-fold="lead:stage"]').open, sub: document.querySelector('[data-fold="lead:stage"] .fold-sub')?.textContent.trim() }));
+if (!opened.open) fail("tapping the Stage heading didn't open it");
+if (!/Working/.test(opened.sub || "")) fail("the Stage heading doesn't say the stage: " + opened.sub);
 await p.click('#view [data-stage="appointment"]');
 await p.waitForTimeout(400);
-const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { stage: s.get("leads", "a").stage, badge: document.querySelector('[data-act="stage-badge"]')?.textContent.trim(), stageOpen: document.querySelector('[data-fold="lead:stage"]')?.open, contextOpen: document.querySelector('[data-fold="lead:context"]')?.open }; });
+const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { stage: s.get("leads", "a").stage, sub: document.querySelector('[data-fold="lead:stage"] .fold-sub')?.textContent.trim(), stageOpen: document.querySelector('[data-fold="lead:stage"]')?.open, contextOpen: document.querySelector('[data-fold="lead:context"]')?.open }; });
 console.log("after stage:", JSON.stringify(after));
-if (after.stage !== "appointment" || after.badge !== "Appointment" || !after.stageOpen || !after.contextOpen) fail("the stage change didn't take, or the drop-downs didn't come back as they were: " + JSON.stringify(after));
+if (after.stage !== "appointment" || !/Appointment/.test(after.sub || "") || !after.stageOpen || !after.contextOpen) fail("the stage change didn't take, or the drop-downs didn't come back as they were: " + JSON.stringify(after));
 
 // Closing a drop-down is remembered across visits.
 await p.evaluate(() => { document.querySelector('[data-fold="lead:context"]').open = false; document.querySelector('[data-fold="lead:context"]').dispatchEvent(new Event("toggle")); });

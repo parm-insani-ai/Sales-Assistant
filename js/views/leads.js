@@ -955,7 +955,6 @@ function renderLeadDetail(view, id) {
     view.innerHTML = emptyState("help", "Lead not found", "It may have been deleted.");
     return;
   }
-  const st = stageMeta(l.stage);
   const linkedVehicle = l.vehicleId ? store.get("vehicles", l.vehicleId) : null;
 
   // The page is the customer: the name box with the ways to reach them,
@@ -971,7 +970,6 @@ function renderLeadDetail(view, id) {
           <div class="row-title" style="font-size:1.35rem">${esc(l.name)}</div>
           <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted — tap to add"}</div>
         </div>
-        <span class="badge ${st.badge}" data-act="stage-badge" style="cursor:pointer" title="Stage">${esc(st.label)}</span>
       </div>
 
       <div class="btn-row" style="margin-top:14px">
@@ -1050,7 +1048,6 @@ function renderLeadDetail(view, id) {
   // Tap-to-edit on the name box and the context: opens the form focused on that field.
   el.querySelectorAll(".lead-head [data-edit], .lead-context [data-edit]").forEach((n) =>
     n.addEventListener("click", () => openLeadForm(l, { focus: n.dataset.edit })));
-  el.querySelector('[data-act="stage-badge"]').addEventListener("click", () => openFold(el.querySelector('[data-fold="lead:stage"]')));
   // Sent here to record consent (or fix a detail): open the details on arrival.
   let wantInfo = false;
   try { wantInfo = sessionStorage.getItem("leads-open-info") === l.id; if (wantInfo) sessionStorage.removeItem("leads-open-info"); } catch { wantInfo = false; }
