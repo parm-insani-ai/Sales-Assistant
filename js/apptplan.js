@@ -1,9 +1,12 @@
 // What every appointment comes with the moment it's booked — preset, so
 // nothing has to be remembered:
 //
-//   for the customer  a confirmation text, ready now (held for your OK on
-//                     Log, like every text the app writes), and a reminder
-//                     text at ten the morning before;
+//   for the customer  a confirmation text (held for your OK on Log, like
+//                     every text the app writes), timed by the appointment:
+//                     a morning appointment gets it the afternoon before
+//                     (4pm), an afternoon or evening one gets it that
+//                     morning (9am); booked too late for that, it's ready
+//                     right away;
 //   for you           a reminder the morning of (8:30) and one an hour
 //                     before, as notifications.
 //
@@ -15,22 +18,38 @@
 
 import * as store from "./store.js";
 import { apptType } from "./store.js";
-import { localISO, toReadyAt, slotBefore } from "./schedule.js";
+import { localISO, toReadyAt } from "./schedule.js";
 
 export const DEFAULTS = {
-  apptConfirmText: "Hi {first}, it's {me} at {dealership}. You're booked for a {type} {day} at {time}{vehicleLine}. Reply here if anything changes — see you then!",
-  apptReminderText: "Hi {first}, {me} here — a quick reminder about your {type} tomorrow at {time}. Reply YES to confirm, or let me know if another time works better.",
+  apptConfirmText: "Hi {first}, it's {me} at {dealership} — just confirming your {type} {day} at {time}{vehicleLine}. Reply YES to confirm, or let me know if another time works better.",
   apptRemindMin: 60,
-  apptMorning: "08:30",
+  apptMorning: "08:30",     // your morning-of reminder
+  apptConfirmAm: "16:00",   // a morning appointment: the text goes the afternoon before
+  apptConfirmPm: "09:00",   // an afternoon/evening one: the morning of
+  apptNoon: 12,             // where morning ends
 };
+const hhmm = (v, d) => (/^\d{2}:\d{2}$/.test(String(v || "")) ? String(v) : d);
 export function apptPresets() {
   const s = store.getSettings();
   return {
     confirm: String(s.apptConfirmText || DEFAULTS.apptConfirmText),
-    reminder: String(s.apptReminderText || DEFAULTS.apptReminderText),
     remindMin: Number(s.apptRemindMin) > 0 ? Number(s.apptRemindMin) : DEFAULTS.apptRemindMin,
-    morning: /^\d{2}:\d{2}$/.test(String(s.apptMorning || "")) ? s.apptMorning : DEFAULTS.apptMorning,
+    morning: hhmm(s.apptMorning, DEFAULTS.apptMorning),
+    confirmAm: hhmm(s.apptConfirmAm, DEFAULTS.apptConfirmAm),
+    confirmPm: hhmm(s.apptConfirmPm, DEFAULTS.apptConfirmPm),
+    noon: Number(s.apptNoon) > 0 ? Number(s.apptNoon) : DEFAULTS.apptNoon,
   };
+}
+
+// When the confirmation text goes: the afternoon before a morning
+// appointment, the morning of an afternoon one — or now, if that moment
+// has already passed by the time it's booked.
+export function confirmSlot(at, p = apptPresets(), now = new Date()) {
+  const d = new Date(at);
+  const [h, m] = (d.getHours() < p.noon ? p.confirmAm : p.confirmPm).split(":").map(Number);
+  if (d.getHours() < p.noon) d.setDate(d.getDate() - 1);
+  d.setHours(h, m, 0, 0);
+  return d <= now ? new Date(now) : d;
 }
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -89,14 +108,13 @@ export function planAppointment(apptId, { now = new Date() } = {}) {
   let n = 0;
   store.bulk(() => {
     const mk = (rec) => { store.create("tasks", { done: false, priority: "high", leadId: a.leadId || null, apptId, ...rec }); n++; };
-    // Texts to the customer need someone to text.
+    // The text to the customer needs someone to text. Its words are as of
+    // the moment it goes ("tomorrow", "today"), not the moment it's booked.
     if (a.leadId) {
-      const nowLocal = localISO(now);
-      mk({ apptPlan: "confirm", channel: "text", title: `Text ${f.first} — confirm the ${f.type} ${f.day} at ${f.time}`, due: nowLocal.slice(0, 10), at: nowLocal, readyAt: toReadyAt(nowLocal), body: fill(p.confirm, f) });
-      if (msUntil > 24 * 3600e3) {
-        const when = slotBefore(date, 1, 10, 0, now);
-        mk({ apptPlan: "remind-text", channel: "text", title: `Text ${f.first} — reminder about ${f.day}'s ${f.type}`, due: when.slice(0, 10), at: when, readyAt: toReadyAt(when), body: fill(p.reminder, f) });
-      }
+      const sendAt = confirmSlot(at, p, now);
+      const fs = fields(a, sendAt);
+      const when = localISO(sendAt);
+      mk({ apptPlan: "confirm", channel: "text", title: `Text ${fs.first} — confirm the ${fs.type} ${fs.day} at ${fs.time}`, due: when.slice(0, 10), at: when, readyAt: toReadyAt(when), body: fill(p.confirm, fs) });
     }
     // Reminders for you: the morning of, and an hour before.
     if (date > dayKey(now)) {

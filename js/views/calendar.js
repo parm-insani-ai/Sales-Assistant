@@ -298,7 +298,7 @@ export function openAppointmentForm(existing, prefill = {}) {
             const leadId = a.leadId || leadByName(data.customerName)?.id || null;
             const rec = store.create("appointments", { ...data, title, status: "scheduled", leadId });
             afterAppointmentBooked(leadId, data.when, rec.id);
-            toast(leadId ? "Scheduled — confirmation text is ready on Log, reminders set" : "Appointment scheduled", "success");
+            toast(leadId ? "Scheduled — confirmation text is set, reminders set" : "Appointment scheduled", "success");
           }
           close();
           window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -478,7 +478,7 @@ function apptRow(a, now) {
   const st = planStatus(a.id, now);
   const texts = st.filter((i) => i.text), mine = st.filter((i) => !i.text);
   const bits = [];
-  if (texts.length) bits.push(texts.every((i) => i.done) ? "Texts sent" : texts.some((i) => !i.done && i.ready) ? "Text ready to send" : `Text ${texts.find((i) => !i.done).when}`);
+  if (texts.length) bits.push(texts.every((i) => i.done) ? "Text sent" : texts.some((i) => !i.done && i.ready) ? "Text ready to send" : `Text ${texts.find((i) => !i.done).when}`);
   if (mine.length) bits.push(mine.every((i) => i.done) ? "Reminded" : `Reminds you ${mine.filter((i) => !i.done).map((i) => i.when.replace(/^today /, "")).join(" & ")}`);
   const status = a.outcome === "sold" ? "Sold" : a.outcome === "showed" ? "Showed" : a.outcome === "no_show" ? "No-show" : a.confirmed ? "Confirmed" : "Not confirmed";
   el.innerHTML = `

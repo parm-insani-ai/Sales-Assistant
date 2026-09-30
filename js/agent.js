@@ -37,7 +37,7 @@ import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
 import { conversationFor, transcript, standingWith, recentInbound, recentDigest, loadBodies } from "./convo.js";
-import { planTasks, onAppointmentConfirmed, onAppointmentOutcome } from "./apptplan.js";
+import { planTasks, planStatus, onAppointmentConfirmed, onAppointmentOutcome } from "./apptplan.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -902,8 +902,9 @@ export async function execTool(name, p = {}) {
       const label = { appointment: "Appointment", testdrive: "Test drive", delivery: "Delivery", call: "Phone call" }[type];
       const a2 = store.create("appointments", { type, title: label, customerName: lead.name, vehicle: p.vehicle || lead.vehicleInterest || "", when: p.when || "", status: "scheduled", confirmed: false, outcome: "", leadId: lead.id, notes: "" });
       afterAppointmentBooked(lead.id, a2.when, a2.id);
-      const preset = planTasks(a2.id).length;
-      return { result: `booked ${label} with ${a2.customerName} at ${a2.when}${preset ? `. Preset: a confirmation text to ${a2.customerName} is ready on Log for the salesperson's OK, a reminder text goes the morning before, and the salesperson gets reminders the morning of and an hour before` : ""}${lead.phone ? "" : ". No phone on file — ask for their number so the texts can go"}`, note: `booked ${label.toLowerCase()} with ${a2.customerName || "customer"}` };
+      const ct = planTasks(a2.id).find((t) => t.apptPlan === "confirm");
+      const ctWhen = ct ? planStatus(a2.id).find((i) => i.role === "confirm") : null;
+      return { result: `booked ${label} with ${a2.customerName} at ${a2.when}${ct ? `. Preset: a confirmation text to ${a2.customerName} goes ${ctWhen && ctWhen.ready ? "now" : ctWhen ? ctWhen.when : "ahead of it"} (held on Log for the salesperson's OK), and the salesperson gets reminders the morning of and an hour before` : ""}${lead.phone ? "" : ". No phone on file — ask for their number so the text can go"}`, note: `booked ${label.toLowerCase()} with ${a2.customerName || "customer"}` };
     }
     case "appointment_outcome": case "set_outcome": {
       const appt = findAppt(p.customer || p.name);

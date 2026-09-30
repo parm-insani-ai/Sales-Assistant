@@ -96,9 +96,12 @@ export function getPlays(limit = 6) {
       });
     });
 
-  // 2. Today's unconfirmed appointments — the no-show killers.
+  // 2. Today's unconfirmed appointments — the no-show killers. One booked
+  // with its preset confirmation text (apptplan.js) already has that text
+  // on this queue, timed; this is for the ones that don't.
+  const preset = new Set(store.all("tasks").filter((t) => t.apptPlan === "confirm").map((t) => t.apptId));
   store.all("appointments")
-    .filter((a) => a.status === "scheduled" && !a.confirmed && !a.outcome && String(a.when).slice(0, 10) === todayK)
+    .filter((a) => a.status === "scheduled" && !a.confirmed && !a.outcome && String(a.when).slice(0, 10) === todayK && !preset.has(a.id))
     .slice(0, 10)
     .forEach((a) => {
       const lead = a.leadId ? leadById(a.leadId) : null;

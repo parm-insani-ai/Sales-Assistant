@@ -41,7 +41,7 @@ await p.waitForFunction(() => location.hash === "#/appts" && document.querySelec
 // The old appointment got its presets on that look.
 const old = await p.evaluate(async () => { const m = await import("/js/apptplan.js"); return m.planStatus("old").map((i) => `${i.role}:${i.state}`); });
 console.log("old appointment presets:", JSON.stringify(old));
-if (old.join("|") !== "confirm:ready to send|remind-text:scheduled|remind-morning:scheduled|remind-hour:scheduled") fail("an appointment booked before presets existed should get the full set: " + JSON.stringify(old));
+if (old.join("|") !== "confirm:scheduled|remind-morning:scheduled|remind-hour:scheduled") fail("an appointment booked before presets existed should get the full set: " + JSON.stringify(old));
 
 // --- Book one: the presets, exactly.
 await p.evaluate(async () => { const c = await import("/js/views/calendar.js"); c.openAppointmentForm(null, { leadId: "a", customerName: "Dana Muise", vehicle: "2026 Rogue SV" }); });
@@ -56,23 +56,40 @@ const plan = await p.evaluate(async () => {
 });
 console.log("plan:", JSON.stringify(plan, null, 1));
 const by = Object.fromEntries(plan.tasks.map((t) => [t.role, t]));
-if (!by.confirm || by.confirm.channel !== "text" || by.confirm.leadId !== "a" || !/^Hi Dana, it's Parm at O'Regan's Nissan Halifax\. You're booked for an appointment .* at 3:00 PM — I'll have the 2026 Rogue SV ready\. Reply here if anything changes — see you then!$/.test(by.confirm.body)) fail("the confirmation text should be preset from the template, ready now: " + JSON.stringify(by.confirm));
-if (!by.confirm.ready || new Date(by.confirm.ready).getTime() > Date.now() + 1000) fail("the confirmation text should be ready right away");
-if (!by["remind-text"] || by["remind-text"].at !== `${local(dayBefore).slice(0, 10)}T10:00` || !/reminder about your appointment tomorrow at 3:00 PM\. Reply YES to confirm/.test(by["remind-text"].body)) fail("the reminder text should go at 10 the day before: " + JSON.stringify(by["remind-text"]));
+// A 3pm appointment: the confirmation goes at 9 that morning, worded as of then ("today").
+if (!by.confirm || by.confirm.channel !== "text" || by.confirm.leadId !== "a" || by.confirm.at !== `${farDay}T09:00` || !/^Hi Dana, it's Parm at O'Regan's Nissan Halifax — just confirming your appointment today at 3:00 PM — I'll have the 2026 Rogue SV ready\. Reply YES to confirm, or let me know if another time works better\.$/.test(by.confirm.body)) fail("an afternoon appointment's confirmation text goes the morning of, worded for that morning: " + JSON.stringify(by.confirm));
+if (by["remind-text"]) fail("there's one text to the customer, not two: " + JSON.stringify(by["remind-text"]));
+// A morning appointment: the afternoon before, worded "tomorrow".
+const am = await p.evaluate(async ({ when }) => {
+  const s = await import("/js/store.js"); const c = await import("/js/connections.js"); const m = await import("/js/apptplan.js");
+  const a = s.create("appointments", { leadId: "a", customerName: "Dana Muise", type: "testdrive", title: "Test drive", when, status: "scheduled" });
+  c.afterAppointmentBooked("a", when, a.id);
+  const t = m.planTasks(a.id).find((x) => x.apptPlan === "confirm");
+  m.unplanAppointment(a.id); s.remove("appointments", a.id);
+  return { at: t.at, body: t.body };
+}, { when: `${farDay}T10:00` });
+if (am.at !== `${local(dayBefore).slice(0, 10)}T16:00` || !/just confirming your test drive tomorrow at 10:00 AM/.test(am.body)) fail("a morning appointment's confirmation text goes at 4 the afternoon before, worded 'tomorrow': " + JSON.stringify(am));
 if (!by["remind-morning"] || by["remind-morning"].channel !== "reminder" || by["remind-morning"].at !== `${farDay}T08:30` || !/Dana Muise — appointment .* 3:00 PM · 2026 Rogue SV/.test(by["remind-morning"].title)) fail("your morning-of reminder should be at 8:30 that day: " + JSON.stringify(by["remind-morning"]));
 if (!by["remind-hour"] || by["remind-hour"].at !== local(hourBefore) || !/Dana Muise in an hour \(3:00 PM\) — have the 2026 Rogue SV out front/.test(by["remind-hour"].title)) fail("your hour-before reminder should be an hour before: " + JSON.stringify(by["remind-hour"]));
-if (!/confirmation text is ready on Log, reminders set/.test(plan.toast)) fail("the toast should say what was preset: " + plan.toast);
+if (!/confirmation text is set, reminders set/.test(plan.toast)) fail("the toast should say what was preset: " + plan.toast);
 
-// It's on Log's queue as a one-tap send with the preset words, and in Reminders.
-const queue = await p.evaluate(async () => {
+// Booked late (two hours out): the text is ready now, on Log's queue as a
+// one-tap send of the preset words; and both reminders are in Reminders.
+const queue = await p.evaluate(async ({ when }) => {
+  const s = await import("/js/store.js"); const c = await import("/js/connections.js");
+  const a = s.create("appointments", { leadId: "a", customerName: "Dana Muise", type: "appointment", title: "Appointment", when, status: "scheduled" });
+  c.afterAppointmentBooked("a", when, a.id);
   const pl = await import("/js/plays.js"); const r = await import("/js/reminders.js");
-  const plays = pl.getPlays(20).filter((x) => /Dana/.test(x.title));
-  return { plays: plays.map((x) => ({ title: x.title, href: x.href, drafted: !!x.taskId })), reminders: r.reminders().filter((t) => /Dana/.test(t.title)).length };
-});
+  const plays = pl.getPlays(30).filter((x) => /Dana/.test(x.title));
+  const out = { plays: plays.map((x) => ({ title: x.title, href: x.href, drafted: !!x.taskId, kind: x.kind })), reminders: r.reminders().filter((t) => /Dana/.test(t.title)).length };
+  (await import("/js/apptplan.js")).unplanAppointment(a.id); s.remove("appointments", a.id);
+  return out;
+}, { when: local(soon) });
 console.log("queue:", JSON.stringify(queue));
 const cp = queue.plays.find((x) => /confirm the appointment/.test(x.title));
-if (!cp || !/^sms:9025550101\?&body=Hi%20Dana/.test(cp.href) || cp.drafted) fail("the confirmation text should be on the queue as a one-tap send of the preset words, not a fresh draft: " + JSON.stringify(queue.plays));
-if (queue.reminders !== 2) fail("both of your reminders should be in Reminders: " + queue.reminders);
+if (!cp || !/^sms:9025550101\?&body=Hi%20Dana/.test(cp.href) || cp.drafted) fail("a late booking's confirmation text should be on the queue now as a one-tap send of the preset words, not a fresh draft: " + JSON.stringify(queue.plays));
+if (queue.plays.some((x) => x.kind === "confirm")) fail("the old 'confirm today' play must not double up on a preset text: " + JSON.stringify(queue.plays));
+if (queue.reminders < 2) fail("your reminders should be in Reminders: " + queue.reminders);
 
 // --- The list shows where each one stands; the page has them with Send.
 await p.evaluate(() => { location.hash = "#/appts"; });
@@ -84,15 +101,15 @@ const list = await p.evaluate(() => ({
 }));
 console.log("list:", JSON.stringify(list, null, 1));
 if (list.folds.join("|") !== "Coming up|Past" || list.days.length !== 1) fail("the list should be Coming up (by day) then Past: " + JSON.stringify(list));
-if (!list.rows.some((r) => /3:00 PM Dana Muise Not confirmed .*Appointment · 2026 Rogue SV Text ready to send · Reminds you .*8:30 AM & .*2:00 PM/.test(r))) fail("each row should show the time, the customer, confirmation, and where the presets stand: " + JSON.stringify(list.rows));
+if (!list.rows.some((r) => /3:00 PM Dana Muise Not confirmed .*Appointment · 2026 Rogue SV Text .*9:00 AM · Reminds you .*8:30 AM & .*2:00 PM/.test(r))) fail("each row should show the time, the customer, confirmation, and where the presets stand: " + JSON.stringify(list.rows));
 await p.evaluate(() => [...document.querySelectorAll(".appt-row")].find((r) => /Dana/.test(r.textContent)).click());
 await p.waitForSelector(".plan-card", { timeout: 5000 });
 const page = await p.evaluate(() => ({
   rows: [...document.querySelectorAll(".plan-row")].map((r) => ({ label: r.querySelector(".plan-label").textContent, sub: r.querySelector(".plan-sub").textContent, send: !!r.querySelector(".plan-send"), body: r.querySelector(".plan-body")?.textContent || "" })),
 }));
 console.log("page:", JSON.stringify(page, null, 1));
-if (page.rows.length !== 4 || page.rows[0].label !== "Confirmation text" || page.rows[0].sub !== "Ready to send" || !page.rows[0].send || !/^Hi (Dana|Ken), it's Parm/.test(page.rows[0].body)) fail("the page should list the presets with Send on the texts: " + JSON.stringify(page.rows));
-if (!/Goes on Log .*10:00 AM/.test(page.rows[1].sub) || page.rows[2].send || !/8:30 AM/.test(page.rows[2].sub)) fail("the scheduled ones should say when: " + JSON.stringify(page.rows));
+if (page.rows.length !== 3 || page.rows[0].label !== "Confirmation text" || !/Goes on Log .*9:00 AM/.test(page.rows[0].sub) || !page.rows[0].send || !/^Hi (Dana|Ken), it's Parm/.test(page.rows[0].body)) fail("the page should list the presets with Send on the text: " + JSON.stringify(page.rows));
+if (page.rows[1].send || !/8:30 AM/.test(page.rows[1].sub)) fail("the reminders should say when: " + JSON.stringify(page.rows));
 
 // Sent marks it sent (the tap opens the phone's Messages, which headless
 // Chromium can't, so it's marked here); an outcome clears the lot.
@@ -120,8 +137,8 @@ const moved = await p.evaluate(async ({ far }) => {
   return { before, afterConfirm, afterMove, left: s.all("tasks").filter((t) => t.apptId === "old" && !t.done).length, when };
 }, { far: local(far) });
 console.log("moved:", JSON.stringify(moved));
-if (moved.before !== 4 || moved.afterConfirm[0] !== "confirm:sent" || moved.afterConfirm.slice(1).some((x) => /sent|done/.test(x))) fail("confirming should clear only the confirmation text: " + JSON.stringify(moved));
-if (!moved.afterMove.every((x) => /done$/.test(x) || x.endsWith(moved.when.slice(0, 10)) || /remind-text|remind-hour/.test(x))) fail("moving should re-preset for the new time: " + JSON.stringify(moved));
+if (moved.before !== 3 || moved.afterConfirm[0] !== "confirm:sent" || moved.afterConfirm.slice(1).some((x) => /sent|done/.test(x))) fail("confirming should clear only the confirmation text: " + JSON.stringify(moved));
+if (!moved.afterMove.every((x) => /done$/.test(x) || x.endsWith(moved.when.slice(0, 10)) || /remind-hour/.test(x))) fail("moving should re-preset for the new time: " + JSON.stringify(moved));
 if (moved.left !== 0) fail("deleting should take the open presets with it");
 
 // --- Soon (two hours out): just the confirmation text and the hour-before reminder.
@@ -133,11 +150,11 @@ const soonPlan = await p.evaluate(async ({ when }) => {
 }, { when: local(soon) });
 // (Late in the evening two hours out is tomorrow morning, which earns the morning-of reminder.)
 const expectSoon = soon.getDate() !== new Date().getDate() ? "confirm|remind-morning|remind-hour" : "confirm|remind-hour";
-if (soonPlan.join("|") !== expectSoon) fail("two hours out there's no day-before text (and no morning reminder unless it's already tomorrow): " + JSON.stringify(soonPlan) + " expected " + expectSoon);
+if (soonPlan.join("|") !== expectSoon) fail("two hours out: the text now, and the hour-before reminder (the morning one only if it's already tomorrow): " + JSON.stringify(soonPlan) + " expected " + expectSoon);
 
 // --- The assistant books with the presets and says so.
 const tool = await p.evaluate(async ({ when }) => { const a = await import("/js/agent.js"); const r = await a.execTool("book_appointment", { customer: "Dana Muise", when, type: "testdrive" }); return r.result; }, { when: local(new Date(far.getTime() + 86400e3)) });
-if (!/Preset: a confirmation text to Dana Muise is ready on Log/.test(tool)) fail("the assistant should book with the presets and say so: " + tool);
+if (!/Preset: a confirmation text to Dana Muise goes/.test(tool)) fail("the assistant should book with the presets and say so: " + tool);
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
