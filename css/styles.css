@@ -1666,10 +1666,28 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .rem-when { font-variant-numeric: tabular-nums; }
 .rem-due .rem-when { color: var(--danger); font-weight: 600; }
 
-/* --- The monthly sales target sheet on Home (target.js) --- */
-.tgt { width: 100%; border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
-.tgt th, .tgt td { padding: 5px 4px; text-align: right; border-bottom: 1px solid var(--border); }
-.tgt th { font-weight: 600; color: var(--muted); font-size: 0.7rem; letter-spacing: 0.02em; text-transform: uppercase; }
-.tgt th[scope="row"] { text-align: left; color: var(--text); font-size: 0.84rem; text-transform: none; letter-spacing: 0; }
-.tgt tbody tr:last-child th, .tgt tbody tr:last-child td { border-bottom: 0; }
-.tgt .tgt-total th, .tgt .tgt-total td { font-weight: 700; }
+/* --- The monthly sales target on Home (target.js): two big numbers, the
+   same by new and used as thin bars, then the read as chips. --- */
+.tg-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.tg-tile { background: var(--surface-2); border-radius: 14px; padding: 12px 14px 12px; }
+.tg-big { font-size: 1.9rem; font-weight: 800; line-height: 1.05; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.tg-of { font-size: 1rem; font-weight: 600; color: var(--muted); letter-spacing: -0.01em; margin-left: 1px; }
+.tg-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-top: 2px; }
+.tg-tile .tg-bar { margin-top: 8px; height: 6px; background: var(--border); }
+.tg-tile .tg-bar > span { background: var(--brand); }
+.tg-tile:nth-child(2) .tg-bar > span { background: var(--accent); }
+.tg-tile.tg-hit .tg-big, .tg-tile.tg-hit .tg-bar > span { color: var(--success); background: var(--success); }
+.tg-tile.tg-hit .tg-big { background: none; }
+.tg-left { font-size: 0.72rem; color: var(--muted); margin-top: 5px; }
+.tg-cats { margin-top: 12px; display: grid; gap: 10px; }
+.tg-cat-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.tg-cat-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.tg-thin { height: 5px; margin-top: 2px; background: var(--border); }
+.tg-thin.tg-sold > span { background: var(--brand); }
+.tg-thin.tg-spoke > span { background: var(--accent); }
+.tg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.tg-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text); }
+.tg-chip .muted { font-weight: 500; }
+.tg-chip.tg-good { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.tg-chip.tg-warn { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.tg-chip .ico { width: 14px; height: 14px; }

@@ -13,7 +13,7 @@ import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
 import { topOpportunities, dealsForLead, equityDetail, warmRadar } from "./views/dealbuilder.js";
-import { salesTarget } from "./target.js";
+import { salesTarget, markSpokenWith, inferShopping } from "./target.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
 import { afterSale, afterAppointmentBooked, afterDeliveryComplete, closeFollowUps } from "./connections.js";
 import { getOccasions } from "./occasions.js";
@@ -96,7 +96,7 @@ const TOOLS = [
   { name: "sales_target", description: "The monthly sales target sheet — 'how am I doing against my target?', 'how many customers do I need to talk to?', 'am I on pace?', 'what's my closing ratio?'. New and used unit targets, the closing ratio expected, customers to speak with, spoken with so far, sold, remaining, pace, and this week's share.", input_schema: { type: "object", properties: {} } },
   { name: "get_coach", description: "The weekly sales-coach readout — 'how am I doing this week?', 'give me my weekly review'. This week's scorecard (units, commission, appointments, show rate, touches), last week for comparison, and the coach's insights.", input_schema: { type: "object", properties: {} } },
   { name: "open_page", description: "Open a screen.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "leads", "inventory", "calculator", "deliveries", "calendar", "goals", "radar", "tools", "comms", "soldlog", "coach", "pay", "spiffs", "specials", "compare", "import", "settings"] } }, required: ["page"] } },
-  { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale. Capture EVERYTHING said about them in the same call: contact details, the vehicle, and all the context fields (trim, features, new/used, budget, timeline, trade, who else, what matters) plus the whole thing in `notes`. Their follow-up plan starts automatically.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string", description: "e.g. \"Nissan Rogue\" or \"2026 Rogue SV\"" }, phone: { type: "string" }, email: { type: "string" }, followUp: { type: "string" }, ...CONTEXT_PROPS }, required: ["name"] } },
+  { name: "create_lead", description: "Add a new customer/lead. Use this when someone 'wants', 'is looking for', or 'is interested in' a vehicle — that is interest, NOT a sale. Capture EVERYTHING said about them in the same call: contact details, the vehicle, and all the context fields (trim, features, new/used, budget, timeline, trade, who else, what matters) plus the whole thing in `notes`. Always set newUsed when it can be told (\"a used Rogue\" → used; a current model year → new): the monthly sales target counts customers spoken with by new and used, and adding them here logs the conversation. Their follow-up plan starts automatically.", input_schema: { type: "object", properties: { name: { type: "string" }, vehicle: { type: "string", description: "e.g. \"Nissan Rogue\" or \"2026 Rogue SV\"" }, phone: { type: "string" }, email: { type: "string" }, followUp: { type: "string" }, ...CONTEXT_PROPS }, required: ["name"] } },
   { name: "update_lead", description: "Update an existing customer (match by name) — contact details, stage, vehicle, and any context learned about them (same fields as create_lead).", input_schema: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, stage: { type: "string", enum: ["new", "working", "appointment", "negotiating", "sold", "delivered", "lost"] }, followUp: { type: "string" }, vehicle: { type: "string" }, ...CONTEXT_PROPS }, required: ["name"] } },
   { name: "add_context", description: "Record something learned about an existing customer — 'Parm said he loves the SV moonroof', 'Sara's budget is around thirty', 'Ken's wife has to sign off'. Put the structured parts in their fields and the whole remark in `notes`. Use this for ANY detail about a customer that isn't a stage change or a contact detail.", input_schema: { type: "object", properties: { customer: { type: "string" }, vehicle: { type: "string" }, ...CONTEXT_PROPS }, required: ["customer"] } },
   { name: "add_task", description: "Add a to-do/reminder.", input_schema: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } },
@@ -669,10 +669,15 @@ export async function execTool(name, p = {}) {
     }
     case "create_lead": {
       if (!p.name) return { result: "need a name", note: "⚠ need a name for the lead" };
-      const lead = store.create("leads", { name: p.name, vehicleInterest: p.vehicle || "", phone: p.phone || "", email: p.email || "", stage: "new", source: "Voice", followUp: p.followUp || null, notes: "" });
+      // New or used: said outright, or read off the vehicle (a 2026 is new).
+      const shopping = /^(new|used)$/i.test(String(p.newUsed || "")) ? (String(p.newUsed).toLowerCase() === "new" ? "New" : "Used") : inferShopping(`${p.vehicle || ""} ${p.notes || p.note || ""}`);
+      const lead = store.create("leads", { name: p.name, vehicleInterest: p.vehicle || "", phone: p.phone || "", email: p.email || "", stage: "new", source: "Voice", followUp: p.followUp || null, notes: "", shopping });
       // Everything else said about them, structured where it can be and kept
       // whole in the notes either way.
       addContext(lead.id, { ...p, note: p.notes || p.note || "" });
+      // Telling the app about a customer is the conversation the sales
+      // target counts: they're spoken with as of now, no second step.
+      markSpokenWith(lead.id, "in person");
       const n = maybeStartCadence(lead.id);
       const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held on Today for the salesperson's OK — nothing sends on its own.` : "";
       return { result: `created lead ${lead.name}.${plan}`, note: `added ${lead.name}${n ? ` — ${n}-step follow-up plan started` : ""}` };
@@ -803,7 +808,7 @@ export async function execTool(name, p = {}) {
       const name = p.customer || p.name || "Customer";
       // Every sale gets a customer — create one if the name doesn't match.
       const lead = findLead(name) ||
-        store.create("leads", { name, vehicleInterest: p.vehicle || "", stage: "sold", source: "Voice" });
+        store.create("leads", { name, vehicleInterest: p.vehicle || "", stage: "sold", source: "Voice", shopping: /^(new|used)$/i.test(String(p.newUsed || "")) ? p.newUsed : inferShopping(p.vehicle) });
       const frontComm = num(p.frontComm), boComm = num(p.boComm);
       const commission = frontComm != null || boComm != null ? (frontComm || 0) + (boComm || 0) : num(p.commission);
       store.create("sales", { customerName: name, vehicle: p.vehicle || "", saleDate: p.date || new Date().toISOString().slice(0, 10), commission, frontGross: num(p.front ?? p.frontGross), backGross: num(p.back ?? p.backGross), leadType: p.leadType || "", newUsed: p.newUsed || "", stock: p.stock || "", bm: p.bm || "", frontComm, boComm, makeReady: {}, leadId: lead.id, notes: "" });

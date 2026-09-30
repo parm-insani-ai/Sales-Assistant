@@ -60,9 +60,33 @@ function contactEvents(mKey, leads) {
   return out;
 }
 
+// New or used, from the Shopping field or from what was said about them
+// (the context's "new or used" — "open to either" is neither).
 export function shoppingOf(l) {
-  const v = String((l && l.shopping) || "").toLowerCase();
+  const v = String((l && (l.shopping || (l.profile && l.profile.newUsed))) || "").toLowerCase();
   return v === "new" ? "New" : v === "used" ? "Used" : "";
+}
+
+// New or used from a sentence — "a used Rogue", "pre-owned", "a new
+// Pathfinder" — for the offline voice parser, which has no model to read
+// the context fields out. A year on the vehicle settles it when the words
+// don't: this year's or next year's model is new, older is used.
+export function inferShopping(text, now = new Date()) {
+  const t = String(text || "").toLowerCase();
+  if (/\b(used|pre-?owned|cpo|certified|second-?hand|trade-?in)\b/.test(t)) return "Used";
+  if (/\bnew\b(?!\s+(lead|customer|prospect|to-?do|task|reminder))/.test(t)) return "New";
+  const y = Number((t.match(/\b(20\d{2})\b/) || [])[1]);
+  if (y) return y >= now.getFullYear() ? "New" : "Used";
+  return "";
+}
+
+// A customer added by voice was spoken with — that is the conversation the
+// sheet's log is for. Stamp it, so they count without a second step.
+export function markSpokenWith(leadId, via = "in person") {
+  const l = store.get("leads", leadId);
+  if (!l) return;
+  const now = new Date().toISOString();
+  if (!l.lastContacted || l.lastContacted < now.slice(0, 10)) store.update("leads", leadId, { lastContacted: now, lastContactVia: via });
 }
 
 // The sheet, filled in from the book for the month `now` is in.

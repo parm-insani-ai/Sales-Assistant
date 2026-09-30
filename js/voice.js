@@ -10,6 +10,7 @@ import { icon } from "./icons.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
+import { markSpokenWith, inferShopping } from "./target.js";
 import { agentConfigured, createAgentSession, showLotOnScreen } from "./agent.js";
 import { answerLot } from "./lot.js";
 import { isOutreach, parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
@@ -137,7 +138,7 @@ export function parseCommand(raw) {
     // Whatever else was said goes on the record whole. Offline, nothing can
     // pick the trim and the budget out of the sentence — but the sentence
     // itself is the context, and losing it is worse than not parsing it.
-    return { action: "lead", name, vehicleInterest: vehicle ? titleCase(vehicle) : "", followUp, notes: String(raw || "").trim() };
+    return { action: "lead", name, vehicleInterest: vehicle ? titleCase(vehicle) : "", followUp, notes: String(raw || "").trim(), shopping: inferShopping(raw) };
   }
 
   // 2) Add task / reminder
@@ -211,9 +212,11 @@ export function executeCommand(cmd) {
     case "lead": {
       const lead = store.create("leads", {
         name: cmd.name, vehicleInterest: cmd.vehicleInterest || "", stage: "new",
-        source: "Voice", followUp: cmd.followUp || null, phone: "", email: "", notes: "",
+        source: "Voice", followUp: cmd.followUp || null, phone: "", email: "", notes: "", shopping: cmd.shopping || "",
       });
       addContext(lead.id, { note: cmd.notes || "" });
+      // Adding them by voice is the conversation the sales target counts.
+      markSpokenWith(lead.id, "in person");
       const n = maybeStartCadence(lead.id);
       navigate(`/leads/${lead.id}`);
       return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan` : ""}. Add their phone number to start texting.`;

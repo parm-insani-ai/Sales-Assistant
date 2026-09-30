@@ -61,21 +61,26 @@ if (t.remainingUnits !== 7 || t.remainingTalks !== 18) fail("remaining: " + JSON
 if (t.perWeek !== Math.ceil(25 / t.weeks) || t.spokeWeek !== 7) fail("the week's share and this week's count: " + JSON.stringify([t.perWeek, t.spokeWeek, t.weeks]));
 if (t.appts !== 1) fail("appointments set this month: " + t.appts);
 
-// --- On Home: the sheet as a table, in a drop-down.
+// --- On Home: two big numbers, the same by new and used, and the read as
+// chips — no grid. In a drop-down.
 const home = await p.evaluate(() => ({
   fold: document.querySelector('[data-fold="home:target"]')?.open,
-  head: [...document.querySelectorAll(".tgt thead th")].map((n) => n.textContent.trim()),
-  rows: [...document.querySelectorAll(".tgt tbody tr")].map((r) => [...r.children].map((c) => c.textContent.trim()).join(" | ")),
+  table: !!document.querySelector(".target-card table"),
+  head: document.querySelector(".target-card .row-main")?.textContent.replace(/\s+/g, " ").trim(),
+  tiles: [...document.querySelectorAll(".tg-tile")].map((n) => ({ big: n.querySelector(".tg-big").textContent.trim(), label: n.querySelector(".tg-label").textContent.trim(), left: n.querySelector(".tg-left").textContent.trim(), bar: n.querySelector(".tg-bar > span").style.width })),
+  cats: [...document.querySelectorAll(".tg-cat")].map((n) => [...n.querySelector(".tg-cat-head").children].map((c) => c.textContent.trim()).join(" ")),
+  chips: [...document.querySelectorAll(".tg-chip")].map((n) => n.textContent.replace(/\s+/g, " ").trim()),
   text: document.querySelector(".target-card").textContent.replace(/\s+/g, " ").trim(),
   goalCard: /Monthly goal/.test(document.querySelector("#view").textContent),
 }));
 console.log("home:", JSON.stringify(home, null, 1));
 if (!home.fold) fail("the Sales target drop-down should start open");
-if (home.head.join() !== ",Target,Talk to,Sold,Spoke to,Closing") fail("the sheet's columns: " + home.head.join());
-if (home.rows.join(" / ") !== "New | 6 | 15 | 2 | 4 | 50% / Used | 4 | 10 | 1 | 2 | 50% / Total | 10 | 25 | 3 | 7 | 43%") fail("the sheet's rows: " + JSON.stringify(home.rows));
-if (!/7 units to go · 18 more conversations · 30% of target/.test(home.text)) fail("the remaining line: " + home.text);
-if (!/Week \d of \d: 7 of \d+ conversations · 1 appointment set of 30/.test(home.text)) fail("the week line: " + home.text);
-if (!/1 spoken with not marked new or used/.test(home.text)) fail("the unmarked customer isn't called out: " + home.text);
+if (home.table) fail("the target is drawn as a table");
+if (!/10 units.*Speak with 25 customers/.test(home.head || "")) fail("the heading: " + home.head);
+if (JSON.stringify(home.tiles) !== JSON.stringify([{ big: "3/10", label: "Sold", left: "7 to go", bar: "30%" }, { big: "7/25", label: "Spoken with", left: "18 to go", bar: "28%" }])) fail("the two big numbers: " + JSON.stringify(home.tiles));
+if (home.cats.join(" / ") !== "New 2/6 sold · 4/15 spoken with / Used 1/4 sold · 2/10 spoken with") fail("by new and used: " + JSON.stringify(home.cats));
+if (!home.chips.some((c) => /behind pace|On pace/.test(c)) || !home.chips.some((c) => /^Closing 43% · expect 42%/.test(c)) || !home.chips.some((c) => /^This week 7\/\d+/.test(c)) || !home.chips.some((c) => /^1 appt set of 30/.test(c))) fail("the read: " + JSON.stringify(home.chips));
+if (!/1 spoken with aren't marked new or used/.test(home.text)) fail("the unmarked customer isn't called out: " + home.text);
 if (!/Commission\s*\$1,200 \/ \$8,000/.test(home.text)) fail("the commission line: " + home.text);
 if (home.goalCard) fail("the old Monthly goal card is still on Home");
 
@@ -86,21 +91,38 @@ await p.fill('.modal input[name="targetNew"]', "8");
 await p.fill('.modal input[name="closingNew"]', "50");
 await p.click(".modal button[type=submit]");
 await p.waitForTimeout(500);
-const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { goalUnits: s.getSettings().goalUnits, rows: [...document.querySelectorAll(".tgt tbody tr")].map((r) => [...r.children].map((c) => c.textContent.trim()).join(" | ")) }; });
+const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { goalUnits: s.getSettings().goalUnits, tiles: [...document.querySelectorAll(".tg-big")].map((n) => n.textContent.trim()), cats: [...document.querySelectorAll(".tg-cat-head")].map((n) => [...n.children].map((c) => c.textContent.trim()).join(" ")) }; });
 console.log("after set:", JSON.stringify(after));
-if (after.goalUnits !== 12 || after.rows[0] !== "New | 8 | 16 | 2 | 4 | 50%" || after.rows[2] !== "Total | 12 | 26 | 3 | 7 | 43%") fail("setting the target didn't recalculate: " + JSON.stringify(after));
+if (after.goalUnits !== 12 || after.tiles.join() !== "3/12,7/26" || after.cats[0] !== "New 2/8 sold · 4/16 spoken with") fail("setting the target didn't recalculate: " + JSON.stringify(after));
+
+// --- Voice fills the sheet: telling the assistant about a customer logs
+// the conversation and their new / used, with nothing else to type.
+const spoken = await p.evaluate(async () => {
+  const a = await import("/js/agent.js"); const s = await import("/js/store.js"); const m = await import("/js/target.js");
+  await a.execTool("create_lead", { name: "Rae Test", vehicle: "2022 Rogue SV", newUsed: "used", notes: "Looking at a used Rogue, wants a moonroof" });
+  await a.execTool("create_lead", { name: "Sam Test", vehicle: "2026 Kicks", notes: "Wants the new Kicks" });
+  const rae = s.all("leads").find((l) => l.name === "Rae Test"), sam = s.all("leads").find((l) => l.name === "Sam Test");
+  const t = m.salesTarget();
+  return { rae: [rae.shopping, !!rae.lastContacted, rae.lastContactVia], sam: [sam.shopping, !!sam.lastContacted], spoke: [t.spoke, t.spokeNew, t.spokeUsed], infer: [m.inferShopping("add a customer Dana who wants a used Rogue"), m.inferShopping("new lead Ken looking for a 2026 Pathfinder"), m.inferShopping("add lead Jo interested in a Sentra")] };
+});
+console.log("by voice:", JSON.stringify(spoken));
+if (spoken.rae.join() !== "Used,true,in person" || spoken.sam.join() !== "New,true") fail("adding customers by voice didn't mark them spoken with and new/used: " + JSON.stringify(spoken));
+if (spoken.spoke.join() !== "9,5,3") fail("the sheet didn't count the customers added by voice: " + JSON.stringify(spoken.spoke));
+if (spoken.infer.join() !== "Used,New,") fail("new/used isn't read from the sentence: " + JSON.stringify(spoken.infer));
+const shown = await p.evaluate(() => { location.hash = "#/leads"; return new Promise((r) => setTimeout(() => { location.hash = "#/"; setTimeout(() => r([...document.querySelectorAll(".tg-big")].map((n) => n.textContent.trim())), 500); }, 200)); });
+if (shown.join() !== "3/12,9/26") fail("Home doesn't show the customers added by voice: " + shown.join());
 
 // --- The assistant answers "how am I doing against my target?".
 const voice = await p.evaluate(async () => { const a = await import("/js/agent.js"); const r = await a.execTool("sales_target", {}); return { r: r.result, note: r.note }; });
 console.log("voice:", JSON.stringify(voice));
-if (voice.r.customersToSpeakWith !== 26 || voice.r.spokenWith !== 7 || voice.r.sold !== 3 || voice.r.remainingUnits !== 9 || !/3 of 12 sold, 7 of 26/.test(voice.note)) fail("the assistant's target readout is wrong: " + JSON.stringify(voice));
+if (voice.r.customersToSpeakWith !== 26 || voice.r.spokenWith !== 9 || voice.r.sold !== 3 || voice.r.remainingUnits !== 9 || !/3 of 12 sold, 9 of 26/.test(voice.note)) fail("the assistant's target readout is wrong: " + JSON.stringify(voice));
 
 // --- No target yet: the sheet asks for one and nothing is invented.
 await p.evaluate(async () => { const s = await import("/js/store.js"); s.updateSettings({ targetNew: 0, targetUsed: 0, goalUnits: 0 }); location.hash = "#/leads"; });
 await p.waitForTimeout(200);
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(500);
 const empty = await p.evaluate(() => ({ table: !!document.querySelector(".tgt"), btn: document.querySelector('.target-card [data-act="set-target"]')?.textContent.trim(), text: document.querySelector(".target-card")?.textContent.replace(/\s+/g, " ").trim() }));
-if (empty.table || empty.btn !== "Set your target" || !/how many customers you need to speak with/.test(empty.text || "")) fail("with no target the sheet should ask for one: " + JSON.stringify(empty));
+if (empty.table || empty.btn !== "Set your target" || !/how many customers to speak with/.test(empty.text || "")) fail("with no target the sheet should ask for one: " + JSON.stringify(empty));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

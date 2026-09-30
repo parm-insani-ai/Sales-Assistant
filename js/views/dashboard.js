@@ -225,40 +225,48 @@ function targetSection(mtd, s, redraw) {
   const t = salesTarget();
   const p = t.plan;
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
-  const n = (v) => (v == null ? "—" : String(v));
-  const row = (label, target, need, sold, spoke, closing, strong = false) => `
-    <tr class="${strong ? "tgt-total" : ""}"><th scope="row">${label}</th><td>${n(target)}</td><td>${n(need)}</td><td>${n(sold)}</td><td>${n(spoke)}</td><td>${pct(closing)}</td></tr>`;
+  const share = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
   const month = new Date().toLocaleDateString("en-US", { month: "long" });
-  const unitPct = p.target > 0 ? Math.min(100, Math.round((t.sold / p.target) * 100)) : 0;
   const hit = p.target > 0 && t.sold >= p.target;
   const behind = t.expectedByNow - t.spoke;
-  const paceLine = !p.need ? "" : hit ? `<span style="color:var(--success)">${icon("check")} Target reached.</span>`
-    : behind > 0 ? `${behind} conversation${behind === 1 ? "" : "s"} behind pace for day ${t.day} of ${t.daysIn}.`
-    : `On pace — ${t.spoke} of ${p.need} spoken with by day ${t.day} of ${t.daysIn}.`;
-  const commPct = s.goalCommission > 0 ? Math.min(100, Math.round((mtd.commission / s.goalCommission) * 100)) : 0;
+  const commPct = share(mtd.commission, s.goalCommission);
+  // Two big numbers — sold against the target, spoken with against what
+  // the target calls for — then the same by new and used as thin bars,
+  // then the read: closing ratio, pace, this week. No grid to decode.
+  const tile = (label, have, want, cls) => `
+    <div class="tg-tile ${cls}">
+      <div class="tg-big">${have}<span class="tg-of">/${want}</span></div>
+      <div class="tg-label">${label}</div>
+      <div class="progress tg-bar"><span style="width:${share(have, want)}%"></span></div>
+      <div class="tg-left">${Math.max(0, want - have)} to go</div>
+    </div>`;
+  const cat = (label, sold, target, spoke, need) => `
+    <div class="tg-cat">
+      <div class="tg-cat-head"><span class="strong">${label}</span><span class="small muted">${sold}/${target} sold · ${spoke}/${need} spoken with</span></div>
+      <div class="tg-cat-bars"><div class="progress tg-thin tg-sold"><span style="width:${share(sold, target)}%"></span></div><div class="progress tg-thin tg-spoke"><span style="width:${share(spoke, need)}%"></span></div></div>
+    </div>`;
+  const chip = (cls, text) => `<span class="tg-chip ${cls}">${text}</span>`;
+  const read = !p.need ? "" : [
+    hit ? chip("tg-good", `${icon("check")} Target reached`) : behind > 0 ? chip("tg-warn", `${behind} behind pace`) : chip("tg-good", "On pace"),
+    t.closing != null ? chip(t.closing >= p.closingNew ? "tg-good" : "", `Closing ${pct(t.closing)} <span class="muted">· expect ${pct(p.closingNew)}</span>`) : chip("", `Expect ${pct(p.closingNew)} closing`),
+    chip(t.spokeWeek >= t.perWeek ? "tg-good" : "", `This week ${t.spokeWeek}/${t.perWeek}`),
+    chip("", `${t.appts} appt${t.appts === 1 ? "" : "s"} set${s.goalAppointments ? ` <span class="muted">of ${s.goalAppointments}</span>` : ""}`),
+  ].join("");
   const body = document.createElement("div");
   body.className = "card target-card";
   body.innerHTML = `
     <div class="row">
-      <div class="row-main"><div class="strong">${esc(month)}</div><div class="small muted">Units ÷ closing ratio = customers to speak with</div></div>
+      <div class="row-main"><div class="strong">${esc(month)}${p.target ? ` · ${p.target} unit${p.target === 1 ? "" : "s"}` : ""}</div><div class="small muted">${p.target ? `Speak with ${p.need} customers to get there.` : "How many will you sell this month?"}</div></div>
       <button class="btn btn-sm ${p.target ? "btn-ghost" : "btn-primary"}" data-act="set-target" style="flex:none">${p.target ? "Set target" : "Set your target"}</button>
     </div>
     ${p.target ? `
-    <table class="tgt" style="margin-top:10px">
-      <thead><tr><th></th><th title="Units you plan to sell">Target</th><th title="Customers to speak with — units ÷ closing ratio">Talk to</th><th title="Sold this month">Sold</th><th title="Customers spoken with this month">Spoke to</th><th title="Sold ÷ spoken with">Closing</th></tr></thead>
-      <tbody>
-        ${p.split ? row("New", p.targetNew, p.needNew, t.soldNew, t.spokeNew, t.closingNew) + row("Used", p.targetUsed, p.needUsed, t.soldUsed, t.spokeUsed, t.closingUsed) : ""}
-        ${row("Total", p.target, p.need, t.sold, t.spoke, t.closing, true)}
-      </tbody>
-    </table>
-    <div class="progress"><span style="width:${unitPct}%;background:${hit ? "var(--success)" : "var(--brand)"}"></span></div>
-    <div class="small muted" style="margin-top:6px">${t.remainingUnits} unit${t.remainingUnits === 1 ? "" : "s"} to go · ${t.remainingTalks} more conversation${t.remainingTalks === 1 ? "" : "s"} · ${pct(t.attainment)} of target</div>
-    ${paceLine ? `<div class="small" style="margin-top:4px">${paceLine}</div>` : ""}
-    <div class="small" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)"><span class="strong">Week ${t.week} of ${t.weeks}:</span> ${t.spokeWeek} of ${t.perWeek} conversation${t.perWeek === 1 ? "" : "s"} · ${t.appts} appointment${t.appts === 1 ? "" : "s"} set${s.goalAppointments ? ` of ${s.goalAppointments}` : ""}</div>
-    ${t.spokeUnsplit || t.soldUnsplit ? `<div class="small muted" style="margin-top:4px">${[t.spokeUnsplit ? `${t.spokeUnsplit} spoken with not marked new or used (Shopping, on their page)` : "", t.soldUnsplit ? `${t.soldUnsplit} sale${t.soldUnsplit === 1 ? "" : "s"} not marked new or used` : ""].filter(Boolean).join(" · ")}.</div>` : ""}
-    ${s.targetSetBy === "manager" && s.goalUnits && s.goalUnits !== p.target ? `<div class="small muted" style="margin-top:4px">Your manager's target is ${s.goalUnits} units.</div>` : ""}
-    ` : `<div class="small muted" style="margin-top:10px">Set how many new and used units you plan to sell and the closing ratio you expect, and this works out how many customers you need to speak with — then counts them as you go.</div>`}
-    <div class="row small" style="margin-top:10px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)} <a href="#/goals" class="muted" style="margin-left:6px">Goals ›</a></span></div>
+    <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "")}${tile("Spoken with", t.spoke, p.need, "")}</div>
+    ${p.split ? `<div class="tg-cats">${cat("New", t.soldNew, p.targetNew, t.spokeNew, p.needNew)}${cat("Used", t.soldUsed, p.targetUsed, t.spokeUsed, p.needUsed)}</div>` : ""}
+    <div class="tg-chips">${read}</div>
+    ${t.spokeUnsplit || t.soldUnsplit ? `<div class="small muted" style="margin-top:8px">${[t.spokeUnsplit ? `${t.spokeUnsplit} spoken with aren't marked new or used yet` : "", t.soldUnsplit ? `${t.soldUnsplit} sale${t.soldUnsplit === 1 ? "" : "s"} not marked new or used` : ""].filter(Boolean).join(" · ")} — say it when you add them, or set Shopping on their page.</div>` : ""}
+    ${s.targetSetBy === "manager" && s.goalUnits && s.goalUnits !== p.target ? `<div class="small muted" style="margin-top:6px">Your manager's target is ${s.goalUnits} units.</div>` : ""}
+    ` : `<div class="small muted" style="margin-top:10px">Set your new and used units and the closing ratio you expect, and this works out how many customers to speak with — then counts them as you add customers, log contacts and log sales.</div>`}
+    <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)} <a href="#/goals" class="muted" style="margin-left:6px">Goals ›</a></span></div>
     <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
   body.querySelector('[data-act="set-target"]').addEventListener("click", () => openTargetForm(redraw));
   return fold({ key: "home:target", title: "Sales target", open: true, body });
