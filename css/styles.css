@@ -488,14 +488,17 @@ body.typing #app, body.kb-open #app {
   border-color: var(--border-strong);
 }
 
+/* A heading sits the same distance from what's above it as from what's
+   below: cards and grids carry 14px underneath, the heading carries 14px
+   underneath, and nothing on top. */
 .section-title {
   font-size: 0.95rem;
   letter-spacing: -0.01em;
   color: var(--text);
-  margin: 26px 2px 12px;
+  margin: 0 2px 14px;
   font-weight: 700;
 }
-.section-title:first-child { margin-top: 6px; }
+.section-title:first-child { margin-top: 0; }
 .section-title .muted { font-weight: 500; }
 
 /* ---------- Front door ---------- */
@@ -842,7 +845,7 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 }
 
 /* ---------- Stats ---------- */
-.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 14px; }
 .stat {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1659,8 +1662,8 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .fold-chev { width: 22px; height: 22px; color: var(--muted); display: inline-flex; transition: transform 0.18s ease; }
 .fold-chev svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .fold[open] > summary .fold-chev { transform: rotate(180deg); }
-.fold:not([open]) > summary.fold-head { margin-bottom: 4px; }
-.fold-body > .section-title:first-child { margin-top: 4px; }
+.fold:not([open]) > summary.fold-head { margin-bottom: 14px; }
+.fold-body > .section-title:first-child { margin-top: 0; }
 /* A reminder row: the time it fires, and red once it has. */
 .rem-when { font-variant-numeric: tabular-nums; }
 .rem-due .rem-when { color: var(--danger); font-weight: 600; }

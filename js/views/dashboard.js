@@ -57,7 +57,7 @@ export function renderDashboard(view) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <div class="card card-tap" data-goto="/calendar" style="margin-bottom:6px">
+    <div class="card card-tap" data-goto="/calendar">
       <div class="row">
         <div class="row-main">
           <div class="row-title">${icon("calendar")} ${esc(todayLabel)}</div>
