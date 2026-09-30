@@ -12,7 +12,8 @@
 import * as store from "./store.js";
 import * as backend from "./backend.js";
 import { agentConfigured } from "./agentcfg.js";
-import { briefFor } from "./context.js";
+import { briefFor, redactMoney } from "./context.js";
+import { conversationFor } from "./convo.js";
 import { looksLikeMoney } from "./replies.js";
 import { isInbound } from "./cadence.js";
 import { candidateFor } from "./prospects.js";
@@ -134,11 +135,14 @@ export async function draftTouch(lead, task) {
   if (!agentConfigured()) return fallback();
 
   const system = systemFor(lead, task);
-  // The conversation so far, so day four doesn't repeat day one.
-  const thread = store.textsFor(lead.id).slice(-8).map((t) => ({ role: t.dir === "in" ? "user" : "assistant", content: t.body }));
+  // The conversation so far — texts, emails and calls — so day four doesn't
+  // repeat day one, and a text picks up what they said by email. Figures the
+  // customer mentioned are taken out before the model sees them.
+  const thread = conversationFor(lead.id, { limit: 10 });
   const messages = [];
   if (thread.length) {
-    messages.push({ role: "user", content: `The conversation so far, oldest first:\n${thread.map((m) => `${m.role === "user" ? first(lead.name) : "Me"}: ${m.content}`).join("\n")}\n\nNow write the next text.` });
+    const lines = thread.map((i) => `${i.dir === "in" ? first(lead.name) : "Me"}${i.kind !== "text" ? ` (${i.kind})` : ""}: ${redactMoney(`${i.subject ? `${i.subject} — ` : ""}${i.text}`.replace(/\s+/g, " ").slice(0, 400))}`);
+    messages.push({ role: "user", content: `The conversation so far, oldest first:\n${lines.join("\n")}\n\nNow write the next text.` });
   } else {
     messages.push({ role: "user", content: "Write the text." });
   }

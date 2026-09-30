@@ -45,6 +45,7 @@ import { adaptToReplies } from "./cadence.js";
 import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import { handleGmailRedirect, pullGmailIfStale } from "./gmail.js";
+import { loadMailbox } from "./mailbox.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 import { managementMode, myStore as readStore, myTarget } from "./team.js";
@@ -377,7 +378,7 @@ handleGmailRedirect()
   .then(() => {
     // A rep's inbox files into their own book; the manager's (management
     // mode) files into the reps' books, from the manager's Home.
-    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); }
+    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); loadMailbox(); } // the inbox is part of what the assistant knows
   });
 window.addEventListener("viniva-mail", (e) => {
   const n = e.detail && e.detail.linked;

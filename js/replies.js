@@ -16,6 +16,8 @@ import * as backend from "./backend.js";
 import { agentConfigured } from "./agentcfg.js";
 import { bestPitch, equityDetail } from "./views/dealbuilder.js";
 import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
+import { conversationFor } from "./convo.js";
+import { redactMoney } from "./context.js";
 
 export function draftingAvailable() {
   return agentConfigured();
@@ -46,6 +48,10 @@ function buildSystem(lead) {
   const link = cachedShortBookingLink() || bookingLink();
   const pitch = pitchVehicle(lead);
   const first = String(lead.name || "there").split(" ")[0];
+  // What's passed by email and phone, alongside the texts (which come as the
+  // conversation itself). Figures they mentioned are taken out first.
+  const other = conversationFor(lead.id, { kinds: ["email", "call"], limit: 6 })
+    .map((i) => `- ${i.dir === "in" ? first : "me"} (${i.kind}): ${redactMoney(`${i.subject ? `${i.subject} — ` : ""}${i.text}`.replace(/\s+/g, " ").slice(0, 300))}`);
 
   return `You are drafting a single SMS reply on behalf of ${s.salesperson || "the salesperson"}, who sells cars at ${s.dealership || "the dealership"}. The draft is reviewed by them before it sends — write it as if they will send it word for word.
 
@@ -55,6 +61,7 @@ Currently drives: ${lead.vehicleInterest || "unknown"}
 Their position: ${standing(lead)}
 ${pitch ? `The vehicle that suits them: ${pitch}` : "No specific replacement picked yet."}
 Booking link: ${link}
+${other.length ? `\nALSO SAID BY EMAIL AND PHONE (oldest first — the texts below are the rest of the conversation)\n${other.join("\n")}\n` : ""}
 
 THE ONE RULE THAT CANNOT BEND
 Never state a dollar amount, a monthly payment, a trade-in value, an interest rate, a percentage, or a discount. Not an estimate, not a range, not a ballpark, not "around" or "roughly" a figure. You have not been told any of these numbers and you must not invent one.

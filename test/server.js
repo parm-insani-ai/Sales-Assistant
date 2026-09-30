@@ -51,6 +51,7 @@ const pushes = [];
 let seq = 0;
 // Texts the app asked us to send, so a test can assert what reached "Twilio".
 const sent = [];
+const relays = []; // every prompt the Claude relay was handed: { system, tools, messages }
 // When set, the next send fails — for exercising the failed/retry path.
 let failNextSend = false;
 // Canned reply for the drafting endpoint, so no real model is called.
@@ -433,8 +434,10 @@ const server = http.createServer((req, res) => {
         sent.push(msg.sms);
         return json(res, 200, { sent: true, id: msg.sms.id, sid: "SM" + sent.length });
       }
-      // The Claude relay: return a canned draft in the real response shape.
+      // The Claude relay: return a canned draft in the real response shape,
+      // remembering what it was asked so a test can read the prompt back.
       if (Array.isArray(msg.messages)) {
+        relays.push({ system: msg.system || "", tools: (msg.tools || []).map((t) => t.name), messages: msg.messages });
         return json(res, 200, { content: [{ type: "text", text: draft }], stop_reason: "end_turn" });
       }
       // The inventory import: pretend the store's site had three units, and
@@ -471,6 +474,7 @@ const server = http.createServer((req, res) => {
   // each other's links.
   if (url.pathname === "/__links") return json(res, 200, [...links.values()]);
   if (url.pathname === "/__sent") return json(res, 200, sent);
+  if (url.pathname === "/__relays") return json(res, 200, relays);
   if (url.pathname === "/__failnext") { failNextSend = true; return json(res, 200, { ok: true }); }
   if (url.pathname === "/__draft") { draft = url.searchParams.get("t") || draft; return json(res, 200, { ok: true }); }
   if (url.pathname === "/__check") {
@@ -482,7 +486,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__reset") {
     records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0;
-    links.clear(); seq = 0; sent.length = 0; failNextSend = false;
+    links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0;
     return json(res, 200, { ok: true });
   }
 

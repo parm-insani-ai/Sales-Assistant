@@ -35,6 +35,7 @@ import { parseOutreach, audienceFor, describeAudience, unknownNote } from "./out
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
+import { conversationFor, transcript, standingWith, recentInbound, recentDigest, loadBodies } from "./convo.js";
 
 // Put the units a lot answer counted on the Inventory screen, under the
 // question as a chip, so the spoken sentence hands over to what's on screen.
@@ -60,6 +61,10 @@ function buildContext() {
     // model repairing "centra" into "Sentra" from context is far more reliable
     // than any distance metric, but only if it knows what the candidates are.
     vocab: vocabulary({ limit: 120 }),
+    // Who has written in lately, and whether they've been answered — so
+    // "anything from Dana?" or "who's waiting on me?" needs no lookup, and
+    // a message drafted mid-conversation continues it.
+    recent: recentDigest(),
   };
 }
 
@@ -78,7 +83,8 @@ CONTEXT_PROPS.notes = { type: "string", description: "EVERYTHING else said about
 const TOOLS = [
   { name: "ask_user", description: "Ask the salesperson ONE short question when a required detail is genuinely missing or ambiguous (e.g. which customer, or a time you can't reasonably assume). Only use when you truly can't proceed.", input_schema: { type: "object", properties: { question: { type: "string" } }, required: ["question"] } },
   { name: "find_customers", description: "Look up customers/leads by name/vehicle query, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
-  { name: "get_customer", description: "Full details for one customer by name.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "get_customer", description: "Full details for one customer by name — contact, vehicle, position, profile, notes, the assessment, and the CONVERSATION so far (their texts, emails and calls, oldest first) with whether they're waiting on a reply.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "get_messages", description: "What people have SAID — every text, email and call on file. With `customer`: that person's whole conversation, oldest first ('what did Dana say?', 'read me Ken's email', 'did Sara get back to me?', 'where did I leave things with Moe?'). Without: everything that came in recently from everyone, newest first, each marked answered or waiting ('anything from my customers?', 'what came in today?', 'who's waiting on me?', 'any emails?'). Includes mail in the connected inbox from people not on file.", input_schema: { type: "object", properties: { customer: { type: "string" }, kind: { type: "string", enum: ["text", "email", "call"], description: "only this kind" }, hours: { type: "number", description: "without a customer: how far back (default 48)" } } } },
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
   { name: "deal_radar", description: "Who on file could be put into a different vehicle right now, matched against real inventory. Use for ANY phrasing of this question — 'who can I get into a car for less than they're paying now', 'who could I upgrade', 'who's got equity', 'anyone I can move into something newer', 'who should I call about a trade'. Returns each customer with what they pay today, the matched vehicle, the new monthly, and `delta` (new minus current — NEGATIVE means cheaper). Set cheaperOnly when the ask is specifically about a lower/cheaper/better payment than they have now. Set `vehicle` to run it the OTHER WAY — from a vehicle to the customers who fit it: 'which customers can be put in a Nissan Sentra right now', 'who could I move into a Rogue', 'who fits this Frontier'.", input_schema: { type: "object", properties: { limit: { type: "number" }, cheaperOnly: { type: "boolean", description: "only customers whose matched payment is LOWER than what they pay today" }, maxMonthly: { type: "number", description: "cap the new monthly payment" }, vehicle: { type: "string", description: "a model/trim to match against, e.g. \"Sentra\" or \"2026 Nissan Rogue SV\" — returns the customers who fit THAT vehicle" } } } },
   { name: "get_stats", description: "This month's appointment funnel, units, commission, goals.", input_schema: { type: "object", properties: {} } },
@@ -128,6 +134,7 @@ function buildSystem(ctx) {
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
+    `WHAT CUSTOMERS HAVE SAID is on file — every text, email and call, both directions. get_customer includes the conversation so far; get_messages answers "what did Dana say?", "read me Ken's email", "did Sara get back to me?", "anything from my customers?", "what came in today?", "who's waiting on me?". Answer from what they actually wrote — quote or paraphrase the message, don't guess. When writing a text or email to a customer, continue from what they last said: answer what they asked, never ask something they've already answered, never repeat what was already sent.`,
     `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
     `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
@@ -154,6 +161,7 @@ function buildSystem(ctx) {
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
     ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
+    ctx.recent ? `RECENT MESSAGES IN (newest first; WAITING = they wrote last and nobody has answered; get_messages has the whole exchange):\n${ctx.recent}` : ``,
     // Everything the user "says" reached here through speech recognition, and
     // saying so changes how the model reads a garbled sentence: as something to
     // repair from context rather than as a strange request to query.
@@ -378,10 +386,34 @@ export async function execTool(name, p = {}) {
       const l = findLead(p.name || p.customer);
       if (!l) return { result: { found: false }, note: "" };
       const a = assessment(l.id);
+      const st = standingWith(l.id);
+      await loadBodies(l.id).catch(() => {});
       return { result: { found: true, name: l.name, phone: l.phone || "", email: l.email || "", stage: l.stage, vehicle: l.vehicleInterest || "", payment: l.currentPayment ?? null, payoff: l.payoff ?? null, value: l.currentValue ?? null, equity: equityOf(l), apr: l.currentApr ?? null, followUp: l.followUp || null, leaseEnd: l.leaseEnd || null,
+        lastContacted: l.lastContacted || null,
         profile: l.profile || {}, notes: l.notes || "",
         // The read of them: how strong a candidate, why, and the next move.
-        assessment: a ? { score: a.score, tier: a.tier ? a.tier.label : "no reason yet", why: a.why, next: a.next ? a.next.label : "" } : null }, note: "" };
+        assessment: a ? { score: a.score, tier: a.tier ? a.tier.label : "no reason yet", why: a.why, next: a.next ? a.next.label : "" } : null,
+        // What's been said, oldest first, and whether they're waiting on us.
+        conversation: transcript(conversationFor(l.id, { limit: 12 }), { name: l.name }),
+        waitingOnMe: st.waitingOnMe }, note: "" };
+    }
+    case "get_messages": case "recent_messages": case "get_conversation": {
+      const kinds = p.kind ? [p.kind] : ["text", "email", "call"];
+      if (p.customer || p.name) {
+        const l = findLead(p.customer || p.name);
+        if (!l) return { result: { found: false }, note: `⚠ couldn't find ${p.customer || p.name}` };
+        if (kinds.includes("email")) await loadBodies(l.id).catch(() => {});
+        const items = conversationFor(l.id, { kinds, limit: 25 });
+        const st = standingWith(l.id);
+        // The thread when they've been texting, their page otherwise.
+        navigate(items.some((i) => i.kind === "text") ? `/inbox/${l.id}` : `/leads/${l.id}`);
+        return { result: { customer: l.name, messages: transcript(items, { name: l.name, maxChars: 600 }), waitingOnMe: st.waitingOnMe,
+          note: items.length ? "oldest first" : `nothing on file with ${l.name} yet` }, note: "" };
+      }
+      const rows = recentInbound({ hours: p.hours || 48, limit: 15 }).filter((i) => kinds.includes(i.kind));
+      if (rows.length) navigate("/comms");
+      return { result: { messages: rows.map((i) => ({ when: i.at, from: i.who, customer: i.customer, by: i.kind, subject: i.subject || undefined, text: i.text.slice(0, 400), answered: i.answered })),
+        note: rows.length ? "newest first; answered:false means they're waiting on a reply" : "nothing has come in" }, note: "" };
     }
     case "get_appointments": {
       let list = store.all("appointments").filter((a) => a.status !== "canceled");
