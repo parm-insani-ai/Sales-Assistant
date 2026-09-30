@@ -564,7 +564,7 @@ function cardHTML(l, { quick = false, hz = null } = {}) {
         ${timing}${reasons}${contact}
       </div>
       <div class="row-meta">
-        ${tier}<span class="badge ${st.badge}">${esc(st.label)}</span>
+        ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}
       </div>
     </div>
     ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
