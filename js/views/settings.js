@@ -22,8 +22,8 @@ function recentErrors() {
 }
 function clearErrors() { try { localStorage.removeItem("viniva:errors"); } catch { } }
 import { testAgent, findAgentFunction } from "../agent.js";
-import { sendEmail, emailSendConfigured } from "../email.js";
-import { connectOutlook, outlookConnected, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
+import { sendEmail, emailSendConfigured, emailSendVia } from "../email.js";
+import { connectOutlook, outlookConnected, outlookCanSend, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
 import { shorten, shortUrl } from "../shortlink.js";
 import { enablePush, disablePush, pushEnabled, pushSupported, needsInstall, sendTestPush } from "../push.js";
 
@@ -850,23 +850,57 @@ function buildEmail(slot) {
     .map((t) => t.at || t.createdAt)
     .sort()
     .pop() || null;
+  const via = emailSendVia();
   slot.innerHTML = `
-    <div class="small muted" style="margin-bottom:10px">Tap-to-email with templates already works from any customer — it opens your mail app with the message filled in. Optionally, viniva can also <b>send cadence emails automatically</b> when you open the app, so follow-ups go out without you touching them.</div>
+    <div class="strong" style="margin-bottom:6px">${icon("mail")} Your Outlook</div>
+    <div class="small muted" style="margin-bottom:10px">Connect your Outlook once and email works both ways: what you send from viniva goes out <b>from your own address</b> and lands in your Sent Items, and customers' replies are filed into their history here. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
-      <summary class="strong small">${icon("help")} Set up automated sending (optional)</summary>
+      <summary class="strong small">${icon("help")} One-time setup (~5 min, once for the whole store)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li>Create a free account at <span class="mono">resend.com</span> and verify a domain you own (so emails come from your address, not spam).</li>
-        <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">RESEND_API_KEY</span> (from Resend) and <span class="mono">EMAIL_FROM</span> (like <span class="mono">Parm &lt;parm@yourdomain.com&gt;</span>).</li>
-        <li>Make sure your function has the latest viniva code, then use <b>Send a test</b> below.</li>
+        <li>Go to <span class="mono">entra.microsoft.com</span> → <b>App registrations</b> → <b>New registration</b>. Name it "viniva".</li>
+        <li>Supported accounts: <b>any org directory and personal Microsoft accounts</b>.</li>
+        <li>Redirect URI: choose platform <b>Single-page application (SPA)</b> and enter <span class="mono">${esc(location.origin + location.pathname)}</span></li>
+        <li>Copy the <b>Application (client) ID</b> and paste it below, then tap Connect and sign in with the mailbox you sell from. Allow <b>Read your mail</b> and <b>Send mail as you</b>.</li>
       </ol>
+      <div class="small muted" style="margin-top:6px">A work (O'Regan's) mailbox may need IT to allow the sign-in the first time; a personal Outlook/Hotmail account works right away. Every rep uses the same Application ID and signs in with their own mailbox.</div>
     </details>
+    ${outlookConnected() ? `
+      <div class="small" style="margin-bottom:10px">${icon("checkline")} Connected as <b>${esc((outlookAccount() || {}).email || "your account")}</b>${lastMailPull() ? ` <span class="muted">· last checked ${esc(timeAgo(lastMailPull()))}</span>` : ""}${outlookCanSend() ? ` <span class="muted">· sends from this address</span>` : ""}</div>
+      ${outlookCanSend() ? "" : `<div class="hint" style="margin-bottom:10px">This connection can read your mail but not send from it. Tap <b>Connect Outlook</b> again and allow <b>Send mail as you</b>.</div>`}
+      <div class="btn-row">
+        <button class="btn btn-sm btn-primary" id="ms-pull" type="button">Check mail now</button>
+        ${outlookCanSend() ? "" : `<button class="btn btn-sm" id="ms-connect" type="button">Connect Outlook</button>`}
+        <button class="btn btn-sm btn-ghost" id="ms-off" type="button">Disconnect</button>
+      </div>
+    ` : `
+      <div class="field"><label>Application (client) ID</label><input id="ms-client" value="${esc(s.msClientId || "")}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+      <button class="btn btn-sm btn-primary" id="ms-connect" type="button">Connect Outlook</button>
+    `}
+    <div class="hint" id="ms-out"></div>
+
+    <hr class="divider" />
+    <div class="strong" style="margin-bottom:6px">${icon("send")} Sending</div>
+    <div class="small muted" style="margin-bottom:10px">${via === "outlook"
+      ? `Emails go out from <b>${esc((outlookAccount() || {}).email || "your Outlook")}</b>.`
+      : via === "function"
+      ? "Emails go out through your function's Resend account. Connect your Outlook above to send from your own address instead."
+      : "Nothing can send yet — connect your Outlook above. (Without Outlook, the function can send through Resend: see below.)"}
+      Tap-to-email from a customer's page always opens your mail app with the message filled in.</div>
     <label class="switch" style="margin-bottom:12px">
       <input type="checkbox" id="em-auto" ${s.emailAutoSend ? "checked" : ""}>
-      Send due cadence emails automatically when the app opens
+      Send due follow-up emails and appointment reminders automatically when the app opens
     </label>
     <div class="field"><label>Send a test to</label><input id="em-test-to" type="email" placeholder="you@email.com" value="${esc(s.contactEmail || "")}"></div>
     <button class="btn btn-sm" id="em-test" type="button">Send a test email</button>
     <div class="hint" id="em-test-out"></div>
+    ${via === "outlook" ? "" : `<details class="cloud-setup" style="margin-top:12px">
+      <summary class="strong small">${icon("help")} Without Outlook: send through the function (Resend)</summary>
+      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+        <li>Create a free account at <span class="mono">resend.com</span> and verify a domain you own (so emails come from your address, not spam).</li>
+        <li>In Supabase → Edge Functions → <b>Secrets</b>, add <span class="mono">RESEND_API_KEY</span> (from Resend) and <span class="mono">EMAIL_FROM</span> (like <span class="mono">Parm &lt;parm@yourdomain.com&gt;</span>).</li>
+        <li>Make sure your function has the latest viniva code, then use <b>Send a test</b> above.</li>
+      </ol>
+    </details>`}
 
     <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("message")} Texting number</div>
@@ -909,30 +943,6 @@ function buildEmail(slot) {
         : `<b>Inbound not confirmed yet.</b> Text something to ${esc(s.smsFrom)} from your own phone — it should appear in the Inbox within a few seconds. If it doesn't, the number's webhook is still pointing at wherever it was before (and if the number belongs to a Messaging Service, the service's webhook is the one that counts).`}
     </div>` : ""}
 
-    <hr class="divider" />
-    <div class="strong" style="margin-bottom:6px">${icon("mail")} Outlook inbox</div>
-    <div class="small muted" style="margin-bottom:10px">Connect your Outlook and viniva pulls customer replies into each lead's email history automatically. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
-    <details class="cloud-setup" style="margin-bottom:12px">
-      <summary class="strong small">${icon("help")} One-time setup (~5 min)</summary>
-      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li>Go to <span class="mono">entra.microsoft.com</span> → <b>App registrations</b> → <b>New registration</b>. Name it "viniva".</li>
-        <li>Supported accounts: <b>any org directory and personal Microsoft accounts</b>.</li>
-        <li>Redirect URI: choose platform <b>Single-page application (SPA)</b> and enter <span class="mono">${esc(location.origin + location.pathname)}</span></li>
-        <li>Copy the <b>Application (client) ID</b> and paste it below, then tap Connect.</li>
-      </ol>
-      <div class="small muted" style="margin-top:6px">A work (O'Regan's) mailbox may need IT to allow the sign-in; a personal Outlook/Hotmail account works right away.</div>
-    </details>
-    ${outlookConnected() ? `
-      <div class="small" style="margin-bottom:10px">${icon("checkline")} Connected as <b>${esc((outlookAccount() || {}).email || "your account")}</b>${lastMailPull() ? ` <span class="muted">· last checked ${esc(timeAgo(lastMailPull()))}</span>` : ""}</div>
-      <div class="btn-row">
-        <button class="btn btn-sm btn-primary" id="ms-pull" type="button">Check mail now</button>
-        <button class="btn btn-sm btn-ghost" id="ms-off" type="button">Disconnect</button>
-      </div>
-    ` : `
-      <div class="field"><label>Application (client) ID</label><input id="ms-client" value="${esc(s.msClientId || "")}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
-      <button class="btn btn-sm btn-primary" id="ms-connect" type="button">Connect Outlook</button>
-    `}
-    <div class="hint" id="ms-out"></div>
   `;
   slot.querySelector("#em-auto").addEventListener("change", (e) => {
     store.updateSettings({ emailAutoSend: e.target.checked });
@@ -1132,12 +1142,12 @@ function buildEmail(slot) {
   btn.addEventListener("click", async () => {
     const to = (slot.querySelector("#em-test-to").value || "").trim();
     if (!to) { out.textContent = "Enter an address to send the test to"; return; }
-    if (!emailSendConfigured()) { out.textContent = "Set up the voice agent first (its function does the sending)"; return; }
+    if (!emailSendConfigured()) { out.textContent = "Connect your Outlook above first (or set up the function's Resend sending)"; return; }
     btn.disabled = true;
     out.textContent = "Sending…";
     try {
       await sendEmail({ to, subject: "viniva test email", text: "This is a test from viniva — automated sending is working. 🎉" });
-      out.textContent = "✓ Sent! Check that inbox (and spam, the first time).";
+      out.textContent = `✓ Sent${emailSendVia() === "outlook" ? " from your Outlook" : ""}! Check that inbox (and spam, the first time).`;
       toast("Test email sent", "success");
     } catch (e) {
       out.textContent = `✗ ${e.message || "Send failed"}`;

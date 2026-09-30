@@ -228,12 +228,16 @@ With the "send automatically" toggle on, any due cadence steps whose channel is
 email go out when you open the app (capped, logged to each lead's email
 history, and skipped for leads with no email or already sold/lost).
 
-## Outlook inbox (read customer replies)
+## Outlook (send from your own address, read customer replies)
 
-viniva can pull your Outlook inbox and file customer replies into each lead's
-email history automatically. This runs entirely on your phone — the app signs
-into Microsoft directly (OAuth + PKCE), tokens stay on the device, and only
-mail from your customers is kept. No server involved.
+Connect your Outlook once and email works both ways: what viniva sends —
+follow-up emails, appointment reminders, the test — goes out from your own
+mailbox and lands in your Sent Items, and customer replies are filed into
+each lead's email history automatically. This runs entirely on your phone —
+the app signs into Microsoft directly (OAuth + PKCE), tokens stay on the
+device, and only mail from your customers is kept. No server involved, and
+no Resend needed. (A connection made before sending existed reads only; tap
+Connect Outlook again to allow sending.)
 
 ### One-time setup (~5 minutes)
 
@@ -245,8 +249,10 @@ mail from your customers is kept. No server involved.
    app's URL (e.g. `https://entoa.ai/`). The SPA platform type is required —
    it's what lets the app exchange tokens without a server secret.
 4. Copy the **Application (client) ID** and paste it into viniva →
-   **Settings → Email → Outlook inbox**, then tap **Connect Outlook** and sign
-   in with the Microsoft account whose mail you want.
+   **Settings → Email → Your Outlook**, then tap **Connect Outlook** and sign
+   in with the mailbox you sell from. Allow **Read your mail** and **Send
+   mail as you**. One registration serves the whole store: every rep pastes
+   the same ID and signs in with their own mailbox.
 
 Mail is matched to customers by email address first, then by exact name (a
 name match backfills the customer's email address). Unmatched mail is ignored

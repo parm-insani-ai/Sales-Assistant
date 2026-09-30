@@ -1,8 +1,10 @@
-// Outlook inbox sync — Microsoft Graph, entirely on-device.
-// The app signs into the user's Microsoft account with OAuth (authorization
-// code + PKCE, registered as a Single-Page Application so no secret is
-// needed), keeps the tokens in localStorage on this device only, and pulls
-// recent inbox mail straight from Graph. Senders are matched to customers
+// Outlook — Microsoft Graph, entirely on-device. One connection does both
+// halves of email: the app signs into the user's Microsoft account with
+// OAuth (authorization code + PKCE, registered as a Single-Page Application
+// so no secret is needed), keeps the tokens in localStorage on this device
+// only, pulls recent inbox mail straight from Graph, and sends through the
+// same mailbox (Mail.Send) so every email comes from the salesperson's own
+// address and lands in their Sent Items. Senders are matched to customers
 // (by email address, then by exact name) and matched messages land in the
 // lead's email history as "↓ In". Unmatched personal mail is ignored and
 // never stored.
@@ -18,7 +20,7 @@ const TOK_KEY = "viniva:msmail:tokens";
 const LAST_KEY = "viniva:msmail:last";
 const AUTH_BASE = "https://login.microsoftonline.com";
 const GRAPH = "https://graph.microsoft.com/v1.0";
-const SCOPE = "openid profile offline_access https://graph.microsoft.com/Mail.Read";
+const SCOPE = "openid profile offline_access https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.Send";
 
 function cfg() {
   const s = store.getSettings();
@@ -30,6 +32,9 @@ function loadTok() { try { return JSON.parse(localStorage.getItem(TOK_KEY) || "n
 function saveTok(t) { try { localStorage.setItem(TOK_KEY, JSON.stringify(t)); } catch {} }
 export function outlookAccount() { const t = loadTok(); return (t && t.account) || null; }
 export function outlookConnected() { return !!loadTok(); }
+// A connection made before sending existed carries no Mail.Send consent;
+// it reads fine and needs one more Connect to send.
+export function outlookCanSend() { const t = loadTok(); return !!(t && /Mail\.Send/.test(t.scope || "")); }
 export function disconnectOutlook() { localStorage.removeItem(TOK_KEY); localStorage.removeItem(LAST_KEY); }
 export function lastMailPull() { return localStorage.getItem(LAST_KEY) || null; }
 
@@ -97,6 +102,7 @@ export async function handleAuthRedirect() {
     accessToken: j.access_token,
     refreshToken: j.refresh_token || null,
     expiresAt: Date.now() + ((j.expires_in || 3600) * 1000) - 60000,
+    scope: j.scope || SCOPE,
     account,
   });
   return true;
@@ -113,9 +119,28 @@ async function accessToken() {
     accessToken: j.access_token,
     refreshToken: j.refresh_token || t.refreshToken,
     expiresAt: Date.now() + ((j.expires_in || 3600) * 1000) - 60000,
+    scope: j.scope || t.scope || "",
   };
   saveTok(nt);
   return nt.accessToken;
+}
+
+// Send one email from the connected mailbox. Plain text, one recipient,
+// saved to Sent Items like anything else sent from Outlook.
+export async function sendViaOutlook({ to, subject, text }) {
+  if (!outlookCanSend()) throw new Error("Outlook is connected for reading only — tap Connect Outlook again in Settings → Email to allow sending");
+  const token = await accessToken();
+  const res = await fetch(`${GRAPH}/me/sendMail`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: { subject: String(subject || ""), body: { contentType: "Text", content: String(text || "") }, toRecipients: [{ emailAddress: { address: String(to || "").trim() } }] },
+      saveToSentItems: true,
+    }),
+  });
+  if (res.status === 202) return true;
+  const j = await res.json().catch(() => ({}));
+  throw new Error((j.error && j.error.message) || `Outlook send failed (${res.status})`);
 }
 
 // Pull recent inbox mail and file customer messages into their email history.

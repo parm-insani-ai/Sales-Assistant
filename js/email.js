@@ -1,19 +1,26 @@
 // Email engine. Three optional tiers, lightest first:
 //   1. Tap-to-email — mailto: links + templates (always available, no setup).
-//   2. Automated sending — real emails through the Supabase function using a
-//      Resend API key (secrets RESEND_API_KEY + EMAIL_FROM). When the
-//      "emailAutoSend" setting is on, due cadence email steps go out
-//      automatically each time the app opens.
+//   2. Sending — from the salesperson's own Outlook once it's connected
+//      (msmail.js: Microsoft Graph, on-device, lands in their Sent Items),
+//      or, without Outlook, through the Supabase function with a Resend key
+//      (secrets RESEND_API_KEY + EMAIL_FROM). When the "emailAutoSend"
+//      setting is on, due cadence email steps and appointment reminders go
+//      out automatically each time the app opens.
 //   3. Email history — every sent email (tap-to-email or automated) is logged
-//      to the lead, and received emails can be logged by hand. Full inbox sync
-//      would need OAuth/IT approval, so it's deliberately not built yet.
+//      to the lead; replies come in from the connected Outlook.
 
 import * as store from "./store.js";
 import * as backend from "./backend.js";
 import { fillTemplate } from "./views/messages.js";
+import { outlookCanSend, sendViaOutlook } from "./msmail.js";
 
+// Which way an email goes out: "outlook", "function", or "" for none.
+export function emailSendVia() {
+  if (outlookCanSend()) return "outlook";
+  return (store.getSettings().agentUrl || "").trim() ? "function" : "";
+}
 export function emailSendConfigured() {
-  return !!(store.getSettings().agentUrl || "").trim();
+  return !!emailSendVia();
 }
 
 // The last reason automatic sending failed, and whether it's a setup problem
@@ -49,8 +56,11 @@ export function isSetupError(msg) {
 // Send one real email through the Supabase function. Throws a plain-language
 // message when a config step is missing.
 export async function sendEmail({ to, subject, text }) {
+  // The salesperson's own mailbox first: it's their address, their Sent
+  // Items, and nothing to set up beyond the one connection.
+  if (outlookCanSend()) return sendViaOutlook({ to, subject, text });
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
-  if (!url) throw new Error("Set up the voice agent function first (Settings → Voice agent) — emails send through the same function");
+  if (!url) throw new Error("Connect your Outlook in Settings → Email (or set up the function's Resend sending) — nothing can send yet");
   let res;
   try {
     res = await fetch(url, {
