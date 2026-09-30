@@ -135,12 +135,14 @@ export function parseCommand(raw) {
     let name = between(t, /\b(lead|customer|prospect)\b/, /\b(interested|looking|wants|who wants|for a|follow|phone|number|email|$)/);
     const vehicle = between(t, /\b(interested in|looking for|wants|for a)\b/, /\b(follow|phone|number|email|$)/).replace(/^(a|an|the)\s+/i, "");
     const followUp = parseDay(t.match(/follow ?up[\s\S]*/)?.[0] || "");
+    // "…phone 902 555 1212" / "number is 9025551212": the number, when it was said.
+    const phone = phoneIn(between(t, /\b(phone|number|cell)\b/, /\b(email|interested|looking|follow|$)/));
     name = titleCase(name);
     if (!name) return { action: "error" };
     // Whatever else was said goes on the record whole. Offline, nothing can
     // pick the trim and the budget out of the sentence — but the sentence
     // itself is the context, and losing it is worse than not parsing it.
-    return { action: "lead", name, vehicleInterest: vehicle ? titleCase(vehicle) : "", followUp, notes: String(raw || "").trim(), shopping: inferShopping(raw) };
+    return { action: "lead", name, phone, vehicleInterest: vehicle ? titleCase(vehicle) : "", followUp, notes: String(raw || "").trim(), shopping: inferShopping(raw) };
   }
 
   // 2) Add task / reminder
@@ -205,6 +207,18 @@ export function parseCommand(raw) {
   return { action: "error" };
 }
 
+// The customer the offline parser just added without a number, so the next
+// thing said can be their phone number. Taken once.
+let lastCreated = null;
+export function takeLastCreated() { const id = lastCreated; lastCreated = null; return id; }
+
+// Ten or more digits in what was said — "902 555 1212", or the words the
+// engine sometimes leaves ("nine oh two…"), which asr.js has already joined.
+export function phoneIn(said) {
+  const digits = String(said || "").replace(/\D/g, "");
+  return digits.length >= 10 && digits.length <= 11 ? digits : null;
+}
+
 // ---------- Execute a parsed command; returns a spoken confirmation ----------
 export function executeCommand(cmd) {
   switch (cmd.action) {
@@ -214,14 +228,17 @@ export function executeCommand(cmd) {
     case "lead": {
       const lead = store.create("leads", {
         name: cmd.name, vehicleInterest: cmd.vehicleInterest || "", stage: "new",
-        source: "Voice", followUp: cmd.followUp || null, phone: "", email: "", notes: "", shopping: cmd.shopping || "",
+        source: "Voice", followUp: cmd.followUp || null, phone: cmd.phone || "", email: "", notes: "", shopping: cmd.shopping || "",
       });
       addContext(lead.id, { note: cmd.notes || "" });
       // Adding them by voice puts them in the log — the conversation the sales target counts.
       logCustomer(lead.id);
       const n = maybeStartCadence(lead.id);
       navigate(`/leads/${lead.id}`);
-      return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan` : ""}. Add their phone number to start texting.`;
+      // No number said: the panel asks for it next (see awaitingPhone in the
+      // conversation loop) — every customer added gets one.
+      if (!cmd.phone) lastCreated = lead.id;
+      return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan` : ""}.${cmd.phone ? "" : ` What's ${cmd.name.split(" ")[0]}'s phone number?`}`;
     }
     case "task": {
       store.create("tasks", { title: cmd.title, due: cmd.due || "", priority: "normal", done: false });
@@ -661,9 +678,38 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     return "I can't work that out without the assistant connected — open Settings and tap Test connection under Voice agent.";
   };
 
+  // The customer the offline parser just added without a number: the next
+  // thing said is taken as it (or as "don't have it").
+  let awaitingPhone = null;
+
   const run = async (text) => {
     const said = (text || "").trim();
     if (!said || busy) return;
+    if (awaitingPhone) {
+      const lead = store.get("leads", awaitingPhone);
+      const phone = phoneIn(said);
+      if (lead && phone) {
+        awaitingPhone = null;
+        busy = true; stopHearing(); addMe(said); textInput.value = "";
+        store.update("leads", lead.id, { phone });
+        const t = startTurn(); t.step(`Adding the number to ${lead.name}`);
+        const reply = `Got it — ${phone.replace(/(\d{3})(\d{3})(\d{4})$/, "$1 $2 $3")} is on ${lead.name.split(" ")[0]}'s file.`;
+        t.reply(reply); setStatus(reply); wave.set("speaking"); busy = false;
+        if (!muted()) await speakAsync(reply);
+        if (!closed) listen();
+        return;
+      }
+      if (/\b(don'?t|do not|no|skip|later|not sure|haven'?t)\b/i.test(said) && said.split(/\s+/).length <= 6) {
+        awaitingPhone = null;
+        busy = true; stopHearing(); addMe(said); textInput.value = "";
+        const t = startTurn(); const reply = `Okay — no number for ${lead ? lead.name.split(" ")[0] : "them"} yet.`;
+        t.reply(reply); setStatus(reply); busy = false;
+        if (!muted()) await speakAsync(reply);
+        if (!closed) listen();
+        return;
+      }
+      awaitingPhone = null; // something else entirely — carry on with it
+    }
     if (isFarewell(said)) {
       await speakAsync("Okay.");
       return close();
@@ -705,6 +751,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
       }
     } else {
       reply = onParser(said);
+      awaitingPhone = takeLastCreated(); // a customer added without a number: the reply asked for it
     }
 
     turn.reply(reply, { error: !ok });

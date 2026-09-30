@@ -23,6 +23,14 @@ export function openReferralCapture(fromName = "", fromLeadId = null) {
     const { element } = buildForm(fields, {
       submitLabel: "Add to pipeline",
       onSubmit: (data) => {
+        // A referral without a number can't be reached — ask before adding.
+        for (let i = 1; i <= 3; i++) {
+          if ((data[`name${i}`] || "").trim() && !(data[`phone${i}`] || "").trim()) {
+            toast(`Add a phone number for ${data[`name${i}`].trim()}`, "danger");
+            element.querySelector(`[name="phone${i}"]`)?.focus();
+            return;
+          }
+        }
         let added = 0;
         for (let i = 1; i <= 3; i++) {
           const name = (data[`name${i}`] || "").trim();

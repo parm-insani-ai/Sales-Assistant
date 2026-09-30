@@ -101,8 +101,8 @@ if (after.goalUnits !== 12 || after.tiles.join() !== "3/12,7/26" || after.cats[0
 // the conversation and their new / used, with nothing else to type.
 const spoken = await p.evaluate(async () => {
   const a = await import("/js/agent.js"); const s = await import("/js/store.js"); const m = await import("/js/target.js");
-  await a.execTool("create_lead", { name: "Rae Test", vehicle: "2022 Rogue SV", newUsed: "used", notes: "Looking at a used Rogue, wants a moonroof" });
-  await a.execTool("create_lead", { name: "Sam Test", vehicle: "2026 Kicks", notes: "Wants the new Kicks" });
+  await a.execTool("create_lead", { name: "Rae Test", phone: "9025550101", vehicle: "2022 Rogue SV", newUsed: "used", notes: "Looking at a used Rogue, wants a moonroof" });
+  await a.execTool("create_lead", { name: "Sam Test", phone: "9025550102", vehicle: "2026 Kicks", notes: "Wants the new Kicks" });
   const rae = s.all("leads").find((l) => l.name === "Rae Test"), sam = s.all("leads").find((l) => l.name === "Sam Test");
   const t = m.salesTarget();
   return { rae: [rae.shopping, !!rae.lastContacted, rae.lastContactVia], sam: [sam.shopping, !!sam.lastContacted], spoke: [t.spoke, t.spokeNew, t.spokeUsed], infer: [m.inferShopping("add a customer Dana who wants a used Rogue"), m.inferShopping("new lead Ken looking for a 2026 Pathfinder"), m.inferShopping("add lead Jo interested in a Sentra")] };
