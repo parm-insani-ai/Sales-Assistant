@@ -74,12 +74,12 @@ export function renderDashboard(view) {
 
     <div class="target-slot"></div>
 
-    <div class="nudge-slot"></div>
-
     <div class="stat-grid">
       <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
       <div class="stat card-tap" data-goto="/appts"><div class="stat-value">${upcomingAppts.length}</div><div class="stat-label">Appointments ›</div></div>
     </div>
+
+    <div class="nudge-slot"></div>
 
     ${upcomingFollowUps.length ? `<div class="section-title">Coming up</div><div class="upcoming-list"></div>` : ""}
 
@@ -105,7 +105,7 @@ export function renderDashboard(view) {
       row.className = `row nudge-row${n.urgency >= 85 ? " nudge-hot" : ""}${n.locked ? " nudge-locked" : ""}`;
       row.innerHTML = `<div class="row-main" style="min-width:0">
           <div class="row-title">${esc(n.title)}</div>
-          <div class="row-sub">${esc(n.sub)}</div>
+          ${n.sub ? `<div class="row-sub">${esc(n.sub)}</div>` : ""}
         </div><div class="row-meta">${n.locked ? icon("clock") : "\u203a"}</div>`;
       if (n.locked && n.unlockAt) { const t = new Date(n.unlockAt).getTime(); if (t > Date.now() && (!nextUnlock || t < nextUnlock)) nextUnlock = t; }
       row.addEventListener("click", async () => {

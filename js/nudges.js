@@ -97,7 +97,9 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       kind: "touch",
       taskId: t.id,
       title: `${firstName(lead.name)}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is ready`,
-      sub: lead.phone ? "Drafted from what you told me — read it, then send." : "No phone number on file yet — add one to send it.",
+      // The title says it all; a tap opens the draft. Only a missing
+      // number earns a second line.
+      sub: lead.phone ? "" : "No phone number on file yet — add one to send it.",
       route: lead.phone ? null : `/leads/${lead.id}`,
       at: t.readyAt,
     });
