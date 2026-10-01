@@ -10,8 +10,9 @@ import { monthSummary } from "./goals.js";
 import { salesTarget, openTargetForm } from "../target.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
+import { swipeable, undoToast } from "../components.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
-import { getNudges, missingWelcomes } from "../nudges.js";
+import { getNudges, missingWelcomes, dismissNudge, restoreNudge } from "../nudges.js";
 import { reviewTouch } from "../touches.js";
 import { ensurePlans } from "../apptplan.js";
 
@@ -126,7 +127,21 @@ export function renderDashboard(view) {
         if (n.href) { window.location.href = n.href; return; }
         if (n.route) navigate(n.route);
       });
-      box.appendChild(row);
+      // Swipe left: a text or reminder is ticked off (a text sent from the
+      // app clears itself; one sent from the phone's Messages doesn't), a
+      // reply is marked read, anything else is hidden for the day. Undo
+      // on the toast.
+      const ticks = n.kind === "touch" || n.kind === "reminder";
+      box.appendChild(swipeable(row, {
+        label: ticks ? "Done" : n.kind === "reply" ? "Read" : "Hide",
+        onDelete: () => {
+          const t = n.taskId ? store.get("tasks", n.taskId) : null;
+          const snapshot = t ? { id: t.id, leadId: t.leadId, lastContacted: t.leadId ? (store.get("leads", t.leadId) || {}).lastContacted : undefined } : null;
+          const said = dismissNudge(n);
+          paintNudges();
+          if (said) undoToast(said, () => { restoreNudge(n, snapshot); paintNudges(); });
+        },
+      }));
     });
     nudgeSlot.appendChild(box);
     // A locked text flips to "ready" at its minute, not at the next tick.

@@ -74,6 +74,48 @@ function apptTime(when) {
  *   urgency 0-100, for ordering and for deciding what's worth a push
  *   href    a one-tap action (dial / open a thread) where there is one
  */
+// Swiping a nudge away. A text or a reminder is ticked off for real (the
+// task is done); a reply is marked read; anything else — a shaky
+// appointment, a cold deal — is hidden until tomorrow, on this phone.
+const DISMISS_KEY = "viniva:nudges:hidden";
+function dismissedToday() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}");
+    const today = new Date().toISOString().slice(0, 10);
+    return new Set(Object.keys(d).filter((k) => d[k] === today));
+  } catch { return new Set(); }
+}
+export function dismissNudge(n) {
+  if (!n) return "";
+  if (n.kind === "touch" || n.kind === "reminder") {
+    const t = n.taskId ? store.get("tasks", n.taskId) : null;
+    if (!t || t.done) return "";
+    const now = new Date().toISOString();
+    store.update("tasks", t.id, { done: true, doneBy: "swipe", doneAt: now });
+    if (t.cadence) { store.logActivity("touch"); if (t.leadId) store.update("leads", t.leadId, { lastContacted: now }); }
+    return n.kind === "touch" ? "Marked sent" : "Reminder done";
+  }
+  if (n.kind === "reply") {
+    const leadId = String(n.key || "").split(":")[1];
+    if (leadId) store.markThreadRead(leadId);
+    return "Marked read";
+  }
+  try {
+    const d = JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}");
+    const today = new Date().toISOString().slice(0, 10);
+    Object.keys(d).forEach((k) => { if (d[k] !== today) delete d[k]; });
+    d[n.key] = today;
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(d));
+  } catch { /* no storage: it comes back on the next paint */ }
+  return "Hidden for today";
+}
+// Put a swiped nudge back (the Undo on the toast).
+export function restoreNudge(n, snapshot) {
+  if (!n) return;
+  if ((n.kind === "touch" || n.kind === "reminder") && snapshot) { store.update("tasks", snapshot.id, { done: false, doneBy: null, doneAt: null }); if (snapshot.lastContacted !== undefined && snapshot.leadId) store.update("leads", snapshot.leadId, { lastContacted: snapshot.lastContacted }); return; }
+  try { const d = JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}"); delete d[n.key]; localStorage.setItem(DISMISS_KEY, JSON.stringify(d)); } catch { /* fine */ }
+}
+
 // Why a customer added in the last quarter hour has no welcome text on the
 // list, said plainly under it — so a missing one is never a mystery. Null
 // when every fresh customer's welcome is accounted for.
@@ -179,6 +221,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         key: `rem:${t.id}`,
         urgency: Math.min(97, 90 + Math.floor(mins / 30)),
         kind: "reminder",
+        taskId: t.id,
         title: `⏰ ${t.title}`,
         sub: `Reminder for ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${mins >= 2 ? ` · ${human(mins)} ago` : ""} — tick it off on Today.`,
         route: "/today",
@@ -308,8 +351,12 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   // Most urgent first — with the pinned ones (a new customer's welcome
   // text) ahead of the cut, so a short list never loses them to older,
   // higher-scoring follow-ups.
-  out.sort((a, b) => b.urgency - a.urgency);
-  const pinned = out.filter((n) => n.pin), rest = out.filter((n) => !n.pin);
+  // Swiped away: hidden for the rest of the day (the ones with nothing to
+  // tick — a shaky appointment, a cold deal). The rest clear themselves.
+  const hidden = dismissedToday();
+  const kept = out.filter((n) => !hidden.has(n.key));
+  kept.sort((a, b) => b.urgency - a.urgency);
+  const pinned = kept.filter((n) => n.pin), rest = kept.filter((n) => !n.pin);
   // Pinned ones are never cut, even by each other: five customers added
   // today is five welcome texts on the list, the newest first.
   return [...pinned, ...rest.slice(0, Math.max(0, limit - pinned.length))];

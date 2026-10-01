@@ -206,6 +206,29 @@ const why = await p.evaluate(async () => {
 console.log("missing:", JSON.stringify(why.missing));
 if (!why.missing || !/Lena/.test(why.missing[0].name) || !/off in Settings/.test(why.missing[0].why) || !/Lena Oduya was added/.test(why.home)) fail("Home should say why a fresh customer has no welcome text: " + JSON.stringify(why));
 
+// --- Swipe to clear: each row is swipeable; a text is ticked off (and comes
+// back with Undo), a shaky appointment is hidden for the day.
+const swipe = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const m = await import("/js/nudges.js");
+  const wrapped = document.querySelectorAll(".nudge-card .swipe-wrap .nudge-row").length;
+  const trays = [...document.querySelectorAll(".nudge-card .swipe-act")].map((b) => b.textContent.trim());
+  const touch = m.getNudges({ limit: 50 }).find((n) => n.kind === "touch" && /ready/.test(n.title));
+  const before = store.get("tasks", touch.taskId).done;
+  const said = m.dismissNudge(touch);
+  const gone = !m.getNudges({ limit: 50 }).some((n) => n.key === touch.key);
+  const done = store.get("tasks", touch.taskId).done;
+  m.restoreNudge(touch, { id: touch.taskId, leadId: null });
+  const back = m.getNudges({ limit: 50 }).some((n) => n.key === touch.key);
+  const cold = m.getNudges({ limit: 50 }).find((n) => n.kind === "cold" || n.kind === "prep");
+  const hid = cold ? m.dismissNudge(cold) : "";
+  const hidden = cold ? !m.getNudges({ limit: 50 }).some((n) => n.key === cold.key) : true;
+  return { wrapped, trays: [...new Set(trays)], before, said, gone, done, back, hid, hidden };
+});
+console.log("swipe:", JSON.stringify(swipe));
+if (!swipe.wrapped || !swipe.trays.includes("Done")) fail("Right now rows should be swipeable with a Done tray: " + JSON.stringify(swipe));
+if (swipe.before || swipe.said !== "Marked sent" || !swipe.gone || !swipe.done || !swipe.back) fail("swiping a text should tick it off and Undo should bring it back: " + JSON.stringify(swipe));
+if (swipe.hid !== "Hidden for today" || !swipe.hidden) fail("swiping something with nothing to tick should hide it for the day: " + JSON.stringify(swipe));
+
 // --- And it's on Home, above the day's queue.
 const home = await p.$eval(".nudge-slot", (n) => n.textContent.replace(/\s+/g, " ").trim()).catch(() => "");
 console.log("\nHome strip:", home.slice(0, 120));

@@ -1629,6 +1629,9 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .nudge-card { padding: 4px 14px; }
 .nudge-row { padding: 11px 0; border-bottom: 1px solid var(--border); cursor: pointer; gap: 10px; }
 .nudge-row:last-child { border-bottom: none; }
+.nudge-card .swipe-wrap:last-child .nudge-row { border-bottom: none; }
+.nudge-card .swipe-wrap .nudge-row { padding-left: 2px; padding-right: 2px; }
+.nudge-card .swipe-act { font-size: 0.74rem; }
 .nudge-row:active { opacity: .6; }
 .nudge-row .row-meta { color: var(--muted); font-size: 1.1rem; line-height: 1; }
 .nudge-hot .row-title { color: var(--brand-strong); }
