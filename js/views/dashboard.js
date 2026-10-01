@@ -11,7 +11,7 @@ import { salesTarget, openTargetForm } from "../target.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
-import { getNudges } from "../nudges.js";
+import { getNudges, missingWelcomes } from "../nudges.js";
 import { reviewTouch } from "../touches.js";
 import { ensurePlans } from "../apptplan.js";
 
@@ -95,8 +95,17 @@ export function renderDashboard(view) {
   function paintNudges() {
     const list = getNudges({ limit: 4 });
     nudgeSlot.innerHTML = "";
+    // A customer added minutes ago with no welcome text here: say why.
+    const missing = missingWelcomes();
+    if (missing) {
+      const note = document.createElement("div");
+      note.className = "small muted nudge-missing";
+      note.style.margin = "0 2px 10px";
+      note.innerHTML = missing.map((m) => `${icon("alert")} ${esc(m.name)} was added ${m.mins} min ago — no welcome text here: ${esc(m.why)}.`).join("<br>");
+      nudgeSlot.appendChild(note);
+    }
     if (!list.length) return;
-    nudgeSlot.innerHTML = `<div class="section-title">Right now <span class="muted">\u00b7 ${list.length}</span></div>`;
+    nudgeSlot.insertAdjacentHTML("afterbegin", `<div class="section-title">Right now <span class="muted">\u00b7 ${list.length}</span></div>`);
     const box = document.createElement("div");
     box.className = "card nudge-card";
     let nextUnlock = 0;

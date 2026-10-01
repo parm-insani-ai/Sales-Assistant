@@ -171,6 +171,41 @@ console.log("dated note:", JSON.stringify(dated));
 if (dated.minsOut == null || dated.minsOut < 3 || dated.minsOut > 6) fail("a day in the note moved the welcome text — it should still be five minutes out: " + JSON.stringify(dated));
 if (!/Omar's welcome text is drafted/.test(dated.first)) fail("the welcome text should still lead Right now: " + JSON.stringify(dated));
 
+// --- Nor to the day's other welcome texts. Five customers added earlier
+// today, their welcomes ready and unsent, were the whole list — and the
+// one just added, locked, fell off the end. The newest is first and none
+// of them is cut.
+const busyDay = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js"); const m = await import("/js/nudges.js");
+  const ago = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  for (let i = 0; i < 5; i++) {
+    const l = store.create("leads", { name: `Earlier Today${i}`, phone: "902555010" + i, stage: "new", loggedAt: ago(1 + i) });
+    store.create("tasks", { title: `Text Earlier — Welcome text`, due: ago(1 + i).slice(0, 10), at: ago(1 + i), readyAt: ago(1 + i), done: false, leadId: l.id, cadence: true, channel: "text", intent: "intro", step: 1, of: 13 });
+  }
+  const lead = store.create("leads", { name: "Zara Pike", phone: "9025550199", stage: "new", source: "Walk-in", loggedAt: new Date().toISOString() });
+  cadence.startCadence(lead.id);
+  await new Promise((r) => setTimeout(r, 300));
+  const list = m.getNudges({ limit: 4 }).map((n) => n.title);
+  return { first: list[0] || "", n: list.length, welcomes: list.filter((t) => /welcome text/.test(t)).length, home: document.querySelector(".nudge-slot")?.textContent.replace(/\s+/g, " ") || "" };
+});
+console.log("busy day:", JSON.stringify({ ...busyDay, home: busyDay.home.slice(0, 80) }));
+if (!/Zara's welcome text is drafted/.test(busyDay.first)) fail("the customer just added should lead Right now ahead of the day's earlier welcome texts: " + JSON.stringify(busyDay));
+if (busyDay.welcomes < 7) fail("no welcome text should be cut from Right now: " + JSON.stringify(busyDay));
+if (!/Zara's welcome text is drafted/.test(busyDay.home)) fail("Home should show the newest welcome text: " + busyDay.home.slice(0, 160));
+
+// --- And when a fresh customer has no welcome text, Home says why.
+const why = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const m = await import("/js/nudges.js");
+  store.updateSettings({ autoCadence: false });
+  store.create("leads", { name: "Lena Oduya", phone: "9025550777", stage: "new", loggedAt: new Date().toISOString() });
+  await new Promise((r) => setTimeout(r, 300));
+  const r = { missing: m.missingWelcomes(), home: document.querySelector(".nudge-slot")?.textContent.replace(/\s+/g, " ") || "" };
+  store.updateSettings({ autoCadence: true });
+  return r;
+});
+console.log("missing:", JSON.stringify(why.missing));
+if (!why.missing || !/Lena/.test(why.missing[0].name) || !/off in Settings/.test(why.missing[0].why) || !/Lena Oduya was added/.test(why.home)) fail("Home should say why a fresh customer has no welcome text: " + JSON.stringify(why));
+
 // --- And it's on Home, above the day's queue.
 const home = await p.$eval(".nudge-slot", (n) => n.textContent.replace(/\s+/g, " ").trim()).catch(() => "");
 console.log("\nHome strip:", home.slice(0, 120));

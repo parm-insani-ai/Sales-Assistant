@@ -74,6 +74,36 @@ function apptTime(when) {
  *   urgency 0-100, for ordering and for deciding what's worth a push
  *   href    a one-tap action (dial / open a thread) where there is one
  */
+// Why a customer added in the last quarter hour has no welcome text on the
+// list, said plainly under it — so a missing one is never a mystery. Null
+// when every fresh customer's welcome is accounted for.
+export function missingWelcomes({ now = Date.now() } = {}) {
+  const out = [];
+  const shown = new Set(getNudges({ now, limit: 50 }).filter((n) => n.kind === "touch").map((n) => n.taskId));
+  store.all("leads").forEach((l) => {
+    const made = new Date(l.createdAt || 0).getTime();
+    if (!(now - made >= 0 && now - made <= 15 * MIN)) return;
+    // Someone you just met — not a row from an import, a sale logged
+    // after the fact, or a lost lead.
+    if (/import/i.test(String(l.source || "")) || l.demo || !["new", "working", "appointment"].includes(l.stage || "new")) return;
+    const steps = store.all("tasks").filter((t) => t.leadId === l.id && t.cadence);
+    const welcome = steps.find((t) => t.intent === "intro" && t.channel === "text");
+    if (welcome && shown.has(welcome.id)) return;
+    const mins = Math.max(1, Math.round((now - made) / MIN));
+    const s = store.getSettings();
+    let why;
+    if (!steps.length) {
+      const owner = ["sold", "delivered"].includes(l.stage) || l.currentPayment != null || l.payoff != null || l.purchaseDate;
+      why = !s.autoCadence ? "follow-up plans are off in Settings" : owner ? "added as an owner (sold, delivered, or with a payment on file), and an owner's plan has no welcome text" : "no plan was started for them";
+    } else if (!welcome) why = "their plan has no welcome text step";
+    else if (welcome.done) why = "the welcome text was marked done";
+    else if (!welcome.readyAt) why = "the welcome text has no send time";
+    else { const at = new Date(welcome.readyAt).getTime(); why = at > now ? `the welcome text is set for ${new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : `the welcome text was ready at ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} but isn't listed`; }
+    out.push({ leadId: l.id, name: l.name, mins, why });
+  });
+  return out.length ? out : null;
+}
+
 export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   const out = [];
   const leads = store.all("leads");
@@ -118,7 +148,10 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
     const when = new Date(t.readyAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     out.push({
       key: `touch:${t.id}`,
-      urgency: 92,
+      // The customer just added comes before every other welcome text —
+      // the ones from earlier today, ready and unsent, score higher as
+      // they age and were taking the top of the list from the newest.
+      urgency: t.intent === "intro" ? 99 : 92,
       pin: t.intent === "intro",
       kind: "touch",
       taskId: t.id,
@@ -277,7 +310,9 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   // higher-scoring follow-ups.
   out.sort((a, b) => b.urgency - a.urgency);
   const pinned = out.filter((n) => n.pin), rest = out.filter((n) => !n.pin);
-  return [...pinned, ...rest].slice(0, limit);
+  // Pinned ones are never cut, even by each other: five customers added
+  // today is five welcome texts on the list, the newest first.
+  return [...pinned, ...rest.slice(0, Math.max(0, limit - pinned.length))];
 }
 
 // The one-line version, for the agent and for anywhere that wants a summary
