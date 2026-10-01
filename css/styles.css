@@ -1633,7 +1633,14 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .nudge-card .swipe-wrap:last-child .nudge-row { border-bottom: none; }
 .nudge-card .swipe-wrap .nudge-row { padding-left: 2px; padding-right: 2px; }
 .nudge-card .swipe-act { font-size: 0.74rem; }
+/* iOS paints its own square grey flash on anything tappable; off here, so
+   the press shows as the rounded tint below and nothing else. */
+.nudge-row { border-radius: 12px; margin: 0 -8px; padding-left: 8px; padding-right: 8px; -webkit-tap-highlight-color: transparent; }
 .nudge-row:active { background: var(--surface-2); }
+/* A swiped row keeps its own surface over the tray; the wrap clips to the
+   same rounded shape so the tray's corners match the row's. */
+.nudge-card .swipe-wrap { border-radius: 12px; margin: 0 -8px; }
+.nudge-card .swipe-wrap .nudge-row { margin: 0; padding-left: 8px; padding-right: 8px; }
 .nudge-row .row-meta { color: var(--muted); font-size: 1.1rem; line-height: 1; }
 .nudge-hot .row-title { color: var(--brand-strong); }
 /* Drafted, locked for its minutes: a clock where the chevron would be. */
