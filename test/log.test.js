@@ -24,8 +24,11 @@ await p.addInitScript(() => {
       { id: "t2", title: "Call the bank about Dana", due: key(ago).slice(0, 10), leadId: "a", channel: "call", done: false, ...x },
       { id: "r1", title: "Ring Dana back", due: key(ago).slice(0, 10), remindAt: key(ago), channel: "reminder", done: false, ...x },
       { id: "r2", title: "Check the SV came in", due: key(later).slice(0, 10), remindAt: key(later), channel: "reminder", leadId: "a", done: false, ...x },
+      // Two next moves the app filed from a note: one the assistant can run, one only the salesperson can.
+      { id: "c1", title: "3 in stock under their budget", due: key(later).slice(0, 10), leadId: "a", source: "context", kind: "budget", done: false, ...x },
+      { id: "c2", title: "Appraise the trade: 2019 Altima", due: key(later).slice(0, 10), leadId: "a", source: "context", kind: "trade", done: false, ...x },
     ],
-    settings: { salesperson: "Parm", cloudAutoSync: false },
+    settings: { salesperson: "Parm", cloudAutoSync: false, agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" },
   }));
 });
 
@@ -45,18 +48,18 @@ const document_log = (t) => t.log.join(",");
 console.log("log:", JSON.stringify(today, null, 1));
 if (today.chips.map((c) => c.tab).join() !== "logged,todos,queue") fail("the three chips aren't there in order: " + JSON.stringify(today.chips));
 if (today.shown.join() !== "logged" || !today.chips[0].active) fail("Logged should be the chip on screen first: " + JSON.stringify(today));
-if (!/^Logged\s?1$/.test(today.chips[0].label) || !/^To-dos\s?4$/.test(today.chips[1].label) || !/^Queue\s?\d/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
+if (!/^Logged\s?1$/.test(today.chips[0].label) || !/^To-dos\s?6$/.test(today.chips[1].label) || !/^Queue\s?\d/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
 if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list the customer logged this month");
 // One list, soonest first by when it's actually due: the reminder that's
 // due now, the one later today at its minute, then the to-dos dated today.
-if (today.todos.length !== 4 || !/^Ring Dana back.*now/.test(today.todos[0]) || !/Check the SV came in/.test(today.todos[1])) fail("to-dos and reminders should be one list, soonest first, the due one marked: " + JSON.stringify(today.todos));
+if (today.todos.length !== 6 || !/^Ring Dana back.*now/.test(today.todos[0]) || !/Check the SV came in/.test(today.todos[1])) fail("to-dos and reminders should be one list, soonest first, the due one marked: " + JSON.stringify(today.todos));
 if (today.queue.some((t) => /Ring Dana|Check the SV/.test(t))) fail("a reminder leaked into the queue: " + JSON.stringify(today.queue));
 if (!/Settings → Notifications/.test(today.note || "")) fail("the list doesn't say how a timed to-do reaches a closed app: " + today.note);
 
 // --- Tapping a chip swaps the panel.
 await p.click('.log-tabs [data-tab="todos"]');
 const swapped = await p.evaluate(() => ({ shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel), active: document.querySelector(".log-tabs .btn-primary")?.dataset.tab, rows: [...document.querySelectorAll('[data-panel="todos"] .check-item')].filter((r) => r.getBoundingClientRect().height > 0).length }));
-if (swapped.shown.join() !== "todos" || swapped.active !== "todos" || swapped.rows !== 4) fail("tapping To-dos should show only the to-dos: " + JSON.stringify(swapped));
+if (swapped.shown.join() !== "todos" || swapped.active !== "todos" || swapped.rows !== 6) fail("tapping To-dos should show only the to-dos: " + JSON.stringify(swapped));
 
 // --- The due reminder is under Right now on Home.
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
@@ -89,7 +92,7 @@ await p.click(".modal button[type=submit]");
 await p.waitForTimeout(500);
 const added = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.title === "Appraise the trade"); return { remindAt: t && t.remindAt, channel: t && t.channel, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
 console.log("added:", JSON.stringify(added));
-if (!/T16:30$/.test(added.remindAt || "") || added.channel !== "reminder" || added.count !== "5") fail("a to-do given a time should be a reminder, and the count should move: " + JSON.stringify(added));
+if (!/T16:30$/.test(added.remindAt || "") || added.channel !== "reminder" || added.count !== "7") fail("a to-do given a time should be a reminder, and the count should move: " + JSON.stringify(added));
 // …and one without a time is just on the list.
 await p.click('[data-panel="todos"] [data-act="add-task"]');
 await p.waitForSelector('.modal input[name="title"]', { timeout: 5000 });
@@ -101,7 +104,30 @@ if (plain.remindAt || plain.channel === "reminder" || !plain.due) fail("a to-do 
 await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => /Ring Dana back/.test(r.textContent)).querySelector("input").click());
 await p.waitForTimeout(300);
 const ticked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "r1").done, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
-if (!ticked.done || ticked.count !== "5") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
+if (!ticked.done || ticked.count !== "7") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
+
+// --- "Do it": the next move the assistant can run has the button; the one
+// only the salesperson can do doesn't. Tapping it hands the to-do to the
+// assistant, with the customer named, and says what came back.
+const doit = await p.evaluate(() => {
+  const rowOf = (t) => [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => r.textContent.includes(t));
+  return { budget: !!rowOf("3 in stock under their budget")?.querySelector("[data-do-it]"), trade: !!rowOf("Appraise the trade")?.querySelector("[data-do-it]"), plain: !!rowOf("Order the plates")?.querySelector("[data-do-it]") };
+});
+console.log("do it:", JSON.stringify(doit));
+if (!doit.budget || doit.trade || doit.plain) fail("Do it should be on the move the assistant can run and nowhere else: " + JSON.stringify(doit));
+const before = (await fetch(APP + "/__relays").then((r) => r.json())).length;
+await p.evaluate(() => { document.querySelector("#toast-root").innerHTML = ""; [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => r.textContent.includes("3 in stock under their budget")).querySelector("[data-do-it]").click(); });
+let relays = [];
+for (let i = 0; i < 40 && relays.length <= before; i++) { await p.waitForTimeout(200); relays = await fetch(APP + "/__relays").then((r) => r.json()); }
+if (relays.length <= before) fail("Do it never asked the assistant");
+await p.waitForFunction(() => /./.test(document.querySelector("#toast-root")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("Do it said nothing back"));
+const said = await p.evaluate(() => ({ toast: document.querySelector("#toast-root")?.textContent || "", btn: [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => r.textContent.includes("3 in stock under their budget")).querySelector("[data-do-it]").textContent }));
+console.log("do it said:", JSON.stringify(said));
+if (/Couldn't do it|Set up the voice agent/.test(said.toast)) fail("Do it should have run: " + said.toast);
+const sent = relays.length ? JSON.stringify(relays[relays.length - 1].messages) : "";
+if (!/Dana Muise/.test(sent) || !/deal_options/.test(sent) || !/3 in stock under their budget/.test(sent)) fail("Do it should hand the assistant the customer and the to-do: " + sent.slice(0, 300));
+const stillThere = await p.evaluate(async () => { const s = await import("/js/store.js"); return !s.get("tasks", "c1").done; });
+if (!stillThere) fail("Do it shouldn't tick the to-do off — that's the salesperson's call");
 
 // --- The assistant can land on a chip: "what's on my plate" opens the to-dos
 // without changing the one you chose.

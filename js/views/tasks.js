@@ -55,6 +55,28 @@ export function openReminderForm(existing, defaults = {}) {
   return openTaskForm(existing, { ...defaults, needsTime: true });
 }
 
+// A to-do the assistant can take on. The app files a next move from what
+// you said about a customer — "57 in stock under their budget", "their
+// wife decides too" — and the lookup or the draft behind it is something
+// the assistant can run right now, with today's lot and prices, and put on
+// screen. The part only you can do (show the car, appraise the trade, be
+// in the room) stays yours; those get no button. Returns the sentence to
+// hand the assistant, or null.
+export function doItFor(t, lead) {
+  if (!t || t.done || t.source !== "context" || !lead) return null;
+  const name = lead.name || "the customer";
+  const car = lead.vehicleInterest ? `the ${lead.vehicleInterest}` : "what they're after";
+  const title = String(t.title || "");
+  switch (t.kind) {
+    case "stock": return `For ${name}, who's after ${car}: put the matching units on our lot on screen (lot_lookup) and tell me how many there are and the two best. This is for the to-do "${title}".`;
+    case "budget": return `What could I put ${name} in? Run deal_options for ${name} and name the two best fits. This is for the to-do "${title}".`;
+    case "objection": return `Prepare a second option for ${name}: run deal_options for ${name} and name a lower-payment, a step-down-in-trim, or a used alternative to ${car}. This is for the to-do "${title}".`;
+    case "people": { const who = (/^Their (.+?) decides/.exec(title) || [])[1] || "the other decision-maker"; return `Draft a text to ${name} for me to send, inviting their ${who} along to the next visit — warm, short, no figures. Put it in the box; I'll send it.`; }
+    case "referral": { const who = (/the (.+?)'s number/.exec(title) || [])[1] || "friend"; return `Draft a text to ${name} for me to send, asking for their ${who}'s number so I can help them too — easy and short. Put it in the box; I'll send it.`; }
+    default: return null;
+  }
+}
+
 // Returns a DOM element listing open tasks.
 // opts.kind:  "todo" (default) — the to-dos, timed or not, soonest first;
 //             the follow-up plan's own steps are left out (they're the
@@ -115,6 +137,8 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       const overdue = rem ? wallClock(t.remindAt) <= now : t.due && daysFromToday(t.due) < 0;
       const soon = !rem && t.due && daysFromToday(t.due) === 0;
       if (rem && overdue) row.classList.add("rem-due");
+      const lead = t.leadId ? store.get("leads", t.leadId) : null;
+      const ask = doItFor(t, lead);
       row.innerHTML = `
         <input type="checkbox" />
         <label>
@@ -123,7 +147,26 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
             ? `<div class="small rem-when ${overdue ? "" : "muted"}">${icon(overdue ? "bell" : "clock")} ${esc(reminderWhen(t, now))}${overdue ? " · now" : ""}</div>`
             : t.due ? `<div class="small ${overdue ? "" : "muted"}" style="${overdue ? "color:var(--danger)" : ""}">${overdue ? icon("alert") + " " : soon ? icon("clock") + " " : ""}${esc(relativeDay(t.due))}${t.at ? " · " + esc(new Date(t.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })) : ""}</div>` : ""}
         </label>
+        ${ask ? `<button type="button" class="btn btn-primary btn-sm do-it" data-do-it aria-label="Have the assistant do this">Do it</button>` : ""}
       `;
+      // "Do it": the assistant runs the lookup or writes the draft behind
+      // this to-do, now, and puts the result on screen. The to-do stays
+      // until you tick it — the assistant did its half.
+      const doBtn = row.querySelector("[data-do-it]");
+      if (doBtn) doBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        doBtn.disabled = true; doBtn.textContent = "Working…";
+        try {
+          const a = await import("../agent.js");
+          if (!a.agentConfigured()) { toast("Set up the voice agent under Settings first", "warn"); return; }
+          const res = await a.createAgentSession().send(ask, (step) => { if (step && !/^⚠/.test(step)) doBtn.textContent = step.length > 18 ? step.slice(0, 16) + "…" : step; });
+          toast(res.say || "Done — it's on screen.", "success");
+        } catch (err) {
+          toast(`Couldn't do it: ${err && err.message ? err.message : err}`, "danger");
+        } finally {
+          doBtn.disabled = false; doBtn.textContent = "Do it";
+        }
+      });
       row.querySelector("input").addEventListener("change", () => {
         store.update("tasks", t.id, { done: true });
         // A completed follow-up counts as a prospecting touch.
