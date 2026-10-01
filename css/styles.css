@@ -1083,6 +1083,25 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .td-turn .td-working::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; background: var(--brand); animation: tb-pulse 1s ease-in-out infinite; }
 .td-turn .vt-choices { margin-top: 10px; }
 .td-input { font: inherit; font-size: 0.95rem; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
+/* A result on the page: options table, lot units, a draft to send, a
+   comparison, or a line saying what was done. */
+.td-results:empty { display: none; }
+.td-result { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 8px 0 10px; }
+.td-rhead { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 700; margin-bottom: 8px; }
+.td-rhead .ico { width: 15px; height: 15px; color: var(--brand); }
+.td-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.td-table th { text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; padding: 0 0 5px; }
+.td-table td { padding: 6px 0; border-top: 1px solid var(--border); vertical-align: top; }
+.td-table th.num, .td-table td.num, .td-unit .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.td-table td + td, .td-table th + th { padding-left: 10px; }
+.td-good { color: var(--success); }
+.td-tag { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; color: var(--warning); margin-left: 4px; }
+.td-unit { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.td-unit:first-of-type { border-top: none; }
+.td-draft-body { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; line-height: 1.45; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); resize: vertical; }
+.td-draft-body[readonly] { background: transparent; border-color: transparent; padding-left: 0; }
+.td-did { display: flex; align-items: flex-start; gap: 6px; font-size: 0.9rem; font-weight: 600; color: var(--success); }
+.td-did .ico { width: 16px; height: 16px; flex: none; margin-top: 2px; }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }
 
 /* ---------- Progress bar ---------- */

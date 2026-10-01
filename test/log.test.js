@@ -28,7 +28,7 @@ await p.addInitScript(() => {
       { id: "c1", title: "3 in stock under their budget", due: key(later).slice(0, 10), leadId: "a", source: "context", kind: "budget", done: false, ...x },
       { id: "c2", title: "Appraise the trade: 2019 Altima", due: key(later).slice(0, 10), leadId: "a", source: "context", kind: "trade", done: false, ...x },
     ],
-    settings: { salesperson: "Parm", cloudAutoSync: false, agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" },
+    settings: { salesperson: "Parm", cloudAutoSync: false, agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api", smsFrom: "+19025550123" },
   }));
 });
 
@@ -135,23 +135,35 @@ const stillThere = await p.evaluate(async () => { const s = await import("/js/st
 if (!stillThere) fail("Do it shouldn't tick the to-do off — that's the salesperson's call");
 
 // --- Check it out: the work on its own page — what it said, and the next
-// things it can do, each a tap that runs in the same conversation.
+// things it can do, each a tap that runs in the same conversation and
+// lands its result on this page. Nothing opens elsewhere.
 await p.evaluate(`(${cardOf})().querySelector("[data-check-it]").click()`);
 await p.waitForSelector(".td-page .td-action", { timeout: 8000 }).catch(() => fail("check it out didn't open the work page"));
-const work = await p.evaluate(() => ({ hash: location.hash, say: document.querySelector(".td-page .td-say")?.textContent || "", title: document.querySelector(".td-page .hero-title")?.textContent || "", actions: [...document.querySelectorAll(".td-page .td-action")].map((b) => b.textContent.replace(/\s+/g, " ").trim()), back: !document.getElementById("topbar-back").hidden }));
+const work = await p.evaluate(() => ({ hash: location.hash, say: document.querySelector(".td-page .td-turn .td-reply")?.textContent || "", title: document.querySelector(".td-page .hero-title")?.textContent || "", actions: [...document.querySelectorAll(".td-page .td-action")].map((b) => b.textContent.replace(/\s+/g, " ").trim()), back: !document.getElementById("topbar-back").hidden }));
 console.log("work page:", JSON.stringify(work));
 if (work.hash !== "#/todo/c1" || !/Happy to go through it/.test(work.say) || !/3 in stock under their budget/.test(work.title) || !work.back) fail("the work page should show the to-do and what the assistant said: " + JSON.stringify(work));
 if (!work.actions.some((a) => /^Text Dana the options/.test(a)) || !work.actions.some((a) => /Compare the two best/.test(a)) || !work.actions.some((a) => /Book Dana a time/.test(a))) fail("the work page should list the next things it can do: " + JSON.stringify(work.actions));
+// The assistant drafts the text: it lands on this page with a Send button, not in the inbox.
+await fetch(APP + "/__tooluse", { method: "POST", body: JSON.stringify({ name: "text_customer", input: { customer: "Dana Muise", message: "Hi Dana, found a couple of options worth a look — when could you pop in?" } }) });
 const before2 = (await fetch(APP + "/__relays").then((r) => r.json())).length;
 await p.evaluate(() => [...document.querySelectorAll(".td-page .td-action")].find((b) => /Text Dana the options/.test(b.textContent)).click());
 let relays2 = [];
-for (let i = 0; i < 40 && relays2.length <= before2; i++) { await p.waitForTimeout(200); relays2 = await fetch(APP + "/__relays").then((r) => r.json()); }
-if (relays2.length <= before2) fail("a next action never reached the assistant");
-await p.waitForFunction(() => { const r = document.querySelector(".td-turn-live .td-reply"); return r && !r.classList.contains("td-working"); }, null, { timeout: 8000 }).catch(() => fail("the action's reply never landed on the page"));
-const sent2 = JSON.stringify(relays2[relays2.length - 1].messages);
+for (let i = 0; i < 50 && relays2.length < before2 + 2; i++) { await p.waitForTimeout(200); relays2 = await fetch(APP + "/__relays").then((r) => r.json()); }
+if (relays2.length < before2 + 2) fail("a next action never reached the assistant (or its tool result never went back)");
+await p.waitForFunction(() => { const r = document.querySelector(".td-live .td-turn .td-reply"); return r && !r.classList.contains("td-working"); }, null, { timeout: 8000 }).catch(() => fail("the action's reply never landed on the page"));
+const sent2 = JSON.stringify(relays2[before2].messages);
 if (!/Draft a text to Dana Muise/.test(sent2) || !/Earlier, for my to-do/.test(sent2) || !/Happy to go through it/.test(sent2)) fail("a next action should carry the earlier work in: " + sent2.slice(0, 300));
-const turn = await p.evaluate(async () => { const s = await import("/js/store.js"); return { reply: document.querySelector(".td-turn-live .td-reply")?.textContent || "", logged: ((s.get("tasks", "c1").assist || {}).log || []).length }; });
-if (!/Happy to go through it/.test(turn.reply) || turn.logged !== 1) fail("the reply should show on the page and be kept on the to-do: " + JSON.stringify(turn));
+const toolBack = JSON.stringify(relays2[before2 + 1].messages);
+if (!/drafted a text to Dana Muise/.test(toolBack) || !/NOT sent/.test(toolBack)) fail("the text tool should have drafted onto the page, not opened the inbox: " + toolBack.slice(-300));
+const drafted = await p.evaluate(async () => { const s = await import("/js/store.js"); const d = document.querySelector(".td-live .td-result-draft"); return { hash: location.hash, body: d?.querySelector(".td-draft-body")?.value || "", status: d?.querySelector("[data-status]")?.textContent || "", send: !!d?.querySelector("[data-send]"), reply: document.querySelector(".td-live .td-turn .td-reply")?.textContent || "", turns: ((s.get("tasks", "c1").assist || {}).turns || []).length, sentSoFar: (await fetch("/__sent").then((r) => r.json())).length }; });
+console.log("drafted:", JSON.stringify(drafted));
+if (drafted.hash !== "#/todo/c1" || !/found a couple of options/.test(drafted.body) || !/Not sent/.test(drafted.status) || !drafted.send || drafted.sentSoFar !== 0) fail("the draft should sit on the page, unsent, with a Send button: " + JSON.stringify(drafted));
+if (!/Happy to go through it/.test(drafted.reply) || drafted.turns !== 2) fail("the reply should show on the page and the exchange be kept on the to-do: " + JSON.stringify(drafted));
+await p.evaluate(() => document.querySelector(".td-live .td-result-draft [data-send]").click());
+await p.waitForFunction(() => /Sent/.test(document.querySelector(".td-live .td-result-draft [data-status]")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("Send didn't send"));
+const sentNow = await fetch(APP + "/__sent").then((r) => r.json());
+const kept = await p.evaluate(async () => { const s = await import("/js/store.js"); const tr = (s.get("tasks", "c1").assist || {}).turns || []; return { hash: location.hash, sent: !!(tr[1] && tr[1].results[0] && tr[1].results[0].sent) }; });
+if (sentNow.length !== 1 || !/found a couple of options/.test(JSON.stringify(sentNow[0])) || kept.hash !== "#/todo/c1" || !kept.sent) fail("Send should text from the page and stay on it: " + JSON.stringify({ sentNow, kept }));
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
 
 // --- The assistant can land on a chip: "what's on my plate" opens the to-dos

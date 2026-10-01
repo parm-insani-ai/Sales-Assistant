@@ -81,6 +81,35 @@ export function doItFor(t, lead) {
   }
 }
 
+// What a tool call left behind, in the shape the work page draws and the
+// to-do keeps: the payment-matched options, the units on the lot, a text
+// drafted for you to send, a comparison, or a line saying what was done.
+// Lookups the assistant made for itself (reading the customer, the
+// calendar) leave nothing — their findings are in the reply. Null when
+// there's nothing to draw.
+const LOOKUPS = /^(get_|find_|search_|list_|lot|read_|recent_|deal_radar|work_the_book|payment_quote|get_plays|get_coach)/;
+export function compactResult(name, input = {}, out) {
+  const o = out && typeof out === "object" ? out : null;
+  switch (name) {
+    case "deal_options": case "match_deals":
+      if (!o || !Array.isArray(o.options)) return null;
+      return { kind: "options", now: o.currentPayment ?? null, rows: o.options.slice(0, 5).map((r) => ({ vehicle: r.vehicle, monthly: r.monthly, delta: r.delta, method: r.method, inStock: !!r.inStock })) };
+    case "lot_lookup": case "lot": case "inventory_lookup":
+      if (!o) return null;
+      if (!Array.isArray(o.units)) return o.answer ? { kind: "note", text: String(o.answer) } : null;
+      return { kind: "lot", count: o.count || 0, answer: o.answer || "", more: o.more || 0, units: o.units.slice(0, 8).map((u) => ({ vehicle: u.vehicle, price: u.price ?? null, km: u.km ?? null, stock: u.stock || "", color: u.color || "", condition: u.condition || "" })) };
+    case "text_customer": case "text":
+      if (typeof out === "string" && /^drafted/.test(out)) return { kind: "draft", to: String(input.customer || input.name || ""), message: String(input.message || ""), sent: null };
+      return typeof out === "string" ? { kind: "note", text: out } : null;
+    case "compare_vehicles": case "compare":
+      if (o && Array.isArray(o.compared)) return { kind: "compare", rows: o.compared.slice(0, 3) };
+      return typeof out === "string" ? { kind: "note", text: out } : null;
+    default:
+      if (typeof out !== "string" || LOOKUPS.test(name)) return null;
+      return { kind: /^(not found|need |which |error)/i.test(out) ? "note" : "did", text: out.slice(0, 400) };
+  }
+}
+
 // Returns a DOM element listing open tasks.
 // opts.kind:  "todo" (default) — the to-dos, timed or not, soonest first;
 //             the follow-up plan's own steps are left out (they're the
@@ -195,22 +224,23 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       // kept on the to-do, so "check it out" takes you back there.
       const run = async () => {
         running.add(t.id); paint();
-        const from = location.hash;
-        const steps = []; // what it did, in order, for the work page
+        const steps = [], results = []; // what it did, in order, for the work page
         try {
           const a = await import("../agent.js");
           if (!a.agentConfigured()) { toast("Set up the voice agent under Settings first", "warn"); return; }
-          const res = await a.createAgentSession().send(ask, (step) => {
+          // Nothing opens elsewhere: the lookups, the draft, the booking all
+          // come back as results, kept on the to-do for its work page.
+          const res = await a.createAgentSession({ stay: true, onTool: (name, input, out) => { const r = compactResult(name, input, out); if (r) results.push(r); } }).send(ask, (step) => {
             if (!step || /^⚠/.test(step)) return;
             if (steps[steps.length - 1] !== step) steps.push(step);
             const s = banner.querySelector("[data-step]");
             if (s) s.textContent = step;
           });
           if (res.done === false) { toast(`It needs more from you: ${res.say}`, "warn"); return; }
-          const to = location.hash !== from ? location.hash : "";
           // The reply isn't shouted here — it's on the work page, behind
           // "check it out", with what it can do next.
-          t.assist = { at: new Date().toISOString(), say: res.say || "", to, steps: steps.slice(0, 8), log: [] };
+          const turn = { ask: "Do it", say: res.say || "Done.", at: new Date().toISOString(), steps: steps.slice(0, 8), results };
+          t.assist = { at: turn.at, say: turn.say, steps: turn.steps, turns: [turn] };
           store.update("tasks", t.id, { assist: t.assist });
         } catch (err) {
           toast(`Couldn't do it: ${err && err.message ? err.message : err}`, "danger");

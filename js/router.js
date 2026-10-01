@@ -103,11 +103,25 @@ function restoreScroll(top) {
  * silent no-op — no repaint, no scroll, and the voice panel never docked.
  */
 export function navigate(path, revealSelector = null) {
+  // Held: the screen that asked to stay put (a to-do's work page) gets the
+  // result on its own terms, and the tool's usual destination is only noted.
+  if (holding) { heldTo = String(path || "/"); return; }
   reveal = revealSelector;
   const target = String(path || "/");
   if (hashNow() === target) render();
   else location.hash = target;
 }
+
+// A hold on navigation: while it's on, navigate() goes nowhere and just
+// records the last place it would have gone. The to-do's work page runs
+// the assistant under one, so every result lands on that page.
+let holding = false, heldTo = "";
+export function holdNavigation(on) {
+  holding = !!on;
+  if (on) heldTo = "";
+  return heldTo;
+}
+export function navigationHeld() { return holding; }
 
 /**
  * Back to the screen you came from — through the browser's history when

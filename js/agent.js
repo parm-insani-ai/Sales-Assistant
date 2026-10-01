@@ -7,7 +7,7 @@
 // the gateway only relays messages to the model.
 
 import * as store from "./store.js";
-import { navigate } from "./router.js";
+import { navigate, holdNavigation } from "./router.js";
 import { undoToast } from "./components.js";
 import { maybeStartCadence, startCadence, planSummary } from "./cadence.js";
 import { addContext, PROFILE_FIELDS } from "./context.js";
@@ -933,6 +933,9 @@ async function runTool(t, p = {}) {
         return { result: "not found", note: `⚠ couldn't find ${who}` };
       }
       if (!lead.phone) return { result: `${lead.name} has no phone number on file`, note: `⚠ no phone on file for ${lead.name}` };
+      // On a page that stays put, the draft stays there too — with its own
+      // Send button — rather than opening the conversation.
+      if (staying) return { result: `drafted a text to ${lead.name} — it's on the page with a Send button; NOT sent until the salesperson taps it`, note: `drafted a text to ${lead.name}` };
       // Same destination either way: the conversation when a texting number is
       // set up, the phone's SMS app when it isn't.
       if (!openText(lead.phone, String(p.message || "")))
@@ -1124,9 +1127,11 @@ async function runTool(t, p = {}) {
       const found = [], missing = [];
       wanted.forEach((q) => { const v = findSpec(q); if (v) found.push(v); else missing.push(q); });
       if (!found.length) return { result: `not in the spec database: ${missing.join(", ")}. Tell the salesperson they can add it manually on the compare screen.`, note: `⚠ ${missing.join(" and ")} not in the vehicle database` };
+      const names = found.map((v) => v.label).join(" vs ");
+      // Staying put: the specs come back side by side for the page to draw.
+      if (staying) return { result: { compared: found.map((v) => ({ label: v.label, price: v.price ?? v.msrp ?? null, engine: v.engine || "", hp: v.hp || null, fuel: v.fuel || null, drive: v.drive || v.drivetrain || "", seats: v.seats || null })), missing }, note: `comparing ${names}` };
       queueCompare(found);
       navigate("/compare");
-      const names = found.map((v) => v.label).join(" vs ");
       return { result: `opened the comparison: ${names}${missing.length ? `. Not in the database (can be entered manually on that screen): ${missing.join(", ")}` : ""}`, note: `comparing ${names}` };
     }
     default:
@@ -1203,7 +1208,17 @@ function trimHistory(messages) {
   return dropped;
 }
 
-export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
+// On while a session that stays on its page runs a tool: the tools that
+// would open a screen put the result in their reply instead (a drafted
+// text stays a draft on the page; a comparison comes back as specs), and
+// the router holds every navigate() for the duration.
+let staying = false;
+export function stayingOnPage() { return staying; }
+
+// opts.stay — run every tool with navigation held and nothing opened: the
+// caller's page draws the results itself. opts.onTool(name, input, result)
+// hears each tool as it finishes, for that drawing.
+export function createAgentSession({ call = callAgent, exec = execTool, stay = false, onTool = null } = {}) {
   const messages = [];
   let pending = null; // { results:[...], askId } while awaiting a human answer
   let aside = "";     // something that happened off-thread (an Undo tap), told on the next turn
@@ -1245,9 +1260,12 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
         } else {
           if (onProgress) onProgress(stepLabel(tu.name, tu.input));
           let out;
+          if (stay) { staying = true; holdNavigation(true); }
           try { out = await exec(tu.name, tu.input || {}); }
           catch (e) { out = { result: `error: ${e && e.message ? e.message : e}`, note: "" }; }
+          finally { if (stay) { staying = false; holdNavigation(false); } }
           if (out.note && onProgress) onProgress(out.note);
+          if (onTool) { try { onTool(tu.name, tu.input || {}, out.result); } catch { /* the page's drawing is its own */ } }
           results.push({ type: "tool_result", tool_use_id: tu.id, content: typeof out.result === "string" ? out.result : JSON.stringify(out.result) });
         }
       }

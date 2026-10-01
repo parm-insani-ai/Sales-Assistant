@@ -56,6 +56,7 @@ const relays = []; // every prompt the Claude relay was handed: { system, tools,
 let failNextSend = false;
 // Canned reply for the drafting endpoint, so no real model is called.
 let draft = "Happy to go through it properly — takes about ten minutes. Does Thursday at 5 work, or is Saturday morning easier?";
+let toolNext = null; // a scripted tool_use for the next relay (POST /__tooluse)
 // What the function reports back from a setup check; tests swap this for the
 // shape they want to see rendered.
 let checkReply = { secrets: {}, auth: { ok: false, why: "not configured in this stub" } };
@@ -441,6 +442,9 @@ const server = http.createServer((req, res) => {
         // the live part) or as one string; tests read it as text either way.
         const system = typeof msg.system === "string" ? msg.system : Array.isArray(msg.system) ? msg.system.map((b) => b && b.text || "").join("\n") : "";
         relays.push({ system, tools: (msg.tools || []).map((t) => t.name), messages: msg.messages });
+        // A scripted tool call (POST /__tooluse {name,input}): the next turn
+        // asks for it, the one after answers with the canned text.
+        if (toolNext) { const tu = toolNext; toolNext = null; return json(res, 200, { content: [{ type: "tool_use", id: "tu_" + (++seq), name: tu.name, input: tu.input || {} }], stop_reason: "tool_use" }); }
         return json(res, 200, { content: [{ type: "text", text: draft }], stop_reason: "end_turn" });
       }
       // The inventory import: pretend the store's site had three units, and
@@ -502,6 +506,10 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__relays") return json(res, 200, relays);
   if (url.pathname === "/__failnext") { failNextSend = true; return json(res, 200, { ok: true }); }
   if (url.pathname === "/__draft") { draft = url.searchParams.get("t") || draft; return json(res, 200, { ok: true }); }
+  if (url.pathname === "/__tooluse") {
+    let b = ""; req.on("data", (c) => (b += c));
+    return req.on("end", () => { try { toolNext = JSON.parse(b); } catch { toolNext = null; } json(res, 200, { ok: true }); });
+  }
   if (url.pathname === "/__check") {
     if (req.method === "POST") {
       let b = ""; req.on("data", (c) => (b += c));
@@ -511,7 +519,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__reset") {
     records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0;
-    links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0;
+    links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null;
     return json(res, 200, { ok: true });
   }
 
