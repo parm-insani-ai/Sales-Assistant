@@ -142,8 +142,8 @@ export function getPlays(limit = 6) {
   const nowISO = new Date(now).toISOString();
   store.all("tasks")
     .filter((t) => !t.done && t.leadId && t.channel && t.channel !== "reminder" && t.due && t.due <= todayK)
-    // A timed step (the welcome text, five minutes after adding someone)
-    // isn't on the queue until its minute.
+    // A timed step (the intro call, two hours after adding someone) isn't
+    // on the queue until its minute.
     .filter((t) => !t.readyAt || t.readyAt <= nowISO)
     .sort((a, b) => (a.due || "").localeCompare(b.due || ""))
     .slice(0, 25)

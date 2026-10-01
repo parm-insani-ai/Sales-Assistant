@@ -1164,7 +1164,7 @@ async function handleSweep(body: any): Promise<Response> {
     const found: { key: string; urgency: number; title: string; body: string; url: string }[] = [];
 
     // 0. Asking for an OK — business hours only.
-    //    A welcome text whose five minutes are up (the app drafts it; the push
+    //    A welcome text whose moment has come (the app drafts it; the push
     //    opens it in the compose box), and once a day at opening, the count of
     //    follow-up texts that are due and waiting to be read and sent.
     if (openForBusiness) {

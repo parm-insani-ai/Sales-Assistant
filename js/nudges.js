@@ -80,16 +80,20 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   const leadById = (id) => leads.find((l) => l.id === id) || null;
 
   // --- 0. A welcome text whose moment has come.
-  // Five minutes after a customer is added, their first text is drafted and
-  // waiting. It passes all three tests: the value of a welcome text decays by
-  // the hour, the action is one tap, and it vanishes once it's sent.
+  // The moment a customer is added, their first text is drafted and waiting.
+  // It passes all three tests: the value of a welcome text decays by the
+  // hour, the action is one tap, and it vanishes once it's sent.
   readyTouches(now).forEach((t) => {
     const lead = leadById(t.leadId);
     if (!lead) return;
     const mins = Math.round((now - new Date(t.readyAt).getTime()) / MIN);
+    // Someone just added outranks the day's other texts: the first minutes
+    // after a visit are the ones that convert, so the welcome sits at the top
+    // of the list even when the list is full.
+    const intro = t.intent === "intro";
     out.push({
       key: `touch:${t.id}`,
-      urgency: Math.min(98, 86 + Math.floor(mins / 15)),
+      urgency: Math.min(98, (intro ? 93 : 86) + Math.floor(mins / 15)),
       kind: "touch",
       taskId: t.id,
       title: `${firstName(lead.name)}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is ready`,

@@ -723,7 +723,7 @@ export async function execTool(name, p = {}) {
       // conversation the sales target counts, no second step.
       logCustomer(lead.id);
       const n = maybeStartCadence(lead.id);
-      const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held on Log for the salesperson's OK — nothing sends on its own.` : "";
+      const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held for the salesperson's OK — nothing sends on its own. Their welcome text is ready now, under "Right now" on Home${lead.phone ? "" : " (it needs their phone number to send)"}.` : "";
       return { result: `created lead ${lead.name}.${plan}`, note: `added ${lead.name}${n ? ` — ${n}-step follow-up plan started` : ""}` };
     }
     case "update_lead": {

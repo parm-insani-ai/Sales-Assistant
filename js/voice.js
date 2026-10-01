@@ -238,7 +238,7 @@ export function executeCommand(cmd) {
       // No number said: the panel asks for it next (see awaitingPhone in the
       // conversation loop) — every customer added gets one.
       if (!cmd.phone) lastCreated = lead.id;
-      return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan` : ""}.${cmd.phone ? "" : ` What's ${cmd.name.split(" ")[0]}'s phone number?`}`;
+      return `Added ${cmd.name}${cmd.vehicleInterest ? ", interested in " + cmd.vehicleInterest : ""}${n ? `, and started their ${n}-step follow-up plan — the welcome text is ready on Home` : ""}.${cmd.phone ? "" : ` What's ${cmd.name.split(" ")[0]}'s phone number?`}`;
     }
     case "task": {
       store.create("tasks", { title: cmd.title, due: cmd.due || "", priority: "normal", done: false });

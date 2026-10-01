@@ -79,8 +79,8 @@ if (!added.plan.every((s) => s.of === 13)) fail("steps don't know the plan's len
 
 // --- 2. The first text is on Today's queue, drafted from the context, held for a tap.
 console.log("\nHome — the first text:");
-// The day-zero steps are timed (five minutes, two hours). Move the clock on
-// rather than wait: every timed step's moment has now passed.
+// The day-zero steps are timed (now, two hours). Move the clock on rather
+// than wait: every timed step's moment has now passed.
 await p.evaluate(async () => {
   const store = await import("/js/store.js");
   const lead = store.all("leads").find((l) => l.name === "Parm Gill");
@@ -223,34 +223,42 @@ console.log("  " + JSON.stringify(offline));
 if (offline.action !== "lead" || offline.name !== "Dana Lee") fail("the offline parser didn't get the customer");
 if (!/wants red/.test(offline.notes || "")) fail("the offline parser dropped what was said");
 
-// --- 10. Five minutes after a customer is added, their welcome text is ready:
-// on the "right now" list, on the queue, and at the address a push opens.
-console.log("\nthe five-minute welcome text:");
+// --- 10. The moment a customer is added, their welcome text is ready: on
+// the "right now" list (painted at once, with Home open underneath the
+// voice sheet), on the queue, and at the address a push opens. The intro
+// call is still two hours out.
+console.log("\nthe welcome text, right away:");
+await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
 const five = await p.evaluate(async () => {
   const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js");
   const nudges = await import("/js/nudges.js"); const plays = await import("/js/plays.js");
+  const before = document.querySelector(".nudge-slot")?.textContent || "";
   const lead = store.create("leads", { name: "Nadia Ross", phone: "9025559876", stage: "new", source: "Voice", vehicleInterest: "Nissan Kicks" });
   cadence.startCadence(lead.id);
   const steps = store.all("tasks").filter((t) => t.leadId === lead.id && t.cadence).sort((a, b) => a.step - b.step);
   const created = Date.now();
   const readyIn = (t) => Math.round((new Date(t.readyAt).getTime() - created) / 60000);
-  const at = (mins) => created + mins * 60000;
   const mine = (list) => list.filter((n) => /Nadia/.test(n.title));
+  await new Promise((r) => setTimeout(r, 300));
+  const home = document.querySelector(".nudge-slot")?.textContent.replace(/\s+/g, " ") || "";
   return {
     text: { readyIn: readyIn(steps[0]), label: steps[0].title }, call: { readyIn: readyIn(steps[1]) },
-    nudgeAt1: mine(nudges.getNudges({ now: at(1) })).length,
-    nudgeAt6: mine(nudges.getNudges({ now: at(6) })).map((n) => ({ title: n.title, taskId: !!n.taskId, urgency: n.urgency })),
+    nudgeNow: mine(nudges.getNudges({ now: created })).map((n) => ({ title: n.title, taskId: !!n.taskId, urgency: n.urgency })),
     queueNow: plays.getPlays(40).filter((p) => /Nadia/.test(p.title) && /text/i.test(p.title)).length,
+    callOnQueue: plays.getPlays(40).filter((p) => /Nadia/.test(p.title) && /call/i.test(p.title)).length,
+    homeBefore: /Nadia/.test(before), home,
     taskId: steps[0].id, leadId: lead.id,
   };
 });
-console.log("  " + JSON.stringify(five));
-if (five.text.readyIn !== 5) fail(`the welcome text is ready in ${five.text.readyIn} minutes, not 5`);
+console.log("  " + JSON.stringify({ ...five, home: five.home.slice(0, 80) }));
+if (five.text.readyIn > 0) fail(`the welcome text waits ${five.text.readyIn} minutes instead of being ready now`);
 if (!/coming in/.test(five.text.label)) fail("the welcome text isn't framed as thanks for coming in");
-if (five.nudgeAt1) fail("the welcome text was pushed before its five minutes were up");
-if (!five.nudgeAt6.length) fail("no 'welcome text is ready' after five minutes");
-if (five.nudgeAt6.length && (!five.nudgeAt6[0].taskId || five.nudgeAt6[0].urgency < 85)) fail("the ready text isn't a tappable, urgent nudge");
-if (five.queueNow) fail("the welcome text is on the day's queue before its minute");
+if (five.call.readyIn < 100) fail(`the intro call comes ${five.call.readyIn} minutes in — it should still wait its two hours`);
+if (!five.nudgeNow.length) fail("no 'welcome text is ready' the moment they're added");
+if (five.nudgeNow.length && (!five.nudgeNow[0].taskId || five.nudgeNow[0].urgency < 85)) fail("the ready text isn't a tappable, urgent nudge");
+if (!five.queueNow) fail("the welcome text isn't on the day's queue right away");
+if (five.callOnQueue) fail("the intro call is on the day's queue before its minute");
+if (five.homeBefore || !/Nadia's welcome text is ready/.test(five.home)) fail("Home's Right now didn't show the welcome text without a reload: " + five.home.slice(0, 120));
 
 // The push notification's address: /review/<task> drafts it and opens it.
 await p.evaluate((id) => { location.hash = "#/review/" + id; }, five.taskId);

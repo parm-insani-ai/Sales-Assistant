@@ -131,6 +131,15 @@ export function renderDashboard(view) {
     if (!document.body.contains(nudgeSlot)) return clearInterval(nudgeTimer);
     paintNudges();
   }, 60000);
+  // And things happen while it's open: a customer added from the voice sheet
+  // over this screen has a welcome text ready the moment the sheet closes,
+  // not a minute later. One repaint per burst of writes.
+  let nudgePending = 0;
+  const unsub = store.subscribe(() => {
+    if (!document.body.contains(nudgeSlot)) return unsub();
+    if (nudgePending) return;
+    nudgePending = setTimeout(() => { nudgePending = 0; if (document.body.contains(nudgeSlot)) paintNudges(); }, 50);
+  });
 
   // The month's sales target, worked like the store's target sheet.
   const mountTarget = () => {
