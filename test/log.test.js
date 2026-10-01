@@ -1,8 +1,8 @@
-// Log in chips: Queue, Logged, Reminders, To-dos across the top, each with
-// its count, one on screen at a time, and the chip you were on is the one
-// you come back to. A reminder is a to-do with a time: it lands as a
-// notification at that moment, sits under "Right now" on Home until it's
-// ticked off, and never leaks into the queue or the to-dos.
+// Log in chips: Queue, Logged, To-dos across the top, each with its count,
+// one on screen at a time, and the chip you were on is the one you come
+// back to. A reminder is a to-do with a time, on the same list: it lands
+// as a notification at that moment and sits under "Right now" on Home
+// until it's ticked off. The plan's own steps stay on the queue.
 const { launch } = require("./browser.js");
 (async () => {
 const APP = "http://127.0.0.1:8137";
@@ -29,35 +29,34 @@ await p.addInitScript(() => {
   }));
 });
 
-// --- Log: four chips with counts; the queue first; reminders are their own list.
+// --- Log: three chips with counts; the queue first; to-dos and reminders one list.
 await p.goto(APP + "/#/log");
-await p.waitForFunction(() => document.querySelectorAll('#view .log-seg .seg-btn').length === 4 && document.querySelector(".plays-slot .row"), null, { timeout: 20000 });
+await p.waitForFunction(() => document.querySelectorAll('#view .log-tabs [data-tab]').length === 3 && document.querySelector(".plays-slot .row"), null, { timeout: 20000 });
 await p.waitForTimeout(300);
-const visible = (sel) => `[...document.querySelectorAll("${sel}")].filter((n) => n.closest(".log-panel") && !n.closest(".log-panel").hidden)`;
 const today = await p.evaluate(() => ({
-  chips: [...document.querySelectorAll("#view .log-seg .seg-btn")].map((b) => ({ tab: b.dataset.tab, active: b.classList.contains("active"), label: b.textContent.replace(/\s+/g, " ").trim() })),
+  chips: [...document.querySelectorAll("#view .log-tabs [data-tab]")].map((b) => ({ tab: b.dataset.tab, active: b.classList.contains("btn-primary"), label: b.textContent.replace(/\s+/g, " ").trim() })),
   shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel),
-  reminders: [...document.querySelectorAll('[data-panel="reminders"] .check-item')].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   todos: [...document.querySelectorAll('[data-panel="todos"] .check-item')].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   queue: [...document.querySelectorAll(".plays-slot .row .strong")].map((n) => n.textContent.trim()),
-  note: document.querySelector('[data-panel="reminders"] .hint')?.textContent,
+  note: document.querySelector('[data-panel="todos"] .hint')?.textContent,
   log: [...document.querySelectorAll('[data-panel="logged"] .log-row .row-title')].map((n) => n.textContent.trim()),
 }));
 const document_log = (t) => t.log.join(",");
 console.log("log:", JSON.stringify(today, null, 1));
-if (today.chips.map((c) => c.tab).join() !== "queue,logged,reminders,todos") fail("the four chips aren't there in order: " + JSON.stringify(today.chips));
+if (today.chips.map((c) => c.tab).join() !== "queue,logged,todos") fail("the three chips aren't there in order: " + JSON.stringify(today.chips));
 if (today.shown.join() !== "queue" || !today.chips[0].active) fail("the queue should be the chip on screen first: " + JSON.stringify(today));
-if (!/^Queue\s?\d/.test(today.chips[0].label) || !/^Logged\s?1$/.test(today.chips[1].label) || !/^Reminders\s?2$/.test(today.chips[2].label) || !/^To-dos\s?2$/.test(today.chips[3].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
+if (!/^Queue\s?\d/.test(today.chips[0].label) || !/^Logged\s?1$/.test(today.chips[1].label) || !/^To-dos\s?4$/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
 if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list the customer logged this month");
-if (today.reminders.length !== 2 || !/Ring Dana back.*Today.*now/.test(today.reminders[0]) || !/Check the SV came in/.test(today.reminders[1])) fail("the reminders aren't listed soonest first with the due one marked: " + JSON.stringify(today.reminders));
-if (today.todos.length !== 2 || today.todos.some((t) => /Ring Dana|Check the SV/.test(t))) fail("a reminder leaked into the to-dos: " + JSON.stringify(today.todos));
+// One list, soonest first by when it's actually due: the reminder that's
+// due now, the one later today at its minute, then the to-dos dated today.
+if (today.todos.length !== 4 || !/^Ring Dana back.*now/.test(today.todos[0]) || !/Check the SV came in/.test(today.todos[1])) fail("to-dos and reminders should be one list, soonest first, the due one marked: " + JSON.stringify(today.todos));
 if (today.queue.some((t) => /Ring Dana|Check the SV/.test(t))) fail("a reminder leaked into the queue: " + JSON.stringify(today.queue));
-if (!/Settings → Notifications/.test(today.note || "")) fail("the reminders don't say how to get them with the app closed: " + today.note);
+if (!/Settings → Notifications/.test(today.note || "")) fail("the list doesn't say how a timed to-do reaches a closed app: " + today.note);
 
 // --- Tapping a chip swaps the panel.
-await p.click('.log-seg [data-tab="reminders"]');
-const swapped = await p.evaluate(() => ({ shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel), active: document.querySelector(".log-seg .seg-btn.active")?.dataset.tab, rows: [...document.querySelectorAll('[data-panel="reminders"] .check-item')].filter((r) => r.getBoundingClientRect().height > 0).length }));
-if (swapped.shown.join() !== "reminders" || swapped.active !== "reminders" || swapped.rows !== 2) fail("tapping Reminders should show only the reminders: " + JSON.stringify(swapped));
+await p.click('.log-tabs [data-tab="todos"]');
+const swapped = await p.evaluate(() => ({ shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel), active: document.querySelector(".log-tabs .btn-primary")?.dataset.tab, rows: [...document.querySelectorAll('[data-panel="todos"] .check-item')].filter((r) => r.getBoundingClientRect().height > 0).length }));
+if (swapped.shown.join() !== "todos" || swapped.active !== "todos" || swapped.rows !== 4) fail("tapping To-dos should show only the to-dos: " + JSON.stringify(swapped));
 
 // --- The due reminder is under Right now on Home.
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
@@ -78,30 +77,40 @@ console.log("watcher:", JSON.stringify(fired));
 if (fired.n1 !== 1 || fired.n2 !== 0 || !fired.notified || fired.later) fail("the due reminder didn't fire exactly once: " + JSON.stringify(fired));
 if (!/Ring Dana back/.test(fired.toast)) fail("the reminder didn't show: " + fired.toast);
 
-// --- Adding a reminder from the chip's + Add; ticking one off.
+// --- Adding from the chip's + Add: a time makes it a reminder; ticking one off.
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
-const cameBack = await p.evaluate(() => document.querySelector(".log-seg .seg-btn.active")?.dataset.tab);
-if (cameBack !== "reminders") fail("the chip you were on should be the one you come back to: " + cameBack);
-await p.click('[data-panel="reminders"] [data-act="add-reminder"]');
+const cameBack = await p.evaluate(() => document.querySelector(".log-tabs .btn-primary")?.dataset.tab);
+if (cameBack !== "todos") fail("the chip you were on should be the one you come back to: " + cameBack);
+await p.click('[data-panel="todos"] [data-act="add-task"]');
 await p.waitForSelector('.modal input[name="title"]', { timeout: 5000 });
 await p.fill('.modal input[name="title"]', "Appraise the trade");
 await p.fill('.modal input[name="time"]', "16:30");
 await p.click(".modal button[type=submit]");
 await p.waitForTimeout(500);
-const added = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.title === "Appraise the trade"); return { remindAt: t && t.remindAt, channel: t && t.channel, count: document.querySelector('.log-seg [data-count="reminders"]').textContent }; });
+const added = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.title === "Appraise the trade"); return { remindAt: t && t.remindAt, channel: t && t.channel, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
 console.log("added:", JSON.stringify(added));
-if (!/T16:30$/.test(added.remindAt || "") || added.channel !== "reminder" || added.count !== "3") fail("the reminder wasn't set with its time, or the count didn't move: " + JSON.stringify(added));
-await p.evaluate(() => [...document.querySelectorAll('[data-panel="reminders"] .check-item')].find((r) => /Ring Dana back/.test(r.textContent)).querySelector("input").click());
+if (!/T16:30$/.test(added.remindAt || "") || added.channel !== "reminder" || added.count !== "5") fail("a to-do given a time should be a reminder, and the count should move: " + JSON.stringify(added));
+// …and one without a time is just on the list.
+await p.click('[data-panel="todos"] [data-act="add-task"]');
+await p.waitForSelector('.modal input[name="title"]', { timeout: 5000 });
+await p.fill('.modal input[name="title"]', "Wash the demo");
+await p.click(".modal button[type=submit]");
+await p.waitForTimeout(400);
+const plain = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.title === "Wash the demo"); return { remindAt: t && t.remindAt, channel: t && t.channel, due: t && t.due }; });
+if (plain.remindAt || plain.channel === "reminder" || !plain.due) fail("a to-do with no time should not be a reminder: " + JSON.stringify(plain));
+await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => /Ring Dana back/.test(r.textContent)).querySelector("input").click());
 await p.waitForTimeout(300);
-const ticked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "r1").done, count: document.querySelector('.log-seg [data-count="reminders"]').textContent }; });
-if (!ticked.done || ticked.count !== "2") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
+const ticked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "r1").done, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
+if (!ticked.done || ticked.count !== "5") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
 
-// --- The assistant can land on a chip: "what's on my plate" opens the to-dos.
+// --- The assistant can land on a chip: "what's on my plate" opens the to-dos
+// without changing the one you chose.
+await p.click('.log-tabs [data-tab="logged"]');
 await p.evaluate(() => { sessionStorage.setItem("viniva:log:open", "todos"); location.hash = "#/"; });
 await p.waitForTimeout(200);
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
-const asked = await p.evaluate(() => ({ active: document.querySelector(".log-seg .seg-btn.active")?.dataset.tab, remembered: localStorage.getItem("viniva:log:tab") }));
-if (asked.active !== "todos" || asked.remembered !== "reminders") fail("a chip asked for should show without becoming the remembered one: " + JSON.stringify(asked));
+const asked = await p.evaluate(() => ({ active: document.querySelector(".log-tabs .btn-primary")?.dataset.tab, remembered: localStorage.getItem("viniva:log:tab") }));
+if (asked.active !== "todos" || asked.remembered !== "logged") fail("a chip asked for should show without becoming the remembered one: " + JSON.stringify(asked));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

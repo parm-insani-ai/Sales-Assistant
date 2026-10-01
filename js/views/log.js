@@ -1,30 +1,30 @@
-// Log — the customers you're working, and the day's work on them. Four
-// chips across the top — Queue, Logged, Reminders, To-dos — and one of
-// them on screen at a time: the queue (every reason to contact someone
-// today, ranked, each with its one-tap action), the month's log (every
-// customer logged this month — added by hand or by voice, or moved over
-// from Outreach once they showed promise), the reminders, and the to-dos.
-// The chip you were on is the one you come back to. Home is the day at a
-// glance; this is the doing.
+// Log — the customers you're working, and the day's work on them. Three
+// chips across the top — Queue, Logged, To-dos — and one of them on screen
+// at a time: the queue (every reason to contact someone today, ranked,
+// each with its one-tap action), the month's log (every customer logged
+// this month — added by hand or by voice, or moved over from Outreach once
+// they showed promise), and the to-dos, timed or not (a timed one is a
+// reminder: it notifies you at its moment and sits under Right now on
+// Home). The chip you were on is the one you come back to. Home is the
+// day at a glance; this is the doing.
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
 import { esc, formatDateTime, relativeDay, daysFromToday } from "../utils.js";
 import { stageMeta } from "../store.js";
-import { taskListEl, openTaskForm, openReminderForm } from "./tasks.js";
+import { taskListEl, openTaskForm } from "./tasks.js";
 import { openLeadForm } from "./leads.js";
 import { icon } from "../icons.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { bookCheap, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
-import { reminders } from "../reminders.js";
 import { pushEnabled } from "../push.js";
 import { loggedInMonth, loggedAtOf, monthKeyOf } from "../logbook.js";
 import { shoppingOf } from "../target.js";
 
 const TAB_KEY = "viniva:log:tab";     // the chip you were on
 const OPEN_KEY = "viniva:log:open";   // a chip something else asked for (the assistant)
-const TABS = ["queue", "logged", "reminders", "todos"];
+const TABS = ["queue", "logged", "todos"];
 
 // Something that lands on Log with a section in mind — the assistant
 // opening the to-dos — says so here before it navigates.
@@ -36,17 +36,17 @@ export function renderLog(view) {
   const el = document.createElement("div");
   view.appendChild(el);
 
-  // The chips, with their counts.
-  const seg = document.createElement("div");
-  seg.className = "seg log-seg";
-  seg.setAttribute("role", "tablist");
+  // The chips — the same pills as the Comms bar — with their counts.
+  const tabs = document.createElement("div");
+  tabs.className = "log-tabs";
+  tabs.setAttribute("role", "tablist");
   const month = new Date().toLocaleDateString("en-US", { month: "long" });
-  const labels = { queue: "Queue", logged: "Logged", reminders: "Reminders", todos: "To-dos" };
-  seg.innerHTML = TABS.map((t) => `<button type="button" class="seg-btn" role="tab" data-tab="${t}">${labels[t]}<span class="seg-count" data-count="${t}"></span></button>`).join("");
-  el.appendChild(seg);
-  const setCount = (tab, n) => { const c = seg.querySelector(`[data-count="${tab}"]`); if (c) c.textContent = n == null ? "" : String(n); };
+  const labels = { queue: [icon("target"), "Queue"], logged: [icon("users"), "Logged"], todos: [icon("check"), "To-dos"] };
+  tabs.innerHTML = TABS.map((t) => `<button type="button" class="btn btn-sm btn-ghost" role="tab" data-tab="${t}">${labels[t][0]} ${labels[t][1]}<span class="tab-count" data-count="${t}"></span></button>`).join("");
+  el.appendChild(tabs);
+  const setCount = (tab, n) => { const c = tabs.querySelector(`[data-count="${tab}"]`); if (c) c.textContent = n == null ? "" : String(n); };
 
-  // The panels. All four are built; one is on screen.
+  // The panels. All three are built; one is on screen.
   const panels = {};
   const panel = (tab, action) => {
     const p = document.createElement("div");
@@ -76,47 +76,42 @@ export function renderLog(view) {
   paintLog(logBody, logged);
   logPanel.querySelector('[data-act="add-customer"]').addEventListener("click", () => openLeadForm());
 
-  // 3. Reminders — with the note on where they land when the app is closed.
-  const remPanel = panel("reminders", `<span class="small muted">At their time, wherever you are</span><button class="btn btn-sm btn-ghost" data-act="add-reminder">+ Add reminder</button>`);
-  const remCount = () => reminders().length;
-  setCount("reminders", remCount());
-  remPanel.appendChild(taskListEl({ kind: "reminder", limit: 20, empty: "No reminders. Tap + Add reminder and pick a time — it'll notify you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("reminders", remCount()) }));
+  // 3. To-dos — timed ones are reminders; the plan's own steps stay on the
+  // queue. With the note on where a reminder lands when the app is closed.
+  const todoPanel = panel("todos", `<span class="small muted">Give one a time and it reminds you</span><button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>`);
+  const todoBody = document.createElement("div");
+  todoBody.className = "tasks-slot";
+  const todoCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence).length;
+  setCount("todos", todoCount());
+  // A screenful of to-dos, the rest behind a button — see taskListEl.
+  todoBody.appendChild(taskListEl({ limit: 12, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("todos", todoCount()) }));
+  todoPanel.appendChild(todoBody);
   const note = document.createElement("div");
   note.className = "hint";
   note.style.margin = "6px 2px 0";
-  remPanel.appendChild(note);
-  remPanel.querySelector('[data-act="add-reminder"]').addEventListener("click", () => openReminderForm());
+  todoPanel.appendChild(note);
+  todoPanel.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
   pushEnabled().then((on) => {
     if (!note.isConnected) return;
     note.textContent = on
-      ? "A reminder notifies this phone at its time, app open or closed."
-      : "With the app open a reminder shows here at its time. To get it when the app is closed, turn on notifications under Settings → Notifications.";
+      ? "A to-do with a time notifies this phone at that time, app open or closed."
+      : "With the app open a to-do with a time shows here at its time. To get it when the app is closed, turn on notifications under Settings → Notifications.";
   }).catch(() => {});
-
-  // 4. To-dos.
-  const todoPanel = panel("todos", `<span class="small muted">Open to-dos</span><button class="btn btn-sm btn-ghost" data-act="add-task">+ Add to-do</button>`);
-  const todoBody = document.createElement("div");
-  todoBody.className = "tasks-slot";
-  const todoCount = () => store.all("tasks").filter((t) => !t.done && !(t.remindAt && t.channel === "reminder")).length;
-  setCount("todos", todoCount());
-  // A screenful of to-dos, the rest behind a button — see taskListEl.
-  todoBody.appendChild(taskListEl({ limit: 12, onChange: () => setCount("todos", todoCount()) }));
-  todoPanel.appendChild(todoBody);
-  todoPanel.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
 
   // Which chip: the one asked for, else the one you were on, else the queue.
   const show = (tab, remember = true) => {
     const t = TABS.includes(tab) ? tab : "queue";
     TABS.forEach((k) => { panels[k].hidden = k !== t; });
-    seg.querySelectorAll(".seg-btn").forEach((b) => { b.classList.toggle("active", b.dataset.tab === t); b.setAttribute("aria-selected", String(b.dataset.tab === t)); });
+    tabs.querySelectorAll("[data-tab]").forEach((b) => { const on = b.dataset.tab === t; b.classList.toggle("btn-primary", on); b.classList.toggle("btn-ghost", !on); b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on)); });
     if (remember) { try { localStorage.setItem(TAB_KEY, t); } catch { /* per-device memory only */ } }
   };
   let asked = null;
   try { asked = sessionStorage.getItem(OPEN_KEY); sessionStorage.removeItem(OPEN_KEY); } catch { /* nothing asked */ }
   let was = null;
   try { was = localStorage.getItem(TAB_KEY); } catch { /* the queue, then */ }
+  if (was === "reminders") was = "todos"; // the chip that was folded into To-dos
   show(asked || was || "queue", !asked);
-  seg.addEventListener("click", (e) => { const b = e.target.closest(".seg-btn"); if (b) show(b.dataset.tab); });
+  tabs.addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) show(b.dataset.tab); });
 }
 
 // The month's log: who, what they're after, where the deal is, when they

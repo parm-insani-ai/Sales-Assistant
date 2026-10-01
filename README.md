@@ -10,7 +10,7 @@ Live at **[entoa.ai](https://entoa.ai)**.
 | --- | --- |
 | **🏠 Dashboard** | Your day at a glance — follow-ups due today, open to-dos, deliveries in prep, and month-to-date stats. Call or text a customer in one tap. |
 | **👥 Leads** | A simple CRM. Log every up: name, phone, the vehicle they want, source, notes. Move them through stages (New → Working → Appointment → Negotiating → Sold → Delivered). Set follow-up reminders so nobody falls through the cracks. |
-| **✅ To-dos** | Quick reminders with due dates and priority. Overdue items surface on the dashboard. |
+| **✅ To-dos** | One list on Log, under the To-dos chip. Any to-do can have a time: give it one and it notifies you at that moment, app open or closed, and sits under Right now on Home until you tick it off. Soonest first, by when it's actually due. The follow-up plan's own steps aren't here; they're on the Queue with their one-tap action. |
 | **🚗 Inventory** | Search your lot by year/make/model/stock #. Track price, mileage, color, VIN, and availability. Quote a deal straight from a vehicle. |
 | **🧮 Deal Calculator** | Estimate a monthly payment from sale price, down, trade allowance/payoff, fees, tax, APR and term. Shows amount financed, tax, total interest. |
 | **📦 Delivery Prep** | A checklist to get every sold car ready for handoff (detail, gas, plates, paperwork, walk-around…). Start one from a lead in one tap. Track progress to 100%. |
