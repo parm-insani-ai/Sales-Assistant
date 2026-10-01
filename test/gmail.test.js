@@ -85,9 +85,15 @@ const auto = await p.evaluate(async () => {
 if (auto.r.sent !== 1 || auto.via !== "gmail" || sent.length !== 2) fail("the due follow-up didn't send from Gmail: " + JSON.stringify(auto));
 
 // --- Disconnect: back to the setup, nothing sends from Gmail.
+// Connected: the cloud has what it needs to watch the inbox and push new
+// mail while the app is shut — one synced row with the refresh token.
+const watch = await p.evaluate(async () => { const s = await import("/js/store.js"); const w = s.get("mailwatch", "gmail"); return w && { provider: w.provider, clientId: w.clientId, refresh: w.refresh, account: w.account, synced: s.SYNC_COLLECTIONS.includes("mailwatch") }; });
+console.log("mail watch:", JSON.stringify(watch));
+if (!watch || watch.provider !== "gmail" || watch.refresh !== "grefresh" || !/apps\.googleusercontent\.com/.test(watch.clientId) || watch.account !== "parm.test@gmail.com" || !watch.synced) fail("connecting should publish the mailbox watch for the cloud: " + JSON.stringify(watch));
 await p.click("#gm-off"); await p.waitForTimeout(300);
-const off = await p.evaluate(async () => { const e = await import("/js/email.js"); return { connect: !!document.querySelector("#gm-connect"), via: e.emailSendVia() }; });
+const off = await p.evaluate(async () => { const e = await import("/js/email.js"); const s = await import("/js/store.js"); return { connect: !!document.querySelector("#gm-connect"), via: e.emailSendVia(), watch: !!s.get("mailwatch", "gmail") }; });
 if (!off.connect || off.via === "gmail") fail("disconnecting didn't take: " + JSON.stringify(off));
+if (off.watch) fail("disconnecting should take the cloud's watch row with it");
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

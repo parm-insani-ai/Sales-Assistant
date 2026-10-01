@@ -137,6 +137,10 @@ const DEFAULT_STATE = {
   config: [], // one synced row mirroring `settings`, so a reinstall gets them back
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
+  // One row per connected mailbox, so the function's sweep can look at the
+  // inbox while the app is shut and push "New email from …":
+  //   { id: "gmail", provider, clientId, refresh, account }
+  mailwatch: [],
   // Every opener sent, with why it was sent, so what worked can be read back
   // later: { leadId, textId, kind, intent, reasons, score, tier, consent, at }
   outreach: [],
@@ -964,7 +968,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather

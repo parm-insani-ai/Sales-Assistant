@@ -50,6 +50,7 @@ const list = await p.evaluate(() => ({
 }));
 console.log("inbox:", JSON.stringify(list, null, 1));
 if (!/Gmail · parm\.test@gmail\.com/.test(list.head || "")) fail("the header doesn't name the mailbox: " + list.head);
+if (/Check/.test(list.head || "") || await p.$('[data-act="mail-refresh"]')) fail("no Check button — the inbox checks itself, and a pull down checks it now: " + list.head);
 if (list.rows.map((r) => r.who).join("|") !== "Dana Muise|Uncle Bob|no-reply@newsletter.example") fail("the inbox isn't every message newest first: " + JSON.stringify(list.rows));
 if (list.rows[0].tag !== "customer" || list.rows[1].tag) fail("the customer isn't tagged (and only the customer): " + JSON.stringify(list.rows));
 if (!list.rows[0].unread || list.rows[1].unread || !list.rows[2].unread) fail("unread state is wrong: " + JSON.stringify(list.rows));

@@ -247,7 +247,6 @@ export function renderComms(view) {
       <div class="mail-head small muted">
         <span class="mail-acct">${icon("mail")} ${provider === "gmail" ? "Gmail" : "Outlook"} · ${esc(mailboxAccount())}</span>
         <span class="mail-when" style="margin-left:auto;flex:none"></span>
-        <button class="btn btn-sm btn-ghost" data-act="mail-refresh" style="flex:none">Check</button>
       </div>
       <div class="mail-list"></div>`;
     const list = box.querySelector(".mail-list");
@@ -271,7 +270,7 @@ export function renderComms(view) {
       if (box.isConnected) paint();
     };
     loadMailbox().then(() => { if (!box.isConnected) return; paint(); if (mailboxStale(1)) refresh(); });
-    box.querySelector('[data-act="mail-refresh"]').addEventListener("click", refresh);
+    // No button: the inbox checks itself, and a pull down checks it now.
     onPull(refresh);
     // The inbox checks itself (mailbox.js startMailboxWatch); every check
     // repaints this list while it's on screen.

@@ -36,7 +36,26 @@ function saveTok(t) { try { localStorage.setItem(TOK_KEY, JSON.stringify(t)); } 
 export function gmailAccount() { const t = loadTok(); return (t && t.account) || null; }
 export function gmailConnected() { return !!loadTok(); }
 export function gmailCanSend() { const t = loadTok(); return !!(t && /gmail\.send/.test(t.scope || "")); }
-export function disconnectGmail() { localStorage.removeItem(TOK_KEY); localStorage.removeItem(LAST_KEY); }
+export function disconnectGmail() { localStorage.removeItem(TOK_KEY); localStorage.removeItem(LAST_KEY); unpublishWatch(); }
+
+// The cloud watches the inbox too, so new mail is a notification on the
+// phone even with the app shut: the function's sweep reads this one
+// synced row — the refresh token and the client id it needs — and pushes
+// "New email from …". Gone the moment Gmail is disconnected.
+const WATCH_ID = "gmail";
+export function publishWatch() {
+  const t = loadTok();
+  const { clientId } = cfg();
+  if (!t || !t.refreshToken || !clientId) return false;
+  const data = { provider: "gmail", clientId, refresh: t.refreshToken, account: (t.account && t.account.email) || "" };
+  const row = store.get("mailwatch", WATCH_ID);
+  if (row) { if (row.refresh !== data.refresh || row.clientId !== data.clientId || row.account !== data.account) store.update("mailwatch", WATCH_ID, data); }
+  else store.create("mailwatch", { id: WATCH_ID, ...data });
+  return true;
+}
+function unpublishWatch() { if (store.get("mailwatch", WATCH_ID)) store.remove("mailwatch", WATCH_ID); }
+// A connection made before the watch existed gets one on the next open.
+export function ensureMailWatch() { if (gmailConnected()) publishWatch(); }
 export function lastGmailPull() { return localStorage.getItem(LAST_KEY) || null; }
 
 function b64url(buf) {
@@ -107,6 +126,7 @@ export async function handleGmailRedirect() {
     scope: j.scope || SCOPE,
     account,
   });
+  publishWatch();
   return true;
 }
 

@@ -44,7 +44,7 @@ import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
 import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
-import { handleGmailRedirect, pullGmailIfStale } from "./gmail.js";
+import { handleGmailRedirect, pullGmailIfStale, ensureMailWatch } from "./gmail.js";
 import { loadMailbox, startMailboxWatch } from "./mailbox.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
@@ -382,7 +382,7 @@ handleGmailRedirect()
   .then(() => {
     // A rep's inbox files into their own book; the manager's (management
     // mode) files into the reps' books, from the manager's Home.
-    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); loadMailbox().then(() => startMailboxWatch()); } // the inbox is part of what the assistant knows, and keeps itself current
+    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); ensureMailWatch(); loadMailbox().then(() => startMailboxWatch()); } // the inbox is part of what the assistant knows, and keeps itself current
   });
 window.addEventListener("viniva-mail", (e) => {
   const n = e.detail && e.detail.linked;
@@ -396,7 +396,22 @@ window.addEventListener("viniva-mailbox", (e) => {
   const who = fresh[0].from && (fresh[0].from.name || fresh[0].from.addr);
   toast(fresh.length === 1 ? `New email from ${who || "someone"}` : `${fresh.length} new emails — latest from ${who || "someone"}`);
   if (e.detail.customers) { pullGmailIfStale(0); pullMailIfStale(0); }
+  // The app is open but not in front: a notification on the phone, the
+  // same one the cloud sends when the app is shut (same tag, so never two).
+  if (document.hidden) notifyMail(fresh);
 });
+async function notifyMail(fresh) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    for (const m of fresh.slice(0, 3)) {
+      const who = (m.from && (m.from.name || m.from.addr)) || "someone";
+      const body = `${m.subject || "(no subject)"}${m.snippet ? " — " + String(m.snippet).slice(0, 90) : ""}`;
+      if (reg) await reg.showNotification(`New email from ${who}`, { body, tag: `mail:${m.id}`, icon: "./icons/icon-192.png", badge: "./icons/icon-192.png", data: { url: "./#/comms" } });
+      else new Notification(`New email from ${who}`, { body, tag: `mail:${m.id}` });
+    }
+  } catch { /* the toast said it */ }
+}
 
 // Automated cadence emails + appointment reminder emails (optional): send
 // anything due, quietly, on open.

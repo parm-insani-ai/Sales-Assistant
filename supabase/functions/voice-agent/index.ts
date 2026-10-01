@@ -251,6 +251,69 @@ async function rememberNudges(uid: string, sent: Record<string, string>) {
   await saveRecord(uid, "nudgelog", "last", { id: "last", sent: trimmed, updatedAt: new Date().toISOString() });
 }
 
+// ---- The mailbox, watched from here ----
+//
+// The phone can only look at the inbox while the app is open. For a
+// notification when it isn't, the sweep looks: the app published one
+// mailwatch row per connected mailbox (the Gmail refresh token and the
+// OAuth client id — GOOGLE_CLIENT_SECRET lives here), and a mailseen row
+// remembers where the last look got to. Each new message is one push,
+// tagged by message id so the phone shows it once even if the app also
+// noticed it. The first look pushes nothing — it just marks the spot.
+const MAIL_PUSH_CAP = 5;
+function parseFromHeader(v: string): { name: string; addr: string } {
+  const m = /^\s*(?:"?([^"<]*)"?\s*)?<([^>]+)>\s*$/.exec(String(v || ""));
+  if (m) return { name: (m[1] || "").trim(), addr: m[2].trim().toLowerCase() };
+  return { name: "", addr: String(v || "").trim().toLowerCase() };
+}
+async function mailPass(uid: string, watches: any[]): Promise<number> {
+  const w = (watches || []).find((x: any) => x && x.provider === "gmail" && x.refresh);
+  if (!w) return 0;
+  const secret = Deno.env.get("GOOGLE_CLIENT_SECRET") || "";
+  const clientId = String(w.clientId || Deno.env.get("GOOGLE_CLIENT_ID") || "");
+  if (!secret || !clientId) return 0;
+  const tok = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: String(w.refresh), client_id: clientId, client_secret: secret }),
+  }).then((r) => r.json()).catch(() => ({}));
+  if (!tok.access_token) return 0;
+  const h = { Authorization: `Bearer ${tok.access_token}` };
+  const G = "https://gmail.googleapis.com/gmail/v1/users/me";
+  const seenRes = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.mailseen&deleted=eq.false&select=data&limit=1`), { headers: sbHeaders() });
+  const seen = (seenRes.ok ? ((await seenRes.json())[0]?.data) : null) || {};
+  const since = Number(seen.since) || 0;
+  const list = await fetch(`${G}/messages?maxResults=12&q=${encodeURIComponent("in:inbox")}`, { headers: h }).then((r) => r.json()).catch(() => ({}));
+  const ids: string[] = ((list.messages || []) as any[]).map((m) => String(m.id)).filter(Boolean);
+  const now = Date.now();
+  if (!since) {
+    await saveRecord(uid, "mailseen", "gmail", { id: "gmail", since: now, ids: ids.slice(0, 30), updatedAt: new Date(now).toISOString() });
+    return 0;
+  }
+  const known = new Set<string>((seen.ids || []) as string[]);
+  let pushed = 0, newest = since;
+  for (const id of ids) {
+    if (known.has(id)) continue;
+    const m = await fetch(`${G}/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`, { headers: h }).then((r) => r.json()).catch(() => null);
+    if (!m || !m.id) continue;
+    const at = Number(m.internalDate) || 0;
+    if (at <= since) continue; // older than the watch, merely not listed before
+    const headers = (m.payload && m.payload.headers) || [];
+    const hv = (n: string) => (headers.find((x: any) => String(x.name).toLowerCase() === n) || {}).value || "";
+    const from = parseFromHeader(hv("from"));
+    if (pushed < MAIL_PUSH_CAP) {
+      await sendPush(uid, {
+        title: `New email from ${from.name || from.addr || "someone"}`,
+        body: `${hv("subject") || "(no subject)"}${m.snippet ? " — " + String(m.snippet).slice(0, 90) : ""}`,
+        tag: `mail:${m.id}`, url: "./#/comms",
+      });
+      pushed++;
+    }
+    if (at > newest) newest = at;
+  }
+  await saveRecord(uid, "mailseen", "gmail", { id: "gmail", since: newest, ids: ids.slice(0, 30), updatedAt: new Date(now).toISOString() });
+  return pushed;
+}
+
 function inQuietHours(nowLocalHour: number, from: number, to: number): boolean {
   if (from === to) return false;
   // Windows that wrap midnight (21 -> 8) are the normal case.
@@ -1079,7 +1142,13 @@ async function handleSweep(body: any): Promise<Response> {
       if (due.length) await rememberNudges(uid, already);
     }
 
-    if (cfg.proactive === false) { report.push({ uid: uid.slice(0, 8), skipped: "switched off", reminders: remindersPushed }); continue; }
+    // New mail — a notification on the phone like a mail app's, any hour,
+    // with the app shut. The app published the mailbox's refresh token in
+    // a mailwatch row; this looks at the inbox with it.
+    let mailPushed = 0;
+    try { mailPushed = await mailPass(uid, await rows("mailwatch")); } catch (e) { console.error("mail pass", String(e)); }
+
+    if (cfg.proactive === false) { report.push({ uid: uid.slice(0, 8), skipped: "switched off", reminders: remindersPushed, mail: mailPushed }); continue; }
     const localNow = new Date(now - tzOffset * 60000);
     const localHour = localNow.getUTCHours();
     const localDow = localNow.getUTCDay();
