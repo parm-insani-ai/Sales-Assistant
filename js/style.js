@@ -56,7 +56,7 @@ export function styleBrief(st = repStyle()) {
     `HOW ${st.name ? st.name.toUpperCase() : "THE SALESPERSON"} WORKS: messages to customers read ${TONES[st.tone].say}.`,
     st.signoff ? `Texts and emails are signed "${st.signoff}".` : "",
     `Appointments are booked ${hoursLine(st)}; when no time is said, pick one inside those hours.`,
-    st.notes ? `Standing instructions from the salesperson, which always apply: ${st.notes}` : "",
+    st.notes ? `Standing instructions from the salesperson, which always apply:\n${st.notes.split("\n").map((r) => r.replace(/^[-•*]\s*/, "").trim()).filter(Boolean).map((r) => `- ${r}`).join("\n")}` : "",
   ];
   return lines.filter(Boolean).join(" ");
 }

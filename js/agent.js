@@ -120,6 +120,8 @@ const TOOLS = [
   { name: "log_sale", description: "Log a CLOSED sale. Use ONLY when the salesperson clearly says the deal is done — 'sold', 'bought', 'signed', 'took delivery', 'made $X on'. Never for interest ('wants/looking at a Rogue' is create_lead or update_lead, not a sale). Capture tracker details when spoken: lead type, new/used, stock #, business manager, front vs business-office commission.", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" }, leadType: { type: "string", enum: ["Walk-in", "Hand Off", "Referral", "Facebook", "BDC", "Service", "Auto Alert", "Other"] }, newUsed: { type: "string", enum: ["New", "Used"] }, stock: { type: "string" }, bm: { type: "string", description: "business manager who worked the deal" }, frontComm: { type: "number", description: "front commission $" }, boComm: { type: "number", description: "business office commission $" } }, required: ["customer"] } },
   { name: "delete_customer", description: "Remove a customer from the book entirely — 'delete Tony Montana', 'get rid of that lead', 'remove him from the system'. Their open follow-ups and upcoming appointments go too; texts and emails already logged stay. This can't be undone, so it runs in two steps: call it, and if `confirmed` isn't true it tells you what to confirm; ask_user that one question, and only on a clear yes call again with confirmed: true. A customer who's merely gone quiet or bought elsewhere is update_lead to stage 'lost', not this.", input_schema: { type: "object", properties: { customer: { type: "string" }, confirmed: { type: "boolean", description: "true only after the salesperson has said yes to deleting this person" } }, required: ["customer"] } },
   { name: "undo_sale", description: "Remove a sale that was logged by mistake (e.g. 'I didn't sell that car', 'that wasn't a sale'). Deletes the customer's most recent sale record and moves their stage back from sold.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
+  { name: "remember_rule", description: "Save a standing instruction about how YOU should behave, for good — 'from now on always offer a test drive before talking price', 'never book Saturdays after 3', 'call me PJ in texts', 'when someone asks for a number, say the desk works it out'. It goes into the salesperson's standing instructions, which every brief and every drafted text and email reads from then on, on every device. Two steps: call it with the rule in the salesperson's words; if `confirmed` isn't true it hands back what to read aloud — ask_user that, with options — and only on a clear yes call again with confirmed: true. NOT for facts about a customer (that's add_context) and not for a one-off ask.", input_schema: { type: "object", properties: { rule: { type: "string", description: "the instruction, in the salesperson's words, as one sentence" }, confirmed: { type: "boolean", description: "true only after the salesperson said yes to this exact rule" } }, required: ["rule"] } },
+  { name: "forget_rule", description: "Remove a standing instruction — 'forget the rule about Saturdays', 'stop calling me PJ', 'drop that instruction'. Matches on the words; says which rule went.", input_schema: { type: "object", properties: { rule: { type: "string", description: "words from the rule to remove" } }, required: ["rule"] } },
   { name: "undo_last", description: "Reverse the last change you made — 'undo that', 'no, not Dana', 'that was wrong', 'scrap that', 'take that back'. Puts the records exactly back: a customer added is removed, an update restored, an appointment unbooked, a sale taken off, a to-do reopened. Each call undoes one more change, newest first. Then do what they meant, if they said.", input_schema: { type: "object", properties: {} } },
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
@@ -160,6 +162,7 @@ function buildStanding() {
     // the salesperson is describing the job, not operating a menu.
     `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all — or to confirm something that can't be undone. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
+    `RULES FROM THE SALESPERSON. When they tell you how to behave from now on — "from now on…", "always…", "never…", "when X happens, do Y", "remember that I…", "don't ever…" — that is a standing rule, not a one-off: remember_rule with it in their words. It hands back the wording to confirm; ask_user that ONE question with options ("Yes, remember it" / "No"), and on a yes call remember_rule again with confirmed: true. A saved rule is in your brief from the next turn on, everywhere the app writes. The rules already in force are under HOW … WORKS below — follow them without being asked. "Forget the rule about…" → forget_rule. A remark about a customer is add_context, not a rule.`,
     `EVERYTHING YOU WRITE CAN BE UNDONE. Every change you make — a customer added or updated, a note, an appointment, a sale, a to-do, a special — is reversible with undo_last, and the salesperson sees an Undo button after each one. So ACT on the most sensible reading and say what you did; never ask "should I?" or "did you mean?" before an ordinary change. Only a delete needs a yes first. "Undo that", "no, not Dana", "that was wrong", "scrap that", "take that back" → undo_last (the last change; call it again for the one before). If they then say what they meant, do that next.`,
     `BUTTONS OR WORDS: when the answer to your question is one of a few clear choices, give ask_user \`options\` — 2 to 5 short labels the salesperson taps instead of answering aloud: a yes/no ("Yes, delete Tony" / "No, keep him"), which customer ("Dana Muise" / "Dana Lee"), new or used, one of a few times. When the answer is free-form — a phone number, a name, a note, a date you can't guess — ask in words with no options. Options are exactly what they'd say, so the tapped label comes back to you as their answer.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
@@ -304,6 +307,11 @@ function asPhone(q) {
   return digits.length >= 10 ? digits : null;
 }
 
+// The standing instructions, one rule per line.
+function standingRules() {
+  return String(store.getSettings().agentNotes || "").split("\n").map((r) => r.replace(/^[-•*]\s*/, "").trim()).filter(Boolean);
+}
+
 function findLead(name) {
   if (!name) return null;
   const q = String(name).trim().toLowerCase();
@@ -395,17 +403,23 @@ const ROUTES = {
 // so a tool that creates a customer AND starts their plan AND logs them is
 // one entry that puts all three back, whatever the tool happened to do.
 const UNDO_COLLECTIONS = ["leads", "tasks", "appointments", "sales", "specials", "spifs", "deliveries", "activity"];
-const WRITE_TOOLS = /^(create_lead|update_lead|add_context|add_note|note|add_task|complete_task|finish_task|complete_delivery|mark_delivered|add_special|add_spif|log_spif|log_sale|undo_sale|book_appointment|schedule_appointment|appointment_outcome|set_outcome|start_cadence|start_followup|delete_customer|remove_customer|delete_lead)$/;
+// Settings the tools can change — a standing rule lives here, not in a
+// collection — snapshotted the same way.
+const UNDO_SETTINGS = ["agentNotes"];
+const WRITE_TOOLS = /^(create_lead|update_lead|add_context|add_note|note|add_task|complete_task|finish_task|complete_delivery|mark_delivered|add_special|add_spif|log_spif|log_sale|undo_sale|book_appointment|schedule_appointment|appointment_outcome|set_outcome|start_cadence|start_followup|delete_customer|remove_customer|delete_lead|remember_rule|forget_rule)$/;
 const undoStack = [];
 function snapshotRecords() {
   const snap = new Map();
   UNDO_COLLECTIONS.forEach((c) => snap.set(c, new Map(store.all(c).map((r) => [r.id, JSON.stringify(r)]))));
+  snap.set("__settings", new Map(UNDO_SETTINGS.map((k) => [k, JSON.stringify(store.getSettings()[k] ?? "")])));
   return snap;
 }
 // What changed since the snapshot, as the moves that put it back — or null
 // when nothing did (a tool that only looked, or refused).
 function diffSince(before) {
   const moves = [];
+  const was = before.get("__settings");
+  UNDO_SETTINGS.forEach((k) => { const now = JSON.stringify(store.getSettings()[k] ?? ""); if (was && was.get(k) !== now) moves.push({ setting: k, value: JSON.parse(was.get(k)) }); });
   UNDO_COLLECTIONS.forEach((c) => {
     const was = before.get(c);
     const now = new Map(store.all(c).map((r) => [r.id, JSON.stringify(r)]));
@@ -420,6 +434,7 @@ function diffSince(before) {
 function applyMoves(moves) {
   store.bulk(() => {
     moves.forEach((m) => {
+      if (m.setting) { store.updateSettings({ [m.setting]: m.value }); return; }
       if (m.remove) { store.remove(m.c, m.id); return; }
       // Whole record back, not a merge: a field the change added has to go.
       store.remove(m.c, m.id);
@@ -1027,6 +1042,33 @@ async function runTool(t, p = {}) {
       }
       return { result: "unknown outcome", note: "⚠ unknown outcome" };
     }
+    // ---- Standing rules ----
+    // How the salesperson wants the assistant to behave, kept for good in
+    // the standing instructions (Settings → Voice agent → How it works for
+    // you), one rule per line. Every brief and every drafter reads them.
+    case "remember_rule": case "remember": {
+      const rule = String(p.rule || "").trim().replace(/\s+/g, " ").replace(/[.]+$/, "");
+      if (!rule) return { result: "need the rule, in the salesperson's words", note: "" };
+      const rules = standingRules();
+      if (rules.some((r) => r.toLowerCase() === rule.toLowerCase())) return { result: `already a rule: "${rule}" — nothing to save`, note: "" };
+      if (p.confirmed !== true) {
+        return { result: `Not saved yet. Read it back and confirm with ask_user (options ["Yes, remember it", "No"]): "From now on: ${rule}. Want me to remember that?" On a clear yes, call remember_rule again with the same rule and confirmed: true.`, note: `checking the rule before saving` };
+      }
+      store.updateSettings({ agentNotes: [...rules, rule].join("\n").slice(0, 1200) });
+      return { result: `saved: "${rule}". It's in your brief from the next turn, and every text and email follows it. Say so in one short sentence.`, note: `remembered: ${rule}` };
+    }
+    case "forget_rule": case "forget": {
+      const q = String(p.rule || "").toLowerCase();
+      const rules = standingRules();
+      if (!rules.length) return { result: "there are no standing rules to forget", note: "" };
+      const words = q.split(/\W+/).filter((w) => w.length > 2 && !/^(the|rule|about|that|this|forget|drop|stop|instruction|one)$/.test(w));
+      let hit = rules.find((r) => r.toLowerCase() === q);
+      if (!hit && words.length) hit = rules.find((r) => words.every((w) => r.toLowerCase().includes(w)));
+      if (!hit && words.length) { const some = rules.filter((r) => words.some((w) => r.toLowerCase().includes(w))); if (some.length === 1) hit = some[0]; }
+      if (!hit) return { result: `no rule matches "${p.rule}". The rules on file: ${rules.map((r) => `"${r}"`).join("; ")}. Ask which one, with options.`, note: `⚠ no rule matching "${p.rule}"` };
+      store.updateSettings({ agentNotes: rules.filter((r) => r !== hit).join("\n") });
+      return { result: `forgot the rule: "${hit}"`, note: `forgot: ${hit}` };
+    }
     case "start_cadence": case "start_followup": {
       const lead = findLead(p.name || p.customer);
       if (!lead) return { result: "not found", note: `⚠ couldn't find ${p.name || p.customer}` };
@@ -1112,6 +1154,7 @@ const STEP_LABELS = {
   start_cadence: "Starting the follow-up plan", lot_lookup: "Checking the lot", mass_outreach: "Building the outreach",
   search_inventory: "Searching the network", when_it_makes_sense: "Working out the timing", lease_ends: "Listing the leases",
   compare_vehicles: "Opening the comparison", undo_last: "Undoing that",
+  remember_rule: (i) => i.confirmed ? "Saving the rule" : "Checking the rule", forget_rule: "Dropping the rule",
 };
 export function stepLabel(name, input = {}) {
   const l = STEP_LABELS[name];

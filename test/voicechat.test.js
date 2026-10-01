@@ -213,7 +213,7 @@ const botsPref = await p.evaluate(() => document.querySelectorAll("#v-thread .vt
 await p.evaluate(() => window.__say("what's the story with Ann Lee"));
 await p.waitForFunction((n) => document.querySelectorAll("#v-thread .vt-bot").length === n + 1, botsPref, { timeout: 8000 }).catch(() => fail("no reply for the preferences turn"));
 const prefBrief = Array.isArray(systems[systems.length - 1]) ? systems[systems.length - 1][1].text : "";
-if (!/HOW PARM WORKS: messages to customers read straight and brief/.test(prefBrief) || !/signed "— Parm at O'Regan's"/.test(prefBrief) || !/booked 9am to 6pm, Mon to Sat/.test(prefBrief) || !/Standing instructions from the salesperson, which always apply: Never book Saturdays after 3\./.test(prefBrief)) fail("the live brief should carry the tone, sign-off, hours and standing instructions: " + prefBrief.slice(0, 400));
+if (!/HOW PARM WORKS: messages to customers read straight and brief/.test(prefBrief) || !/signed "— Parm at O'Regan's"/.test(prefBrief) || !/booked 9am to 6pm, Mon to Sat/.test(prefBrief) || !/Standing instructions from the salesperson, which always apply:\n- Never book Saturdays after 3\./.test(prefBrief)) fail("the live brief should carry the tone, sign-off, hours and standing instructions: " + prefBrief.slice(0, 400));
 
 // --- Closing the sheet keeps the conversation for a few minutes: reopened,
 // the next thing said goes to the same session with the earlier turns.
