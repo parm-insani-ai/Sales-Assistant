@@ -239,7 +239,9 @@ function targetSection(mtd, s, redraw) {
   body.innerHTML = `
     <div class="row">
       <div class="row-main"><div class="strong">${esc(month)}${p.target ? ` · ${p.target} unit${p.target === 1 ? "" : "s"}` : ""}</div><div class="small muted">${p.target ? `Speak with ${p.need} customers to get there.` : "How many will you sell this month?"}</div></div>
-      <button class="btn btn-sm ${p.target ? "btn-ghost" : "btn-primary"}" data-act="set-target" style="flex:none">${p.target ? "Set target" : "Set your target"}</button>
+      ${p.target
+        ? `<button class="btn btn-sm btn-ghost" data-act="performance" style="flex:none">Performance ›</button>`
+        : `<button class="btn btn-sm btn-primary" data-act="set-target" style="flex:none">Set your target</button>`}
     </div>
     ${p.target ? `
     <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "")}${tile("Spoken with", t.spoke, p.need, "")}</div>
@@ -249,10 +251,13 @@ function targetSection(mtd, s, redraw) {
     ${s.targetSetBy === "manager" ? `<div class="small muted" style="margin-top:6px">${icon("check")} Target set by your manager for this month${s.goalUnits && s.goalUnits !== p.target ? ` — ${s.goalUnits} units` : ""}.</div>` : ""}
     ` : `<div class="small muted" style="margin-top:10px">Set your new and used units and the closing ratio you expect, and this works out how many customers to speak with — then counts them as you add customers, log contacts and log sales.</div>`}
     <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
-    <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>
-    <button class="btn btn-ghost btn-block" data-act="performance" style="margin-top:12px">${icon("target")} Every number — target sheet, funnel, deals, commission ›</button>`;
-  body.querySelector('[data-act="set-target"]').addEventListener("click", () => openTargetForm(redraw));
-  body.querySelector('[data-act="performance"]').addEventListener("click", () => navigate("/performance"));
+    <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
+  // With a target set, the card's button is the way into every number
+  // (Set target lives on that screen); without one, it's the way to set it.
+  const setBtn = body.querySelector('[data-act="set-target"]');
+  if (setBtn) setBtn.addEventListener("click", () => openTargetForm(redraw));
+  const perfBtn = body.querySelector('[data-act="performance"]');
+  if (perfBtn) perfBtn.addEventListener("click", () => navigate("/performance"));
   return fold({ key: "home:target", title: "Sales target", open: true, body });
 }
 

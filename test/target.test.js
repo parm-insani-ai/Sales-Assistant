@@ -85,14 +85,21 @@ if (!/1 spoken with aren't marked new or used/.test(home.text)) fail("the unmark
 if (!/Commission\s*\$1,200 \/ \$8,000/.test(home.text)) fail("the commission line: " + home.text);
 if (home.goalCard) fail("the old Monthly goal card is still on Home");
 
-// --- Set target: the sheet recalculates, and the unit goal follows the total.
-await p.click('.target-card [data-act="set-target"]');
+// --- With a target set, the card's button is the way into Performance;
+// the target is set from there. The sheet recalculates, and the unit goal
+// follows the total.
+const way = await p.evaluate(() => document.querySelector('.target-card [data-act="performance"]')?.textContent.trim());
+if (way !== "Performance ›") fail("with a target set, the card's button should open Performance: " + way);
+await p.click('.target-card [data-act="performance"]');
+await p.waitForSelector('#pf-body .card', { timeout: 8000 });
+await p.click('[data-act="target"]');
 await p.waitForSelector('.modal input[name="targetNew"]', { timeout: 5000 });
 await p.waitForTimeout(350); // the sheet's own focus lands after its slide-up
 await p.fill('.modal input[name="targetNew"]', "8");
 await p.fill('.modal input[name="closingNew"]', "50");
 await p.click(".modal button[type=submit]");
 await p.waitForTimeout(500);
+await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(600);
 const after = await p.evaluate(async () => { const s = await import("/js/store.js"); return { goalUnits: s.getSettings().goalUnits, tiles: [...document.querySelectorAll(".tg-big")].map((n) => n.textContent.trim()), cats: [...document.querySelectorAll(".tg-cat-head")].map((n) => [...n.children].map((c) => c.textContent.trim()).join(" ")) }; });
 console.log("after set:", JSON.stringify(after));
 if (after.goalUnits !== 12 || after.tiles.join() !== "3/12,7/26" || after.cats[0] !== "New 2/8 sold · 4/16 spoken with") fail("setting the target didn't recalculate: " + JSON.stringify(after));
