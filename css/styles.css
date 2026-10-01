@@ -1100,6 +1100,13 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .td-unit:first-of-type { border-top: none; }
 .td-draft-body { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; line-height: 1.45; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); resize: vertical; }
 .td-draft-body[readonly] { background: transparent; border-color: transparent; padding-left: 0; }
+.td-answer { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.td-answer-form { display: flex; gap: 8px; align-items: center; }
+.td-answer-form .td-input { flex: 1; min-width: 0; }
+.td-answer-form button { flex: none; }
+.td-answer.answered { opacity: 0.55; }
+.todo-banner-asking { background: color-mix(in srgb, var(--warning) 12%, var(--surface-2)); }
+.todo-banner-asking .tb-label { color: var(--text); white-space: normal; line-height: 1.3; }
 .td-did { display: flex; align-items: flex-start; gap: 6px; font-size: 0.9rem; font-weight: 600; color: var(--success); }
 .td-did .ico { width: 16px; height: 16px; flex: none; margin-top: 2px; }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }

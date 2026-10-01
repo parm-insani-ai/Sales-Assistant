@@ -167,6 +167,29 @@ const kept = await p.evaluate(async () => { const s = await import("/js/store.js
 if (sentNow.length !== 1 || !/found a couple of options/.test(JSON.stringify(sentNow[0])) || kept.hash !== "#/todo/c1" || !kept.sent) fail("Send should text from the page and stay on it: " + JSON.stringify({ sentNow, kept }));
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
 
+// --- A question back: Do it on a to-do in your own words, and the assistant
+// needs the customer's number. The work page opens with the question and a
+// field; the answer finishes the same run, and the card then reads Done.
+await p.waitForSelector('[data-panel="todos"] .todo-card', { timeout: 8000 });
+await fetch(APP + "/__tooluse", { method: "POST", body: JSON.stringify({ name: "ask_user", input: { question: "Mike Tyson isn't on file. What's his number?" } }) });
+const before3 = (await fetch(APP + "/__relays").then((r) => r.json())).length;
+await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("Order the plates")).querySelector("[data-do-it]").click());
+await p.waitForSelector(".td-page .td-answer input", { timeout: 10000 }).catch(() => fail("a question back should open the work page with a field to answer in"));
+const askedQ = await p.evaluate(() => ({ hash: location.hash, q: document.querySelector(".td-live .td-turn .td-reply")?.textContent || "", type: document.querySelector(".td-page .td-answer input")?.type }));
+console.log("asked:", JSON.stringify(askedQ));
+if (askedQ.hash !== "#/todo/t1" || !/What.s his number/.test(askedQ.q) || askedQ.type !== "tel") fail("the question should be on the to-do's page with a phone field: " + JSON.stringify(askedQ));
+await p.fill(".td-page .td-answer input", "902 555 0199");
+await p.click(".td-page .td-answer form button");
+await p.waitForFunction(() => [...document.querySelectorAll(".td-page .td-turn .td-reply")].some((r) => !r.classList.contains("td-working") && /Happy to go through it/.test(r.textContent)), null, { timeout: 10000 }).catch(() => fail("the answer never finished the run"));
+const relays3 = await fetch(APP + "/__relays").then((r) => r.json());
+const answered = relays3.length > before3 + 1 ? JSON.stringify(relays3[relays3.length - 1].messages) : "";
+if (!/902 555 0199/.test(answered) || !/tool_result/.test(answered)) fail("the answer should go back as the answer to the assistant's question: " + answered.slice(-300));
+const finished = await p.evaluate(async () => { const s = await import("/js/store.js"); const a = s.get("tasks", "t1").assist || {}; return { turns: (a.turns || []).length, ask: a.turns && a.turns[0] && a.turns[0].ask, say: a.say || "" }; });
+if (finished.turns !== 1 || finished.ask !== "Do it" || !/Happy to go through it/.test(finished.say)) fail("the finished run should be kept on the to-do as its Do it: " + JSON.stringify(finished));
+await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(500);
+const cardNow = await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("Order the plates"))?.querySelector(".todo-banner")?.textContent.replace(/\s+/g, " ").trim());
+if (!/Done — check it out/.test(cardNow || "")) fail("back on Log the card should read Done: " + cardNow);
+
 // --- The assistant can land on a chip: "what's on my plate" opens the to-dos
 // without changing the one you chose.
 await p.click('.log-tabs [data-tab="logged"]');

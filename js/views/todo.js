@@ -14,7 +14,7 @@ import { toast } from "../components.js";
 import { isReminder, reminderWhen } from "../reminders.js";
 import { smsReady, sendText } from "../sms.js";
 import { looksLikeMoney } from "../replies.js";
-import { doItFor, compactResult } from "./tasks.js";
+import { doItFor, compactResult, pendingRun, clearPendingRun } from "./tasks.js";
 
 const first = (name) => String(name || "").trim().split(/\s+/)[0] || "them";
 const TURNS_MAX = 12; // exchanges kept on the to-do
@@ -199,6 +199,21 @@ export function renderTodo(view, { param } = {}) {
     `;
     const thread = el.querySelector(".td-thread");
     turns.forEach((turn) => thread.appendChild(turnEl(turn)));
+    // A run from the card that's waiting on an answer: its work so far,
+    // its question, and the field — the answer finishes that run here.
+    const pend = pendingRun(t.id);
+    if (pend) {
+      clearPendingRun(t.id);
+      session = pend.session; seeded = true;
+      const turn = pend.turn;
+      const card = turnEl(turn, { live: true });
+      const reply = card.querySelector(".td-reply");
+      reply.classList.remove("td-working"); reply.removeAttribute("data-step"); reply.textContent = pend.question;
+      el.querySelector(".td-live").appendChild(card);
+      const notRun = el.querySelector(".td-work");
+      if (notRun) notRun.remove();
+      askBox(card, pend.question, pend.options, (answer) => run(answer, answer, { fresh: true, turn, card }));
+    }
     const on = (sel, fn) => { const b = el.querySelector(sel); if (b) b.addEventListener("click", fn); };
     on('[data-act="run"]', () => run(ask, "Do it", { fresh: true }));
     on('[data-act="again"]', () => run(ask, "Run it again", { fresh: true }));
@@ -221,12 +236,37 @@ export function renderTodo(view, { param } = {}) {
   // results as they land, then the reply — with answers to tap when it
   // asks something back. "Run it again" starts over from the to-do;
   // everything else builds on what's been found.
-  async function run(text, label, { fresh = false } = {}) {
+  // The assistant asked something back — a number, a day — under its
+  // question: the answers it offered as chips, and a field to type one
+  // (a phone field when it's a number it wants). The answer carries the
+  // same turn on.
+  function askBox(card, question, options, onAnswer) {
+    const box = document.createElement("div");
+    box.className = "td-answer";
+    const phone = /\b(number|phone|cell|mobile)\b/i.test(question);
+    box.innerHTML = `${options.length ? `<div class="vt-choices">${options.map((o) => `<button type="button" class="vt-choice">${esc(o)}</button>`).join("")}</div>` : ""}
+      <form class="td-answer-form"><input type="${phone ? "tel" : "text"}" class="td-input" placeholder="${phone ? "Their number" : "Your answer"}" autocomplete="off" ${phone ? 'inputmode="tel"' : ""} /><button type="submit" class="btn btn-primary btn-sm">Send</button></form>`;
+    const done = (answer) => { box.querySelectorAll("button, input").forEach((x) => { x.disabled = true; }); box.classList.add("answered"); onAnswer(answer); };
+    box.querySelectorAll(".vt-choice").forEach((b) => b.addEventListener("click", () => { b.classList.add("picked"); done(b.textContent); }));
+    box.querySelector("form").addEventListener("submit", (e) => { e.preventDefault(); const v = box.querySelector("input").value.trim(); if (v) done(v); });
+    card.appendChild(box);
+    setTimeout(() => { try { box.querySelector("input").focus(); } catch { /* fine */ } }, 50);
+  }
+
+  // opts.turn + opts.card: carry on an exchange already on the page (an
+  // answer to its question) rather than starting a new card.
+  async function run(text, label, { fresh = false, turn = null, card = null } = {}) {
     if (busy) { toast("Still working on the last one", "warn"); return; }
     busy = true;
-    const turn = { ask: label, say: "", at: "", steps: [], results: [] };
-    const card = turnEl(turn, { live: true });
-    el.querySelector(".td-live").appendChild(card);
+    const cont = !!(turn && card);
+    if (!cont) {
+      turn = { ask: label, say: "", at: "", steps: [], results: [] };
+      card = turnEl(turn, { live: true });
+      el.querySelector(".td-live").appendChild(card);
+    } else {
+      const reply = card.querySelector(".td-reply");
+      reply.classList.add("td-working"); reply.setAttribute("data-step", ""); reply.textContent = "Working…";
+    }
     card.scrollIntoView({ block: "nearest", behavior: "smooth" });
     el.querySelectorAll(".td-action, .td-ask-form button").forEach((b) => { b.disabled = true; });
     hearTool = (name, input, out) => {
@@ -237,7 +277,7 @@ export function renderTodo(view, { param } = {}) {
     };
     try {
       const s = await getSession();
-      const res = await s.send(fresh ? text : seed(text), (step) => {
+      const res = await s.send(fresh || cont ? text : seed(text), (step) => {
         if (!step || /^⚠/.test(step)) return;
         if (turn.steps[turn.steps.length - 1] !== step) { turn.steps.push(step); const box = card.querySelector(".td-steps"); box.hidden = false; box.innerHTML = turn.steps.slice(0, 8).map((x) => `<span class="td-step">${esc(x)}</span>`).join(`<span class="td-sep">›</span>`); }
         const d = card.querySelector("[data-step]"); if (d) d.textContent = step;
@@ -248,16 +288,9 @@ export function renderTodo(view, { param } = {}) {
       turn.say = res.say || "Done.";
       turn.steps = turn.steps.slice(0, 8);
       if (res.done === false) {
-        // A question back: the answers it offered as chips, or the box below.
+        // A question back: answered right here, and the same turn carries on.
         const opts = Array.isArray(res.options) ? res.options : [];
-        if (opts.length) {
-          const box = document.createElement("div");
-          box.className = "vt-choices";
-          opts.forEach((o) => { const b = document.createElement("button"); b.type = "button"; b.className = "vt-choice"; b.textContent = o; b.addEventListener("click", () => { box.querySelectorAll("button").forEach((x) => { x.disabled = true; }); b.classList.add("picked"); box.classList.add("answered"); run(o, o); }); box.appendChild(b); });
-          card.appendChild(box);
-        } else {
-          const hint = document.createElement("div"); hint.className = "small muted"; hint.style.marginTop = "6px"; hint.textContent = "Answer in the box below."; card.appendChild(hint);
-        }
+        askBox(card, res.say || "", opts, (answer) => run(answer, answer, { fresh: fresh || turn.ask === "Do it", turn, card }));
       } else {
         turn.at = new Date().toISOString();
         remember(turn, { fresh });

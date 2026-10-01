@@ -13,6 +13,12 @@ const pad = (n) => String(n).padStart(2, "0");
 // The to-dos the assistant is running right now (ids). Module-wide, so a
 // card drawn again after a trip to another screen still says Working….
 const running = new Set();
+// Runs waiting on an answer (id → { session, turn, question, options }):
+// the assistant asked something back — a number, a day — and the work
+// page takes the conversation over, so the answer finishes the same run.
+const pendingRuns = new Map();
+export function pendingRun(id) { return pendingRuns.get(id) || null; }
+export function clearPendingRun(id) { pendingRuns.delete(id); }
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 // The next round hour, so a to-do given a time defaults to something sensible.
 const nextHour = () => { const d = new Date(Date.now() + 3600000); return `${pad(d.getHours())}:00`; };
@@ -213,6 +219,11 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
         if (running.has(t.id)) {
           banner.className = "todo-banner todo-banner-working";
           banner.innerHTML = `<span class="tb-label" data-step>Working…</span><button type="button" class="btn btn-primary btn-sm do-it" data-do-it disabled>Working…</button>`;
+        } else if (pendingRuns.has(t.id)) {
+          // Waiting on you: the question's on the work page with a field.
+          banner.className = "todo-banner todo-banner-asking";
+          banner.innerHTML = `<span class="tb-label">${esc(pendingRuns.get(t.id).question)}</span><button type="button" class="btn btn-primary btn-sm do-it" data-answer>Answer</button>`;
+          banner.querySelector("[data-answer]").addEventListener("click", (e) => { e.stopPropagation(); navigate(`/todo/${t.id}`); });
         } else if (a && a.at) {
           banner.className = "todo-banner todo-banner-done";
           banner.innerHTML = `<button type="button" class="tb-done" data-check-it>${icon("checkline")} Done — check it out <span class="tb-arrow">›</span></button>`;
@@ -237,13 +248,21 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
           if (!a.agentConfigured()) { toast("Set up the voice agent under Settings first", "warn"); return; }
           // Nothing opens elsewhere: the lookups, the draft, the booking all
           // come back as results, kept on the to-do for its work page.
-          const res = await a.createAgentSession({ stay: true, onTool: (name, input, out) => { const r = compactResult(name, input, out); if (r) results.push(r); } }).send(ask, (step) => {
+          const session = a.createAgentSession({ stay: true, onTool: (name, input, out) => { const r = compactResult(name, input, out); if (r) results.push(r); } });
+          const res = await session.send(ask, (step) => {
             if (!step || /^⚠/.test(step)) return;
             if (steps[steps.length - 1] !== step) steps.push(step);
             const s = banner.querySelector("[data-step]");
             if (s) s.textContent = step;
           });
-          if (res.done === false) { toast(`It needs more from you: ${res.say}`, "warn"); return; }
+          if (res.done === false) {
+            // It needs something from you — the number, the day. The work
+            // page asks, with a field to fill in, and the answer carries
+            // the same run through to done.
+            pendingRuns.set(t.id, { session, turn: { ask: "Do it", say: "", at: "", steps: steps.slice(0, 8), results }, question: res.say || "Could you give me a bit more?", options: Array.isArray(res.options) ? res.options : [] });
+            navigate(`/todo/${t.id}`);
+            return;
+          }
           // The reply isn't shouted here — it's on the work page, behind
           // "check it out", with what it can do next.
           const turn = { ask: "Do it", say: res.say || "Done.", at: new Date().toISOString(), steps: steps.slice(0, 8), results };
