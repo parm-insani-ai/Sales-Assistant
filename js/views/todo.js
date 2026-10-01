@@ -99,6 +99,9 @@ export function renderTodo(view, { param } = {}) {
   const ask = doItFor(t, lead);
   const el = document.createElement("div");
   el.className = "td-page";
+  // The page fills the scroller so the ask box sits at the bottom of the
+  // screen whether the work is short or long (same as the inbox's reply bar).
+  view.classList.add("view-thread");
   view.appendChild(el);
 
   // One conversation for the page, so each next action knows what the
@@ -225,15 +228,14 @@ export function renderTodo(view, { param } = {}) {
       <div class="card td-actions">
         ${actions.map((x, i) => `<button type="button" class="td-action" data-action="${i}"><span class="td-action-ico">${icon(x.icon)}</span><span class="td-action-label">${esc(x.label)}</span><span class="td-arrow">›</span></button>`).join("")}
       </div>` : ""}
-      <form class="td-ask-form">
-        <input type="text" class="td-input" placeholder="${esc(lead ? `Or tell it what else to do for ${first(lead.name)}…` : "Or tell it what else to do…")}" autocomplete="off" />
-        <button type="submit" class="btn btn-primary btn-sm" aria-label="Go">${icon("send")}</button>
-      </form>
       <div class="td-foot">
         <button type="button" class="btn btn-primary btn-block td-tick" data-act="done">${icon("check")} Tick it off</button>
         ${ask && turns.length ? `<button type="button" class="btn btn-ghost btn-sm btn-block" data-act="again">Run it again</button>` : ""}
       </div>
-      <div class="fab-note">Everything happens here. A text it drafts waits above for you to send; figures stay off it.</div>
+      <form class="td-ask-form">
+        <input type="text" class="td-input" placeholder="${esc(lead ? `Or tell it what else to do for ${first(lead.name)}…` : "Or tell it what else to do…")}" autocomplete="off" />
+        <button type="submit" class="btn btn-primary btn-sm" aria-label="Go">${icon("send")}</button>
+      </form>
     `;
     const thread = el.querySelector(".td-thread");
     turns.forEach((turn) => thread.appendChild(turnEl(turn)));

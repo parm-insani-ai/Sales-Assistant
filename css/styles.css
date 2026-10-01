@@ -1144,13 +1144,16 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .td-action-ico .ico { width: 18px; height: 18px; }
 .td-action-label { flex: 1; min-width: 0; }
 .td-arrow { color: var(--muted); font-size: 1.2rem; line-height: 1; }
-.td-ask-form { display: flex; gap: 8px; align-items: center; margin: 0 0 14px; }
+.td-page { display: flex; flex-direction: column; min-height: 100%; }
+/* The ask box stays at the bottom of the screen, sticky to the scroller like
+   the inbox's reply bar: always in reach, the work scrolling behind it. */
+.td-ask-form { position: sticky; bottom: 0; z-index: 2; display: flex; gap: 8px; align-items: center; margin: 14px -20px 0; padding: 10px 20px calc(10px + var(--safe-bottom)); background: var(--bg); border-top: 1px solid var(--border); }
 .td-ask-form .td-input { flex: 1; min-width: 0; border-radius: 999px; padding: 11px 16px; }
 .td-ask-form button { flex: none; width: 42px; height: 42px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
 .td-ask-form button .ico { width: 18px; height: 18px; }
 .td-input { font: inherit; font-size: 0.95rem; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); }
 .td-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-tint); }
-.td-foot { display: flex; flex-direction: column; gap: 6px; }
+.td-foot { display: flex; flex-direction: column; gap: 6px; margin-top: auto; padding-bottom: 6px; }
 .td-tick { padding: 14px; font-size: 1rem; }
 /* New things ease in rather than appear. */
 .td-in { animation: tdIn 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
