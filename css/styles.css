@@ -2154,3 +2154,6 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .pl-banner .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 0.8rem; white-space: nowrap; }
 .pl-banner .btn .ico { width: 15px; height: 15px; }
 .pl-banner .pl-doit { margin-right: auto; }
+/* The quiet buttons on a play — Open, Do it — get an outline, so they read
+   as buttons against the banner's grey. */
+.pl-banner .btn-ghost { border: 1.5px solid var(--text); background: var(--surface); color: var(--text); }

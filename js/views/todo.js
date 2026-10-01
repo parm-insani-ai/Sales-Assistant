@@ -7,7 +7,7 @@
 // on the to-do's card (Log → To-dos).
 
 import * as store from "../store.js";
-import { navigate } from "../router.js";
+import { navigate, goBack } from "../router.js";
 import { esc, relativeDay, formatDateTime, currency, smsHref } from "../utils.js";
 import { icon } from "../icons.js";
 import { toast } from "../components.js";
@@ -97,6 +97,8 @@ export function renderTodo(view, { param } = {}) {
   }
   const lead = t.leadId ? store.get("leads", t.leadId) : null;
   const ask = doItFor(t, lead);
+  // Back lands on the chip this to-do lives on: a plan step is the queue's.
+  try { sessionStorage.setItem("viniva:log:open", t.cadence ? "queue" : "todos"); } catch { /* the remembered chip, then */ }
   const el = document.createElement("div");
   el.className = "td-page";
   // The page fills the scroller so the ask box sits at the bottom of the
@@ -258,7 +260,7 @@ export function renderTodo(view, { param } = {}) {
     const on = (sel, fn) => { const b = el.querySelector(sel); if (b) b.addEventListener("click", fn); };
     on('[data-act="run"]', () => run(ask, "Do it", { fresh: true }));
     on('[data-act="again"]', () => run(ask, "Run it again", { fresh: true }));
-    on('[data-act="done"]', () => { store.update("tasks", t.id, { done: true }); toast("Nice — task done", "success"); try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* fine */ } navigate("/log"); });
+    on('[data-act="done"]', () => { store.update("tasks", t.id, { done: true }); toast("Nice — task done", "success"); try { sessionStorage.setItem("viniva:log:open", t.cadence ? "queue" : "todos"); } catch { /* fine */ } goBack("/log"); });
     el.querySelectorAll("[data-action]").forEach((b) => b.addEventListener("click", () => {
       const x = actions[Number(b.dataset.action)];
       if (x) run(x.ask, x.label);

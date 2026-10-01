@@ -70,25 +70,30 @@ function restoreScroll(top) {
   if (!v || !(top > 0)) return;
   if (restoring) restoring();
   let on = true;
-  const stop = () => { on = false; restoring = null; };
+  let mo = null;
+  const stop = () => { on = false; restoring = null; if (mo) { mo.disconnect(); mo = null; } };
   restoring = stop;
   ["touchstart", "wheel", "keydown"].forEach((ev) => v.addEventListener(ev, stop, { once: true, passive: true }));
   const t0 = performance.now();
-  let settled = 0;
+  let settled = 0, lastChange = performance.now();
+  // Screens fill in late — a lazy module, the queue after the book is read,
+  // a windowed list — so every change to the screen's content is a cue to
+  // put the place back, for up to eight seconds, until it fits and the
+  // content has been still for a moment.
+  try { mo = new MutationObserver(() => { lastChange = performance.now(); settled = 0; }); mo.observe(v, { childList: true, subtree: true }); } catch { /* no observer: the frames below do the work */ }
   const tick = () => {
     if (!on) return;
     const max = Math.max(0, v.scrollHeight - v.clientHeight);
     if (max >= top) {
       if (Math.abs(v.scrollTop - top) > 1) v.scrollTop = top;
-      // Hold for a few frames once it fits, in case the height still moves.
-      if (++settled > 12) return stop();
+      // Hold once it fits, until the content has been still for a moment.
+      if (++settled > 12 && performance.now() - lastChange > 400) return stop();
     } else {
-      // As far as it goes for now; a windowed list fills in below and the
-      // next frame gets the rest.
+      // As far as it goes for now; the rest comes with the next content.
       if (v.scrollTop !== max) v.scrollTop = max;
       settled = 0;
     }
-    if (performance.now() - t0 < 1500) requestAnimationFrame(tick); else stop();
+    if (performance.now() - t0 < 8000) requestAnimationFrame(tick); else stop();
   };
   v.scrollTop = Math.min(top, Math.max(0, v.scrollHeight - v.clientHeight));
   requestAnimationFrame(tick);
@@ -129,12 +134,13 @@ export function navigationHeld() { return holding; }
  * a plain navigation to `fallback` when it isn't (a link opened straight
  * onto a customer has nowhere to go back to).
  */
+let returnNext = false;        // the next fresh step is a return (goBack with no history)
 export function goBack(fallback = "/") {
   const prev = trail[idx - 1];
   const want = String(fallback || "/");
   const sameScreen = (a, b) => (a || "").split("/").filter(Boolean)[0] === (b || "").split("/").filter(Boolean)[0];
   if (idx > 0 && prev && sameScreen(prev, want)) history.back();
-  else navigate(want);
+  else { returnNext = true; navigate(want); }
 }
 
 function render() {
@@ -163,6 +169,10 @@ function render() {
     trail[idx] = hash;
   }
   const fromTab = tabTap; tabTap = false;
+  // A back with nothing behind it (a screen opened from a notification)
+  // navigates to the parent instead; it's still a return.
+  if (dir === "new" && returnNext) dir = "back";
+  returnNext = false;
   lastMove = { dir, fromTab };
 
   const { base, param, parts } = parse();

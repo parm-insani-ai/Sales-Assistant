@@ -209,7 +209,7 @@ function mount(base, ctx) {
 function parentOf(base, param, roots) {
   if (param && roots.includes(base)) return base;
   if (param && base === "/inbox") return "/comms";
-  if (base === "/todo") { try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* the remembered chip, then */ } return "/log"; }
+  if (base === "/todo") return "/log"; // the work page says which chip (a plan step is the queue's)
   if (base === "/calendar" && param) return "/appts"; // an appointment's page backs out to the list
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
   return "/";

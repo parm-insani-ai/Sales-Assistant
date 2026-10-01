@@ -15,7 +15,10 @@ await p.addInitScript(() => {
   localStorage.setItem("viniva:log:tab", "queue"); // the long list, for the scroll test
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const leads = []; for (let i = 0; i < 120; i++) leads.push({ id: "l" + i, name: "Customer " + i, phone: "902555" + String(1000 + i), stage: ["new", "working", "delivered"][i % 3], vehicleInterest: ["2019 Nissan Rogue", "2021 Nissan Sentra", "2020 Kicks"][i % 3], followUp: i % 5 === 0 ? "2026-10-" + String(1 + (i % 28)).padStart(2, "0") : "", createdAt: "2025-01-01T00:00:00.000Z", updatedAt: "2025-01-01T00:00:00.000Z" });
-  localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads, settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false } }));
+  // Thirty plan steps due today, so the queue is long and every card has Do it.
+  const pad = (n) => String(n).padStart(2, "0"); const d = new Date(); const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const tasks = []; for (let i = 0; i < 30; i++) tasks.push({ id: "fu" + i, title: `Call Customer — Check-in call`, due: today, at: today + "T09:00", readyAt: new Date(Date.now() - 3600000).toISOString(), done: false, leadId: "l" + i, cadence: true, channel: "call", intent: "check", step: 4, of: 13 });
+  localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads, tasks, settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false, agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" } }));
 });
 const top = () => p.evaluate(() => document.getElementById("view").scrollTop);
 const settle = async (ms = 700) => { await p.waitForTimeout(ms); };
@@ -79,6 +82,36 @@ await p.evaluate(async () => { const r = await import("/js/router.js"); r.naviga
 await p.waitForSelector(".lead-list [data-lead-id]", { timeout: 10000 });
 await settle();
 if ((await top()) > 5) fail("a fresh navigation to Leads didn't start at the top: " + (await top()));
+
+// --- Deep in the queue, Do it opens the step's work page; the top bar's back
+// lands on the queue where you were — the queue paints late, after the
+// book is read, and the place is put back once it has.
+await p.evaluate(() => { location.hash = "#/log"; }); await settle(500);
+await p.click('.log-tabs [data-tab="queue"]');
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
+await settle(400);
+await scrollTo(900);
+const queueBefore = await top();
+if (queueBefore < 500) fail("couldn't scroll the queue to test: " + queueBefore);
+await p.evaluate(() => { const v = document.getElementById("view").getBoundingClientRect(); const b = [...document.querySelectorAll("[data-play-doit]")].find((x) => { const r = x.getBoundingClientRect(); return r.top > v.top && r.bottom < v.bottom; }); b.click(); });
+await p.waitForFunction(() => /^#\/todo\//.test(location.hash) && document.querySelector(".td-page"), null, { timeout: 10000 }).catch(() => fail("Do it didn't open the work page"));
+await settle(600);
+await p.click("#topbar-back");
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
+await settle(1500);
+const queueAfter = await top();
+console.log("back from the work page →", queueAfter, "(was", queueBefore + ")");
+if (Math.abs(queueAfter - queueBefore) > 40) fail(`back from the work page didn't land where you were on the queue: ${queueBefore} → ${queueAfter}`);
+// Tick it off on the work page goes back the same way.
+await p.evaluate(() => { const v = document.getElementById("view").getBoundingClientRect(); const b = [...document.querySelectorAll("[data-play-doit]")].find((x) => { const r = x.getBoundingClientRect(); return r.top > v.top && r.bottom < v.bottom; }); b.click(); });
+await p.waitForFunction(() => /^#\/todo\//.test(location.hash) && document.querySelector('.td-page [data-act="done"]'), null, { timeout: 10000 }).catch(() => fail("Do it didn't open the work page (2)"));
+await settle(600);
+await p.click('.td-page [data-act="done"]');
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
+await settle(1500);
+const queueTicked = await top();
+console.log("tick it off →", queueTicked, "(was", queueBefore + ")");
+if (Math.abs(queueTicked - queueBefore) > 220) fail(`Tick it off didn't come back to the queue where you were: ${queueBefore} → ${queueTicked}`);
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
