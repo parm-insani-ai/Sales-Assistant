@@ -357,26 +357,30 @@ export function renderTodo(view, { param } = {}) {
     }
   }
 
-  // Tapping the ask box raises the keyboard, and the page behind it must
-  // not jump. The browser scrolls a focused field "into view" and iOS can
-  // slide the page as the keyboard animates in — so the scroller is put
-  // back where it was, a few times through the animation and whenever the
-  // viewport changes shape while the box has focus. The box itself is
-  // sticky to the bottom, so it rises with the keyboard on its own.
+  // Tapping the ask box raises the keyboard, and the page and the box move
+  // up together: the keyboard takes the space where the bottom of the page
+  // was, and what you were reading just above the box is still just above
+  // it. Done by anchoring the BOTTOM edge of the content — the point of the
+  // page that sits at the scroller's bottom — and holding it there as the
+  // scroller changes height, through the keyboard's animation in and out.
+  // (The browser's own "scroll the field into view" and iOS's slide of the
+  // page are overridden the same way.)
   function holdScroll(input) {
     if (!input) return;
-    let saved = null;
-    const restore = () => {
-      if (saved == null || document.activeElement !== input) return;
-      if (view.scrollTop !== saved) view.scrollTop = saved;
+    let anchor = null, until = 0;
+    const settle = () => {
+      if (anchor == null || Date.now() > until) return;
+      const want = Math.max(0, anchor - view.clientHeight);
+      if (Math.abs(view.scrollTop - want) > 1) view.scrollTop = want;
       if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
     };
-    input.addEventListener("pointerdown", () => { saved = view.scrollTop; });
-    input.addEventListener("focus", () => { if (saved == null) saved = view.scrollTop; [0, 60, 150, 300, 500, 800].forEach((ms) => setTimeout(restore, ms)); });
-    input.addEventListener("blur", () => { saved = null; });
+    const hold = (ms) => { anchor = view.scrollTop + view.clientHeight; until = Date.now() + ms; [0, 60, 150, 300, 500, 800].forEach((t) => setTimeout(settle, t)); };
+    input.addEventListener("pointerdown", () => { if (document.activeElement !== input) hold(1200); });
+    input.addEventListener("focus", () => { if (anchor == null || Date.now() > until) hold(1200); });
+    input.addEventListener("blur", () => hold(1200));
     const vv = window.visualViewport;
     if (!vv) return;
-    const onShape = () => { if (!view.isConnected) { vv.removeEventListener("resize", onShape); vv.removeEventListener("scroll", onShape); return; } restore(); };
+    const onShape = () => { if (!view.isConnected) { vv.removeEventListener("resize", onShape); vv.removeEventListener("scroll", onShape); return; } settle(); };
     vv.addEventListener("resize", onShape);
     vv.addEventListener("scroll", onShape);
   }
