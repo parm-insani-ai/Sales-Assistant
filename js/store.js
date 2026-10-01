@@ -136,6 +136,11 @@ const DEFAULT_STATE = {
   prefs: [], // one synced row telling the server your timezone and quiet hours
   config: [], // one synced row mirroring `settings`, so a reinstall gets them back
   paychecks: [], // pay periods for reconciliation: { periodStart, periodEnd, payDate, commissionPaid, gross, net, notes }
+  // The paperwork on a sale, photographed or scanned: one row per file
+  //   { saleId, leadId, name, mime, size, at, path, uploaded }
+  // The file itself is on the device (cachedb) and in the cloud bucket at
+  // `path` once uploaded (js/docs.js).
+  docs: [],
   push: [], // this account's web-push subscriptions, one per device — the function reads these to send notifications
   // One row per connected mailbox, so the function's sweep can look at the
   // inbox while the app is shut and push "New email from …":
@@ -968,7 +973,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather

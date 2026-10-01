@@ -1878,6 +1878,34 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .tg-of { font-size: 1rem; font-weight: 600; color: var(--muted); letter-spacing: -0.01em; margin-left: 1px; }
 .tg-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-top: 2px; }
 .tg-tile .tg-bar { margin-top: 8px; height: 6px; background: var(--border); }
+.tg-tap { cursor: pointer; transition: transform 0.08s ease, background 0.15s; -webkit-tap-highlight-color: transparent; }
+.tg-tap:active { transform: scale(0.985); background: var(--surface-3); }
+.tg-arrow { color: var(--brand); font-weight: 800; }
+
+/* Sold (views/sold.js): everyone sold by month, each with the paperwork
+   photographed on the sale. */
+.sd-sale { padding: 14px 16px; }
+.sd-head { cursor: pointer; align-items: center; gap: 12px; -webkit-tap-highlight-color: transparent; }
+.sd-avatar { width: 38px; height: 38px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--brand-tint); color: var(--brand-strong); font-weight: 800; font-size: 0.82rem; letter-spacing: 0.02em; }
+.sd-count { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: 0.78rem; font-weight: 700; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: 5px 10px; }
+.sd-count .ico { width: 13px; height: 13px; }
+.sd-count.sd-has { color: var(--brand-strong); background: var(--brand-tint); }
+.sd-body { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.sd-docs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.sd-docs:empty { display: none; margin: 0; }
+.sd-thumb { position: relative; aspect-ratio: 1; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); padding: 0; overflow: hidden; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sd-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sd-thumb:active { transform: scale(0.97); }
+.sd-thumb-file { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 100%; padding: 6px; font-size: 0.68rem; font-weight: 600; color: var(--text-2); text-align: center; overflow: hidden; }
+.sd-thumb-file .ico { width: 24px; height: 24px; color: var(--brand); }
+.sd-thumb-file span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sd-thumb-wait { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); color: var(--warning); display: inline-flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); }
+.sd-thumb-wait .ico { width: 12px; height: 12px; }
+.sd-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sd-addbtn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sd-viewer-body img { width: 100%; height: auto; border-radius: 12px; display: block; max-height: 70vh; object-fit: contain; background: var(--surface-2); }
+.sd-pdf { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 24px 12px; background: var(--surface-2); border-radius: 12px; text-align: center; }
+.sd-pdf .ico { color: var(--brand); }
 .tg-tile .tg-bar > span { background: var(--brand); }
 .tg-tile:nth-child(2) .tg-bar > span { background: var(--accent); }
 .tg-tile.tg-hit .tg-big, .tg-tile.tg-hit .tg-bar > span { color: var(--success); background: var(--success); }

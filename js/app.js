@@ -27,7 +27,7 @@ const LOADERS = {
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
-  log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"),
+  log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"), sold: () => import("./views/sold.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -141,6 +141,7 @@ const PAGES = {
   "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
+  "/sold": { title: "Sold", render: lazyView("sold", "renderSold") },
   "/team": { title: "Team", render: lazyView("team", "renderTeam") },
   "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") },
   "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") },

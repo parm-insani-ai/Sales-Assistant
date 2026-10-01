@@ -57,6 +57,7 @@ let failNextSend = false;
 // Canned reply for the drafting endpoint, so no real model is called.
 let draft = "Happy to go through it properly — takes about ten minutes. Does Thursday at 5 work, or is Saturday morning easier?";
 let toolNext = null; // a scripted tool_use for the next relay (POST /__tooluse)
+const objects = new Map(); // storage bucket: path → { buf, type }
 // What the function reports back from a setup check; tests swap this for the
 // shape they want to see rendered.
 let checkReply = { secrets: {}, auth: { ok: false, why: "not configured in this stub" } };
@@ -116,6 +117,25 @@ const server = http.createServer((req, res) => {
     return null;
   };
   const manages = (uid, target) => { const st = myStore(uid); return !!(st && st.role === "manager" && st.members.some((m) => m.user_id === target)); };
+  // Storage: the paperwork on a sale. Files land under the account's own
+  // folder; the real bucket's policy enforces that, here it's just a map.
+  if (url.pathname.startsWith("/storage/v1/object/")) {
+    const rest = url.pathname.slice("/storage/v1/object/".length);
+    if (req.method === "GET") {
+      const key = rest.replace(/^authenticated\//, "");
+      const o = objects.get(key);
+      if (!o) return json(res, 404, { error: "not found" });
+      res.writeHead(200, { "Content-Type": o.type, "Access-Control-Allow-Origin": "*" }); return res.end(o.buf);
+    }
+    if (req.method === "DELETE") { objects.delete(rest); return json(res, 200, { message: "ok" }); }
+    const chunks = []; req.on("data", (c) => chunks.push(c));
+    return req.on("end", () => {
+      if (!(req.headers.authorization || "").startsWith("Bearer ")) return json(res, 401, { error: "no token" });
+      objects.set(rest, { buf: Buffer.concat(chunks), type: req.headers["content-type"] || "application/octet-stream" });
+      json(res, 200, { Key: "docs/" + rest });
+    });
+  }
+  if (url.pathname === "/__objects") return json(res, 200, [...objects.entries()].map(([k, v]) => ({ key: k, size: v.buf.length, type: v.type })));
   if (url.pathname.startsWith("/rest/v1/rpc/")) {
     const fn = url.pathname.slice("/rest/v1/rpc/".length);
     let body = "";
@@ -519,7 +539,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__reset") {
     records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0;
-    links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null;
+    links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null; objects.clear();
     return json(res, 200, { ok: true });
   }
 

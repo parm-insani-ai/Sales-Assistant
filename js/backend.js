@@ -149,6 +149,33 @@ export async function fnHeaders() {
   return h;
 }
 
+// --- Storage (files: the paperwork photographed on a sale) ---
+// A private bucket; the policy in supabase/storage.sql lets a user read and
+// write only under their own folder (<uid>/...). Plain fetch like the rest.
+async function storageHeaders(extra = {}) {
+  const { anonKey } = cfg();
+  const t = await token();
+  return { apikey: anonKey, Authorization: `Bearer ${t}`, ...extra };
+}
+export async function putObject(bucket, path, blob, mime) {
+  const { url } = cfg();
+  const res = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, { method: "POST", headers: await storageHeaders({ "Content-Type": mime || "application/octet-stream", "x-upsert": "true" }), body: blob });
+  if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || j.error || `Upload failed (${res.status})`); }
+  return true;
+}
+export async function getObject(bucket, path) {
+  const { url } = cfg();
+  const res = await fetch(`${url}/storage/v1/object/authenticated/${bucket}/${path}`, { headers: await storageHeaders() });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  return res.blob();
+}
+export async function deleteObject(bucket, path) {
+  const { url } = cfg();
+  const res = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, { method: "DELETE", headers: await storageHeaders() });
+  if (!res.ok && res.status !== 404) throw new Error(`Delete failed (${res.status})`);
+  return true;
+}
+
 // --- REST (records table) ---
 async function rest(path, opts = {}) {
   const { url, anonKey } = cfg();

@@ -304,3 +304,10 @@ server-side.
 Requirements: cloud sync signed in (bookings travel through it) and the
 function on the latest code. Bookable days/hours/slot length are set in the
 same Settings section; the link encodes them.
+
+## Paperwork on sales (`storage.sql`)
+
+The Sold screen keeps photos and scans of each sale's paperwork. They go to a
+private bucket called `docs`, each account under its own folder. Run
+[`storage.sql`](./storage.sql) once in **SQL Editor** to create the bucket and
+its policy. Until then the files stay on the phone only (the screen says so).
