@@ -100,7 +100,7 @@ mark("Inventory", await go("#/inventory", () => document.querySelectorAll(".veh-
 mark("Comms", await go("#/comms", () => location.hash === "#/comms" && document.querySelector("#view").children.length > 0), await longs());
 mark("Calendar", await go("#/calendar", () => location.hash === "#/calendar" && document.querySelector("#view").children.length > 0), await longs());
 mark("Tasks/Goals", await go("#/goals", () => location.hash === "#/goals" && document.querySelector("#view").children.length > 0), await longs());
-mark("Home again", await go("#/", () => location.hash === "#/" && /Today's queue/.test(document.querySelector(".plays-slot")?.textContent || "")), await longs());
+mark("Home again", await go("#/", () => location.hash === "#/" && document.querySelector(".plays-slot")), await longs());
 await p.waitForTimeout(500);
 mark("  Home settle", 0, await longs());
 // Typing into the Leads search.

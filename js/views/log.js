@@ -1,10 +1,11 @@
 // Log — the customers you're working, and the day's work on them. Four
-// drop-downs: the queue (every reason to contact someone today, ranked,
-// each with its one-tap action), the month's log (every customer logged
-// this month — added by hand or by voice, or moved over from Outreach
-// once they showed promise), the reminders, and the to-dos. Each
-// remembers whether you left it open. Home is the day at a glance; this
-// is the doing.
+// chips across the top — Queue, Logged, Reminders, To-dos — and one of
+// them on screen at a time: the queue (every reason to contact someone
+// today, ranked, each with its one-tap action), the month's log (every
+// customer logged this month — added by hand or by voice, or moved over
+// from Outreach once they showed promise), the reminders, and the to-dos.
+// The chip you were on is the one you come back to. Home is the day at a
+// glance; this is the doing.
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
@@ -16,44 +17,75 @@ import { icon } from "../icons.js";
 import { getPlays, dismissPlay } from "../plays.js";
 import { bookCheap, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
-import { fold, foldCount } from "../fold.js";
 import { reminders } from "../reminders.js";
 import { pushEnabled } from "../push.js";
 import { loggedInMonth, loggedAtOf, monthKeyOf } from "../logbook.js";
 import { shoppingOf } from "../target.js";
 
+const TAB_KEY = "viniva:log:tab";     // the chip you were on
+const OPEN_KEY = "viniva:log:open";   // a chip something else asked for (the assistant)
+const TABS = ["queue", "logged", "reminders", "todos"];
+
+// Something that lands on Log with a section in mind — the assistant
+// opening the to-dos — says so here before it navigates.
+export function askLogTab(tab) {
+  try { sessionStorage.setItem(OPEN_KEY, TABS.includes(tab) ? tab : "queue"); } catch { /* the chip you were on, then */ }
+}
+
 export function renderLog(view) {
   const el = document.createElement("div");
   view.appendChild(el);
 
+  // The chips, with their counts.
+  const seg = document.createElement("div");
+  seg.className = "seg log-seg";
+  seg.setAttribute("role", "tablist");
+  const month = new Date().toLocaleDateString("en-US", { month: "long" });
+  const labels = { queue: "Queue", logged: "Logged", reminders: "Reminders", todos: "To-dos" };
+  seg.innerHTML = TABS.map((t) => `<button type="button" class="seg-btn" role="tab" data-tab="${t}">${labels[t]}<span class="seg-count" data-count="${t}"></span></button>`).join("");
+  el.appendChild(seg);
+  const setCount = (tab, n) => { const c = seg.querySelector(`[data-count="${tab}"]`); if (c) c.textContent = n == null ? "" : String(n); };
+
+  // The panels. All four are built; one is on screen.
+  const panels = {};
+  const panel = (tab, action) => {
+    const p = document.createElement("div");
+    p.className = "log-panel";
+    p.dataset.panel = tab;
+    p.hidden = true;
+    if (action) p.innerHTML = `<div class="log-panel-head">${action}</div>`;
+    panels[tab] = p;
+    el.appendChild(p);
+    return p;
+  };
+
   // 1. The queue.
+  const queuePanel = panel("queue");
   const playsSlot = document.createElement("div");
   playsSlot.className = "plays-slot";
-  const queue = fold({ key: "today:queue", title: "Today's queue", open: true, body: playsSlot });
-  el.appendChild(queue);
-  mountQueue(playsSlot, { onCount: (n) => foldCount(queue, n), heading: false });
+  queuePanel.appendChild(playsSlot);
+  mountQueue(playsSlot, { onCount: (n) => setCount("queue", n), heading: false });
 
   // 2. The month's log.
-  const month = new Date().toLocaleDateString("en-US", { month: "long" });
+  const logPanel = panel("logged", `<span class="small muted">Logged in ${esc(month)}</span><button class="btn btn-sm btn-ghost" data-act="add-customer">+ Add customer</button>`);
   const logBody = document.createElement("div");
   logBody.className = "log-slot";
+  logPanel.appendChild(logBody);
   const logged = loggedInMonth(monthKeyOf());
-  const logFold = fold({ key: "log:month", title: `Logged in ${esc(month)}`, count: logged.length, open: true, body: logBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-customer">+ Add</button>` });
-  el.appendChild(logFold);
+  setCount("logged", logged.length);
   paintLog(logBody, logged);
-  logFold.querySelector('[data-act="add-customer"]').addEventListener("click", () => openLeadForm());
+  logPanel.querySelector('[data-act="add-customer"]').addEventListener("click", () => openLeadForm());
 
   // 3. Reminders — with the note on where they land when the app is closed.
+  const remPanel = panel("reminders", `<span class="small muted">At their time, wherever you are</span><button class="btn btn-sm btn-ghost" data-act="add-reminder">+ Add reminder</button>`);
   const remCount = () => reminders().length;
-  const remBody = document.createElement("div");
-  const rem = fold({ key: "today:reminders", title: "Reminders", count: remCount(), open: true, body: remBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-reminder">+ Add</button>` });
-  remBody.appendChild(taskListEl({ kind: "reminder", limit: 20, empty: "No reminders. Tap + Add and pick a time — it'll notify you then, and sit under Right now on Home until you tick it off.", onChange: () => foldCount(rem, remCount()) }));
+  setCount("reminders", remCount());
+  remPanel.appendChild(taskListEl({ kind: "reminder", limit: 20, empty: "No reminders. Tap + Add reminder and pick a time — it'll notify you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("reminders", remCount()) }));
   const note = document.createElement("div");
   note.className = "hint";
   note.style.margin = "6px 2px 0";
-  remBody.appendChild(note);
-  el.appendChild(rem);
-  rem.querySelector('[data-act="add-reminder"]').addEventListener("click", () => openReminderForm());
+  remPanel.appendChild(note);
+  remPanel.querySelector('[data-act="add-reminder"]').addEventListener("click", () => openReminderForm());
   pushEnabled().then((on) => {
     if (!note.isConnected) return;
     note.textContent = on
@@ -62,14 +94,29 @@ export function renderLog(view) {
   }).catch(() => {});
 
   // 4. To-dos.
+  const todoPanel = panel("todos", `<span class="small muted">Open to-dos</span><button class="btn btn-sm btn-ghost" data-act="add-task">+ Add to-do</button>`);
   const todoBody = document.createElement("div");
   todoBody.className = "tasks-slot";
   const todoCount = () => store.all("tasks").filter((t) => !t.done && !(t.remindAt && t.channel === "reminder")).length;
-  const todos = fold({ key: "today:todos", title: "To-dos", count: todoCount(), open: true, body: todoBody, action: `<button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>` });
+  setCount("todos", todoCount());
   // A screenful of to-dos, the rest behind a button — see taskListEl.
-  todoBody.appendChild(taskListEl({ limit: 12, onChange: () => foldCount(todos, todoCount()) }));
-  el.appendChild(todos);
-  todos.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
+  todoBody.appendChild(taskListEl({ limit: 12, onChange: () => setCount("todos", todoCount()) }));
+  todoPanel.appendChild(todoBody);
+  todoPanel.querySelector('[data-act="add-task"]').addEventListener("click", () => openTaskForm());
+
+  // Which chip: the one asked for, else the one you were on, else the queue.
+  const show = (tab, remember = true) => {
+    const t = TABS.includes(tab) ? tab : "queue";
+    TABS.forEach((k) => { panels[k].hidden = k !== t; });
+    seg.querySelectorAll(".seg-btn").forEach((b) => { b.classList.toggle("active", b.dataset.tab === t); b.setAttribute("aria-selected", String(b.dataset.tab === t)); });
+    if (remember) { try { localStorage.setItem(TAB_KEY, t); } catch { /* per-device memory only */ } }
+  };
+  let asked = null;
+  try { asked = sessionStorage.getItem(OPEN_KEY); sessionStorage.removeItem(OPEN_KEY); } catch { /* nothing asked */ }
+  let was = null;
+  try { was = localStorage.getItem(TAB_KEY); } catch { /* the queue, then */ }
+  show(asked || was || "queue", !asked);
+  seg.addEventListener("click", (e) => { const b = e.target.closest(".seg-btn"); if (b) show(b.dataset.tab); });
 }
 
 // The month's log: who, what they're after, where the deal is, when they

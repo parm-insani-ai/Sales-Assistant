@@ -674,7 +674,7 @@ async function runTool(t, p = {}) {
         list = list.filter((x) => x.due && String(x.due).slice(0, 10) <= iso);
       }
       list.sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
-      if (list.length) navigate("/log", ".tasks-slot");
+      if (list.length) { try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* the queue, then */ } navigate("/log", ".tasks-slot"); }
       return { result: { count: list.length, tasks: list.slice(0, 20).map((x) => ({ title: x.title, due: x.due || null, priority: x.priority || "normal" })) }, note: "" };
     }
     case "get_deliveries": {
@@ -758,7 +758,7 @@ async function runTool(t, p = {}) {
         canText: !!c.lead.phone,
       }));
       const stats = prospectStats();
-      if (rows.length) navigate("/log", ".plays-slot");
+      if (rows.length) { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* fine */ } navigate("/log", ".plays-slot"); }
       return { result: { prospects: rows, note: rows.length
         ? `today's ${rows.length}, best first — each on Log with a Review button that drafts the opener; ${stats.eligibleNow} more in the book with a reason`
         : (stats.withReason ? "everyone with a reason has been reached or surfaced recently — tomorrow brings the next handful" : "nobody on file has enough data to price a deal — import an equity export") }, note: "" };
@@ -766,7 +766,7 @@ async function runTool(t, p = {}) {
     case "get_plays": {
       const plays = getPlays(6).map((p) => ({ play: p.title, why: p.sub, oneTapReady: !!p.href }));
       // Today's queue lives most of a page down Home — land on it, not above it.
-      if (plays.length) navigate("/log", ".plays-slot");
+      if (plays.length) { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* fine */ } navigate("/log", ".plays-slot"); }
       return { result: { plays, note: plays.length ? "ordered hottest first" : "nothing urgent — a good time for prospecting calls" }, note: "" };
     }
     case "get_coach": case "weekly_review": {
