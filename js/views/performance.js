@@ -48,8 +48,8 @@ export function renderPerformance(view) {
   const deals = () => store.all("sales").filter((s) => inScope(s.saleDate || s.createdAt)).sort((a, b) => String(a.saleDate || "").localeCompare(String(b.saleDate || "")));
 
   // A table: header row, then rows; the first cell is the label.
-  const table = (head, rows, { strongLast = true } = {}) => `
-    <div class="card">
+  const table = (head, rows, { strongLast = true, compact = false } = {}) => `
+    <div class="card${compact ? " pf-compact" : ""}">
       ${head ? `<div class="row pf-row pf-head">${head.map((h, i) => `<div class="small strong${i ? " pf-num" : " pf-lbl"}">${esc(h)}</div>`).join("")}</div>` : ""}
       ${rows.map((r) => `<div class="row pf-row">${r.map((c, i) => `<div class="small${i ? " mono pf-num" : " pf-lbl"}${strongLast && i === r.length - 1 ? " strong" : ""}">${esc(String(c))}</div>`).join("")}</div>`).join("")}
     </div>`;
@@ -129,7 +129,7 @@ export function renderPerformance(view) {
         const w = weekStats(d);
         rows.push([`${pad(d.getMonth() + 1)}/${pad(d.getDate())}`, w.units, money(w.total), w.apptsSet, w.showRate == null ? "—" : `${w.showRate}%`, w.touches]);
       }
-      parts.push(section("Week by week", table(["Week of", "Units", "Comm", "Appts set", "Show", "Touches"], rows, { strongLast: false })));
+      parts.push(section("Week by week", table(["Week", "Units", "Comm", "Appts", "Show", "Touches"], rows, { strongLast: false, compact: true })));
       // The month's activity.
       const touches = store.all("activity").filter((x) => x.type === "touch" && inScope(x.createdAt)).length;
       const added = store.all("leads").filter((l) => inScope(l.createdAt)).length;
