@@ -939,7 +939,10 @@ export function openLeadForm(existing, opts = {}) {
           } else {
             const lead = store.create("leads", { ...data, loggedAt: new Date().toISOString() });
             const n = maybeStartCadence(lead.id);
-            toast(n ? `Lead added — ${n}-step follow-up plan started` : "Lead added", "success");
+            // Say when no plan started, and why — a silent "Lead added" with
+            // no welcome text on Right now reads as a bug.
+            const why = n ? "" : !store.getSettings().autoCadence ? " — follow-up plans are off in Settings, so no welcome text" : hasCadence(lead.id) ? " — already on a plan" : " — an owner's plan has no welcome text";
+            toast(n ? `Lead added — ${n}-step follow-up plan started, welcome text on Right now` : `Lead added${why}`, n ? "success" : "warn");
           }
           close();
           // Refresh current view.
