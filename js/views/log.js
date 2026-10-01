@@ -1,11 +1,12 @@
 // Log — the customers you're working, and the day's work on them. Three
-// chips across the top — Queue, Logged, To-dos — and one of them on screen
-// at a time: the queue (every reason to contact someone today, ranked,
-// each with its one-tap action), the month's log (every customer logged
-// this month — added by hand or by voice, or moved over from Outreach once
-// they showed promise), and the to-dos, timed or not (a timed one is a
+// chips across the top — Logged, To-dos, Queue — and one of them on screen
+// at a time: the month's log (every customer logged this month — added by
+// hand or by voice, or moved over from Outreach once they showed promise),
+// the to-dos, timed or not (a timed one is a
 // reminder: it notifies you at its moment and sits under Right now on
-// Home). The chip you were on is the one you come back to. Home is the
+// Home), and the queue (every reason to contact someone today, ranked,
+// each with its one-tap action). The chip you were on is the one you come
+// back to. Home is the
 // day at a glance; this is the doing.
 
 import * as store from "../store.js";
@@ -24,7 +25,7 @@ import { shoppingOf } from "../target.js";
 
 const TAB_KEY = "viniva:log:tab";     // the chip you were on
 const OPEN_KEY = "viniva:log:open";   // a chip something else asked for (the assistant)
-const TABS = ["queue", "logged", "todos"];
+const TABS = ["logged", "todos", "queue"];
 
 // Something that lands on Log with a section in mind — the assistant
 // opening the to-dos — says so here before it navigates.
@@ -98,9 +99,9 @@ export function renderLog(view) {
       : "With the app open a to-do with a time shows here at its time. To get it when the app is closed, turn on notifications under Settings → Notifications.";
   }).catch(() => {});
 
-  // Which chip: the one asked for, else the one you were on, else the queue.
+  // Which chip: the one asked for, else the one you were on, else the first.
   const show = (tab, remember = true) => {
-    const t = TABS.includes(tab) ? tab : "queue";
+    const t = TABS.includes(tab) ? tab : "logged";
     TABS.forEach((k) => { panels[k].hidden = k !== t; });
     tabs.querySelectorAll("[data-tab]").forEach((b) => { const on = b.dataset.tab === t; b.classList.toggle("btn-primary", on); b.classList.toggle("btn-ghost", !on); b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on)); });
     if (remember) { try { localStorage.setItem(TAB_KEY, t); } catch { /* per-device memory only */ } }
@@ -108,9 +109,9 @@ export function renderLog(view) {
   let asked = null;
   try { asked = sessionStorage.getItem(OPEN_KEY); sessionStorage.removeItem(OPEN_KEY); } catch { /* nothing asked */ }
   let was = null;
-  try { was = localStorage.getItem(TAB_KEY); } catch { /* the queue, then */ }
+  try { was = localStorage.getItem(TAB_KEY); } catch { /* the first, then */ }
   if (was === "reminders") was = "todos"; // the chip that was folded into To-dos
-  show(asked || was || "queue", !asked);
+  show(asked || was || "logged", !asked);
   tabs.addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) show(b.dataset.tab); });
 }
 

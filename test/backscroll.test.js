@@ -12,6 +12,7 @@ const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, ser
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await p.addInitScript(() => {
+  localStorage.setItem("viniva:log:tab", "queue"); // the long list, for the scroll test
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const leads = []; for (let i = 0; i < 120; i++) leads.push({ id: "l" + i, name: "Customer " + i, phone: "902555" + String(1000 + i), stage: ["new", "working", "delivered"][i % 3], vehicleInterest: ["2019 Nissan Rogue", "2021 Nissan Sentra", "2020 Kicks"][i % 3], followUp: i % 5 === 0 ? "2026-10-" + String(1 + (i % 28)).padStart(2, "0") : "", createdAt: "2025-01-01T00:00:00.000Z", updatedAt: "2025-01-01T00:00:00.000Z" });
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads, settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false } }));

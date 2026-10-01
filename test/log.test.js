@@ -43,9 +43,9 @@ const today = await p.evaluate(() => ({
 }));
 const document_log = (t) => t.log.join(",");
 console.log("log:", JSON.stringify(today, null, 1));
-if (today.chips.map((c) => c.tab).join() !== "queue,logged,todos") fail("the three chips aren't there in order: " + JSON.stringify(today.chips));
-if (today.shown.join() !== "queue" || !today.chips[0].active) fail("the queue should be the chip on screen first: " + JSON.stringify(today));
-if (!/^Queue\s?\d/.test(today.chips[0].label) || !/^Logged\s?1$/.test(today.chips[1].label) || !/^To-dos\s?4$/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
+if (today.chips.map((c) => c.tab).join() !== "logged,todos,queue") fail("the three chips aren't there in order: " + JSON.stringify(today.chips));
+if (today.shown.join() !== "logged" || !today.chips[0].active) fail("Logged should be the chip on screen first: " + JSON.stringify(today));
+if (!/^Logged\s?1$/.test(today.chips[0].label) || !/^To-dos\s?4$/.test(today.chips[1].label) || !/^Queue\s?\d/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
 if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list the customer logged this month");
 // One list, soonest first by when it's actually due: the reminder that's
 // due now, the one later today at its minute, then the to-dos dated today.

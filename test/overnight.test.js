@@ -14,6 +14,7 @@ const pad = (n) => String(n).padStart(2, "0");
 const d = new Date();
 const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 await p.addInitScript(([today]) => {
+  try { localStorage.setItem("viniva:log:tab", "queue"); } catch {} // these tests read the queue chip
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const x = { createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z" };
   localStorage.setItem("sales-assistant:v1", JSON.stringify({

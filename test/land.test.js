@@ -31,6 +31,7 @@ const soonWall = (() => {
 })();
 
 await p.addInitScript(([overdue, soon]) => {
+  try { localStorage.setItem("viniva:log:tab", "queue"); } catch {} // these tests read the queue chip
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r",
     user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
