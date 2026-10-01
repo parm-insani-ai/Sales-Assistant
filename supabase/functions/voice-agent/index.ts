@@ -1290,6 +1290,199 @@ async function handleSweep(body: any): Promise<Response> {
   return json({ users: users.length, report });
 }
 
+// ---- The night read ----
+//
+// Everything else the function does by the clock is a rule: a reply older
+// than twelve minutes, an appointment inside three hours. This is the one
+// pass where the model reads the day's book the way a sales manager would
+// at the end of the day — who's going quiet, who said something that
+// deserves a reply in the morning, which appointment is shaky, who's in a
+// car that's coming up for a change — and writes tomorrow's plays: a
+// handful, each with the reason and, for a text, the draft. They're saved
+// as one record the app syncs down and puts at the top of the queue; the
+// morning push names the first. Nothing here sends anything.
+const NIGHT_PLAYS_MAX = 6;
+const NIGHT_LEADS_MAX = 120;
+
+// The app's rule, server side: no figure of money ever reaches a message.
+function redactMoneyServer(text: string): string {
+  const dates: string[] = [];
+  const kept = String(text || "").replace(/\b\d{4}-\d{2}-\d{2}\b/g, (d) => { dates.push(d); return `\u0000${dates.length - 1}\u0000`; });
+  return kept
+    .replace(/\$\s?[\d,.]+\s*(k|grand|thousand)?\b/gi, "[a figure]")
+    .replace(/\b\d{1,3}\s?(k|grand)\b/gi, "[a figure]")
+    .replace(/\b\d{1,3}(,\d{3})+\b/g, "[a figure]")
+    .replace(/\b\d{4,6}\b(?!\s*(km|kms|kilomet))/g, "[a figure]")
+    .replace(/\u0000(\d+)\u0000/g, (_m, i) => dates[Number(i)]);
+}
+function looksLikeMoneyServer(text: string): boolean {
+  return /(\$\s?\d|\d+\s?(%|percent)|\bapr\b|\b\d{2,3}\s?(a|per)\s?(month|mo)\b|\b\d{3,}\s?(dollars|bucks)\b|\bmonthly\s+(payment|is)\s+\d)/i.test(String(text || ""));
+}
+
+const NIGHT_TOOL = {
+  name: "write_plays",
+  description: "Tomorrow's plays for this salesperson: the few things most worth doing, best first.",
+  strict: true,
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["summary", "plays"],
+    properties: {
+      summary: { type: "string", description: "One sentence on the day ahead, as a sales manager would say it at the morning huddle." },
+      plays: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["customer", "action", "title", "why", "draft"],
+          properties: {
+            customer: { type: "string", description: "the customer's name exactly as it appears in the book" },
+            action: { type: "string", enum: ["text", "call", "email", "book", "confirm", "prep", "other"] },
+            title: { type: "string", description: "the play in a few words, e.g. 'Reply to Dana about Saturday'" },
+            why: { type: "string", description: "one sentence: the fact in the book that makes this worth doing tomorrow" },
+            draft: { type: "string", description: "for a text or an email, the message itself, written as the salesperson would send it; otherwise an empty string" },
+          },
+        },
+      },
+    },
+  },
+};
+
+async function handleNightly(body: any): Promise<Response> {
+  const cronKey = Deno.env.get("CRON_KEY");
+  if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) return json({ error: "Server missing ANTHROPIC_API_KEY" }, 500);
+
+  // Everyone who has opened the app (the prefs row goes up on first launch).
+  const res = await fetch(sbUrl(`/records?collection=eq.prefs&deleted=eq.false&select=user_id,data`), { headers: sbHeaders() });
+  if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
+  const prefRows = (await res.json()) as any[];
+  const only = typeof body.nightly === "object" && body.nightly && body.nightly.u ? String(body.nightly.u) : "";
+  const now = Date.now();
+  const report: any[] = [];
+
+  for (const pr of prefRows) {
+    const uid = String(pr.user_id);
+    if (only && uid !== only) continue;
+    const cfg = pr.data || {};
+    const tzOffset = isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : 0;
+    const days: number[] = Array.isArray(cfg.hoursDays) && cfg.hoursDays.length ? cfg.hoursDays : [1, 2, 3, 4, 5, 6];
+    // The next working day, in the salesperson's own calendar.
+    const local = new Date(now - tzOffset * 60000);
+    let target = new Date(local); target.setUTCDate(target.getUTCDate() + 1);
+    for (let guard = 0; guard < 7 && !days.includes(target.getUTCDay()); guard++) target.setUTCDate(target.getUTCDate() + 1);
+    const forDate = target.toISOString().slice(0, 10);
+    const todayLocal = local.toISOString().slice(0, 10);
+
+    const rows = async (coll: string) => {
+      const r = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data`), { headers: sbHeaders() });
+      return r.ok ? (await r.json()).map((x: any) => x.data || {}) : [];
+    };
+    const settings = (await rows("config"))[0] || {};
+    const leadsAll = await rows("leads");
+    const leadById = new Map<string, any>(leadsAll.map((l: any) => [l.id, l]));
+    const since72 = new Date(now - 72 * 3600000).toISOString();
+    const monthKey = todayLocal.slice(0, 7);
+
+    // The book, compactly: live customers first, by how recently anything happened.
+    const live = leadsAll
+      .filter((l: any) => ["new", "working", "appointment", "negotiating"].includes(l.stage) || (l.stage === "sold" && String(l.updatedAt || "").slice(0, 7) === monthKey))
+      .sort((a: any, b: any) => String(b.lastContacted || b.updatedAt || "").localeCompare(String(a.lastContacted || a.updatedAt || "")))
+      .slice(0, NIGHT_LEADS_MAX);
+    if (!live.length) { report.push({ uid: uid.slice(0, 8), skipped: "no live customers" }); continue; }
+    const ageDays = (iso: string) => { const t = new Date(iso || "").getTime(); return isFinite(t) ? Math.floor((now - t) / 86400000) : null; };
+    const p = (l: any) => l.profile || {};
+    const leadLines = live.map((l: any) => {
+      const bits = [`${l.name} — ${l.stage}`, l.vehicleInterest ? `after a ${l.vehicleInterest}` : "", p(l).trim ? `trim ${p(l).trim}` : "", p(l).timeline ? `timeline: ${p(l).timeline}` : "", p(l).tradeIn ? `trade: ${p(l).tradeIn}` : "", p(l).people ? `also deciding: ${p(l).people}` : "", l.leaseEnd ? `lease ends ${String(l.leaseEnd).slice(0, 10)}` : "", l.purchaseDate ? `bought ${String(l.purchaseDate).slice(0, 10)}` : "", l.createdAt ? `added ${ageDays(l.createdAt)}d ago` : "", l.lastContacted ? `last contact ${ageDays(l.lastContacted)}d ago` : "never contacted", l.followUp ? `follow-up due ${String(l.followUp).slice(0, 10)}` : "", l.phone ? "" : "NO PHONE", l.smsOptOut || l.doNotContact ? "DO NOT TEXT" : ""];
+      const notes = String(l.notes || "").split("\n").slice(-3).join(" ").slice(0, 240);
+      return `- ${bits.filter(Boolean).join("; ")}${notes ? `. Notes: ${redactMoneyServer(notes)}` : ""}`;
+    });
+
+    const appts = (await rows("appointments")).filter((a: any) => a.status !== "canceled" && String(a.when || "") >= todayLocal.slice(0, 10) + "T00:00" && String(a.when || "") <= forDate + "T23:59" || (a.status === "scheduled" && !a.outcome && String(a.when || "").slice(0, 10) < todayLocal && ageDays(String(a.when).slice(0, 10)) !== null && (ageDays(String(a.when).slice(0, 10)) as number) <= 2));
+    const apptLines = appts.map((a: any) => `- ${String(a.when).replace("T", " ")} ${a.customerName}${a.vehicle ? ` (${a.vehicle})` : ""}: ${a.type || "appointment"}, ${a.confirmed ? "confirmed" : "NOT confirmed"}${a.outcome ? `, outcome ${a.outcome}` : ""}`);
+
+    const tasks = (await rows("tasks")).filter((t: any) => !t.done && t.leadId && t.due && String(t.due).slice(0, 10) <= forDate && t.channel !== "reminder").slice(0, 40);
+    const taskLines = tasks.map((t: any) => `- ${String(t.due).slice(0, 10)}: ${t.title}${t.cadence ? " (plan step)" : ""}`);
+
+    const inbound: string[] = [];
+    const texts = (await rows("texts")).filter((t: any) => String(t.at || t.createdAt || "") >= since72);
+    const byLead = new Map<string, any[]>();
+    for (const t of texts) { const k = String(t.leadId || t.phone || ""); byLead.set(k, [...(byLead.get(k) || []), t]); }
+    for (const [k, list] of byLead) {
+      list.sort((a, b) => String(a.at || a.createdAt).localeCompare(String(b.at || b.createdAt)));
+      const lead = leadById.get(k);
+      const who = lead ? lead.name : `unknown ${k}`;
+      const last = list[list.length - 1];
+      const waiting = last.dir === "in" && !last.read;
+      inbound.push(`- ${who}${waiting ? " (WAITING on a reply)" : ""}: ` + list.slice(-4).map((t: any) => `${t.dir === "in" ? "them" : "me"}: "${redactMoneyServer(String(t.body || "")).slice(0, 160)}"`).join(" / "));
+    }
+    const emails = (await rows("emails")).filter((e: any) => e.direction === "in" && String(e.receivedAt || e.createdAt || "") >= since72).slice(0, 12);
+    for (const e of emails) { const lead = leadById.get(String(e.leadId || "")); inbound.push(`- ${lead ? lead.name : e.from || "someone"} emailed: "${redactMoneyServer(String(e.subject || ""))}" — ${redactMoneyServer(String(e.snippet || e.body || "")).slice(0, 200)}`); }
+
+    const deliveries = (await rows("deliveries")).filter((d: any) => d.status !== "delivered" && !d.done).slice(0, 10);
+    const delivLines = deliveries.map((d: any) => `- ${d.customerName}${d.vehicle ? ` (${d.vehicle})` : ""}${d.deliveryDate || d.when ? ` on ${String(d.deliveryDate || d.when).slice(0, 10)}` : ""}: ${(Array.isArray(d.checklist) ? d.checklist.filter((i: any) => !i.done).length : 0)} prep items left`);
+    const sold = (await rows("sales")).filter((s: any) => String(s.saleDate || s.createdAt || "").slice(0, 7) === monthKey).length;
+
+    const name = String(settings.salesperson || "").split(" ")[0] || "the salesperson";
+    const system = [
+      `You are the sales manager's end-of-day read of ${name}'s book at ${settings.dealership || "the dealership"}. It is the evening of ${todayLocal}; you are planning ${forDate}. Pick the ${NIGHT_PLAYS_MAX} things most worth ${name} doing that day, best first, and call write_plays once with them. Fewer is fine when the book is quiet; never pad.`,
+      `What makes a play: a customer who wrote and is waiting; an appointment that isn't confirmed; someone who was hot and has gone quiet a few days; a plan step due; a timeline or lease date that's arriving; a delivery with prep left; a new customer who hasn't been reached. Use the facts in the book — the why must point to one. Skip anyone marked DO NOT TEXT for texts (a call is fine), and anyone with NO PHONE for texts and calls.`,
+      `For a text or an email, write the draft as ${name} would send it: one to three sentences, warm and direct, continuing from what the customer last said, one easy next step. ${settings.agentTone === "straight" ? "Straight and brief." : settings.agentTone === "upbeat" ? "Upbeat." : "Warm and personal."}${settings.agentSignoff ? ` Sign it "${settings.agentSignoff}".` : ""}`,
+      `THE ONE RULE THAT CANNOT BEND: never state a dollar amount, a payment, a price, a trade value, a rate or a percentage in a draft — not an estimate, not a range. Figures were taken out of what you were given; do not put one back. If money is the point, offer to go through it properly in person.`,
+      settings.agentNotes ? `Standing instructions from ${name}: ${String(settings.agentNotes).slice(0, 1200)}` : "",
+    ].filter(Boolean).join("\n");
+    const user = [
+      `CUSTOMERS (${live.length} live${leadsAll.length > live.length ? ` of ${leadsAll.length} on file` : ""}; ${sold} sold this month)`,
+      ...leadLines,
+      `\nAPPOINTMENTS (today, tomorrow, and recent ones with no outcome)`, ...(apptLines.length ? apptLines : ["- none"]),
+      `\nFOLLOW-UPS DUE BY ${forDate}`, ...(taskLines.length ? taskLines : ["- none"]),
+      `\nWHAT'S COME IN (last 3 days)`, ...(inbound.length ? inbound : ["- nothing"]),
+      `\nDELIVERIES IN PREP`, ...(delivLines.length ? delivLines : ["- none"]),
+      `\nWrite ${forDate}'s plays.`,
+    ].join("\n");
+
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: Deno.env.get("NIGHT_MODEL") || Deno.env.get("MODEL") || "claude-sonnet-5-5",
+          max_tokens: 2048,
+          system: [{ type: "text", text: system }],
+          tools: [NIGHT_TOOL],
+          messages: [{ role: "user", content: user }],
+          output_config: { effort: "medium" },
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) { report.push({ uid: uid.slice(0, 8), error: data?.error?.message || `Claude error ${r.status}` }); continue; }
+      const call = (data.content || []).find((b: any) => b.type === "tool_use" && b.name === "write_plays");
+      if (!call) { report.push({ uid: uid.slice(0, 8), skipped: "no plays written", said: String((data.content || []).map((b: any) => b.text || "").join(" ")).slice(0, 160) }); continue; }
+      const out = (Array.isArray(call.input?.plays) ? call.input.plays : []).map((pl: any) => {
+        const q = String(pl.customer || "").trim().toLowerCase();
+        const lead = leadsAll.find((l: any) => String(l.name || "").toLowerCase() === q) || leadsAll.find((l: any) => q && String(l.name || "").toLowerCase().includes(q)) || null;
+        const draft = String(pl.draft || "").trim();
+        return {
+          customer: lead ? lead.name : String(pl.customer || "").slice(0, 80),
+          leadId: lead ? lead.id : null,
+          action: ["text", "call", "email", "book", "confirm", "prep", "other"].includes(pl.action) ? pl.action : "other",
+          title: String(pl.title || "").slice(0, 120),
+          why: redactMoneyServer(String(pl.why || "")).slice(0, 240),
+          // A draft with a figure in it is no draft: the play stays, the words go.
+          draft: draft && !looksLikeMoneyServer(draft) ? draft.slice(0, 600) : "",
+        };
+      }).filter((pl: any) => pl.title).slice(0, NIGHT_PLAYS_MAX);
+      const rec = { id: `agentplays:${forDate}`, date: forDate, summary: redactMoneyServer(String(call.input?.summary || "")).slice(0, 300), plays: out, at: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await saveRecord(uid, "agentplays", rec.id, rec);
+      report.push({ uid: uid.slice(0, 8), date: forDate, plays: out.length, customers: live.length, cached: data.usage?.cache_read_input_tokens || 0 });
+    } catch (e) {
+      report.push({ uid: uid.slice(0, 8), error: String(e) });
+    }
+  }
+  return json({ users: prefRows.length, report });
+}
+
 async function handleMorningPlays(body: any): Promise<Response> {
   const cronKey = Deno.env.get("CRON_KEY");
   if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
@@ -1315,8 +1508,12 @@ async function handleMorningPlays(body: any): Promise<Response> {
     const tasksDue = (await rows("tasks")).filter((t: any) =>
       !t.done && t.due && String(t.due).slice(0, 10) <= today).length;
     const links = (await rows("links")).filter((l: any) => l.lastOpenAt && l.lastOpenAt >= dayAgo);
+    // The night read, when there is one for today: its first play leads.
+    const night = (await rows("agentplays")).find((r: any) => r.date === today);
+    const top = night && Array.isArray(night.plays) && night.plays[0] ? night.plays[0] : null;
 
     const bits: string[] = [];
+    if (top) bits.push(`First: ${top.customer ? `${top.customer} — ` : ""}${top.title}`);
     if (links.length) {
       const label = links[0]?.meta?.label;
       bits.push(label ? `${label} was opened overnight 👀` : `${links.length} link${links.length === 1 ? "" : "s"} opened overnight 👀`);
@@ -2105,6 +2302,7 @@ Deno.serve(async (req: Request) => {
   if (body.shorten) return handleShorten(body.shorten);
   if (body.sweep) return handleSweep(body);
   if (body.plays) return handleMorningPlays(body);
+  if (body.nightly) return handleNightly(body);
   if (body.testpush) {
     const uid = String(body.testpush.u || "");
     if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);

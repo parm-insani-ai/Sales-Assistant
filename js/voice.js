@@ -383,6 +383,9 @@ let session_ = null;
 // Replies are written on the thread either way; whether they're also spoken
 // is the salesperson's call, and it sticks.
 const MUTE_KEY = "viniva:voice:mute";
+// How long a closed sheet's conversation stays in mind.
+const RECALL_MS = 10 * 60 * 1000;
+let parked = null; // { session, manager, at } — the last sheet's brain, for a while
 
 /**
  * Open the voice assistant.
@@ -543,6 +546,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     wave.stop();
     overlay.remove();
     session_ = null;
+    // Kept for a few minutes, in case the next thing said is a follow-up.
+    if (session && session.turns && session.turns() > 0) parked = { session, manager, at: Date.now() };
   };
   overlay.querySelector(".voice-close").addEventListener("click", (e) => { e.stopPropagation(); close(); });
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -633,6 +638,21 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // when a manager opens the panel, so a rep's app never fetches it.
   let session = null;
   const managerMod = manager ? import("./manageagent.js") : null;
+  // Closing the sheet used to forget the conversation. Reopened a minute
+  // later, "book him Thursday" had no "him". So the session is parked when
+  // the sheet closes and picked back up if the sheet reopens soon enough —
+  // the same brain, with the last few minutes still in mind.
+  if (parked && parked.manager === manager && Date.now() - parked.at < RECALL_MS && agentConfigured()) {
+    session = parked.session;
+    parked = null;
+    if (session.abandon) session.abandon();
+    const note = document.createElement("div");
+    note.className = "vt-note";
+    note.textContent = "Picking up where we left off";
+    threadEl.insertBefore(note, transcriptEl);
+  } else {
+    parked = null;
+  }
   const agentSession = async () => {
     if (!agentConfigured()) return null;
     if (!session) session = manager ? (await managerMod).createManagerSession() : createAgentSession();

@@ -22,6 +22,7 @@ function recentErrors() {
 }
 function clearErrors() { try { localStorage.removeItem("viniva:errors"); } catch { } }
 import { testAgent, findAgentFunction } from "../agent.js";
+import { TONES } from "../style.js";
 import { sendEmail, emailSendConfigured, emailSendVia } from "../email.js";
 import { connectOutlook, outlookConnected, outlookCanSend, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
 import { connectGmail, gmailConnected, gmailCanSend, gmailAccount, disconnectGmail, pullGmail, lastGmailPull } from "../gmail.js";
@@ -796,7 +797,17 @@ function buildAgent(slot) {
     <div class="hint">Leave blank to use the built-in on-device commands. When set, the mic understands natural language and carries out tasks.</div>
     <button class="btn btn-sm" id="ag-test" type="button" style="margin-top:10px">Test connection</button>
     <div class="hint" id="ag-test-out"></div>
+    <div class="section-title" style="margin-top:18px">How it works for you</div>
+    <div class="small muted" style="margin-bottom:10px">Read by the assistant and by every text and email it drafts in your name. Appointments follow the business hours under Notifications.</div>
+    <div class="field"><label>Tone of texts and emails</label>
+      <select id="ag-tone">${Object.entries(TONES).map(([k, t]) => `<option value="${k}" ${(s.agentTone || "warm") === k ? "selected" : ""}>${t.label} — ${esc(t.say)}</option>`).join("")}</select>
+    </div>
+    <div class="field"><label>Sign-off (blank: none, or the name when it reads naturally)</label><input id="ag-signoff" value="${esc(s.agentSignoff || "")}" placeholder="— ${esc((s.salesperson || "Parm").split(" ")[0])} at ${esc(s.dealership || "the dealership")}"></div>
+    <div class="field" style="margin-bottom:0"><label>Standing instructions — anything it should always know</label><textarea id="ag-notes" rows="3" placeholder="Never book Saturdays after 3. I always offer a test drive first. Call me PJ in texts.">${esc(s.agentNotes || "")}</textarea></div>
   `;
+  slot.querySelector("#ag-tone").addEventListener("change", (e) => store.updateSettings({ agentTone: e.target.value }));
+  slot.querySelector("#ag-signoff").addEventListener("change", (e) => store.updateSettings({ agentSignoff: e.target.value.trim() }));
+  slot.querySelector("#ag-notes").addEventListener("change", (e) => store.updateSettings({ agentNotes: e.target.value.trim().slice(0, 1200) }));
   slot.querySelector("#ag-url").addEventListener("change", (e) => store.updateSettings({ agentUrl: e.target.value.trim() }));
   const testBtn = slot.querySelector("#ag-test");
   const testOut = slot.querySelector("#ag-test-out");

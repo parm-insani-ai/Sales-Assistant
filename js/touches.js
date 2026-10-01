@@ -16,6 +16,7 @@ import { briefFor, redactMoney } from "./context.js";
 import { conversationFor } from "./convo.js";
 import { looksLikeMoney } from "./replies.js";
 import { isInbound, lockedUntil } from "./cadence.js";
+import { writingLine } from "./style.js";
 import { candidateFor } from "./prospects.js";
 import { openText } from "./sms.js";
 import { navigate } from "./router.js";
@@ -65,7 +66,8 @@ Never state a dollar amount, a monthly payment, a price, a trade-in value, an in
 
 HOW TO WRITE
 - One to three sentences. It's a text.
-- Plain, warm, direct. Use their first name once at most. No stacked exclamation marks, no "Absolutely!", no "I hope this finds you well".
+- ${writingLine()}
+- Plain and direct. Use their first name once at most. No stacked exclamation marks, no "Absolutely!", no "I hope this finds you well".
 - Refer to the specific vehicle, trim or feature they wanted — that is the whole point of knowing it.
 - Never claim a vehicle is in stock, on sale, or on a program unless the notes above say so.
 - If earlier messages are shown, continue naturally from them; don't repeat what was already said.

@@ -18,6 +18,7 @@ import { bestPitch, equityDetail } from "./views/dealbuilder.js";
 import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
 import { conversationFor } from "./convo.js";
 import { redactMoney } from "./context.js";
+import { writingLine } from "./style.js";
 
 export function draftingAvailable() {
   return agentConfigured();
@@ -78,7 +79,7 @@ HOW TO WRITE
 - If they say no, or not now: accept it gracefully in one line and leave the door open. Do not counter-offer.
 - If they've asked to stop hearing from you, acknowledge it and say nothing else.
 - Never claim a vehicle is in stock, discounted, or on a program unless the salesperson said so above.
-- Sign off only if it reads naturally; they know who it's from.
+- ${writingLine()}
 
 Reply with the message text and nothing else — no quotation marks, no preamble, no alternatives.`;
 }

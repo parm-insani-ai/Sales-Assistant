@@ -49,11 +49,15 @@ let calls = 0;
 const answers = [];
 const heard = [];   // every first-turn sentence the agent was sent
 const systems = []; // the brief, as sent (blocks)
+const histories = []; // how many of the salesperson's turns each call carried
+const replies = [];   // whether each call carried an earlier reply of the assistant's
 await p.route("**/functions/v1/voice-agent", (route) => {
   const body = route.request().postDataJSON() || {};
   if (!Array.isArray(body.messages)) return route.continue();
   calls++;
   systems.push(body.system);
+  histories.push(body.messages.filter((m) => m.role === "user" && typeof m.content === "string").length);
+  replies.push(body.messages.some((m) => m.role === "assistant" && Array.isArray(m.content) && m.content.some((b) => b.type === "text" && /Rogue|Kept him|Added Dana/.test(b.text))));
   const last = body.messages[body.messages.length - 1];
   const first = typeof last.content === "string";
   if (first) heard.push(last.content);
@@ -185,6 +189,49 @@ if (!standing || !liveBrief) fail("the system brief should be two blocks, the fi
 if (/Today is|customers and \d+ appointments|Customers on file/.test(standing)) fail("the cached standing brief must not carry anything that changes between calls");
 if (!/Today is/.test(liveBrief) || !/Customers on file/.test(liveBrief)) fail("the live brief should carry the date and the names on file");
 if (!/EVERYTHING YOU WRITE CAN BE UNDONE/.test(standing)) fail("the brief should tell the assistant its changes are reversible");
+
+// --- The salesperson's own preferences reach the brief.
+await p.evaluate(async () => { const s = await import("/js/store.js"); s.updateSettings({ agentTone: "straight", agentSignoff: "— Parm at O'Regan's", agentNotes: "Never book Saturdays after 3.", hoursFrom: 9, hoursTo: 18, hoursDays: [1, 2, 3, 4, 5, 6] }); });
+await p.waitForTimeout(200);
+const botsPref = await p.evaluate(() => document.querySelectorAll("#v-thread .vt-bot").length);
+await p.evaluate(() => window.__say("what's the story with Ann Lee"));
+await p.waitForFunction((n) => document.querySelectorAll("#v-thread .vt-bot").length === n + 1, botsPref, { timeout: 8000 }).catch(() => fail("no reply for the preferences turn"));
+const prefBrief = Array.isArray(systems[systems.length - 1]) ? systems[systems.length - 1][1].text : "";
+if (!/HOW PARM WORKS: messages to customers read straight and brief/.test(prefBrief) || !/signed "— Parm at O'Regan's"/.test(prefBrief) || !/booked 9am to 6pm, Mon to Sat/.test(prefBrief) || !/Standing instructions from the salesperson, which always apply: Never book Saturdays after 3\./.test(prefBrief)) fail("the live brief should carry the tone, sign-off, hours and standing instructions: " + prefBrief.slice(0, 400));
+
+// --- Closing the sheet keeps the conversation for a few minutes: reopened,
+// the next thing said goes to the same session with the earlier turns.
+const turnsBefore = histories[histories.length - 1];
+await p.click(".voice-close");
+await p.waitForTimeout(300);
+if (await p.$(".voice-overlay")) fail("the sheet didn't close");
+await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+await p.waitForSelector(".voice-overlay #v-thread", { timeout: 5000 });
+const reopened = await p.evaluate(() => ({ note: document.querySelector("#v-thread .vt-note")?.textContent || "", bubbles: document.querySelectorAll("#v-thread .vt-me:not(.vt-live)").length }));
+console.log("reopened:", JSON.stringify(reopened));
+if (!/Picking up where we left off/.test(reopened.note) || reopened.bubbles !== 0) fail("a reopened sheet should say it's picking up, on a fresh thread: " + JSON.stringify(reopened));
+const callsBefore = calls;
+await p.evaluate(() => window.__say("book her Thursday at five"));
+await p.waitForFunction(() => document.querySelectorAll("#v-thread .vt-bot").length === 1, null, { timeout: 8000 }).catch(() => fail("no reply after reopening"));
+if (calls <= callsBefore) fail("the reopened sheet never reached the agent");
+if (histories[histories.length - 1] !== turnsBefore + 1) fail(`the reopened session should carry the earlier turns (${turnsBefore}) plus this one into the next call, got a history of ${histories[histories.length - 1]} user turns`);
+if (!replies[replies.length - 1]) fail("the assistant's own earlier replies should be in the history it's sent, or 'her' has no referent");
+
+// --- A long session is trimmed at the seams, never mid-turn, and the
+// trimmed history loses its thinking blocks.
+const trimmed = await p.evaluate(async () => {
+  const a = await import("/js/agent.js");
+  const seen = [];
+  const big = "x".repeat(9000);
+  const call = async (messages) => { seen.push(JSON.parse(JSON.stringify(messages))); return { content: [{ type: "thinking", thinking: "", signature: "sig" }, { type: "text", text: big }], stop_reason: "end_turn" }; };
+  const s = a.createAgentSession({ call, exec: async () => ({ result: "ok", note: "" }) });
+  for (let i = 1; i <= 9; i++) await s.send(`turn ${i}`);
+  const last = seen[seen.length - 1];
+  const userTurns = last.filter((m) => m.role === "user" && typeof m.content === "string").map((m) => m.content);
+  return { turns: s.turns(), first: userTurns[0], lastTurn: userTurns[userTurns.length - 1], size: JSON.stringify(last).length, thinkingLeft: last.some((m) => m.role === "assistant" && m.content.some((b) => b.type === "thinking")), startsWithUser: last[0].role === "user" && typeof last[0].content === "string" };
+});
+console.log("trimmed:", JSON.stringify(trimmed));
+if (trimmed.turns > 6 || trimmed.first === "turn 1" || trimmed.lastTurn !== "turn 9" || !trimmed.startsWithUser || trimmed.thinkingLeft) fail("a long session should drop its oldest whole turns and strip thinking from what's kept: " + JSON.stringify(trimmed));
 
 // --- The thread scrolls, the newest at the bottom, and the layout leaves it room.
 const layout = await p.evaluate(() => {

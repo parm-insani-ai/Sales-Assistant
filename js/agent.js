@@ -32,6 +32,7 @@ import * as backend from "./backend.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
+import { styleBrief } from "./style.js";
 import { parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
@@ -185,6 +186,7 @@ function buildStanding() {
 function buildLive(ctx) {
   return [
     `The salesperson${ctx.salesperson ? " is named " + ctx.salesperson + "." : "'s name isn't set."} Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
+    styleBrief(),
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
     ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
     ctx.recent ? `RECENT MESSAGES IN (newest first; WAITING = they wrote last and nobody has answered; get_messages has the whole exchange):\n${ctx.recent}` : ``,
@@ -1107,10 +1109,40 @@ export function stepLabel(name, input = {}) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+// A session carries its whole history, and a long one — a morning of talking
+// to it — would carry an hour of tool results into every call. Past this
+// much, the oldest whole turns go; the newest few always stay. Cut at the
+// seams only: a turn is the salesperson's words through to the reply, and
+// a question-and-answer pair stays together. The retained history loses
+// its thinking blocks when cut, because a thinking block is only valid in
+// the exact conversation that produced it, and this is no longer that.
+const HISTORY_BUDGET = 48000; // characters of history, roughly 12k tokens
+const KEEP_TURNS = 4;
+function trimHistory(messages) {
+  const size = () => JSON.stringify(messages).length;
+  if (size() <= HISTORY_BUDGET) return 0;
+  const last = messages[messages.length - 1];
+  // Mid-turn (tool results waiting on the model) is never the moment.
+  if (!last || last.role !== "user" || typeof last.content !== "string") return 0;
+  const starts = () => messages.map((m, i) => (m.role === "user" && typeof m.content === "string" ? i : -1)).filter((i) => i >= 0);
+  let dropped = 0;
+  while (size() > HISTORY_BUDGET) {
+    const s = starts();
+    if (s.length <= KEEP_TURNS) break;
+    messages.splice(0, s[1]);
+    dropped++;
+  }
+  if (dropped) messages.forEach((m) => {
+    if (m.role === "assistant" && Array.isArray(m.content)) m.content = m.content.filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking");
+  });
+  return dropped;
+}
+
 export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
   const messages = [];
   let pending = null; // { results:[...], askId } while awaiting a human answer
   let aside = "";     // something that happened off-thread (an Undo tap), told on the next turn
+  let lastAt = 0;     // when the salesperson last said something
 
   // onProgress hears the work as it happens: the model's own words when it
   // thinks aloud before acting, each step as it starts, and what came of it.
@@ -1120,12 +1152,19 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
     // if the turn made one.
     const undone = (r) => ({ ...r, undo: undoStack.length > undoBefore ? lastUndoable() : null });
     for (let step = 0; step < 8; step++) {
+      trimHistory(messages);
       const resp = await call(messages);
       const content = resp.content || [];
       const toolUses = content.filter((b) => b.type === "tool_use");
       const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
 
-      if (!toolUses.length || resp.stop_reason !== "tool_use") return undone({ say: text, done: true });
+      if (!toolUses.length || resp.stop_reason !== "tool_use") {
+        // The reply stays in the history: the next thing said is usually a
+        // follow-up on it, and "book her Thursday" needs the "her" the
+        // assistant just talked about.
+        messages.push({ role: "assistant", content: content.length ? content : [{ type: "text", text: text || "Done." }] });
+        return undone({ say: text, done: true });
+      }
       if (text && onProgress) onProgress(text);
 
       messages.push({ role: "assistant", content });
@@ -1158,6 +1197,7 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
   async function send(text, onProgress) {
     const said = aside ? `${aside} ${text}` : String(text);
     aside = "";
+    lastAt = Date.now();
     if (pending) {
       const results = pending.results;
       results.push({ type: "tool_result", tool_use_id: pending.askId, content: said });
@@ -1178,5 +1218,19 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
     return label;
   }
 
-  return { send, undo };
+  // The panel closed on an unanswered question and reopened later: the
+  // question lapses, so the next thing said is a new turn rather than the
+  // answer to something from before. The history stays valid — the asked
+  // tool gets its result.
+  function abandon() {
+    if (!pending) return false;
+    const results = pending.results;
+    results.push({ type: "tool_result", tool_use_id: pending.askId, content: "(no answer — the salesperson moved on)" });
+    messages.push({ role: "user", content: results });
+    messages.push({ role: "assistant", content: [{ type: "text", text: "Okay." }] });
+    pending = null;
+    return true;
+  }
+
+  return { send, undo, abandon, turns: () => messages.filter((m) => m.role === "user" && typeof m.content === "string").length, lastAt: () => lastAt };
 }

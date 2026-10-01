@@ -1,4 +1,4 @@
--- viniva — the function's two scheduled jobs.
+-- viniva — the function's scheduled jobs.
 -- Run this once in your Supabase project: Dashboard → SQL Editor → New query →
 -- paste all of this → Run. Safe to re-run: a job with the same name is replaced.
 --
@@ -42,6 +42,23 @@ select cron.schedule(
     url     := 'https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api',
     headers := '{"Content-Type": "application/json"}'::jsonb,
     body    := '{"plays": 1}'::jsonb
+  );
+  $$
+);
+
+-- Once a day at 2am Halifax: the night read. The model goes through each
+-- salesperson's book the way a manager would at the end of the day and
+-- writes the next working day's plays — who to reply to, who's gone quiet,
+-- which appointment to shore up — with the draft for each text. They sit at
+-- the top of the queue in the morning; the 8am push names the first.
+select cron.schedule(
+  'viniva-night',
+  '0 5 * * *',
+  $$
+  select net.http_post(
+    url     := 'https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api',
+    headers := '{"Content-Type": "application/json"}'::jsonb,
+    body    := '{"nightly": 1}'::jsonb
   );
   $$
 );

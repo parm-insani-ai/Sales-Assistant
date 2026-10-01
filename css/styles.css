@@ -390,6 +390,8 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .vt-bot.vt-err { background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .vt-steps { list-style: none; margin: 0; padding: 2px 6px; display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: var(--muted); }
 .vt-step { display: flex; align-items: center; gap: 8px; }
+/* A line about the thread itself, not a turn in it. */
+.vt-note { align-self: center; font-size: 0.78rem; color: var(--muted); padding: 2px 0; }
 .vt-step::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; }
 .vt-step.live { color: var(--text-2); }
 .vt-step.live::before { background: var(--brand); border-color: var(--brand); animation: step-pulse 1s ease-in-out infinite; }

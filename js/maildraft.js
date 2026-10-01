@@ -16,6 +16,7 @@ import { briefFor, redactMoney } from "./context.js";
 import { conversationFor, transcript } from "./convo.js";
 import { looksLikeMoney } from "./replies.js";
 import { customerFor, parseAddress, splitAddrs } from "./mailbox.js";
+import { repStyle, TONES } from "./style.js";
 
 const first = (n) => String(n || "").trim().split(/\s+/)[0] || "";
 
@@ -33,7 +34,8 @@ THE ONE RULE THAT CANNOT BEND
 Never state a dollar amount, a monthly payment, a price, a trade-in value, an interest rate, a percentage, or a discount — not the customer's budget, not an estimate, not a range. You have not been given any figures and must not invent one. If money is the point, offer to go through it properly in person.
 
 HOW TO WRITE
-- It's an email, not a text: a short greeting with their first name, two to five short sentences, one easy next step, and a sign-off with ${first(s.salesperson) || "the salesperson's first name"}.
+- It's an email, not a text: a short greeting with their first name, two to five short sentences, one easy next step, and a sign-off${repStyle().signoff ? ` — exactly "${repStyle().signoff}"` : ` with ${first(s.salesperson) || "the salesperson's first name"}`}.
+- Tone: ${TONES[repStyle().tone].say}.
 - Answer what they actually asked or said before anything else. Continue from the conversation — never ask what they've already told you, never repeat what was already sent.
 - Plain, warm, direct. No "I hope this finds you well", no stacked exclamation marks, no corporate hedging.
 - Never claim a vehicle is in stock, on sale or on a program unless the conversation or the notes say so.

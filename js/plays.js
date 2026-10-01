@@ -80,6 +80,27 @@ export function getPlays(limit = 6) {
   const leads = store.all("leads");
   const leadById = (id) => leads.find((l) => l.id === id) || null;
 
+  // 0. The night read. Overnight the model went through the book the way a
+  // manager would and wrote today's plays — each with the reason, and the
+  // draft for a text. They lead the sheet: the one list in the app that was
+  // thought about rather than scored.
+  const night = store.all("agentplays").find((r) => r.date === todayK);
+  (night && Array.isArray(night.plays) ? night.plays : []).forEach((pl, i) => {
+    const lead = pl.leadId ? leadById(pl.leadId) : leads.find((l) => (l.name || "").toLowerCase() === String(pl.customer || "").toLowerCase()) || null;
+    const phone = lead && lead.phone;
+    const canText = !!phone && !(lead.smsOptOut || lead.doNotContact);
+    const text = pl.action === "text" && canText && pl.draft;
+    plays.push({
+      key: `night:${todayK}:${i}`, leadId: lead ? lead.id : null,
+      rank: 95 - i, icon: pl.action === "call" ? "phone" : pl.action === "text" || pl.action === "email" ? "message" : pl.action === "book" || pl.action === "confirm" ? "calendar" : "sparkles",
+      kind: "overnight",
+      title: `${pl.customer ? pl.customer + ": " : ""}${pl.title}`,
+      sub: `Overnight read — ${pl.why}`,
+      href: text ? smsHref(phone, pl.draft) : pl.action === "call" && phone ? telHref(phone) : null,
+      route: text || (pl.action === "call" && phone) ? null : lead ? (pl.action === "email" ? `/leads/${lead.id}` : pl.action === "confirm" || pl.action === "book" ? "/appts" : `/leads/${lead.id}`) : "/log",
+    });
+  });
+
   // 1. Warm link opens (last 24h) — the customer is reading right now.
   store.all("links")
     .filter((lk) => lk.lastOpenAt && now - new Date(lk.lastOpenAt).getTime() < HOT_MS)
