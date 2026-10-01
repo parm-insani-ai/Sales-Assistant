@@ -67,10 +67,17 @@ export function openReminderForm(existing, defaults = {}) {
 // in the room) stays yours; those get no button. Returns the sentence to
 // hand the assistant, or null.
 export function doItFor(t, lead) {
-  if (!t || t.done || t.source !== "context" || !lead) return null;
+  if (!t || t.done) return null;
+  const title = String(t.title || "").trim();
+  // A to-do in your own words — "check for Rogues on the lot for Kris",
+  // "make ready for my delivery" — goes to the assistant as written. It
+  // does what it can from the app and says which part is yours.
+  if (t.source !== "context" || !lead) {
+    if (!title) return null;
+    return `Do this to-do for me: "${title}"${lead ? ` — it's about ${lead.name}` : ""}. Do what you can from the app — look it up, draft it, or set it up — and put the result here. If part of it is something only I can do, say which part and do the rest.`;
+  }
   const name = lead.name || "the customer";
   const car = lead.vehicleInterest ? `the ${lead.vehicleInterest}` : "what they're after";
-  const title = String(t.title || "");
   switch (t.kind) {
     case "stock": return `For ${name}, who's after ${car}: put the matching units on our lot on screen (lot_lookup) and tell me how many there are and the two best. This is for the to-do "${title}".`;
     case "budget": return `What could I put ${name} in? Run deal_options for ${name} and name the two best fits. This is for the to-do "${title}".`;

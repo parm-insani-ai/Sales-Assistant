@@ -106,15 +106,16 @@ await p.waitForTimeout(300);
 const ticked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "r1").done, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
 if (!ticked.done || ticked.count !== "7") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
 
-// --- "Do it": the next move the assistant can run has the button; the one
-// only the salesperson can do doesn't. Tapping it hands the to-do to the
+// --- "Do it": every to-do the assistant can take a run at has the button —
+// a move the app filed and one in your own words alike; an in-person move
+// (appraise the trade) doesn't. Tapping it hands the to-do to the
 // assistant, with the customer named, and says what came back.
 const doit = await p.evaluate(() => {
   const rowOf = (t) => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes(t));
-  return { budget: !!rowOf("3 in stock under their budget")?.querySelector("[data-do-it]"), trade: !!rowOf("Appraise the trade")?.querySelector("[data-do-it]"), plain: !!rowOf("Order the plates")?.querySelector("[data-do-it]") };
+  return { budget: !!rowOf("3 in stock under their budget")?.querySelector("[data-do-it]"), trade: !!rowOf("Appraise the trade: 2019 Altima")?.querySelector("[data-do-it]"), plain: !!rowOf("Order the plates")?.querySelector("[data-do-it]") };
 });
 console.log("do it:", JSON.stringify(doit));
-if (!doit.budget || doit.trade || doit.plain) fail("Do it should be on the move the assistant can run and nowhere else: " + JSON.stringify(doit));
+if (!doit.budget || doit.trade || !doit.plain) fail("Do it should be on every to-do the assistant can take a run at — your own ones included — and not on an in-person move: " + JSON.stringify(doit));
 const before = (await fetch(APP + "/__relays").then((r) => r.json())).length;
 const cardOf = () => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("3 in stock under their budget"));
 await p.evaluate(() => { document.querySelector("#toast-root").innerHTML = ""; [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("3 in stock under their budget")).querySelector("[data-do-it]").click(); });
