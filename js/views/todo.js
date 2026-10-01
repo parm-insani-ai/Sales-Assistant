@@ -386,4 +386,9 @@ export function renderTodo(view, { param } = {}) {
   }
 
   draw();
+  // Sent here by "Do it" on the queue: run at once rather than showing a
+  // button to tap again.
+  let autorun = "";
+  try { autorun = sessionStorage.getItem("viniva:todo:run") || ""; if (autorun) sessionStorage.removeItem("viniva:todo:run"); } catch { /* fine */ }
+  if (autorun === t.id && ask && !turnsOf(t).length && !pendingRun(t.id)) run(ask, "Do it", { fresh: true });
 }

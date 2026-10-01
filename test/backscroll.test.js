@@ -53,7 +53,7 @@ if (Math.abs(after - before) > 40) fail(`the browser's back didn't land where yo
 
 // --- Today scrolled, Leads by the tab, Today by the tab: the same place.
 await p.click('.tabbar a[data-route="/log"]');
-await p.waitForSelector(".plays-slot .row", { timeout: 10000 });
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
 await settle(400);
 await scrollTo(500);
 const homeBefore = await top();
@@ -65,7 +65,7 @@ const leadsAgain = await top();
 console.log("leads by tab →", leadsAgain, "(was", before + ")");
 if (Math.abs(leadsAgain - before) > 40) fail(`the Leads tab didn't come back where it was: ${before} → ${leadsAgain}`);
 await p.click('.tabbar a[data-route="/log"]');
-await p.waitForSelector(".plays-slot .row", { timeout: 10000 });
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
 await settle();
 const homeAfter = await top();
 console.log("today by tab →", homeAfter, "(was", homeBefore + ")");

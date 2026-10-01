@@ -51,6 +51,11 @@ function dmap() {
 export function isDismissedToday(key) {
   return dmap()[key] === dToday();
 }
+export function undismissToday(key) {
+  const m = dmap();
+  delete m[key];
+  try { localStorage.setItem(DKEY, JSON.stringify(m)); } catch {}
+}
 export function dismissToday(key) {
   const today = dToday();
   const m = dmap();
@@ -93,7 +98,7 @@ export function getPlays(limit = 6) {
     plays.push({
       key: `night:${todayK}:${i}`, leadId: lead ? lead.id : null,
       rank: 95 - i, icon: pl.action === "call" ? "phone" : pl.action === "text" || pl.action === "email" ? "message" : pl.action === "book" || pl.action === "confirm" ? "calendar" : "sparkles",
-      kind: "overnight",
+      kind: "overnight", group: "now",
       title: `${pl.customer ? pl.customer + ": " : ""}${pl.title}`,
       sub: `Overnight read — ${pl.why}`,
       href: text ? smsHref(phone, pl.draft) : pl.action === "call" && phone ? telHref(phone) : null,
@@ -111,7 +116,7 @@ export function getPlays(limit = 6) {
       const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "your booking link" : "a comparison");
       plays.push({
         key: `hl:${lk.id}:${lk.opens || 0}`,
-        rank: 100, icon: "sparkles", kind: "hotlink",
+        rank: 100, icon: "sparkles", kind: "hotlink", group: "now",
         title: `${label} was just opened`,
         sub: `Opened ${lk.opens || 1}× — they're engaging. Strike while it's warm.`,
         route: "/comms",
@@ -132,7 +137,9 @@ export function getPlays(limit = 6) {
       const fn = first(a.customerName);
       plays.push({
         key: `cf:${a.id}`,
-        rank: 90, icon: "calendar", kind: "confirm",
+        rank: 90, icon: "calendar", kind: "confirm", leadId: lead ? lead.id : null,
+        // The hour before is now; the rest of the day is later today.
+        group: (() => { const t = new Date(a.when).getTime(); return isFinite(t) && t - now <= 3 * 3600000 ? "now" : "today"; })(), at: a.when,
         title: `Confirm ${a.customerName || "today's appointment"} — ${time}`,
         sub: phone ? "One tap sends the confirmation text." : "No phone on file — open the appointment.",
         href: phone ? smsHref(phone, `Hi ${fn}! ${me ? `It's ${me} — ` : ""}looking forward to seeing you today at ${time}. I'll have everything ready. See you soon!`) : null,
@@ -152,7 +159,7 @@ export function getPlays(limit = 6) {
       const fn = first(a.customerName);
       plays.push({
         key: `ns:${a.id}`,
-        rank: 80, icon: "alert", kind: "noshow",
+        rank: 80, icon: "alert", kind: "noshow", leadId: lead ? lead.id : null, group: "now",
         title: `Rebook ${a.customerName || "yesterday's no-show"}`,
         sub: "Missed yesterday — a friendly rebook text recovers most of these.",
         href: phone ? smsHref(phone, `Hi ${fn}, ${me ? `it's ${me} — ` : ""}sorry we missed each other yesterday! Life happens. Want to grab another time this week?`) : null,
@@ -182,8 +189,9 @@ export function getPlays(limit = 6) {
       const drafted = t.cadence && t.channel === "text" && !!t.intent && !!phone;
       const lockedTill = held.has(t.id) ? new Date(t.readyAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
       plays.push({
-        key: `fu:${t.id}`, taskId: drafted ? t.id : null, leadId: t.leadId,
+        key: `fu:${t.id}`, taskId: drafted ? t.id : null, playTaskId: t.id, leadId: t.leadId,
         rank: 70, icon: t.channel === "call" ? "phone" : "message", kind: "followup",
+        locked: held.has(t.id), at: t.at || t.readyAt || null, group: held.has(t.id) ? "today" : "now",
         title: t.title,
         sub: lockedTill ? `Drafted — locked until ${lockedTill} so it doesn't land on their heels. Read it now, send it then.` : daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
         href: !phone ? null : t.channel === "call" ? telHref(phone) : smsHref(phone, t.body || ""),
@@ -203,7 +211,7 @@ export function getPlays(limit = 6) {
     const canText = !!l.phone && c.consent && c.consent.ok;
     plays.push({
       key: `pr:${l.id}:${todayK}`, leadId: l.id, prospectId: canText ? l.id : null,
-      rank: 65, icon: canText ? "target" : "phone", kind: "prospect",
+      rank: 65, icon: canText ? "target" : "phone", kind: "prospect", group: "later",
       title: `${l.name}: ${c.reasons[0] || "worth a call"}`,
       sub: [pitch ? `Pitch a ${pitch}` : "", ...rest, !canText && l.phone ? "no texting consent — call" : ""].filter(Boolean).join(" · ") || "Worth reaching out to today.",
       href: !canText && l.phone ? telHref(l.phone) : null,
@@ -215,7 +223,7 @@ export function getPlays(limit = 6) {
   getOccasions().slice(0, 8).forEach((o) => {
     plays.push({
       key: `oc:${o.lead.id}:${o.key}`, leadId: o.lead.id, occKey: o.key,
-      rank: 60, icon: "sparkles", kind: "occasion",
+      rank: 60, icon: "sparkles", kind: "occasion", group: "today",
       title: `${o.lead.name}: ${o.label}`,
       sub: "A ready-to-send message is loaded.",
       href: o.lead.phone ? smsHref(o.lead.phone, o.message || "") : null,

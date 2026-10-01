@@ -967,6 +967,7 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .swipe-act:active { filter: brightness(0.92); }
 .swipe-act-ok { background: var(--success); }
 .swipe-del { background: var(--danger); }
+.swipe-act-later { background: var(--warning); }
 .swipe-card {
   position: relative; z-index: 1;
   background: var(--surface);
@@ -2132,3 +2133,24 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
   .mail-bar { padding-top: 6px; }
 }
 .conv-row .conv-subject { display: block; font-size: 0.86rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* The queue (Log → Queue): each play a card — who and what, the reason,
+   the action across the bottom — under Now / Later today / When you get a
+   minute. Swipe left: Later or Done. */
+.pl-group { margin-top: 4px; }
+.pl-card { padding: 14px 16px; }
+.pl-head { align-items: flex-start; gap: 12px; }
+.pl-avatar { width: 38px; height: 38px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--brand-tint); color: var(--brand-strong); font-weight: 800; font-size: 0.82rem; letter-spacing: 0.02em; margin-top: 1px; }
+.pl-avatar .ico { width: 18px; height: 18px; }
+.pl-title { font-size: 0.98rem; line-height: 1.3; }
+.pl-what { font-weight: 600; color: var(--text-2); }
+.pl-who { font-weight: 700; }
+.pl-why { margin-top: 3px; line-height: 1.4; }
+.pl-lock { color: var(--muted); flex: none; }
+.pl-lock .ico { width: 16px; height: 16px; }
+.pl-locked .pl-banner .btn-primary { background: var(--surface-3); color: var(--muted); box-shadow: none; }
+.pl-banner { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 12px -16px -14px; padding: 10px 16px; background: var(--surface-2); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); }
+.pl-banner .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 0.8rem; white-space: nowrap; }
+.pl-banner .btn .ico { width: 15px; height: 15px; }
+.pl-banner .pl-doit { margin-right: auto; }

@@ -34,13 +34,13 @@ await p.addInitScript(() => {
 
 // --- Log: three chips with counts; the queue first; to-dos and reminders one list.
 await p.goto(APP + "/#/log");
-await p.waitForFunction(() => document.querySelectorAll('#view .log-tabs [data-tab]').length === 3 && document.querySelector(".plays-slot .row"), null, { timeout: 20000 });
+await p.waitForFunction(() => document.querySelectorAll('#view .log-tabs [data-tab]').length === 3 && document.querySelector(".plays-slot .pl-card"), null, { timeout: 20000 });
 await p.waitForTimeout(300);
 const today = await p.evaluate(() => ({
   chips: [...document.querySelectorAll("#view .log-tabs [data-tab]")].map((b) => ({ tab: b.dataset.tab, active: b.classList.contains("btn-primary"), label: b.textContent.replace(/\s+/g, " ").trim() })),
   shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel),
   todos: [...document.querySelectorAll('[data-panel="todos"] .todo-card')].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
-  queue: [...document.querySelectorAll(".plays-slot .row .strong")].map((n) => n.textContent.trim()),
+  queue: [...document.querySelectorAll(".plays-slot .pl-card .strong")].map((n) => n.textContent.trim()),
   note: document.querySelector('[data-panel="todos"] .hint')?.textContent,
   log: [...document.querySelectorAll('[data-panel="logged"] .log-row .row-title')].map((n) => n.textContent.trim()),
 }));
@@ -189,6 +189,34 @@ if (finished.turns !== 1 || finished.ask !== "Do it" || !/Happy to go through it
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(500);
 const cardNow = await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("Order the plates"))?.querySelector(".todo-banner")?.textContent.replace(/\s+/g, " ").trim());
 if (!/Done — check it out/.test(cardNow || "")) fail("back on Log the card should read Done: " + cardNow);
+
+// --- The queue: cards under Now / Later today / When you get a minute,
+// swipeable, with Do it on a plan step handing it to the assistant's work
+// page, where it runs at once.
+await p.click('.log-tabs [data-tab="queue"]'); await p.waitForTimeout(300);
+const q = await p.evaluate(() => ({
+  groups: [...document.querySelectorAll(".plays-slot .pl-group")].map((h) => h.textContent.replace(/\s+/g, " ").trim()),
+  cards: [...document.querySelectorAll(".plays-slot .pl-card")].map((c) => ({ who: c.querySelector(".pl-who")?.textContent || "", what: c.querySelector(".pl-what")?.textContent || "", acts: [...c.querySelectorAll(".pl-banner .btn")].map((b) => b.textContent.trim()), swipe: !!c.closest(".swipe-wrap"), tray: [...(c.closest(".swipe-wrap")?.querySelectorAll(".swipe-act") || [])].map((b) => b.textContent.trim()) })),
+}));
+console.log("queue cards:", JSON.stringify(q));
+if (!q.groups.length || !/^Now/.test(q.groups[0])) fail("the queue should open with a Now group: " + JSON.stringify(q.groups));
+const bank = q.cards.find((c) => /Call the bank/.test(c.what));
+if (!bank || bank.who !== "Dana Muise" || !bank.acts.includes("Do it") || !bank.swipe || bank.tray.join() !== "Later,Done") fail("a plan step should be a card for the customer with Do it and a Later/Done tray: " + JSON.stringify(bank));
+// Done by the tray button: the step is ticked off, the card goes, Undo brings it back.
+await p.evaluate(() => { const c = [...document.querySelectorAll(".plays-slot .pl-card")].find((x) => /Call the bank/.test(x.textContent)); c.closest(".swipe-wrap").querySelector(".swipe-del").click(); });
+await p.waitForTimeout(300);
+const tickedQ = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "t2").done, gone: ![...document.querySelectorAll(".plays-slot .pl-card")].some((x) => /Call the bank/.test(x.textContent)), undo: !!document.querySelector("#toast-root button") }; });
+if (!tickedQ.done || !tickedQ.gone || !tickedQ.undo) fail("Done on a plan step should tick it off with Undo: " + JSON.stringify(tickedQ));
+await p.click("#toast-root button"); await p.waitForTimeout(300);
+const backQ = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "t2").done, back: [...document.querySelectorAll(".plays-slot .pl-card")].some((x) => /Call the bank/.test(x.textContent)) }; });
+if (backQ.done || !backQ.back) fail("Undo should put the step back: " + JSON.stringify(backQ));
+// Do it: the work page, running at once.
+const before4 = (await fetch(APP + "/__relays").then((r) => r.json())).length;
+await p.evaluate(() => { const c = [...document.querySelectorAll(".plays-slot .pl-card")].find((x) => /Call the bank/.test(x.textContent)); c.querySelector("[data-play-doit]").click(); });
+await p.waitForFunction(() => location.hash === "#/todo/t2" && [...document.querySelectorAll(".td-page .td-turn .td-reply")].some((r) => !r.classList.contains("td-working") && /Happy to go through it/.test(r.textContent)), null, { timeout: 15000 }).catch(() => fail("Do it on the queue should open the work page and run at once"));
+const ran = await fetch(APP + "/__relays").then((r) => r.json());
+if (ran.length <= before4 || !/Call the bank about Dana/.test(JSON.stringify(ran[ran.length - 1].messages))) fail("the work page should have handed the plan step to the assistant: " + ran.length);
+await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
 
 // --- The assistant can land on a chip: "what's on my plate" opens the to-dos
 // without changing the one you chose.

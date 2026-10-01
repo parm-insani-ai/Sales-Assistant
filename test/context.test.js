@@ -90,9 +90,9 @@ await p.evaluate(async () => {
 });
 await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(100);
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
-await p.waitForSelector(".plays-slot .row", { timeout: 10000 }).catch(() => {});
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 }).catch(() => {});
 const home = await p.evaluate(() => {
-  const rows = [...document.querySelectorAll(".plays-slot .row")].map((r) => ({ title: r.querySelector(".strong")?.textContent, sub: r.querySelector(".small")?.textContent, btn: r.querySelector("button.btn, a.btn")?.textContent.trim() }));
+  const rows = [...document.querySelectorAll(".plays-slot .pl-card")].map((r) => ({ title: r.querySelector(".strong")?.textContent, sub: r.querySelector(".small")?.textContent, btn: r.querySelector("button.btn, a.btn")?.textContent.trim() }));
   return rows.filter((r) => /Parm/.test(r.title || ""));
 });
 console.log("  " + JSON.stringify(home));

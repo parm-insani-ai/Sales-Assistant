@@ -16,7 +16,8 @@ import { stageMeta } from "../store.js";
 import { taskListEl, openTaskForm } from "./tasks.js";
 import { openLeadForm } from "./leads.js";
 import { icon } from "../icons.js";
-import { getPlays, dismissPlay } from "../plays.js";
+import { swipeable, undoToast, toast } from "../components.js";
+import { getPlays, dismissPlay, undismissToday } from "../plays.js";
 import { bookCheap, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
 import { pushEnabled } from "../push.js";
@@ -191,64 +192,123 @@ export function mountQueue(playsSlot, { onCount = null, heading = true } = {}) {
       return;
     }
     playsSlot.innerHTML = head(` <span class="muted">· ${plays.length}</span>`);
-    const box = document.createElement("div");
-    box.className = "card";
-    plays.forEach((p) => {
-      const row = document.createElement("div");
-      row.className = "row";
-      row.style.cssText = "align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)";
-      row.innerHTML = `
-        <span style="color:var(--brand);display:inline-flex;flex:none">${icon(p.icon)}</span>
-        <div class="row-main" style="min-width:0">
-          <div class="strong" style="font-size:0.92rem">${esc(p.title)}</div>
-          <div class="small muted">${esc(p.sub)}</div>
-        </div>
-        ${p.taskId
-          ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-draft="${p.taskId}">Review</button>`
-          : p.prospectId && !p.route
-          ? `<button class="btn btn-primary btn-sm" style="flex:none" data-play-prospect="${p.prospectId}">Review</button>`
-          : p.href
-          ? `<a class="btn btn-primary btn-sm" style="flex:none" href="${p.href}">${/^tel:/.test(p.href) ? "Call" : "Text"}</a>`
-          : `<button class="btn btn-ghost btn-sm" style="flex:none" data-play-go="${p.route || "/comms"}">Open</button>`}
-        <button class="modal-close" data-play-x aria-label="Dismiss" style="font-size:1.1rem;flex:none">&times;</button>`;
-      const act = row.querySelector("a");
-      if (act) act.addEventListener("click", () => {
-        store.logActivity("touch");
-        row.style.opacity = "0.45";
-      });
-      // A plan text: written for this customer now, from their context and
-      // the conversation so far, then put in front of the salesperson. The
-      // thread opens with the draft in the box; sending is their tap.
-      const draft = row.querySelector("[data-play-draft]");
-      if (draft) draft.addEventListener("click", async () => {
-        draft.disabled = true; draft.textContent = "Drafting…";
-        try { await reviewTouch(p.taskId); }
-        finally { draft.disabled = false; draft.textContent = "Review"; }
-      });
-      const pro = row.querySelector("[data-play-prospect]");
-      if (pro) pro.addEventListener("click", async () => {
-        pro.disabled = true; pro.textContent = "Drafting…";
-        try { await reviewProspect(p.prospectId); }
-        finally { pro.disabled = false; pro.textContent = "Review"; }
-      });
-      const go = row.querySelector("[data-play-go]");
-      if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
-      row.querySelector("[data-play-x]").addEventListener("click", () => {
-        dismissPlay(p);
-        row.remove();
-        say(box.querySelectorAll(".row").length);
-        box.dispatchEvent(new CustomEvent("viniva:played"));
-      });
-      box.appendChild(row);
+    // Three groups, in order: what's due this minute, the rest of today,
+    // and the book's suggestions for when there's a gap.
+    const GROUPS = [["now", "Now"], ["today", "Later today"], ["later", "When you get a minute"]];
+    const left = () => playsSlot.querySelectorAll(".pl-card").length;
+    GROUPS.forEach(([g, label]) => {
+      const mine = plays.filter((p) => (p.group || "later") === g);
+      if (!mine.length) return;
+      const h = document.createElement("div");
+      h.className = "section-title pl-group";
+      h.dataset.group = g;
+      h.innerHTML = `${esc(label)} <span class="muted">· ${mine.length}</span>`;
+      playsSlot.appendChild(h);
+      mine.forEach((p) => playsSlot.appendChild(playCard(p)));
     });
-    if (box.lastChild) box.lastChild.style.borderBottom = "none";
-    playsSlot.appendChild(box);
-    // Emptying the queue by dismissal should read as "done", not as a blank.
-    box.addEventListener("viniva:played", () => {
-      if (!box.querySelector(".row")) {
+    // Emptying the queue by swiping should read as "done", not as a blank.
+    playsSlot.addEventListener("viniva:played", () => {
+      say(left());
+      playsSlot.querySelectorAll(".pl-group").forEach((h) => { if (!playsSlot.querySelector(`.pl-card[data-group="${h.dataset.group}"]`)) h.remove(); });
+      if (!left()) {
         playsSlot.innerHTML = `${head()}
           <div class="card"><div class="muted small" style="text-align:center">Queue cleared — nice work.</div></div>`;
       }
     });
+  }
+
+  // Who the play is about and what it asks, from the title the play sheet
+  // writes: "Dana Muise: Reply about Saturday", "Text Dana — Value text",
+  // "Confirm Ken Boudreau — 16:00", "Rebook Ken Boudreau".
+  function splitTitle(p) {
+    const lead = p.leadId ? store.get("leads", p.leadId) : null;
+    const t = String(p.title || "");
+    let m;
+    if ((m = /^(.+?): (.+)$/.exec(t))) return { who: m[1], what: m[2] };
+    if ((m = /^(Text|Call|Email) (.+?) — (.+)$/.exec(t))) return { who: lead ? lead.name : m[2], what: m[3] };
+    if ((m = /^Confirm (.+?) — (.+)$/.exec(t))) return { who: m[1], what: `Confirm ${m[2]}` };
+    if ((m = /^Rebook (.+)$/.exec(t))) return { who: m[1], what: "Rebook after yesterday's no-show" };
+    return { who: lead ? lead.name : "", what: t };
+  }
+  const initials = (name) => String(name || "").trim().split(/\s+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase() || "•";
+
+  // One play, as a card: the customer and what it asks, the reason beneath,
+  // and the action across the bottom. Swipe left: Later (hidden for the
+  // day) or Done. "Do it" hands a plan step to the assistant on its work
+  // page.
+  function playCard(p) {
+    const { who, what } = splitTitle(p);
+    const card = document.createElement("div");
+    card.className = `card pl-card${p.locked ? " pl-locked" : ""}`;
+    card.dataset.key = p.key; card.dataset.group = p.group || "later";
+    const primary = p.taskId
+      ? `<button class="btn btn-primary btn-sm" data-play-draft="${esc(p.taskId)}">Review</button>`
+      : p.prospectId && !p.route
+      ? `<button class="btn btn-primary btn-sm" data-play-prospect="${esc(p.prospectId)}">Review</button>`
+      : p.href
+      ? `<a class="btn btn-primary btn-sm" href="${p.href}">${icon(/^tel:/.test(p.href) ? "phone" : "message")} ${/^tel:/.test(p.href) ? "Call" : "Text"}</a>`
+      : `<button class="btn btn-ghost btn-sm" data-play-go="${esc(p.route || "/comms")}">Open</button>`;
+    const doit = p.playTaskId ? `<button class="btn btn-ghost btn-sm pl-doit" data-play-doit="${esc(p.playTaskId)}">${icon("sparkles")} Do it</button>` : "";
+    card.innerHTML = `
+      <div class="row pl-head">
+        <span class="pl-avatar">${who ? esc(initials(who)) : icon(p.icon)}</span>
+        <div class="row-main" style="min-width:0">
+          <div class="strong pl-title">${who ? `<span class="pl-who">${esc(who)}</span>: ` : ""}<span class="pl-what">${esc(what)}</span></div>
+          <div class="small muted pl-why">${esc(p.sub || "")}</div>
+        </div>
+        ${p.locked ? `<span class="pl-lock">${icon("clock")}</span>` : ""}
+      </div>
+      <div class="pl-banner">${primary}${doit}</div>`;
+    const act = card.querySelector("a.btn");
+    if (act) act.addEventListener("click", () => { store.logActivity("touch"); card.style.opacity = "0.45"; });
+    // A plan text: written for this customer now, from their context and
+    // the conversation so far, then put in front of the salesperson. The
+    // thread opens with the draft in the box; sending is their tap.
+    const draft = card.querySelector("[data-play-draft]");
+    if (draft) draft.addEventListener("click", async () => {
+      draft.disabled = true; draft.textContent = "Drafting…";
+      try { await reviewTouch(p.taskId); }
+      finally { draft.disabled = false; draft.textContent = "Review"; }
+    });
+    const pro = card.querySelector("[data-play-prospect]");
+    if (pro) pro.addEventListener("click", async () => {
+      pro.disabled = true; pro.textContent = "Drafting…";
+      try { await reviewProspect(p.prospectId); }
+      finally { pro.disabled = false; pro.textContent = "Review"; }
+    });
+    const go = card.querySelector("[data-play-go]");
+    if (go) go.addEventListener("click", () => navigate(go.dataset.playGo));
+    const doBtn = card.querySelector("[data-play-doit]");
+    if (doBtn) doBtn.addEventListener("click", () => {
+      try { sessionStorage.setItem("viniva:todo:run", doBtn.dataset.playDoit); } catch { /* the page offers Do it itself */ }
+      navigate(`/todo/${doBtn.dataset.playDoit}`);
+    });
+    const gone = () => { card.closest(".swipe-wrap")?.remove(); playsSlot.dispatchEvent(new CustomEvent("viniva:played")); };
+    // Undo: the store is already put right, so the queue is simply drawn
+    // again from it (the group, or the whole sheet, may have been emptied).
+    const putBack = () => paintPlays();
+    const wrap = swipeable(card, {
+      label: "Done",
+      actions: [{ label: "Later", icon: "clock", kind: "later", onTap: () => {
+        dismissPlay(p); gone();
+        if (p.kind === "prospect") { toast("Not now — they'll come round again next month", ""); return; }
+        undoToast("Hidden for today", () => { undismissToday(p.key); putBack(); });
+      } }],
+      onDelete: () => {
+        const t = p.playTaskId ? store.get("tasks", p.playTaskId) : null;
+        if (t && !t.done) {
+          const now = new Date().toISOString();
+          const was = t.leadId ? (store.get("leads", t.leadId) || {}).lastContacted : undefined;
+          store.update("tasks", t.id, { done: true, doneBy: "swipe", doneAt: now });
+          if (t.cadence) { store.logActivity("touch"); if (t.leadId) store.update("leads", t.leadId, { lastContacted: now }); }
+          gone();
+          undoToast("Done", () => { store.update("tasks", t.id, { done: false, doneBy: null, doneAt: null }); if (t.leadId && was !== undefined) store.update("leads", t.leadId, { lastContacted: was }); putBack(); });
+        } else {
+          dismissPlay(p); gone();
+          undoToast("Done", () => { undismissToday(p.key); putBack(); });
+        }
+      },
+    });
+    return wrap;
   }
 }

@@ -37,8 +37,8 @@ await p.addInitScript(([today]) => {
 }, [today]);
 
 await p.goto(APP + "/#/log");
-await p.waitForSelector(".plays-slot .row", { timeout: 10000 }).catch(() => fail("the queue never painted"));
-const rows = await p.evaluate(() => [...document.querySelectorAll(".plays-slot .row")].map((r) => ({
+await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 }).catch(() => fail("the queue never painted"));
+const rows = await p.evaluate(() => [...document.querySelectorAll(".plays-slot .pl-card")].map((r) => ({
   title: r.querySelector(".strong")?.textContent || "", sub: r.querySelector(".small")?.textContent || "",
   btn: r.querySelector("button.btn, a.btn")?.textContent.trim() || "", href: r.querySelector("a.btn")?.getAttribute("href") || "",
 })));

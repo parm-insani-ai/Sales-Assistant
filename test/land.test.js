@@ -104,7 +104,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
     const view = document.querySelector(".view");
     if (!slot || !view) return null;
     const r = slot.getBoundingClientRect(), v = view.getBoundingClientRect();
-    return { top: Math.round(r.top - v.top), scrolled: Math.round(view.scrollTop), rows: slot.querySelectorAll(".play-row, .row, .card").length };
+    return { top: Math.round(r.top - v.top), scrolled: Math.round(view.scrollTop), rows: slot.querySelectorAll(".pl-card, .play-row, .row, .card").length };
   });
   console.log("  queue:", JSON.stringify(where));
   if (!where) fail("the play sheet isn't on the screen it navigated to");
