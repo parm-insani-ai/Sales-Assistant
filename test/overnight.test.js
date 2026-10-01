@@ -49,9 +49,9 @@ if (rows.some((r) => /Old play/.test(r.title))) fail("yesterday's read is on tod
 if (!/^Dana Muise: Reply about Saturday$/.test(rows[0].title) || !/She asked Thursday/.test(rows[0].sub)) fail("the night read's first play should lead the queue with its reason: " + JSON.stringify(rows[0]));
 if (rows[0].btn !== "Text" || !/^sms:/.test(rows[0].href) || !/Saturday%20morning%20works|Saturday morning works/.test(decodeURIComponent(rows[0].href))) fail("a text play should carry its draft into the Text button: " + JSON.stringify(rows[0]));
 const ken = rows.find((r) => /Ken Boudreau/.test(r.title));
-if (!ken || ken.btn !== "Open") fail("a confirm play with no draft opens the appointments: " + JSON.stringify(ken));
+if (!ken || ken.btn !== "Appointments") fail("a confirm play with no draft opens the appointments: " + JSON.stringify(ken));
 const moe = rows.find((r) => /Moe Hassan/.test(r.title));
-if (!moe || moe.btn !== "Open") fail("a call play with no phone opens the customer instead of dialling: " + JSON.stringify(moe));
+if (!moe || moe.btn !== "Add number") fail("a call play with no phone opens the customer to add one: " + JSON.stringify(moe));
 
 // The agent's play sheet sees them too, and the sync list carries the collection.
 const agent = await p.evaluate(async () => {

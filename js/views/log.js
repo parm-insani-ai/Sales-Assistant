@@ -247,7 +247,7 @@ export function mountQueue(playsSlot, { onCount = null, heading = true } = {}) {
       ? `<button class="btn btn-primary btn-sm" data-play-prospect="${esc(p.prospectId)}">Review</button>`
       : p.href
       ? `<a class="btn btn-primary btn-sm" href="${p.href}">${icon(/^tel:/.test(p.href) ? "phone" : "message")} ${/^tel:/.test(p.href) ? "Call" : "Text"}</a>`
-      : `<button class="btn btn-ghost btn-sm" data-play-go="${esc(p.route || "/comms")}">Open</button>`;
+      : `<button class="btn btn-ghost btn-sm" data-play-go="${esc(p.route || "/comms")}">${esc(p.open || "Open")}</button>`;
     const doit = p.playTaskId ? `<button class="btn btn-ghost btn-sm pl-doit" data-play-doit="${esc(p.playTaskId)}">${icon("sparkles")} Do it</button>` : "";
     card.innerHTML = `
       <div class="row pl-head">

@@ -102,6 +102,7 @@ export function getPlays(limit = 6) {
       title: `${pl.customer ? pl.customer + ": " : ""}${pl.title}`,
       sub: `Overnight read — ${pl.why}`,
       href: text ? smsHref(phone, pl.draft) : pl.action === "call" && phone ? telHref(phone) : null,
+      open: text || (pl.action === "call" && phone) ? null : lead ? (pl.action === "email" ? "Email" : pl.action === "confirm" || pl.action === "book" ? "Appointments" : phone ? "Customer" : "Add number") : "Open",
       route: text || (pl.action === "call" && phone) ? null : lead ? (pl.action === "email" ? `/leads/${lead.id}` : pl.action === "confirm" || pl.action === "book" ? "/appts" : `/leads/${lead.id}`) : "/log",
     });
   });
@@ -114,12 +115,14 @@ export function getPlays(limit = 6) {
     .slice(0, 4)
     .forEach((lk) => {
       const label = (lk.meta && lk.meta.label) || (lk.kind === "book" ? "your booking link" : "a comparison");
+      const lead = lk.meta && lk.meta.leadId ? leadById(lk.meta.leadId) : null;
       plays.push({
-        key: `hl:${lk.id}:${lk.opens || 0}`,
+        key: `hl:${lk.id}:${lk.opens || 0}`, leadId: lead ? lead.id : null,
         rank: 100, icon: "sparkles", kind: "hotlink", group: "now",
-        title: `${label} was just opened`,
+        title: lead ? `${lead.name}: reading ${label} now` : `${label} was just opened`,
         sub: `Opened ${lk.opens || 1}× — they're engaging. Strike while it's warm.`,
-        route: "/comms",
+        // Their conversation, so the next text lands while they're looking.
+        route: lead ? `/inbox/${lead.id}` : "/comms", open: lead ? "Open chat" : "Open",
       });
     });
 
@@ -141,9 +144,9 @@ export function getPlays(limit = 6) {
         // The hour before is now; the rest of the day is later today.
         group: (() => { const t = new Date(a.when).getTime(); return isFinite(t) && t - now <= 3 * 3600000 ? "now" : "today"; })(), at: a.when,
         title: `Confirm ${a.customerName || "today's appointment"} — ${time}`,
-        sub: phone ? "One tap sends the confirmation text." : "No phone on file — open the appointment.",
+        sub: phone ? "One tap sends the confirmation text." : "No phone on file — add one on the appointment.",
         href: phone ? smsHref(phone, `Hi ${fn}! ${me ? `It's ${me} — ` : ""}looking forward to seeing you today at ${time}. I'll have everything ready. See you soon!`) : null,
-        route: phone ? null : "/calendar",
+        route: phone ? null : `/calendar/${a.id}`, open: "Appointment",
       });
     });
 
@@ -163,7 +166,7 @@ export function getPlays(limit = 6) {
         title: `Rebook ${a.customerName || "yesterday's no-show"}`,
         sub: "Missed yesterday — a friendly rebook text recovers most of these.",
         href: phone ? smsHref(phone, `Hi ${fn}, ${me ? `it's ${me} — ` : ""}sorry we missed each other yesterday! Life happens. Want to grab another time this week?`) : null,
-        route: phone ? null : "/calendar",
+        route: phone ? null : `/calendar/${a.id}`, open: "Appointment",
       });
     });
 
@@ -195,7 +198,7 @@ export function getPlays(limit = 6) {
         title: t.title,
         sub: lockedTill ? `Drafted — locked until ${lockedTill} so it doesn't land on their heels. Read it now, send it then.` : daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
         href: !phone ? null : t.channel === "call" ? telHref(phone) : smsHref(phone, t.body || ""),
-        route: phone ? null : "/comms",
+        route: phone ? null : `/leads/${t.leadId}`, open: phone ? "Open" : "Add number",
       });
     });
 
@@ -215,7 +218,7 @@ export function getPlays(limit = 6) {
       title: `${l.name}: ${c.reasons[0] || "worth a call"}`,
       sub: [pitch ? `Pitch a ${pitch}` : "", ...rest, !canText && l.phone ? "no texting consent — call" : ""].filter(Boolean).join(" · ") || "Worth reaching out to today.",
       href: !canText && l.phone ? telHref(l.phone) : null,
-      route: l.phone ? null : `/leads/${l.id}`,
+      route: l.phone ? null : `/leads/${l.id}`, open: "Add number",
     });
   });
 
@@ -227,7 +230,7 @@ export function getPlays(limit = 6) {
       title: `${o.lead.name}: ${o.label}`,
       sub: "A ready-to-send message is loaded.",
       href: o.lead.phone ? smsHref(o.lead.phone, o.message || "") : null,
-      route: o.lead.phone ? null : "/comms",
+      route: o.lead.phone ? null : `/leads/${o.lead.id}`, open: "Add number",
     });
   });
 
