@@ -1773,6 +1773,10 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
    gives way to it rather than the other way round. */
 .topbar h1.greeting { font-size: 1.05rem; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; flex: 0 0 auto; }
 .topbar h1.greeting ~ .save-state { flex: 0 5 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Home: the date in the greeting's place and type; a tap opens the calendar. */
+.topbar h1.day-link { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.topbar h1.day-link:active { opacity: 0.6; }
+.topbar h1.day-link .day-count { color: var(--muted); font-weight: 600; }
 
 /* --- Appointments: the list, and what's preset for each --- */
 .appt-day { font-size: 0.8rem; font-weight: 700; color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; margin: 6px 2px 8px; }

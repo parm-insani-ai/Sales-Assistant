@@ -54,28 +54,25 @@ export function renderDashboard(view) {
   // Month-to-date sales vs goal.
   const mtd = monthSummary();
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const name = s.salesperson ? `, ${s.salesperson.split(" ")[0]}` : "";
   const todayLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
-  // The greeting sits in the top bar, in line with the "+" — the page
-  // starts with the day.
+  // The day sits in the top bar, in line with the "+", in the greeting's
+  // place and its type: the date, with how much is on, and a tap opens the
+  // calendar. The page starts with the day rather than a hello.
   const titleEl = document.getElementById("page-title");
-  if (titleEl) { titleEl.textContent = `${greeting}${name}`; titleEl.classList.add("greeting"); }
+  if (titleEl) {
+    titleEl.innerHTML = `<span class="day-date">${esc(todayLabel)}</span>${todayCount ? `<span class="day-count"> · ${todayCount} today</span>` : ""}`;
+    titleEl.classList.add("greeting", "day-link");
+    titleEl.setAttribute("role", "link");
+    titleEl.title = "Open the calendar";
+    titleEl.onclick = () => navigate("/calendar");
+  }
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <div class="card card-tap" data-goto="/calendar">
-      <div class="row">
-        <div class="row-main">
-          <div class="row-title">${icon("calendar")} ${esc(todayLabel)}</div>
-          <div class="row-sub">${todayCount ? `${todayCount} event${todayCount === 1 ? "" : "s"} today · tap for month` : "Nothing scheduled today · tap for month"}</div>
-        </div>
-        <div class="row-meta strong">›</div>
-      </div>
-    </div>
     <div class="appt-list"></div>
+
+    <div class="target-slot"></div>
 
     <div class="nudge-slot"></div>
 
@@ -83,8 +80,6 @@ export function renderDashboard(view) {
       <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
       <div class="stat card-tap" data-goto="/appts"><div class="stat-value">${upcomingAppts.length}</div><div class="stat-label">Appointments ›</div></div>
     </div>
-
-    <div class="target-slot"></div>
 
     ${upcomingFollowUps.length ? `<div class="section-title">Coming up</div><div class="upcoming-list"></div>` : ""}
 

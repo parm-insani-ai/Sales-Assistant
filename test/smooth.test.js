@@ -85,7 +85,8 @@ console.log("\nHome and Today:");
     setTimeout(() => res({ greeting: document.getElementById("page-title")?.textContent || "", stats: !!document.querySelector(".stat-grid") }), 0);
   }));
   console.log("  Home: " + JSON.stringify(h));
-  if (!/^Good (morning|afternoon|evening), Parm$/.test(h.greeting)) fail("the greeting isn't in the top bar: " + h.greeting);
+  // The day, in the greeting's place: "Thursday, October 1", tappable to the calendar.
+  if (!/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), [A-Z][a-z]+ \d{1,2}( · \d+ today)?$/.test(h.greeting)) fail("the date isn't in the top bar: " + h.greeting);
   if (!h.stats) fail("Home mounted without its stats");
   const r = await p.evaluate(() => new Promise((res) => {
     location.hash = "#/log";
