@@ -81,6 +81,12 @@ if (gone.docs !== 0 || gone.thumbs !== 0 || !gone.undo) fail("delete should remo
 await p.click("#toast-root button");
 await p.waitForSelector('.sd-sale[data-id="s1"] .sd-thumb', { timeout: 5000 }).catch(() => fail("undo should bring the file back"));
 
+// --- Spoken with opens the month's Logged on Log.
+await p.goto(APP + "/#/");
+await p.waitForSelector('.target-card [data-act="spoken"]', { timeout: 15000 }).catch(() => fail("the Spoken with tile isn't tappable"));
+await p.click('.target-card [data-act="spoken"]');
+await p.waitForFunction(() => location.hash === "#/log" && document.querySelector(".log-tabs .btn-primary")?.dataset.tab === "logged", null, { timeout: 10000 }).catch(() => fail("tapping Spoken with should open Log on the Logged chip"));
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nsold.test.js FAILED" : "\nsold.test.js passed");

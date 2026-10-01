@@ -78,7 +78,7 @@ console.log("home:", JSON.stringify(home, null, 1));
 if (!home.fold) fail("the Sales target drop-down should start open");
 if (home.table) fail("the target is drawn as a table");
 if (!/10 units.*Speak with 25 customers/.test(home.head || "")) fail("the heading: " + home.head);
-if (JSON.stringify(home.tiles) !== JSON.stringify([{ big: "3/10", label: "Sold ›", left: "7 to go", bar: "30%" }, { big: "7/25", label: "Spoken with", left: "18 to go", bar: "28%" }])) fail("the two big numbers: " + JSON.stringify(home.tiles));
+if (JSON.stringify(home.tiles) !== JSON.stringify([{ big: "3/10", label: "Sold ›", left: "7 to go", bar: "30%" }, { big: "7/25", label: "Spoken with ›", left: "18 to go", bar: "28%" }])) fail("the two big numbers: " + JSON.stringify(home.tiles));
 if (home.cats.join(" / ") !== "New 2/6 sold · 4/15 spoken with / Used 1/4 sold · 2/10 spoken with") fail("by new and used: " + JSON.stringify(home.cats));
 if (!home.chips.some((c) => /behind pace|On pace/.test(c)) || !home.chips.some((c) => /^Closing 43% · expect 42%/.test(c)) || !home.chips.some((c) => /^This week 7\/\d+/.test(c)) || !home.chips.some((c) => /^1 appt set of 30/.test(c))) fail("the read: " + JSON.stringify(home.chips));
 if (!/1 spoken with aren't marked new or used/.test(home.text)) fail("the unmarked customer isn't called out: " + home.text);

@@ -215,7 +215,8 @@ function targetSection(mtd, s, redraw) {
   // Two big numbers — sold against the target, spoken with against what
   // the target calls for — then the same by new and used as thin bars,
   // then the read: closing ratio, pace, this week. No grid to decode.
-  // The Sold tile is a button: everyone you've sold, with the paperwork.
+  // The tiles are buttons: Sold opens everyone you've sold, with the
+  // paperwork; Spoken with opens the month's Logged on Log.
   const tile = (label, have, want, cls, act = "") => `
     <div class="tg-tile ${cls} ${act ? "tg-tap" : ""}" ${act ? `data-act="${act}" role="button" tabindex="0"` : ""}>
       <div class="tg-big">${have}<span class="tg-of">/${want}</span></div>
@@ -245,7 +246,7 @@ function targetSection(mtd, s, redraw) {
         : `<button class="btn btn-sm btn-primary" data-act="set-target" style="flex:none">Set your target</button>`}
     </div>
     ${p.target ? `
-    <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "", "sold")}${tile("Spoken with", t.spoke, p.need, "")}</div>
+    <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "", "sold")}${tile("Spoken with", t.spoke, p.need, "", "spoken")}</div>
     ${p.split ? `<div class="tg-cats">${cat("New", t.soldNew, p.targetNew, t.spokeNew, p.needNew)}${cat("Used", t.soldUsed, p.targetUsed, t.spokeUsed, p.needUsed)}</div>` : ""}
     <div class="tg-chips">${read}</div>
     ${t.spokeUnsplit || t.soldUnsplit ? `<div class="small muted" style="margin-top:8px">${[t.spokeUnsplit ? `${t.spokeUnsplit} spoken with aren't marked new or used yet` : "", t.soldUnsplit ? `${t.soldUnsplit} sale${t.soldUnsplit === 1 ? "" : "s"} not marked new or used` : ""].filter(Boolean).join(" · ")} — say it when you add them, or set Shopping on their page.</div>` : ""}
@@ -259,8 +260,9 @@ function targetSection(mtd, s, redraw) {
   if (setBtn) setBtn.addEventListener("click", () => openTargetForm(redraw));
   const perfBtn = body.querySelector('[data-act="performance"]');
   if (perfBtn) perfBtn.addEventListener("click", () => navigate("/performance"));
-  const soldTile = body.querySelector('[data-act="sold"]');
-  if (soldTile) { soldTile.addEventListener("click", () => navigate("/sold")); soldTile.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/sold"); } }); }
+  const go = (sel, fn) => { const tileEl = body.querySelector(sel); if (!tileEl) return; tileEl.addEventListener("click", fn); tileEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } }); };
+  go('[data-act="sold"]', () => navigate("/sold"));
+  go('[data-act="spoken"]', () => { try { sessionStorage.setItem("viniva:log:open", "logged"); } catch { /* the remembered chip, then */ } navigate("/log"); });
   return fold({ key: "home:target", title: "Sales target", open: true, body });
 }
 
