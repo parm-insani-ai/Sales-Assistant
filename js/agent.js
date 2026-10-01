@@ -784,7 +784,7 @@ async function runTool(t, p = {}) {
     case "sales_target": case "get_target": {
       const t = salesTarget();
       const pc = (v) => (v == null ? null : Math.round(v * 100));
-      navigate("/", ".target-slot");
+      navigate("/performance");
       return { result: {
         month: t.mKey, targetNew: t.plan.targetNew, targetUsed: t.plan.targetUsed, target: t.plan.target,
         closingRatioExpectedPct: pc(t.plan.closingNew), customersToSpeakWith: t.plan.need, customersToSpeakWithNew: t.plan.needNew, customersToSpeakWithUsed: t.plan.needUsed,

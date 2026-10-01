@@ -12,23 +12,11 @@ import { currency, esc, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
 import { afterSale, leadByName } from "../connections.js";
 import { downloadXlsx } from "../xlsxwrite.js";
+import { LEAD_TYPES, MAKE_READY, dealTotal, dealFront, dealBO, dealSummary, trackerSheet } from "../dealstats.js";
 
-export const LEAD_TYPES = ["Walk-in", "Hand Off", "Referral", "Facebook", "BDC", "Service", "Auto Alert", "Other"];
-const MAKE_READY = [
-  ["file", "File"], ["etch", "Etch"], ["gas", "Gas"], ["mvi", "MVI"],
-  ["clean", "Clean"], ["ncar", "NCAR"], ["nvis", "NVIS"],
-];
-
-// Commission on a deal: front + business office when tracked separately,
-// otherwise whatever the simple form recorded.
-const nNum = (v) => (v == null || v === "" ? null : Number(v) || 0);
-export function dealTotal(s) {
-  const f = nNum(s.frontComm), b = nNum(s.boComm);
-  if (f != null || b != null) return (f || 0) + (b || 0);
-  return nNum(s.commission) || 0;
-}
-export const dealFront = (s) => nNum(s.frontComm) ?? nNum(s.commission) ?? 0;
-export const dealBO = (s) => nNum(s.boComm) ?? 0;
+// The deal math lives in dealstats.js (the Performance screen and the export
+// share it); these names stay exported from here for the screens that import them.
+export { LEAD_TYPES, dealTotal, dealFront, dealBO };
 
 function vehLabel(s) {
   return [s.year, s.brand, s.model, s.trim].filter(Boolean).join(" ") || s.vehicle || "Vehicle";
@@ -124,33 +112,23 @@ export function renderSoldLog(view) {
     const box = el.querySelector("#sl-stats");
     if (!deals.length) { box.innerHTML = ""; return; }
 
-    const news = deals.filter((s) => s.newUsed === "New");
-    const useds = deals.filter((s) => s.newUsed === "Used");
-    const pct = (n) => deals.length ? Math.round((n / deals.length) * 1000) / 10 + "%" : "0%";
-    const avg = (arr, fn) => arr.length ? arr.reduce((t, s) => t + fn(s), 0) / arr.length : 0;
-    const sum = (arr, fn) => arr.reduce((t, s) => t + fn(s), 0);
+    const sm = dealSummary(deals);
     const money = (v) => currency(Math.round(v));
+    const pctS = (v) => `${Math.round(v * 10) / 10}%`;
 
     // New vs Used panel — same rows as the sheet.
     const nuRows = [
-      ["Deals", news.length, useds.length, deals.length],
-      ["Share", pct(news.length), pct(useds.length), deals.length ? "100%" : "0%"],
-      ["Avg front", money(avg(news, dealFront)), money(avg(useds, dealFront)), money(avg(deals, dealFront))],
-      ["Front total", money(sum(news, dealFront)), money(sum(useds, dealFront)), money(sum(deals, dealFront))],
-      ["Avg B.O.", money(avg(news, dealBO)), money(avg(useds, dealBO)), money(avg(deals, dealBO))],
-      ["Avg total", money(avg(news, dealTotal)), money(avg(useds, dealTotal)), money(avg(deals, dealTotal))],
+      ["Deals", sm.news, sm.useds, sm.count],
+      ["Share", pctS(sm.share.New), pctS(sm.share.Used), sm.count ? "100%" : "0%"],
+      ["Avg front", money(sm.avgFront.New), money(sm.avgFront.Used), money(sm.avgFront.Total)],
+      ["Front total", money(sm.frontTotal.New), money(sm.frontTotal.Used), money(sm.frontTotal.Total)],
+      ["Avg B.O.", money(sm.avgBO.New), money(sm.avgBO.Used), money(sm.avgBO.Total)],
+      ["Avg total", money(sm.avgTotal.New), money(sm.avgTotal.Used), money(sm.avgTotal.Total)],
     ];
-
-    // Group helper → [key, items[]] sorted by count.
-    const groupBy = (fn) => {
-      const m = new Map();
-      deals.forEach((s) => { const k = fn(s); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(s); });
-      return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-    };
-    const byLead = groupBy((s) => s.leadType || "Untracked");
-    const byBM = groupBy((s) => s.bm || "");
-    const byBrand = groupBy((s) => s.brand || "");
-    const byModel = groupBy((s) => [s.brand, s.model].filter(Boolean).join(" "));
+    const byLead = sm.byLead.filter((l) => l.deals).map((l) => [l.type, l]).concat(sm.untyped ? [["Untracked", { deals: sm.untyped, total: 0, avg: 0, pct: 0 }]] : []);
+    const byBM = sm.byBM.map((b) => [b.bm, b]);
+    const byBrand = sm.byBrand.filter((b) => b.deals).map((b) => [b.brand, b]);
+    const byModel = sm.byModel.filter((m) => m.deals).map((m) => [m.model, m]);
 
     const grid3 = (rows) => rows.map(([lb, a, b, c]) => `
       <div class="row" style="padding:5px 0;border-bottom:1px solid var(--border)">
@@ -174,42 +152,42 @@ export function renderSoldLog(view) {
 
       <div class="section-title">Where deals came from</div>
       <div class="card">
-        ${byLead.map(([k, arr]) => `
+        ${byLead.map(([k, l]) => `
           <div class="row" style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="small strong" style="flex:1.4">${esc(k)}</div>
-            <div class="small mono" style="flex:0.6;text-align:right">${arr.length}</div>
-            <div class="small mono" style="flex:1;text-align:right">${money(sum(arr, dealTotal))}</div>
-            <div class="small mono muted" style="flex:1.2;text-align:right;white-space:nowrap">${money(avg(arr, dealTotal))} avg</div>
-            <div class="small mono muted" style="flex:0.7;text-align:right">${pct(arr.length)}</div>
+            <div class="small mono" style="flex:0.6;text-align:right">${l.deals}</div>
+            <div class="small mono" style="flex:1;text-align:right">${money(l.total)}</div>
+            <div class="small mono muted" style="flex:1.2;text-align:right;white-space:nowrap">${money(l.avg)} avg</div>
+            <div class="small mono muted" style="flex:0.7;text-align:right">${pctS(l.pct)}</div>
           </div>`).join("")}
       </div>
 
       ${byBM.length ? `
       <div class="section-title">Business managers</div>
       <div class="card">
-        ${byBM.map(([k, arr]) => `
+        ${byBM.map(([k, b]) => `
           <div class="row" style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="small strong" style="flex:1.4">${esc(k)}</div>
-            <div class="small mono" style="flex:0.6;text-align:right">${arr.length}</div>
-            <div class="small mono" style="flex:1;text-align:right">${money(sum(arr, dealBO))}</div>
-            <div class="small mono muted" style="flex:1.3;text-align:right;white-space:nowrap">${money(avg(arr, dealBO))} avg B.O.</div>
+            <div class="small mono" style="flex:0.6;text-align:right">${b.deals}</div>
+            <div class="small mono" style="flex:1;text-align:right">${money(b.total)}</div>
+            <div class="small mono muted" style="flex:1.3;text-align:right;white-space:nowrap">${money(b.avg)} avg B.O.</div>
           </div>`).join("")}
       </div>` : ""}
 
       ${byBrand.length ? `
       <div class="section-title">Manufacturers</div>
       <div class="card"><div class="btn-row" style="gap:8px">
-        ${byBrand.map(([k, arr]) => `<span class="badge">${esc(k)} · ${arr.length}</span>`).join("")}
+        ${byBrand.map(([k, b]) => `<span class="badge">${esc(k)} · ${b.deals}</span>`).join("")}
       </div></div>` : ""}
 
       ${byModel.length ? `
       <div class="section-title">Models</div>
       <div class="card">
-        ${byModel.slice(0, 12).map(([k, arr]) => `
+        ${byModel.slice(0, 12).map(([k, m]) => `
           <div class="row" style="padding:5px 0;border-bottom:1px solid var(--border)">
             <div class="small strong" style="flex:2">${esc(k)}</div>
-            <div class="small mono" style="flex:1;text-align:right">${arr.length}</div>
-            <div class="small mono muted" style="flex:1;text-align:right">${arr.filter((s) => s.newUsed === "New").length} new</div>
+            <div class="small mono" style="flex:1;text-align:right">${m.deals}</div>
+            <div class="small mono muted" style="flex:1;text-align:right">${m.news} new · ${m.useds} used</div>
           </div>`).join("")}
       </div>` : ""}
     `;
@@ -225,67 +203,21 @@ export function renderSoldLog(view) {
   }));
   el.querySelector('[data-act="add"]').addEventListener("click", () => openDealForm(null, draw));
 
-  // Export the current view (month or year) as a real .xlsx — the deal log on
-  // one sheet, the summary panels on another, numbers as numbers so Excel can
-  // keep summing them.
-  el.querySelector('[data-act="export"]').addEventListener("click", () => {
-    const deals = scoped();
-    if (!deals.length) { toast("Nothing to export for this " + (yearMode ? "year" : "month")); return; }
-    const n = (v) => { const x = Number(v); return v == null || v === "" || !isFinite(x) ? "" : x; };
-    const m2 = (v) => Math.round(v * 100) / 100;
-    const avg = (arr, fn) => arr.length ? m2(arr.reduce((t, s) => t + fn(s), 0) / arr.length) : 0;
-    const sum = (arr, fn) => m2(arr.reduce((t, s) => t + fn(s), 0));
-    const pctN = (c) => deals.length ? m2((c / deals.length) * 100) + "%" : "0%";
-
-    const dealRows = [
-      ["#", "Date", "Customer", "Lead type", "Brand", "Model", "Trim", "Year", "KMs", "New/Used", "Stock #", "VIN", "File #", "Etch #",
-        ...MAKE_READY.map(([, lb]) => lb), "B. Manager", "Front comm", "Business gross", "B.O. comm", "Total comm", "Notes"],
-      ...deals.map((s, i) => [
-        i + 1, s.saleDate || "", s.customerName || "", s.leadType || "", s.brand || "", s.model || "", s.trim || "",
-        n(s.year), n(s.kms), s.newUsed || "", s.stock || "", s.vin || "", s.fileNo || "", s.etchNo || "",
-        ...MAKE_READY.map(([k]) => (s.makeReady && s.makeReady[k] ? "✓" : "")),
-        s.bm || "", n(s.frontComm), n(s.bizGross), n(s.boComm), m2(dealTotal(s)), s.notes || "",
-      ]),
-    ];
-
-    const news = deals.filter((s) => s.newUsed === "New");
-    const useds = deals.filter((s) => s.newUsed === "Used");
-    const groupBy = (fn) => {
-      const m = new Map();
-      deals.forEach((s) => { const k = fn(s); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(s); });
-      return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-    };
-    const summaryRows = [
-      ["New vs used"], ["", "New", "Used", "Total"],
-      ["Deals", news.length, useds.length, deals.length],
-      ["Share", pctN(news.length), pctN(useds.length), deals.length ? "100%" : "0%"],
-      ["Avg front", avg(news, dealFront), avg(useds, dealFront), avg(deals, dealFront)],
-      ["Front total", sum(news, dealFront), sum(useds, dealFront), sum(deals, dealFront)],
-      ["Avg B.O.", avg(news, dealBO), avg(useds, dealBO), avg(deals, dealBO)],
-      ["Avg total", avg(news, dealTotal), avg(useds, dealTotal), avg(deals, dealTotal)],
-      [],
-      ["Where deals came from"], ["Lead type", "Deals", "Total comm", "Avg comm", "% of deals"],
-      ...groupBy((s) => s.leadType || "Untracked").map(([k, arr]) => [k, arr.length, sum(arr, dealTotal), avg(arr, dealTotal), pctN(arr.length)]),
-      [],
-      ["Business managers"], ["Manager", "Deals", "B.O. total", "B.O. avg"],
-      ...groupBy((s) => s.bm || "").map(([k, arr]) => [k, arr.length, sum(arr, dealBO), avg(arr, dealBO)]),
-      [],
-      ["Manufacturers"], ["Brand", "Deals"],
-      ...groupBy((s) => s.brand || "").map(([k, arr]) => [k, arr.length]),
-      [],
-      ["Models"], ["Model", "Deals", "New"],
-      ...groupBy((s) => [s.brand, s.model].filter(Boolean).join(" ")).map(([k, arr]) => [k, arr.length, arr.filter((s) => s.newUsed === "New").length]),
-    ];
-
-    const stamp = yearMode ? ym.slice(0, 4) : ym;
-    downloadXlsx(`sold-tracker-${stamp}.xlsx`, [
-      { name: "Deals", rows: dealRows, widths: [4, 11, 20, 11, 10, 12, 10, 6, 9, 9, 10, 19, 13, 13, ...MAKE_READY.map(() => 6), 12, 11, 13, 10, 11, 28] },
-      { name: "Summary", rows: summaryRows, widths: [16, 10, 12, 12, 10] },
-    ]);
-    toast("Spreadsheet downloaded", "success");
-  });
+  // Export the current view (month or year) as the "Vehicles Sold Track"
+  // sheet itself, filled in: the sheet's columns in its order, the summary
+  // panels down the right, numbers as numbers so Excel keeps summing them.
+  el.querySelector('[data-act="export"]').addEventListener("click", () => exportTracker(scoped(), yearMode ? ym.slice(0, 4) : ym));
 
   draw();
+}
+
+// The tracker sheet, filled in and downloaded. `stamp` names the file.
+export function exportTracker(deals, stamp) {
+  if (!deals.length) { toast("Nothing to export for " + stamp); return false; }
+  const s = store.getSettings();
+  downloadXlsx(`vehicles-sold-track-${stamp}.xlsx`, [trackerSheet(deals, { leads: store.all("leads"), plate: s.myPlate || "" })]);
+  toast("Tracker sheet downloaded", "success");
+  return true;
 }
 
 // The full tracker form — a superset of the quick "Log a sale" form. Editing a
@@ -297,7 +229,9 @@ export function openDealForm(existing, onDone) {
     const { element } = buildForm(
       [
         { name: "customerName", label: "Customer", value: s.customerName, required: true },
+        { name: "phone", label: "Phone", value: s.phone || (s.leadId && (store.get("leads", s.leadId) || {}).phone) || "", type: "tel", inputmode: "tel", half: true, placeholder: "(902) 555-1234" },
         { name: "saleDate", label: "Sale date", value: s.saleDate || todayISO(), type: "date", half: true },
+        { name: "deliveredAt", label: "Delivered", value: s.deliveredAt || "", type: "date", half: true },
         { name: "leadType", label: "Lead type", value: s.leadType || "", type: "select", half: true, options: ["", ...LEAD_TYPES] },
         { name: "brand", label: "Brand", value: s.brand, half: true, placeholder: "Nissan" },
         { name: "model", label: "Model", value: s.model, half: true, placeholder: "Rogue" },
@@ -329,7 +263,9 @@ export function openDealForm(existing, onDone) {
             let leadId = null;
             const match = leadByName(data.customerName);
             leadId = match ? match.id
-              : store.create("leads", { name: data.customerName, vehicleInterest: vehicle, stage: "sold", source: data.leadType || "Sale" }).id;
+              : store.create("leads", { name: data.customerName, phone: data.phone || "", vehicleInterest: vehicle, stage: "sold", source: data.leadType || "Sale" }).id;
+            // A number typed here is the customer's number.
+            if (match && data.phone && !match.phone) store.update("leads", match.id, { phone: data.phone });
             store.create("sales", { ...patch, leadId, makeReady: {} });
             afterSale(leadId, { vehicle });
             toast("Deal logged", "success");

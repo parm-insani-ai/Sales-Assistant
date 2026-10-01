@@ -249,8 +249,10 @@ function targetSection(mtd, s, redraw) {
     ${s.targetSetBy === "manager" ? `<div class="small muted" style="margin-top:6px">${icon("check")} Target set by your manager for this month${s.goalUnits && s.goalUnits !== p.target ? ` — ${s.goalUnits} units` : ""}.</div>` : ""}
     ` : `<div class="small muted" style="margin-top:10px">Set your new and used units and the closing ratio you expect, and this works out how many customers to speak with — then counts them as you add customers, log contacts and log sales.</div>`}
     <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
-    <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
+    <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>
+    <button class="btn btn-ghost btn-block" data-act="performance" style="margin-top:12px">${icon("target")} Every number — target sheet, funnel, deals, commission ›</button>`;
   body.querySelector('[data-act="set-target"]').addEventListener("click", () => openTargetForm(redraw));
+  body.querySelector('[data-act="performance"]').addEventListener("click", () => navigate("/performance"));
   return fold({ key: "home:target", title: "Sales target", open: true, body });
 }
 

@@ -40,6 +40,7 @@ export function renderSettings(view) {
       <div class="field"><label>Your name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
       <div class="field"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
       <div class="field"><label>Contact phone (for listings)</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
+      <div class="field"><label>Dealer plate (the tracker sheet's "My Plate")</label><input id="s-myplate" value="${esc(s.myPlate || "")}" placeholder="D-23553"></div>
       <div class="field"><label>Your email</label><input id="s-email" type="email" value="${esc(s.contactEmail || "")}" placeholder="you@email.com"></div>
       <div class="field" style="margin-bottom:0"><label>Google review link</label><input id="s-review" type="url" value="${esc(s.reviewLink || "")}" placeholder="https://g.page/r/…/review"></div>
       <div class="hint">Used to fill in {salesperson} / {dealership} in message templates, your contact info in Marketplace listings, and as the default address for email tests. The review link gets folded into the day-after-delivery thank-you text (Google Business Profile → Ask for reviews → copy the link).</div>
@@ -247,6 +248,8 @@ export function renderSettings(view) {
     store.updateSettings({ dealership: e.target.value.trim() }));
   el.querySelector("#s-phone").addEventListener("change", (e) =>
     store.updateSettings({ contactPhone: e.target.value.trim() }));
+  el.querySelector("#s-myplate").addEventListener("change", (e) =>
+    store.updateSettings({ myPlate: e.target.value.trim() }));
   el.querySelector("#s-email").addEventListener("change", (e) =>
     store.updateSettings({ contactEmail: e.target.value.trim() }));
   el.querySelector("#s-review").addEventListener("change", (e) =>

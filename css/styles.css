@@ -1778,6 +1778,13 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .topbar h1.day-link:active { opacity: 0.6; }
 .topbar h1.day-link .day-count { color: var(--muted); font-weight: 600; }
 
+/* Performance: the sheets as rows — a label, then numbers right-aligned. */
+.pf-row { padding: 6px 0; border-bottom: 1px solid var(--border); gap: 8px; }
+.pf-row:last-child { border-bottom: none; }
+.pf-head { padding-bottom: 5px; }
+.pf-lbl { flex: 1.6; min-width: 0; }
+.pf-num { flex: 1; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 /* --- Appointments: the list, and what's preset for each --- */
 .appt-day { font-size: 0.8rem; font-weight: 700; color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; margin: 6px 2px 8px; }
 .appt-row .row { gap: 12px; align-items: flex-start; }
