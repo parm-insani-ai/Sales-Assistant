@@ -153,7 +153,7 @@ export function renderTodo(view, { param } = {}) {
       let editing = false;
       const paint = () => {
         d.innerHTML = `<div class="td-rhead">${icon("message")} Text to ${esc(r.to || (to && to.name) || "them")}</div>
-          ${editing ? `<textarea class="td-draft-body" rows="${Math.max(3, String(r.message).split("\n").length + 1)}">${esc(r.message)}</textarea>` : `<div class="td-draft-text">${esc(r.message)}</div>`}
+          <div class="td-draft-box">${editing ? `<textarea class="td-draft-body" rows="${Math.max(3, String(r.message).split("\n").length + 1)}">${esc(r.message)}</textarea>` : `<div class="td-draft-text">${esc(r.message)}</div>`}</div>
           <div class="td-draft-foot">
             <span class="small ${r.sent ? "td-good strong" : "muted"}" data-status>${r.sent ? `${icon("checkline")} Sent ${esc(formatDateTime(r.sent))}` : editing ? "Editing — Done keeps the changes" : "Not sent"}</span>
             ${r.sent ? "" : `<div class="td-draft-btns">
@@ -227,6 +227,9 @@ export function renderTodo(view, { param } = {}) {
       </div>`;
     const box = c.querySelector(".td-results");
     (turn.results || []).forEach((r) => box.appendChild(resultEl(r)));
+    // A drafted text is the reply: the sentence describing it says nothing
+    // the box above doesn't, so it stays off the page.
+    if (!live && (turn.results || []).some((r) => r.kind === "draft")) c.querySelector(".td-reply-row").hidden = true;
     return c;
   }
 
@@ -354,6 +357,7 @@ export function renderTodo(view, { param } = {}) {
       reply.classList.remove("td-working");
       reply.innerHTML = sayHtml(res.say || "Done.");
       reply.classList.add("td-in");
+      if (res.done !== false && turn.results.some((r) => r.kind === "draft")) card.querySelector(".td-reply-row").hidden = true;
       turn.say = res.say || "Done.";
       turn.steps = turn.steps.slice(0, 8);
       // The timeline settles: every step ticked, the pill becomes the time.
