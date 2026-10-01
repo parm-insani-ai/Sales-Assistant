@@ -153,6 +153,24 @@ console.log("\ncrowded:", JSON.stringify(crowded.four));
 if (!crowded.four.length || !/Nadia's welcome text is drafted/.test(crowded.four[0].title) || !crowded.four[0].locked) fail("with older follow-ups outscoring it, the new customer's welcome text should still lead Right now: " + JSON.stringify(crowded.four));
 if (!/Nadia's welcome text is drafted/.test(crowded.home)) fail("Home's Right now should show the new customer's welcome text: " + crowded.home.slice(0, 160));
 
+// --- Nor does it move when the note names a day. "Coming in Saturday" defers
+// the plan to after the visit — the welcome text, the thank-you five minutes
+// after they're added, stays put, and is still first on Right now.
+const dated = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js"); const m = await import("/js/nudges.js"); const moves = await import("/js/moves.js");
+  const lead = store.create("leads", { name: "Omar Haddad", phone: "9025550001", stage: "new", source: "Walk-in", loggedAt: new Date().toISOString() });
+  cadence.startCadence(lead.id);
+  moves.nextMoves(lead.id, "coming in Saturday at 3, loved the Rogue");
+  await new Promise((r) => setTimeout(r, 300));
+  const welcome = store.all("tasks").find((t) => t.leadId === lead.id && t.cadence && t.intent === "intro" && t.channel === "text");
+  const minsOut = welcome ? Math.round((new Date(welcome.readyAt).getTime() - Date.now()) / 60000) : null;
+  const deferred = store.all("tasks").filter((t) => t.leadId === lead.id && t.cadence && t.deferredFor).length;
+  return { minsOut, deferred, first: m.getNudges({ limit: 4 })[0]?.title || "" };
+});
+console.log("dated note:", JSON.stringify(dated));
+if (dated.minsOut == null || dated.minsOut < 3 || dated.minsOut > 6) fail("a day in the note moved the welcome text — it should still be five minutes out: " + JSON.stringify(dated));
+if (!/Omar's welcome text is drafted/.test(dated.first)) fail("the welcome text should still lead Right now: " + JSON.stringify(dated));
+
 // --- And it's on Home, above the day's queue.
 const home = await p.$eval(".nudge-slot", (n) => n.textContent.replace(/\s+/g, " ").trim()).catch(() => "");
 console.log("\nHome strip:", home.slice(0, 120));

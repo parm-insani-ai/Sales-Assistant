@@ -192,6 +192,11 @@ export function deferPlan(leadId, untilISO) {
   let moved = 0;
   store.bulk(() => {
     planSteps(leadId).forEach((t) => {
+      // The welcome text stays where it is. It's the thank-you for the
+      // visit, five minutes after they're added — not a follow-up step —
+      // and "coming in Saturday" in the note was pushing it to Sunday,
+      // so the customer just added had nothing on Right now.
+      if (t.intent === "intro" && t.channel === "text") return;
       if (t.due && t.due <= until) {
         const at = t.at ? sameTimeOn(t.at, after) : null;
         store.update("tasks", t.id, { due: after, at, readyAt: at ? toReadyAt(at) : t.readyAt, deferredFor: "appointment" });
