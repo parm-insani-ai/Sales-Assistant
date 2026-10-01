@@ -126,7 +126,7 @@ const TOOLS = [
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "lot_lookup", description: "ANY question about what's on the lot — answered from the store's own inventory with the WEBSITE'S prices and kilometres. 'Do we have any Rogue SVs?', 'how many used Rogues?', 'what's the Civic Sport going for?', 'how many kilometres on stock NHP1868?', 'cheapest used SUV under thirty?', 'any hybrids?', 'anything black under 25?'. Pass the salesperson's words as `question`; add structured filters only when they help. Returns the count, the matching units (price, km, stock, colour, arrival date) and a ready spoken `answer` — read the answer back as is; the units are already on screen.", input_schema: { type: "object", properties: { question: { type: "string", description: "the salesperson's own words" }, condition: { type: "string", enum: ["New", "Used"] }, maxPrice: { type: "number" }, minPrice: { type: "number" }, maxKm: { type: "number" }, stock: { type: "string" }, sort: { type: "string", enum: ["price", "priceDesc", "km", "year"] }, ask: { type: "string", enum: ["count", "price", "km", "cheapest", "priciest", "newest", "list"] } }, required: ["question"] } },
   { name: "mass_outreach", description: "Set up a text or email to MANY customers at once, picked by what they drive or where they stand: 'text everyone who owns a Sentra that this month if they trade it in for a new Nissan they get double loyalty', 'email all my Rogue owners from 2018 to 2021 that…', 'text everyone with a paid off Nissan that…', 'text everyone whose lease is ending that…'. Pass the salesperson's whole sentence as `sentence` (audience AND message). The app builds the recipient list and writes each message in the customer's name; the salesperson reviews on screen and taps Send — nothing sends from this tool. Never put a dollar amount or a rate in the message.", input_schema: { type: "object", properties: { sentence: { type: "string", description: "the whole request: who, and what to tell them" }, channel: { type: "string", enum: ["text", "email"] } }, required: ["sentence"] } },
-  { name: "search_inventory", description: "Search the wider O'Regan's dealer NETWORK (other stores) for a used vehicle — only when the salesperson asks about the network or other stores. Questions about OUR lot are lot_lookup. NOT for comparing models against each other — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "search_inventory", description: "Put the dealer-website search buttons on screen for the wider O'Regan's NETWORK (other stores, used vehicles) — only when the salesperson asks about the network or other stores. It opens the website in the browser; this app does NOT see the results, cannot count, filter or sort them, and cannot say what's there. Questions about OUR lot are lot_lookup. NOT for comparing models — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "when_it_makes_sense", description: "WHEN a customer's next vehicle starts to make sense — not whether, but the month: when their equity clears the line as the payoff comes down and the value drifts, when a like-for-like on the lot lands at their payment, when the contract runs out, or six months before a lease ends. 'When should I go back to Dana?', 'when does it make sense for Ken?', or with no customer: 'who opens up in the next six months?', 'who's coming up?'. Opens the Timing screen.", input_schema: { type: "object", properties: { customer: { type: "string" }, months: { type: "number", description: "with no customer: how far ahead to list (default 6)" } } } },
   { name: "lease_ends", description: "Every lease on the book with when it ends, soonest first — 'when do my leases end?', 'any leases ending this year?', 'what's coming off lease?'. Opens the Timing screen on the lease list.", input_schema: { type: "object", properties: { months: { type: "number", description: "only leases ending within this many months (default 12)" } } } },
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
@@ -177,6 +177,11 @@ function buildStanding() {
     // to go and find for themselves, is the assistant stopping half way.
     `The app FOLLOWS you: a tool that returns a list of people or jobs also puts that list on the salesperson's screen, with one-tap text and call buttons on every row. So do NOT read a list aloud. Name at most the top one or two and hand over to the screen — "Lynn and Mark are your hottest, both one tap away" — because they're already looking at it.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
+    // The reply is the only thing the salesperson hears, and it has to be
+    // true. A tool that opened a web page is not a search; a draft in a box
+    // is not a sent text; a list the app put on screen is not one you read.
+    `SAY ONLY WHAT HAPPENED. Your reply must match the tool results word for word in substance: never claim a result, a count, a price, a sort, a filter, a send or a confirmation that a tool result doesn't state. "Opened the search" means the salesperson still has to search — say so; it does not mean results are on screen. A text is "in the box, ready for your send", never "sent". If a tool returned nothing, say nothing was found. If you did not look something up, do not describe it. Never invent a detail to sound finished.`,
+    `WHAT YOU CANNOT DO — say so plainly when asked, in one sentence, then offer the nearest thing you can: browse the web or any dealer website (you can only open it for them); see a website's results or prices (only the lot_lookup units from our own site); send anything without the salesperson's tap (texts and outreach wait for their send; only send_email sends); read documents or photos; quote a trade value, a payment the desk hasn't worked out, or a rate (never a figure to a customer); act on another salesperson's customers; book service appointments or anything outside this app; remember a conversation from before today's session unless it's on file. "I can't do that from here" is a complete, correct answer.`,
     // Everything the user "says" reached here through speech recognition, and
     // saying so changes how the model reads a garbled sentence: as something to
     // repair from context rather than as a strange request to query.
@@ -801,7 +806,7 @@ async function runTool(t, p = {}) {
       const route = ROUTES[String(p.page || p.route || "").toLowerCase()] || (String(p.route || "").startsWith("/") ? p.route : null);
       if (!route) return { result: "no such page", note: "⚠ couldn't find that page" };
       navigate(route);
-      return { result: `opened ${route}`, note: `opened ${route}` };
+      return { result: `opened the ${route} screen — nothing else was done; the salesperson can see it`, note: `opened ${route}` };
     }
     case "create_lead": {
       if (!p.name) return { result: "need a name", note: "⚠ need a name for the lead" };
@@ -898,7 +903,7 @@ async function runTool(t, p = {}) {
         if (phone) {
           if (!openText(phone, String(p.message || "")))
             location.href = smsHref(phone, String(p.message || ""));
-          return { result: `opened a text to ${who} — the salesperson just hits send`, note: `texting ${who}` };
+          return { result: `opened a text to ${who} with the message in the box — NOT sent; the salesperson reads it and hits send`, note: `texting ${who}` };
         }
         return { result: "not found", note: `⚠ couldn't find ${who}` };
       }
@@ -907,7 +912,7 @@ async function runTool(t, p = {}) {
       // set up, the phone's SMS app when it isn't.
       if (!openText(lead.phone, String(p.message || "")))
         location.href = smsHref(lead.phone, String(p.message || ""));
-      return { result: `opened a prefilled text to ${lead.name} — the salesperson just hits send`, note: `texting ${lead.name}` };
+      return { result: `opened a text to ${lead.name} with the message in the box — NOT sent; the salesperson reads it and hits send`, note: `texting ${lead.name}` };
     }
     case "call_customer": case "call": {
       const who = p.customer || p.name || p.phone || "";
@@ -1051,8 +1056,15 @@ async function runTool(t, p = {}) {
       return { result: { count: res.count, asked: res.label, answer: res.answer, widened: !!res.widened, units, more: Math.max(0, res.count - units.length), prices: "the website's exact prices" }, note: res.count ? `${res.count} on screen` : "" };
     }
     case "search_inventory": case "find_vehicle": {
-      openDealerSearch({ vehicleInterest: p.query || p.vehicle || "" });
-      return { result: "opened search", note: `searching inventory${p.query ? " for " + p.query : ""}` };
+      const want = String(p.query || p.vehicle || "").trim();
+      openDealerSearch({ vehicleInterest: want });
+      // Honest about what this is: two buttons that open the dealer's website
+      // in the browser. The app never sees that site's results, applies no
+      // filter and no sort, and can't say what's there.
+      return {
+        result: `Put two buttons on screen that open the dealer websites in the browser (the store's own site; the O'Regan's network, used only)${want ? `, with "${want}" shown as what to look for` : ""}. NOTHING has been searched yet and this app CANNOT see those sites' results, counts or prices, and applied no filter or sort. Tell the salesperson exactly that: tap the button, search on the site, and come back with the unit. Do not describe results.`,
+        note: `inventory search buttons on screen${want ? " for " + want : ""}`,
+      };
     }
     case "compare_vehicles": case "compare": {
       const wanted = (Array.isArray(p.vehicles) ? p.vehicles : [p.a, p.b, p.query]).filter(Boolean);
@@ -1066,7 +1078,7 @@ async function runTool(t, p = {}) {
       return { result: `opened the comparison: ${names}${missing.length ? `. Not in the database (can be entered manually on that screen): ${missing.join(", ")}` : ""}`, note: `comparing ${names}` };
     }
     default:
-      return { result: `unknown tool ${t}`, note: `⚠ I can't do "${t}" yet` };
+      return { result: `There is no tool "${t}" — this app can't do that. Tell the salesperson plainly that it isn't something you can do here, and what you can do instead if anything.`, note: `⚠ I can't do "${t}"` };
   }
 }
 

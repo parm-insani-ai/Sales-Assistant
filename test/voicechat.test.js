@@ -189,6 +189,22 @@ if (!standing || !liveBrief) fail("the system brief should be two blocks, the fi
 if (/Today is|customers and \d+ appointments|Customers on file/.test(standing)) fail("the cached standing brief must not carry anything that changes between calls");
 if (!/Today is/.test(liveBrief) || !/Customers on file/.test(liveBrief)) fail("the live brief should carry the date and the names on file");
 if (!/EVERYTHING YOU WRITE CAN BE UNDONE/.test(standing)) fail("the brief should tell the assistant its changes are reversible");
+if (!/SAY ONLY WHAT HAPPENED/.test(standing) || !/WHAT YOU CANNOT DO/.test(standing)) fail("the brief should forbid invented results and list what the app can't do");
+
+// --- The tools say what they did and didn't do, so the reply can't dress
+// an opened web page up as a search with results.
+const honest = await p.evaluate(async () => {
+  const a = await import("/js/agent.js");
+  const search = await a.execTool("search_inventory", { query: "used Nissan Sentra" });
+  document.querySelector(".modal-close, [data-close]")?.click();
+  const nope = await a.execTool("book_service_appointment", { customer: "Ann Lee" });
+  const page = await a.execTool("open_page", { page: "calendar" });
+  return { search: String(search.result), nope: String(nope.result), page: String(page.result) };
+});
+console.log("tool results:", JSON.stringify(honest).slice(0, 400));
+if (!/CANNOT see those sites' results/.test(honest.search) || !/NOTHING has been searched/.test(honest.search) || !/Do not describe results/.test(honest.search)) fail("the network search result should say the app can't see results: " + honest.search);
+if (!/can't do that/.test(honest.nope)) fail("an unknown tool should come back as 'can't do that': " + honest.nope);
+if (!/nothing else was done/.test(honest.page)) fail("opening a screen should say that's all it did: " + honest.page);
 
 // --- The salesperson's own preferences reach the brief.
 await p.evaluate(async () => { const s = await import("/js/store.js"); s.updateSettings({ agentTone: "straight", agentSignoff: "— Parm at O'Regan's", agentNotes: "Never book Saturdays after 3.", hoursFrom: 9, hoursTo: 18, hoursDays: [1, 2, 3, 4, 5, 6] }); });
