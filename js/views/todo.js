@@ -263,6 +263,7 @@ export function renderTodo(view, { param } = {}) {
       const x = actions[Number(b.dataset.action)];
       if (x) run(x.ask, x.label);
     }));
+    holdScroll(el.querySelector(".td-ask-form .td-input"));
     el.querySelector(".td-ask-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const inp = el.querySelector(".td-input");
@@ -354,6 +355,30 @@ export function renderTodo(view, { param } = {}) {
       busy = false;
       el.querySelectorAll(".td-action, .td-ask-form button").forEach((b) => { b.disabled = false; });
     }
+  }
+
+  // Tapping the ask box raises the keyboard, and the page behind it must
+  // not jump. The browser scrolls a focused field "into view" and iOS can
+  // slide the page as the keyboard animates in — so the scroller is put
+  // back where it was, a few times through the animation and whenever the
+  // viewport changes shape while the box has focus. The box itself is
+  // sticky to the bottom, so it rises with the keyboard on its own.
+  function holdScroll(input) {
+    if (!input) return;
+    let saved = null;
+    const restore = () => {
+      if (saved == null || document.activeElement !== input) return;
+      if (view.scrollTop !== saved) view.scrollTop = saved;
+      if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+    };
+    input.addEventListener("pointerdown", () => { saved = view.scrollTop; });
+    input.addEventListener("focus", () => { if (saved == null) saved = view.scrollTop; [0, 60, 150, 300, 500, 800].forEach((ms) => setTimeout(restore, ms)); });
+    input.addEventListener("blur", () => { saved = null; });
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onShape = () => { if (!view.isConnected) { vv.removeEventListener("resize", onShape); vv.removeEventListener("scroll", onShape); return; } restore(); };
+    vv.addEventListener("resize", onShape);
+    vv.addEventListener("scroll", onShape);
   }
 
   draw();
