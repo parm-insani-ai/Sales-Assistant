@@ -156,15 +156,22 @@ const sent2 = JSON.stringify(relays2[before2].messages);
 if (!/Draft a text to Dana Muise/.test(sent2) || !/Earlier, for my to-do/.test(sent2) || !/Happy to go through it/.test(sent2)) fail("a next action should carry the earlier work in: " + sent2.slice(0, 300));
 const toolBack = JSON.stringify(relays2[before2 + 1].messages);
 if (!/drafted a text to Dana Muise/.test(toolBack) || !/NOT sent/.test(toolBack)) fail("the text tool should have drafted onto the page, not opened the inbox: " + toolBack.slice(-300));
-const drafted = await p.evaluate(async () => { const s = await import("/js/store.js"); const d = document.querySelector(".td-live .td-result-draft"); return { hash: location.hash, body: d?.querySelector(".td-draft-body")?.value || "", status: d?.querySelector("[data-status]")?.textContent || "", send: !!d?.querySelector("[data-send]"), reply: document.querySelector(".td-live .td-turn .td-reply")?.textContent || "", turns: ((s.get("tasks", "c1").assist || {}).turns || []).length, sentSoFar: (await fetch("/__sent").then((r) => r.json())).length }; });
+const drafted = await p.evaluate(async () => { const s = await import("/js/store.js"); const d = document.querySelector(".td-live .td-result-draft"); return { hash: location.hash, body: d?.querySelector(".td-draft-text")?.textContent || "", box: !!d?.querySelector(".td-draft-body"), edit: !!d?.querySelector("[data-edit]"), status: d?.querySelector("[data-status]")?.textContent || "", send: !!d?.querySelector("[data-send]"), reply: document.querySelector(".td-live .td-turn .td-reply")?.textContent || "", turns: ((s.get("tasks", "c1").assist || {}).turns || []).length, sentSoFar: (await fetch("/__sent").then((r) => r.json())).length }; });
 console.log("drafted:", JSON.stringify(drafted));
-if (drafted.hash !== "#/todo/c1" || !/found a couple of options/.test(drafted.body) || !/Not sent/.test(drafted.status) || !drafted.send || drafted.sentSoFar !== 0) fail("the draft should sit on the page, unsent, with a Send button: " + JSON.stringify(drafted));
+if (drafted.hash !== "#/todo/c1" || !/found a couple of options/.test(drafted.body) || drafted.box || !drafted.edit || !/Not sent/.test(drafted.status) || !drafted.send || drafted.sentSoFar !== 0) fail("the draft should sit on the page in full, unsent, with Edit and Send: " + JSON.stringify(drafted));
+// Edit opens it in place; Done keeps the change; Send sends what's on screen.
+await p.click(".td-live .td-result-draft [data-edit]");
+await p.waitForSelector(".td-live .td-result-draft .td-draft-body", { timeout: 3000 }).catch(() => fail("Edit should open the text in place"));
+await p.fill(".td-live .td-result-draft .td-draft-body", "Hi Dana, found two options worth a look — when could you pop in?");
+await p.click(".td-live .td-result-draft [data-edit-done]");
+const edited = await p.evaluate(async () => { const s = await import("/js/store.js"); const tr = (s.get("tasks", "c1").assist || {}).turns || []; return { shown: document.querySelector(".td-live .td-result-draft .td-draft-text")?.textContent || "", kept: tr[1] && tr[1].results[0] && tr[1].results[0].message }; });
+if (!/two options/.test(edited.shown) || !/two options/.test(edited.kept || "")) fail("Done should keep the edit on screen and on the to-do: " + JSON.stringify(edited));
 if (!/Happy to go through it/.test(drafted.reply) || drafted.turns !== 2) fail("the reply should show on the page and the exchange be kept on the to-do: " + JSON.stringify(drafted));
 await p.evaluate(() => document.querySelector(".td-live .td-result-draft [data-send]").click());
 await p.waitForFunction(() => /Sent/.test(document.querySelector(".td-live .td-result-draft [data-status]")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("Send didn't send"));
 const sentNow = await fetch(APP + "/__sent").then((r) => r.json());
 const kept = await p.evaluate(async () => { const s = await import("/js/store.js"); const tr = (s.get("tasks", "c1").assist || {}).turns || []; return { hash: location.hash, sent: !!(tr[1] && tr[1].results[0] && tr[1].results[0].sent) }; });
-if (sentNow.length !== 1 || !/found a couple of options/.test(JSON.stringify(sentNow[0])) || kept.hash !== "#/todo/c1" || !kept.sent) fail("Send should text from the page and stay on it: " + JSON.stringify({ sentNow, kept }));
+if (sentNow.length !== 1 || !/two options/.test(JSON.stringify(sentNow[0])) || kept.hash !== "#/todo/c1" || !kept.sent) fail("Send should text from the page and stay on it: " + JSON.stringify({ sentNow, kept }));
 await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
 
 // --- A question back: Do it on a to-do in your own words, and the assistant

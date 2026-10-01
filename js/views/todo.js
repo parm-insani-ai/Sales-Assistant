@@ -146,31 +146,56 @@ export function renderTodo(view, { param } = {}) {
         ${r.units.map((u) => `<div class="td-unit"><div><div class="strong">${esc(u.vehicle)}</div><div class="small muted">${[u.condition, u.color, u.km != null ? `${Number(u.km).toLocaleString()} km` : "", u.stock ? `#${u.stock}` : ""].filter(Boolean).map(esc).join(" · ")}</div></div><div class="num strong">${esc(money(u.price))}</div></div>`).join("")}
         ${r.more ? `<div class="small muted" style="margin-top:6px">+${r.more} more on the lot</div>` : ""}`;
     } else if (r.kind === "draft") {
+      // The text in full, as it will go, with Edit and Send beneath. Edit
+      // opens it in place; Done closes it with the changes kept on the
+      // to-do, so what's sent is what's on screen.
       const to = lead || store.all("leads").find((l) => l.name === r.to) || null;
-      d.innerHTML = `<div class="td-rhead">${icon("message")} Text to ${esc(r.to || (to && to.name) || "them")}</div>
-        <textarea class="td-draft-body" rows="4" ${r.sent ? "readonly" : ""}>${esc(r.message)}</textarea>
-        <div class="row" style="margin-top:8px"><span class="small ${r.sent ? "td-good strong" : "muted"}" data-status>${r.sent ? `${icon("checkline")} Sent ${esc(formatDateTime(r.sent))}` : "Not sent — read it, then send"}</span>${r.sent ? "" : `<button type="button" class="btn btn-primary btn-sm" data-send>${icon("send")} Send</button>`}</div>`;
-      const btn = d.querySelector("[data-send]");
-      if (btn) btn.addEventListener("click", async () => {
-        const body = d.querySelector(".td-draft-body").value.trim();
-        if (!body) { toast("Nothing to send", "warn"); return; }
-        if (looksLikeMoney(body)) { toast("Take the figure out first — numbers stay for the desk", "warn"); return; }
-        if (!to || !to.phone) { toast("No phone number on file", "warn"); return; }
-        r.message = body;
-        btn.disabled = true; btn.textContent = "Sending…";
-        if (smsReady()) {
-          const res = await sendText(to, body);
-          if (!res.ok) { toast(res.error || "Couldn't send", "danger"); btn.disabled = false; btn.innerHTML = `${icon("send")} Send`; return; }
-        } else {
-          // No texting number set up: the phone's own Messages app, with the
-          // text in it.
-          location.href = smsHref(to.phone, body);
+      let editing = false;
+      const paint = () => {
+        d.innerHTML = `<div class="td-rhead">${icon("message")} Text to ${esc(r.to || (to && to.name) || "them")}</div>
+          ${editing ? `<textarea class="td-draft-body" rows="${Math.max(3, String(r.message).split("\n").length + 1)}">${esc(r.message)}</textarea>` : `<div class="td-draft-text">${esc(r.message)}</div>`}
+          <div class="td-draft-foot">
+            <span class="small ${r.sent ? "td-good strong" : "muted"}" data-status>${r.sent ? `${icon("checkline")} Sent ${esc(formatDateTime(r.sent))}` : editing ? "Editing — Done keeps the changes" : "Not sent"}</span>
+            ${r.sent ? "" : `<div class="td-draft-btns">
+              ${editing ? `<button type="button" class="btn btn-ghost btn-sm" data-edit-done>${icon("check")} Done</button>` : `<button type="button" class="btn btn-ghost btn-sm" data-edit>${icon("edit")} Edit</button>`}
+              <button type="button" class="btn btn-primary btn-sm" data-send>${icon("send")} Send</button>
+            </div>`}
+          </div>`;
+        const ta = d.querySelector(".td-draft-body");
+        if (ta) {
+          const grow = () => { ta.style.height = "auto"; ta.style.height = Math.max(96, ta.scrollHeight + 2) + "px"; };
+          ta.addEventListener("input", grow);
+          setTimeout(() => { grow(); try { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } catch { /* fine */ } }, 30);
         }
-        r.sent = new Date().toISOString();
-        save();
-        d.replaceWith(resultEl(r));
-        toast(`Sent to ${first(to.name)}`, "success");
-      });
+        const keep = () => { if (ta) { r.message = ta.value.trim() || r.message; save(); } };
+        const editBtn = d.querySelector("[data-edit]");
+        if (editBtn) editBtn.addEventListener("click", () => { editing = true; paint(); });
+        const doneBtn = d.querySelector("[data-edit-done]");
+        if (doneBtn) doneBtn.addEventListener("click", () => { keep(); editing = false; paint(); });
+        const btn = d.querySelector("[data-send]");
+        if (btn) btn.addEventListener("click", async () => {
+          keep();
+          const body = String(r.message || "").trim();
+          if (!body) { toast("Nothing to send", "warn"); return; }
+          if (looksLikeMoney(body)) { toast("Take the figure out first — numbers stay for the desk", "warn"); return; }
+          if (!to || !to.phone) { toast("No phone number on file", "warn"); return; }
+          btn.disabled = true; btn.textContent = "Sending…";
+          if (smsReady()) {
+            const res = await sendText(to, body);
+            if (!res.ok) { toast(res.error || "Couldn't send", "danger"); btn.disabled = false; btn.innerHTML = `${icon("send")} Send`; return; }
+          } else {
+            // No texting number set up: the phone's own Messages app, with the
+            // text in it.
+            location.href = smsHref(to.phone, body);
+          }
+          r.sent = new Date().toISOString();
+          editing = false;
+          save();
+          paint();
+          toast(`Sent to ${first(to.name)}`, "success");
+        });
+      };
+      paint();
     } else if (r.kind === "compare") {
       const rows = [["Price / MSRP", (v) => money(v.price)], ["Engine", (v) => v.engine || "—"], ["Horsepower", (v) => (v.hp ? `${v.hp} hp` : "—")], ["Fuel (combined)", (v) => (v.fuel ? `${v.fuel} L/100 km` : "—")], ["Drivetrain", (v) => v.drive || "—"], ["Seats", (v) => v.seats || "—"]];
       d.innerHTML = `<div class="td-rhead">${icon("compare")} Side by side</div>
