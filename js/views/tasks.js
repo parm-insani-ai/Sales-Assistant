@@ -6,6 +6,7 @@ import * as store from "../store.js";
 import { openModal, buildForm, toast, undoToast, swipeable } from "../components.js";
 import { esc, relativeDay, daysFromToday } from "../utils.js";
 import { icon } from "../icons.js";
+import { navigate } from "../router.js";
 import { isReminder, reminderWhen, wallClock, askNotifyPermission } from "../reminders.js";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -179,11 +180,9 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
         } else if (a && a.at) {
           banner.className = "todo-banner todo-banner-done";
           banner.innerHTML = `<button type="button" class="tb-done" data-check-it>${icon("checkline")} Done — check it out <span class="tb-arrow">›</span></button>`;
-          banner.querySelector("[data-check-it]").addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (a.to && a.to !== location.hash) { location.hash = a.to; return; }
-            toast(a.say || "It's on screen.", "success");
-          });
+          // The work, on its own page: what it did, what it put on screen,
+          // and the next things it can do from there (views/todo.js).
+          banner.querySelector("[data-check-it]").addEventListener("click", (e) => { e.stopPropagation(); navigate(`/todo/${t.id}`); });
         } else {
           banner.className = "todo-banner";
           banner.innerHTML = `<span class="tb-label">The assistant can run this</span><button type="button" class="btn btn-primary btn-sm do-it" data-do-it aria-label="Have the assistant do this">Do it</button>`;
@@ -197,18 +196,22 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       const run = async () => {
         running.add(t.id); paint();
         const from = location.hash;
+        const steps = []; // what it did, in order, for the work page
         try {
           const a = await import("../agent.js");
           if (!a.agentConfigured()) { toast("Set up the voice agent under Settings first", "warn"); return; }
           const res = await a.createAgentSession().send(ask, (step) => {
+            if (!step || /^⚠/.test(step)) return;
+            if (steps[steps.length - 1] !== step) steps.push(step);
             const s = banner.querySelector("[data-step]");
-            if (s && step && !/^⚠/.test(step)) s.textContent = step;
+            if (s) s.textContent = step;
           });
           if (res.done === false) { toast(`It needs more from you: ${res.say}`, "warn"); return; }
           const to = location.hash !== from ? location.hash : "";
-          t.assist = { at: new Date().toISOString(), say: res.say || "", to };
+          // The reply isn't shouted here — it's on the work page, behind
+          // "check it out", with what it can do next.
+          t.assist = { at: new Date().toISOString(), say: res.say || "", to, steps: steps.slice(0, 8), log: [] };
           store.update("tasks", t.id, { assist: t.assist });
-          toast(res.say || "Done — check it out", "success");
         } catch (err) {
           toast(`Couldn't do it: ${err && err.message ? err.message : err}`, "danger");
         } finally {

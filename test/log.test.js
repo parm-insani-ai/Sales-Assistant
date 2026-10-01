@@ -123,15 +123,36 @@ if (!/Working/.test(working)) fail("the card should read Working… while the as
 let relays = [];
 for (let i = 0; i < 40 && relays.length <= before; i++) { await p.waitForTimeout(200); relays = await fetch(APP + "/__relays").then((r) => r.json()); }
 if (relays.length <= before) fail("Do it never asked the assistant");
-await p.waitForFunction(() => /./.test(document.querySelector("#toast-root")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("Do it said nothing back"));
+await p.waitForFunction(`!!(${cardOf})().querySelector(".todo-banner-done")`, null, { timeout: 8000 }).catch(() => fail("the card never said Done"));
 const said = await p.evaluate(`(async () => { const s = await import("/js/store.js"); const c = (${cardOf})(); return { toast: document.querySelector("#toast-root")?.textContent || "", banner: c.querySelector(".todo-banner").textContent.replace(/\\s+/g, " ").trim(), done: !!c.querySelector(".todo-banner-done [data-check-it]"), kept: !!(s.get("tasks", "c1").assist || {}).at }; })()`);
 console.log("do it said:", JSON.stringify(said));
 if (/Couldn't do it|Set up the voice agent/.test(said.toast)) fail("Do it should have run: " + said.toast);
+if (/Happy to go through it/.test(said.toast)) fail("the reply shouldn't be shouted as a toast — it belongs on the work page");
 if (!said.done || !/Done — check it out/.test(said.banner) || !said.kept) fail("once it's run the card should say Done — check it out, and remember so on the to-do: " + JSON.stringify(said));
 const sent = relays.length ? JSON.stringify(relays[relays.length - 1].messages) : "";
 if (!/Dana Muise/.test(sent) || !/deal_options/.test(sent) || !/3 in stock under their budget/.test(sent)) fail("Do it should hand the assistant the customer and the to-do: " + sent.slice(0, 300));
 const stillThere = await p.evaluate(async () => { const s = await import("/js/store.js"); return !s.get("tasks", "c1").done; });
 if (!stillThere) fail("Do it shouldn't tick the to-do off — that's the salesperson's call");
+
+// --- Check it out: the work on its own page — what it said, and the next
+// things it can do, each a tap that runs in the same conversation.
+await p.evaluate(`(${cardOf})().querySelector("[data-check-it]").click()`);
+await p.waitForSelector(".td-page .td-action", { timeout: 8000 }).catch(() => fail("check it out didn't open the work page"));
+const work = await p.evaluate(() => ({ hash: location.hash, say: document.querySelector(".td-page .td-say")?.textContent || "", title: document.querySelector(".td-page .hero-title")?.textContent || "", actions: [...document.querySelectorAll(".td-page .td-action")].map((b) => b.textContent.replace(/\s+/g, " ").trim()), back: !document.getElementById("topbar-back").hidden }));
+console.log("work page:", JSON.stringify(work));
+if (work.hash !== "#/todo/c1" || !/Happy to go through it/.test(work.say) || !/3 in stock under their budget/.test(work.title) || !work.back) fail("the work page should show the to-do and what the assistant said: " + JSON.stringify(work));
+if (!work.actions.some((a) => /^Text Dana the options/.test(a)) || !work.actions.some((a) => /Compare the two best/.test(a)) || !work.actions.some((a) => /Book Dana a time/.test(a))) fail("the work page should list the next things it can do: " + JSON.stringify(work.actions));
+const before2 = (await fetch(APP + "/__relays").then((r) => r.json())).length;
+await p.evaluate(() => [...document.querySelectorAll(".td-page .td-action")].find((b) => /Text Dana the options/.test(b.textContent)).click());
+let relays2 = [];
+for (let i = 0; i < 40 && relays2.length <= before2; i++) { await p.waitForTimeout(200); relays2 = await fetch(APP + "/__relays").then((r) => r.json()); }
+if (relays2.length <= before2) fail("a next action never reached the assistant");
+await p.waitForFunction(() => { const r = document.querySelector(".td-turn-live .td-reply"); return r && !r.classList.contains("td-working"); }, null, { timeout: 8000 }).catch(() => fail("the action's reply never landed on the page"));
+const sent2 = JSON.stringify(relays2[relays2.length - 1].messages);
+if (!/Draft a text to Dana Muise/.test(sent2) || !/Earlier, for my to-do/.test(sent2) || !/Happy to go through it/.test(sent2)) fail("a next action should carry the earlier work in: " + sent2.slice(0, 300));
+const turn = await p.evaluate(async () => { const s = await import("/js/store.js"); return { reply: document.querySelector(".td-turn-live .td-reply")?.textContent || "", logged: ((s.get("tasks", "c1").assist || {}).log || []).length }; });
+if (!/Happy to go through it/.test(turn.reply) || turn.logged !== 1) fail("the reply should show on the page and be kept on the to-do: " + JSON.stringify(turn));
+await p.evaluate(() => { location.hash = "#/log"; }); await p.waitForTimeout(400);
 
 // --- The assistant can land on a chip: "what's on my plate" opens the to-dos
 // without changing the one you chose.

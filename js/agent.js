@@ -743,7 +743,17 @@ async function runTool(t, p = {}) {
     case "deal_options": case "match_deals": {
       const lead = findLead(p.customer || p.name);
       if (!lead) return { result: "not found", note: "" };
-      const rows = dealsForLead(lead).slice(0, 5).map((r) => ({ vehicle: [r.vehicle.year, r.vehicle.make, r.vehicle.model].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method, special: r.special || null, inStock: !r.vehicle.lineup }));
+      // One row per vehicle, its closest-to-their-payment option: the
+      // list underneath has every term and lease for each unit, and five
+      // of the same Kicks is not five options.
+      const seen = new Set(), rows = [];
+      for (const r of dealsForLead(lead)) {
+        const v = r.vehicle, key = `${v.year}|${v.make}|${v.model}|${v.trim || ""}|${v.condition || ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({ vehicle: [v.year, v.make, v.model, v.trim].filter(Boolean).join(" "), monthly: Math.round(r.monthly), delta: r.delta != null ? Math.round(r.delta) : null, method: r.method, special: r.special || null, inStock: !v.lineup });
+        if (rows.length >= 5) break;
+      }
       return { result: { customer: lead.name, currentPayment: lead.currentPayment ?? null, options: rows }, note: "" };
     }
     case "get_nudges": {

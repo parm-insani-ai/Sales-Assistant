@@ -27,7 +27,7 @@ const LOADERS = {
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
-  log: () => import("./views/log.js"), performance: () => import("./views/performance.js"),
+  log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -140,6 +140,7 @@ const PAGES = {
   "/tools": { title: "Tools", render: () => { navigate("/"); setTimeout(() => document.getElementById("quick-add").click(), 0); } },
   "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
+  "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
   "/team": { title: "Team", render: lazyView("team", "renderTeam") },
   "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") },
   "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") },
@@ -207,6 +208,7 @@ function mount(base, ctx) {
 function parentOf(base, param, roots) {
   if (param && roots.includes(base)) return base;
   if (param && base === "/inbox") return "/comms";
+  if (base === "/todo") { try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* the remembered chip, then */ } return "/log"; }
   if (base === "/calendar" && param) return "/appts"; // an appointment's page backs out to the list
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
   return "/";

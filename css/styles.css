@@ -1062,6 +1062,27 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .todo-banner-done .tb-done { flex: 1; display: flex; align-items: center; gap: 7px; border: none; background: none; padding: 2px 0; font-family: inherit; font-size: 0.92rem; font-weight: 700; color: var(--success); cursor: pointer; text-align: left; }
 .todo-banner-done .tb-done .ico { width: 17px; height: 17px; flex: none; }
 .todo-banner-done .tb-arrow { margin-left: auto; font-size: 1.2rem; line-height: 1; }
+
+/* The assistant's work on a to-do (views/todo.js): what it did, then the
+   next things it can do, each a row with an arrow like a list of moves. */
+.td-page .td-who { color: var(--brand); font-weight: 650; text-decoration: none; }
+.td-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 10px; font-size: 0.76rem; font-weight: 600; color: var(--muted); }
+.td-steps .td-step { background: var(--surface-2); border-radius: 999px; padding: 3px 9px; }
+.td-steps .td-sep { color: var(--border-strong); }
+.td-say { font-size: 0.95rem; line-height: 1.5; white-space: pre-wrap; }
+.td-actions { padding: 4px 0; }
+.td-action { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 18px; border: none; background: none; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--text); text-align: left; cursor: pointer; border-bottom: 1px solid var(--border); -webkit-tap-highlight-color: transparent; }
+.td-action:last-child { border-bottom: none; }
+.td-action:active { background: var(--surface-2); }
+.td-action:disabled { opacity: 0.5; cursor: default; }
+.td-action .ico { width: 20px; height: 20px; flex: none; color: var(--brand); }
+.td-action span:first-of-type { flex: 1; min-width: 0; }
+.td-arrow { color: var(--muted); font-size: 1.2rem; line-height: 1; }
+.td-turn .td-ask { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+.td-turn .td-reply { font-size: 0.95rem; line-height: 1.5; white-space: pre-wrap; }
+.td-turn .td-working::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; background: var(--brand); animation: tb-pulse 1s ease-in-out infinite; }
+.td-turn .vt-choices { margin-top: 10px; }
+.td-input { font: inherit; font-size: 0.95rem; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }
 
 /* ---------- Progress bar ---------- */
