@@ -136,20 +136,27 @@ function parseSmsHref(href) {
   return { phone: m[1], body };
 }
 
-export function takePrefill(leadId) {
+// The draft handed to a conversation, with the moment it may be sent
+// (lockUntil, ISO) when it's a plan text still waiting out its hold.
+export function takePrefillDraft(leadId) {
   try {
     const raw = sessionStorage.getItem(PREFILL);
-    if (!raw) return "";
+    if (!raw) return null;
     const p = JSON.parse(raw);
-    if (p.leadId !== leadId) return "";
+    if (p.leadId !== leadId) return null;
     sessionStorage.removeItem(PREFILL);
-    return p.body || "";
-  } catch { return ""; }
+    return { body: p.body || "", lockUntil: p.lockUntil || null };
+  } catch { return null; }
+}
+export function takePrefill(leadId) {
+  const d = takePrefillDraft(leadId);
+  return d ? d.body : "";
 }
 
 // Open a conversation instead of the phone's SMS app. Returns false when
 // texting isn't configured, so callers can fall back to their old behaviour.
-export function openText(phone, body = "") {
+// lockUntil (ISO): the draft goes in the box but Send stays off until then.
+export function openText(phone, body = "", { lockUntil = null } = {}) {
   if (!smsReady()) return false;
   if (store.phoneKey(phone).length < 10) return false;
   let lead = store.leadByPhone(phone);
@@ -165,7 +172,7 @@ export function openText(phone, body = "") {
   }
   if (store.optedOut(lead)) return false; // let the caller explain; we don't send
   try {
-    if (body) sessionStorage.setItem(PREFILL, JSON.stringify({ leadId: lead.id, body }));
+    if (body) sessionStorage.setItem(PREFILL, JSON.stringify({ leadId: lead.id, body, lockUntil }));
   } catch { /* private mode — the thread still opens, just empty */ }
   navigate(`/inbox/${lead.id}`);
   return true;

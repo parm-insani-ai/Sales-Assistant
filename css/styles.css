@@ -1334,6 +1334,9 @@ body.voice-live .ib-mic { animation: ib-mic-live 2s ease-in-out infinite; }
   body.voice-live .ib-mic { animation: none; box-shadow: 0 0 0 2px var(--brand); }
 }
 .ib-blocked { padding: 10px 2px; font-size: 0.82rem; color: var(--muted); }
+/* A drafted text waiting out its hold: the box is there to read, Send isn't. */
+.ib-lock { display: flex; align-items: flex-start; gap: 8px; padding: 8px 2px 0; font-size: 0.8rem; line-height: 1.35; color: var(--muted); }
+.ib-lock svg { flex: none; width: 16px; height: 16px; margin-top: 1px; color: var(--brand); }
 
 /* Unread-reply dot on the Comms tab — visible from anywhere in the app,
    because the window to answer a text is measured in minutes. */
@@ -1498,6 +1501,9 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .nudge-row:active { opacity: .6; }
 .nudge-row .row-meta { color: var(--muted); font-size: 1.1rem; line-height: 1; }
 .nudge-hot .row-title { color: var(--brand-strong); }
+/* Drafted, locked for its minutes: a clock where the chevron would be. */
+.nudge-locked .row-meta { display: inline-flex; color: var(--brand); }
+.nudge-locked .row-meta svg { width: 18px; height: 18px; }
 
 /* ---------- Voice, docked ----------
    When the agent takes you somewhere to finish something — a thread with the

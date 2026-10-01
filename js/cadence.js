@@ -36,11 +36,12 @@ export function addDaysISO(days, from = new Date()) {
 // steps are timed, not just dated, because the first hour is where the
 // evidence is least ambiguous — a lead reached inside five minutes is many
 // times more likely to be contacted at all than one reached after thirty.
-// The welcome text is ready the moment they're added: it's held for the
-// salesperson's OK anyway, so a wait before it even appears only costs the
-// minutes that matter most.
+// The welcome text is drafted the moment they're added and shown at once, so
+// the salesperson knows it's done — but it stays locked for its five minutes
+// (heldTouches), because a text that lands on the customer's heels reads as
+// a machine, not a person.
 export const INTEREST_PLAN = [
-  { day: 0,  after: 0,   channel: "text", intent: "intro",    label: "Welcome text — thanks for coming in, and what you noted" },
+  { day: 0,  after: 5,   channel: "text", intent: "intro",    label: "Welcome text — thanks for coming in, and what you noted" },
   { day: 0,  after: 120, channel: "call", intent: "intro",    label: "Intro call — confirm what they want and when" },
   { day: 1,  channel: "text", intent: "value",    label: "Value text — something specific to what they asked for" },
   { day: 2,  channel: "call", intent: "check",    label: "Check-in call — answer questions, offer a time" },
@@ -140,8 +141,8 @@ export function isReady(task, now = Date.now()) {
 }
 
 // Timed texts whose moment has come in the last day and that nobody has sent
-// — the welcome text the moment a customer was added, above all. This is
-// what the "right now" list and the server's push both ask for.
+// — the welcome text five minutes after a customer was added, above all.
+// This is what the "right now" list and the server's push both ask for.
 const READY_WINDOW_MS = 24 * 3600 * 1000;
 export function readyTouches(now = Date.now()) {
   return store.all("tasks").filter((t) => {
@@ -149,6 +150,26 @@ export function readyTouches(now = Date.now()) {
     const at = new Date(t.readyAt).getTime();
     return at <= now && now - at < READY_WINDOW_MS;
   }).sort((a, b) => String(a.readyAt).localeCompare(String(b.readyAt)));
+}
+
+// Timed texts drafted and waiting out their hold — the welcome text in the
+// five minutes after a customer was added. They're on screen from the start
+// (the salesperson sees the task is done) with sending locked until their
+// minute. Anything further out than the hold is just a scheduled step.
+const HELD_WINDOW_MS = 15 * 60 * 1000;
+export function heldTouches(now = Date.now()) {
+  return store.all("tasks").filter((t) => {
+    if (!t.cadence || t.done || t.channel !== "text" || !t.readyAt) return false;
+    const at = new Date(t.readyAt).getTime();
+    return at > now && at - now <= HELD_WINDOW_MS;
+  }).sort((a, b) => String(a.readyAt).localeCompare(String(b.readyAt)));
+}
+
+// When this text may be sent, as an ISO instant, or null if it may go now.
+export function lockedUntil(task, now = Date.now()) {
+  if (!task || !task.readyAt) return null;
+  const at = new Date(task.readyAt).getTime();
+  return isFinite(at) && at > now ? new Date(at).toISOString() : null;
 }
 
 // Called after a lead is created; starts the plan if auto-cadence is on and

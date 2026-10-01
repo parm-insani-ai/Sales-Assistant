@@ -179,7 +179,7 @@ export function renderSettings(view) {
       <div class="btn-row" style="margin-bottom:8px" id="s-hoursdays">
         ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<button type="button" class="btn btn-sm ${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i) ? "btn-primary" : "btn-ghost"}" data-day="${i}" aria-pressed="${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i)}" style="flex:1;padding-left:0;padding-right:0">${d}</button>`).join("")}
       </div>
-      <div class="hint" style="margin-bottom:10px">Requests for your OK — the welcome text when you add someone, the day's follow-up texts — only arrive inside business hours. Anything that comes due outside them waits for opening.</div>
+      <div class="hint" style="margin-bottom:10px">Requests for your OK — the welcome text once its five-minute hold is up, the day's follow-up texts — only arrive inside business hours. Anything that comes due outside them waits for opening.</div>
       <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:6px">
         <label class="switch"><input id="s-enforce" type="checkbox" ${s.enforceConsent ? "checked" : ""}><span>Hold texts back when there's no consent on file</span></label>
       </div>

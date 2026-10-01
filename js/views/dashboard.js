@@ -104,13 +104,15 @@ export function renderDashboard(view) {
     nudgeSlot.innerHTML = `<div class="section-title">Right now <span class="muted">\u00b7 ${list.length}</span></div>`;
     const box = document.createElement("div");
     box.className = "card nudge-card";
+    let nextUnlock = 0;
     list.forEach((n) => {
       const row = document.createElement("div");
-      row.className = `row nudge-row${n.urgency >= 85 ? " nudge-hot" : ""}`;
+      row.className = `row nudge-row${n.urgency >= 85 ? " nudge-hot" : ""}${n.locked ? " nudge-locked" : ""}`;
       row.innerHTML = `<div class="row-main" style="min-width:0">
           <div class="row-title">${esc(n.title)}</div>
           <div class="row-sub">${esc(n.sub)}</div>
-        </div><div class="row-meta">\u203a</div>`;
+        </div><div class="row-meta">${n.locked ? icon("clock") : "\u203a"}</div>`;
+      if (n.locked && n.unlockAt) { const t = new Date(n.unlockAt).getTime(); if (t > Date.now() && (!nextUnlock || t < nextUnlock)) nextUnlock = t; }
       row.addEventListener("click", async () => {
         if (n.taskId && !n.route) {
           row.style.opacity = "0.6";
@@ -123,6 +125,8 @@ export function renderDashboard(view) {
       box.appendChild(row);
     });
     nudgeSlot.appendChild(box);
+    // A locked text flips to "ready" at its minute, not at the next tick.
+    if (nextUnlock) setTimeout(() => { if (document.body.contains(nudgeSlot)) paintNudges(); }, nextUnlock - Date.now() + 500);
   }
   paintNudges();
   // Time passes while the screen is open: an appointment slides into its

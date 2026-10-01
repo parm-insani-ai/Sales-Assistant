@@ -15,7 +15,7 @@ import { agentConfigured } from "./agentcfg.js";
 import { briefFor, redactMoney } from "./context.js";
 import { conversationFor } from "./convo.js";
 import { looksLikeMoney } from "./replies.js";
-import { isInbound } from "./cadence.js";
+import { isInbound, lockedUntil } from "./cadence.js";
 import { candidateFor } from "./prospects.js";
 import { openText } from "./sms.js";
 import { navigate } from "./router.js";
@@ -171,7 +171,17 @@ export async function reviewTouch(taskId) {
   if (!mayText(lead)) return false;
   const { body } = await draftTouch(lead, task);
   setPending({ leadId: lead.id, kind: "plan", intent: task.intent || "", reasons: [], score: null, tier: "" });
-  if (!openText(lead.phone, body)) window.location.href = smsHref(lead.phone, body);
+  // Still inside its hold (the welcome text's five minutes): the draft goes
+  // on screen to read, with Send locked until its minute. The phone's
+  // Messages app can't hold a text back, so without a texting number the
+  // draft waits here until then.
+  const lockUntil = lockedUntil(task);
+  if (openText(lead.phone, body, { lockUntil })) return true;
+  if (lockUntil) {
+    toast(`${String(lead.name || "Their").split(" ")[0]}'s text is drafted — it unlocks at ${new Date(lockUntil).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.`, "");
+    return false;
+  }
+  window.location.href = smsHref(lead.phone, body);
   return true;
 }
 

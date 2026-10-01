@@ -223,11 +223,12 @@ console.log("  " + JSON.stringify(offline));
 if (offline.action !== "lead" || offline.name !== "Dana Lee") fail("the offline parser didn't get the customer");
 if (!/wants red/.test(offline.notes || "")) fail("the offline parser dropped what was said");
 
-// --- 10. The moment a customer is added, their welcome text is ready: on
-// the "right now" list (painted at once, with Home open underneath the
-// voice sheet), on the queue, and at the address a push opens. The intro
-// call is still two hours out.
-console.log("\nthe welcome text, right away:");
+// --- 10. The moment a customer is added, their welcome text is drafted and
+// on the "right now" list (painted at once, with Home open underneath the
+// voice sheet) and on the queue — locked for five minutes, so the
+// salesperson sees it's done but can't send it on the customer's heels.
+// At its minute it turns into "ready". The intro call is still two hours out.
+console.log("\nthe welcome text, drafted at once and locked five minutes:");
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
 const five = await p.evaluate(async () => {
   const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js");
@@ -238,35 +239,54 @@ const five = await p.evaluate(async () => {
   const steps = store.all("tasks").filter((t) => t.leadId === lead.id && t.cadence).sort((a, b) => a.step - b.step);
   const created = Date.now();
   const readyIn = (t) => Math.round((new Date(t.readyAt).getTime() - created) / 60000);
+  const at = (mins) => created + mins * 60000;
   const mine = (list) => list.filter((n) => /Nadia/.test(n.title));
+  const pick = (n) => ({ title: n.title, taskId: !!n.taskId, urgency: n.urgency, locked: !!n.locked, sub: n.sub });
   await new Promise((r) => setTimeout(r, 300));
   const home = document.querySelector(".nudge-slot")?.textContent.replace(/\s+/g, " ") || "";
+  const queue = plays.getPlays(40).filter((p) => /Nadia/.test(p.title));
   return {
     text: { readyIn: readyIn(steps[0]), label: steps[0].title }, call: { readyIn: readyIn(steps[1]) },
-    nudgeNow: mine(nudges.getNudges({ now: created })).map((n) => ({ title: n.title, taskId: !!n.taskId, urgency: n.urgency })),
-    queueNow: plays.getPlays(40).filter((p) => /Nadia/.test(p.title) && /text/i.test(p.title)).length,
-    callOnQueue: plays.getPlays(40).filter((p) => /Nadia/.test(p.title) && /call/i.test(p.title)).length,
-    homeBefore: /Nadia/.test(before), home,
+    nudgeNow: mine(nudges.getNudges({ now: created })).map(pick),
+    nudgeAt6: mine(nudges.getNudges({ now: at(6) })).map(pick),
+    queueText: queue.filter((p) => /text/i.test(p.title)).map((p) => ({ taskId: !!p.taskId, sub: p.sub })),
+    callOnQueue: queue.filter((p) => /call/i.test(p.title)).length,
+    homeBefore: /Nadia/.test(before), home, lockedRow: !!document.querySelector(".nudge-row.nudge-locked"),
     taskId: steps[0].id, leadId: lead.id,
   };
 });
 console.log("  " + JSON.stringify({ ...five, home: five.home.slice(0, 80) }));
-if (five.text.readyIn > 0) fail(`the welcome text waits ${five.text.readyIn} minutes instead of being ready now`);
+if (five.text.readyIn < 4 || five.text.readyIn > 5) fail(`the welcome text unlocks in ${five.text.readyIn} minutes, not 5`);
 if (!/coming in/.test(five.text.label)) fail("the welcome text isn't framed as thanks for coming in");
 if (five.call.readyIn < 100) fail(`the intro call comes ${five.call.readyIn} minutes in — it should still wait its two hours`);
-if (!five.nudgeNow.length) fail("no 'welcome text is ready' the moment they're added");
-if (five.nudgeNow.length && (!five.nudgeNow[0].taskId || five.nudgeNow[0].urgency < 85)) fail("the ready text isn't a tappable, urgent nudge");
-if (!five.queueNow) fail("the welcome text isn't on the day's queue right away");
+if (!five.nudgeNow.length) fail("no 'welcome text is drafted' the moment they're added");
+if (five.nudgeNow.length && (!five.nudgeNow[0].locked || !/drafted/.test(five.nudgeNow[0].title) || !/Locked/.test(five.nudgeNow[0].sub) || !five.nudgeNow[0].taskId)) fail("the fresh welcome text isn't shown as drafted and locked: " + JSON.stringify(five.nudgeNow[0]));
+if (!five.nudgeAt6.length || five.nudgeAt6[0].locked || !/ready/.test(five.nudgeAt6[0].title) || five.nudgeAt6[0].urgency < 85) fail("after five minutes the welcome text isn't an unlocked, urgent 'ready': " + JSON.stringify(five.nudgeAt6[0]));
+if (five.queueText.length !== 1 || !five.queueText[0].taskId || !/locked until/i.test(five.queueText[0].sub)) fail("the welcome text isn't on the day's queue at once, marked locked: " + JSON.stringify(five.queueText));
 if (five.callOnQueue) fail("the intro call is on the day's queue before its minute");
-if (five.homeBefore || !/Nadia's welcome text is ready/.test(five.home)) fail("Home's Right now didn't show the welcome text without a reload: " + five.home.slice(0, 120));
+if (five.homeBefore || !/Nadia's welcome text is drafted/.test(five.home) || !five.lockedRow) fail("Home's Right now didn't show the drafted, locked welcome text without a reload: " + five.home.slice(0, 120));
 
 // The push notification's address: /review/<task> drafts it and opens it.
+// Inside the hold, the draft is in the box to read and Send stays off; once
+// the minute is up, it's an ordinary draft — one tap to send.
 await p.evaluate((id) => { location.hash = "#/review/" + id; }, five.taskId);
 await p.waitForTimeout(700);
-const viaPush = await p.evaluate(() => ({ hash: location.hash, compose: document.querySelector(".ib-compose textarea")?.value || "" }));
-console.log("  via the push address:", JSON.stringify({ hash: viaPush.hash, compose: viaPush.compose.slice(0, 50) + "…" }));
+const viaPush = await p.evaluate(() => ({ hash: location.hash, compose: document.querySelector(".ib-compose textarea")?.value || "",
+  sendOff: !!document.querySelector('.ib-compose [data-act="send"]')?.disabled, lock: document.querySelector(".ib-lock")?.textContent.replace(/\s+/g, " ").trim() || "" }));
+console.log("  via the push address:", JSON.stringify({ hash: viaPush.hash, compose: viaPush.compose.slice(0, 50) + "…", sendOff: viaPush.sendOff, lock: viaPush.lock.slice(0, 60) }));
 if (!/^#\/inbox\//.test(viaPush.hash)) fail("the push address didn't open the conversation");
 if (!viaPush.compose) fail("the push address didn't put a draft in the box");
+if (!viaPush.sendOff || !/Locked until/.test(viaPush.lock)) fail("inside its five minutes the welcome text can be sent: " + JSON.stringify({ sendOff: viaPush.sendOff, lock: viaPush.lock }));
+await p.evaluate(async (id) => {
+  const store = await import("/js/store.js");
+  store.update("tasks", id, { readyAt: new Date(Date.now() - 60000).toISOString() });
+  location.hash = "#/"; await new Promise((r) => setTimeout(r, 200));
+  location.hash = "#/review/" + id;
+}, five.taskId);
+await p.waitForTimeout(700);
+const unlocked = await p.evaluate(() => ({ compose: document.querySelector(".ib-compose textarea")?.value || "",
+  sendOff: !!document.querySelector('.ib-compose [data-act="send"]')?.disabled, lock: !!document.querySelector(".ib-lock") }));
+if (!unlocked.compose || unlocked.sendOff || unlocked.lock) fail("once its minute is up the welcome text should be one tap to send: " + JSON.stringify(unlocked));
 
 // --- 11. An internet enquiry is a race: call, text, call inside the hour.
 const inbound = await p.evaluate(async () => {

@@ -11,7 +11,7 @@ import { navigate } from "../router.js";
 import { toast, openModal } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, telHref } from "../utils.js";
-import { sendText, retryText, smsBlocker, takePrefill, timelineFor, linkIsHot } from "../sms.js";
+import { sendText, retryText, smsBlocker, takePrefillDraft, timelineFor, linkIsHot } from "../sms.js";
 import { bookingLinkForLead } from "../bookinglink.js";
 import { draftReply, draftingAvailable } from "../replies.js";
 import { startVoiceAssistant } from "../voice.js";
@@ -261,23 +261,46 @@ function renderThread(view, leadId) {
     const sendBtn = compose.querySelector('[data-act="send"]');
     // Grow with the message, up to the cap in CSS.
     const grow = () => { box.style.height = "auto"; box.style.height = Math.min(box.scrollHeight, 120) + "px"; };
-    const sync = () => { sendBtn.disabled = !box.value.trim(); grow(); };
+    // A plan text still inside its hold (the welcome text's five minutes)
+    // sits in the box to read, with Send off until its minute.
+    let lockUntil = 0;
+    const locked = () => lockUntil > Date.now();
+    const sync = () => { sendBtn.disabled = !box.value.trim() || locked(); grow(); };
     box.addEventListener("input", sync);
     pinOnFocus(box);
 
     // Arrived here from a "Text" button elsewhere in the app: it carries the
     // message it would have handed to iMessage. Read it, don't send it — the
     // last look before a customer gets something stays with the person.
-    const prefill = takePrefill(leadId);
-    if (prefill) {
-      box.value = prefill;
+    const prefill = takePrefillDraft(leadId);
+    if (prefill && prefill.body) {
+      box.value = prefill.body;
       requestAnimationFrame(() => { box.focus(); box.setSelectionRange(box.value.length, box.value.length); });
+    }
+    if (prefill && prefill.lockUntil && new Date(prefill.lockUntil).getTime() > Date.now()) {
+      lockUntil = new Date(prefill.lockUntil).getTime();
+      const note = document.createElement("div");
+      note.className = "ib-lock";
+      compose.insertAdjacentElement("beforebegin", note);
+      const at = new Date(lockUntil).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const paintLock = () => {
+        if (!document.body.contains(note)) return;
+        if (!locked()) {
+          note.remove(); sync();
+          toast(`${String(lead.name || "Their").split(" ")[0]}'s text is unlocked — send it when you're ready.`, "success");
+          return;
+        }
+        const left = Math.max(1, Math.ceil((lockUntil - Date.now()) / 60000));
+        note.innerHTML = `${icon("clock")} <span>Locked until <b>${at}</b> (${left} min) — drafted the moment you added them and held so it doesn't land on their heels. Read it now, send it then.</span>`;
+        setTimeout(paintLock, 15000);
+      };
+      paintLock();
     }
     sync();
 
     const send = async () => {
       const body = box.value.trim();
-      if (!body) return;
+      if (!body || locked()) return;
       sendBtn.disabled = true;
       box.value = "";
       sync();

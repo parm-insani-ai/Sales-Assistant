@@ -19,7 +19,7 @@
 
 import * as store from "./store.js";
 import { telHref } from "./utils.js";
-import { readyTouches } from "./cadence.js";
+import { readyTouches, heldTouches } from "./cadence.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -80,9 +80,9 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   const leadById = (id) => leads.find((l) => l.id === id) || null;
 
   // --- 0. A welcome text whose moment has come.
-  // The moment a customer is added, their first text is drafted and waiting.
-  // It passes all three tests: the value of a welcome text decays by the
-  // hour, the action is one tap, and it vanishes once it's sent.
+  // Five minutes after a customer is added, their first text is drafted and
+  // waiting. It passes all three tests: the value of a welcome text decays by
+  // the hour, the action is one tap, and it vanishes once it's sent.
   readyTouches(now).forEach((t) => {
     const lead = leadById(t.leadId);
     if (!lead) return;
@@ -98,6 +98,29 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       taskId: t.id,
       title: `${firstName(lead.name)}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is ready`,
       sub: lead.phone ? "Drafted from what you told me — read it, then send." : "No phone number on file yet — add one to send it.",
+      route: lead.phone ? null : `/leads/${lead.id}`,
+      at: t.readyAt,
+    });
+  });
+  // And the same text in the minutes before: on the list from the moment
+  // the customer is added, so the salesperson sees it's done, with sending
+  // locked until its minute so it doesn't land on the customer's heels.
+  heldTouches(now).forEach((t) => {
+    const lead = leadById(t.leadId);
+    if (!lead) return;
+    const left = Math.max(1, Math.ceil((new Date(t.readyAt).getTime() - now) / MIN));
+    const when = new Date(t.readyAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    out.push({
+      key: `touch:${t.id}`,
+      urgency: 92,
+      kind: "touch",
+      taskId: t.id,
+      locked: true,
+      unlockAt: t.readyAt,
+      title: `${firstName(lead.name)}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is drafted`,
+      sub: lead.phone
+        ? `Locked ${left} more min (sends from ${when}) so it doesn't land on their heels — read it now, send it then.`
+        : `Locked ${left} more min — and it needs their phone number to send.`,
       route: lead.phone ? null : `/leads/${lead.id}`,
       at: t.readyAt,
     });

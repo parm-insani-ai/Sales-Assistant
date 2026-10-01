@@ -8,6 +8,7 @@ import * as store from "./store.js";
 import { smsHref, telHref, daysFromToday } from "./utils.js";
 import { getOccasions, markOccasion } from "./occasions.js";
 import { getProspects, snoozeProspect } from "./prospects.js";
+import { heldTouches } from "./cadence.js";
 
 const HOT_MS = 24 * 3600 * 1000;
 const first = (name) => String(name || "").trim().split(/\s+/)[0];
@@ -140,11 +141,14 @@ export function getPlays(limit = 6) {
 
   // 4. Follow-ups due today (with a ready one-tap when the task carries a body).
   const nowISO = new Date(now).toISOString();
+  const held = new Set(heldTouches(now).map((t) => t.id));
   store.all("tasks")
     .filter((t) => !t.done && t.leadId && t.channel && t.channel !== "reminder" && t.due && t.due <= todayK)
     // A timed step (the intro call, two hours after adding someone) isn't
-    // on the queue until its minute.
-    .filter((t) => !t.readyAt || t.readyAt <= nowISO)
+    // on the queue until its minute — except a text waiting out its hold
+    // (the welcome text's five minutes), which is on the queue from the
+    // start, locked.
+    .filter((t) => !t.readyAt || t.readyAt <= nowISO || held.has(t.id))
     .sort((a, b) => (a.due || "").localeCompare(b.due || ""))
     .slice(0, 25)
     .forEach((t) => {
@@ -155,11 +159,12 @@ export function getPlays(limit = 6) {
       // salesperson reads a message written from today's context and taps
       // send. taskId is how the dashboard knows to do that.
       const drafted = t.cadence && t.channel === "text" && !!t.intent && !!phone;
+      const lockedTill = held.has(t.id) ? new Date(t.readyAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
       plays.push({
         key: `fu:${t.id}`, taskId: drafted ? t.id : null, leadId: t.leadId,
         rank: 70, icon: t.channel === "call" ? "phone" : "message", kind: "followup",
         title: t.title,
-        sub: daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
+        sub: lockedTill ? `Drafted — locked until ${lockedTill} so it doesn't land on their heels. Read it now, send it then.` : daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
         href: !phone ? null : t.channel === "call" ? telHref(phone) : smsHref(phone, t.body || ""),
         route: phone ? null : "/comms",
       });
