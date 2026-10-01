@@ -45,7 +45,7 @@ import { adaptToReplies } from "./cadence.js";
 import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import { handleGmailRedirect, pullGmailIfStale } from "./gmail.js";
-import { loadMailbox } from "./mailbox.js";
+import { loadMailbox, startMailboxWatch } from "./mailbox.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 import { managementMode, myStore as readStore, myTarget } from "./team.js";
@@ -382,11 +382,20 @@ handleGmailRedirect()
   .then(() => {
     // A rep's inbox files into their own book; the manager's (management
     // mode) files into the reps' books, from the manager's Home.
-    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); loadMailbox(); } // the inbox is part of what the assistant knows
+    if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); loadMailbox().then(() => startMailboxWatch()); } // the inbox is part of what the assistant knows, and keeps itself current
   });
 window.addEventListener("viniva-mail", (e) => {
   const n = e.detail && e.detail.linked;
   if (n) toast(`${n} customer email${n === 1 ? "" : "s"} filed from ${(e.detail && e.detail.from) || "Outlook"}`, "success");
+});
+// New mail in the inbox: say so wherever you are, and file a customer's
+// reply into their history right away rather than at the next pull.
+window.addEventListener("viniva-mailbox", (e) => {
+  const fresh = (e.detail && e.detail.fresh) || [];
+  if (!fresh.length) return;
+  const who = fresh[0].from && (fresh[0].from.name || fresh[0].from.addr);
+  toast(fresh.length === 1 ? `New email from ${who || "someone"}` : `${fresh.length} new emails — latest from ${who || "someone"}`);
+  if (e.detail.customers) { pullGmailIfStale(0); pullMailIfStale(0); }
 });
 
 // Automated cadence emails + appointment reminder emails (optional): send

@@ -270,9 +270,13 @@ export function renderComms(view) {
       try { await refreshMailbox(); } catch (e) { toast(`Mail: ${e.message || "check failed"}`, "danger"); }
       if (box.isConnected) paint();
     };
-    loadMailbox().then(() => { if (!box.isConnected) return; paint(); if (mailboxStale()) refresh(); });
+    loadMailbox().then(() => { if (!box.isConnected) return; paint(); if (mailboxStale(1)) refresh(); });
     box.querySelector('[data-act="mail-refresh"]').addEventListener("click", refresh);
     onPull(refresh);
+    // The inbox checks itself (mailbox.js startMailboxWatch); every check
+    // repaints this list while it's on screen.
+    const onMailbox = () => { if (!box.isConnected) return window.removeEventListener("viniva-mailbox", onMailbox); paint(); };
+    window.addEventListener("viniva-mailbox", onMailbox);
   }
 
   function mailRow(m) {

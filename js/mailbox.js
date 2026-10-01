@@ -304,14 +304,39 @@ export function refreshMailbox() {
     const byId = new Map(state.provider === provider ? state.messages.map((m) => [m.id, m]) : []);
     fresh.forEach((m) => byId.set(m.id, { ...m, unread: m.unread && !read.has(m.id) }));
     const messages = [...byId.values()].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, KEEP);
+    // What's new since the last look — not on the first look, which is
+    // everything.
+    const known = new Set(state.provider === provider && state.at ? state.messages.map((m) => m.id) : []);
+    const arrived = state.at && state.provider === provider ? messages.filter((m) => !known.has(m.id)) : [];
     state = { provider, account: mailboxAccount(), at: new Date().toISOString(), messages };
     remember();
+    try { window.dispatchEvent(new CustomEvent("viniva-mailbox", { detail: { fresh: arrived, customers: arrived.filter((m) => m.from && customerFor(m.from.addr, m.from.name)).length } })); } catch { /* no window */ }
     return state;
   })().finally(() => { refreshing = null; });
   return refreshing;
 }
 export function mailboxStale(maxAgeMin = 5) {
   return !state.at || (Date.now() - new Date(state.at).getTime()) > maxAgeMin * 60000;
+}
+
+// The inbox keeps itself current, so there's nothing to tap: a check every
+// so often while the app is in front (Settings → mailPollSec, a minute by
+// default), and one on coming back to the app or back online when the
+// last look is more than a minute old. Each check tells the app what's
+// new (the "viniva-mailbox" event) — the Email tab repaints, Home says so.
+let watching = false;
+export function startMailboxWatch() {
+  if (watching) return;
+  watching = true;
+  const everyMs = () => Math.max(5, Number(store.getSettings().mailPollSec) || 60) * 1000;
+  const quiet = () => { if (!document.hidden && navigator.onLine !== false && mailboxProvider()) refreshMailbox().catch(() => {}); };
+  const soonIfStale = () => { if (mailboxProvider() && mailboxStale(1)) quiet(); };
+  let timer = setInterval(quiet, everyMs());
+  // The interval is read once; a changed setting takes on the next open.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) soonIfStale(); });
+  window.addEventListener("focus", soonIfStale);
+  window.addEventListener("online", soonIfStale);
+  return () => { clearInterval(timer); timer = null; watching = false; };
 }
 
 // A message in full — its text, its HTML (kept when it's not enormous) and
