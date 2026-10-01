@@ -2152,21 +2152,55 @@ Deno.serve(async (req: Request) => {
   if (!apiKey) return json({ error: "Server missing ANTHROPIC_API_KEY" }, 500);
   if (!Array.isArray(body.messages) || !body.messages.length) return json({ error: "No messages" }, 400);
 
+  // The brain. Sonnet 5.5 by default (MODEL overrides): with forty-odd tools
+  // and a long brief, the model is the stage most likely to pick the wrong
+  // tool or drop a detail, and the smaller one did. What makes it affordable
+  // is the cache: the tool list and the app's standing instructions are the
+  // same bytes on every call, so they're marked as a cached prefix and only
+  // the live part (today's date, the names on file, what's come in) and the
+  // conversation are paid for in full each turn. The app sends `system` as
+  // blocks — the stable brief first, with its own cache mark, then the live
+  // one — or as a plain string, which goes through as is.
+  const model = Deno.env.get("MODEL") || "claude-sonnet-5-5";
+  const current = /^claude-(sonnet-5|opus-5|fable)/.test(model);
+  const system = typeof body.system === "string" ? [{ type: "text", text: body.system }]
+    : Array.isArray(body.system) ? body.system : undefined;
+  const tools = Array.isArray(body.tools) && body.tools.length
+    ? body.tools.map((t: any, i: number, a: any[]) => (i === a.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t))
+    : undefined;
+  const headers: Record<string, string> = { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" };
+  const extra: Record<string, unknown> = {};
+  if (current) {
+    // Thinking stays on (adaptive, the default); effort is how hard it
+    // thinks. Medium is the setting for multi-step tool use — low gets terse
+    // and skips steps, high is slower than a voice reply can afford.
+    extra.output_config = { effort: Deno.env.get("EFFORT") || "medium" };
+    // A safety classifier can decline a perfectly ordinary request; a
+    // server-side fallback answers it on another model instead of leaving
+    // the salesperson with nothing.
+    extra.fallbacks = "default";
+    headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
+  }
+
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
-        model: Deno.env.get("MODEL") || "claude-haiku-4-5-20251001",
+        model,
         max_tokens: Math.min(Number(body.max_tokens) || 1024, 2048),
-        system: typeof body.system === "string" ? body.system : undefined,
-        tools: Array.isArray(body.tools) ? body.tools : undefined,
+        system,
+        tools,
         messages: body.messages,
+        ...extra,
       }),
     });
     const data = await r.json();
     if (!r.ok) return json({ error: data?.error?.message || `Claude error ${r.status}` }, 502);
-    return json({ content: data.content || [], stop_reason: data.stop_reason || "end_turn" });
+    // Declined by a classifier with no fallback taken: say so in words
+    // rather than hand the app an empty answer to read out.
+    if (data.stop_reason === "refusal") return json({ content: [{ type: "text", text: "I can't help with that one." }], stop_reason: "end_turn", usage: data.usage });
+    return json({ content: data.content || [], stop_reason: data.stop_reason || "end_turn", usage: data.usage });
   } catch (err) {
     return json({ error: `Agent failed: ${err}` }, 502);
   }

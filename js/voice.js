@@ -507,6 +507,17 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         turn.appendChild(box);
         scrollThread();
       },
+      // One chip under a reply that changed something: tap to put it back.
+      undo(label, onTap) {
+        const box = document.createElement("div");
+        box.className = "vt-choices vt-undo";
+        const btn = document.createElement("button");
+        btn.type = "button"; btn.className = "vt-choice"; btn.textContent = `Undo — ${label}`;
+        btn.addEventListener("click", () => { if (box.classList.contains("answered")) return; btn.classList.add("picked"); box.classList.add("answered"); btn.disabled = true; onTap(); });
+        box.appendChild(btn);
+        turn.appendChild(box);
+        scrollThread();
+      },
     };
     return api;
   }
@@ -751,6 +762,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
 
     let reply = "";
     let choices = [];
+    let undoLabel = null;
     let ok = true;
     let agent = null;
     try { agent = await agentSession(); } catch (e) { toast(`Voice agent: ${e && e.message ? e.message : "couldn't load"}`, "danger"); }
@@ -775,6 +787,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         });
         reply = res.say || "Done";
         choices = Array.isArray(res.options) ? res.options : [];
+        undoLabel = res.undo || null;
       } catch (e) {
         ok = false;
         reply = e && e.message ? e.message : "I couldn't reach the assistant";
@@ -787,6 +800,15 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
 
     turn.reply(reply, { error: !ok });
     if (choices.length) turn.choices(choices, (label) => { stopSpeaking(); run(label); });
+    // A change was made: one tap puts it back. The assistant acts on its best
+    // reading rather than checking first, and this is what makes that safe.
+    if (undoLabel && agent && agent.undo) turn.undo(undoLabel, () => {
+      stopSpeaking();
+      const was = agent.undo();
+      const line = was ? `Undone — ${was}.` : "Nothing left to undo.";
+      startTurn().reply(line); setStatus(line);
+      if (!muted()) speakAsync(line);
+    });
     setStatus(docked && reply.length > 60 ? reply.slice(0, 58).trimEnd() + "\u2026" : reply);
     wave.set("speaking");
     busy = false;
@@ -797,13 +819,40 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     if (!closed) { if (ok) listen(); else fallbackToTyping("Tap the mic to try again, or type below."); }
   };
 
-  overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(textInput.value); });
+  // Typed while something spoken is still waiting out its pause: the two are
+  // one thought, said two ways.
+  overlay.querySelector("#v-form").addEventListener("submit", (e) => { e.preventDefault(); run(takeHeld(textInput.value)); });
 
   function fallbackToTyping(msg) {
     stopHearing();
     wave.set("idle");
     setStatus(msg);
     textInput.focus();
+  }
+
+  // --- The pause ---
+  //
+  // The engine is one-shot: it stops at the first silence and hands over
+  // what it has. People don't speak in one breath — "Add Dana Muise… she's
+  // after a Rogue, loves the moonroof" has a pause in it, and the panel used
+  // to send the first half as a command and the second as another. So what
+  // the engine hands over is HELD, the mic goes straight back on, and only a
+  // real silence sends it: if more words start inside the grace, the held
+  // text and the new words become one sentence. The grace is short enough
+  // that an actual end of sentence still feels instant.
+  const GRACE_MS = 1100;
+  let held = "";          // words heard so far in this sentence, across engine stops
+  let graceTimer = 0;
+  function takeHeld(more = "") {
+    clearTimeout(graceTimer); graceTimer = 0;
+    const all = [held, String(more || "").trim()].filter(Boolean).join(" ");
+    held = "";
+    return all;
+  }
+  function sendHeld() {
+    const said = takeHeld();
+    stopHearing();
+    if (said) run(said);
   }
 
   // One turn of listening. A fresh recogniser each time: these are one-shot on
@@ -829,6 +878,9 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     setStatus("Listening\u2026");
 
     rec.onresult = (ev) => {
+      // Words again inside the grace: the sentence goes on, so the held part
+      // isn't sent yet.
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = 0; }
       let interim = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -840,7 +892,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         heard += pickBest(alts, vocab);
       }
       wave.bump(0.9);
-      showLive(heard + interim); // word by word, as it's heard
+      showLive([held, heard + interim].filter(Boolean).join(" ")); // word by word, as it's heard
     };
     rec.onerror = (ev) => {
       hearing = false;
@@ -869,8 +921,17 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
       if (said) {
         quiet = 0;
         faults = 0;
-        return run(said);
+        // Hold it, listen on, and send at the next real silence.
+        held = [held, said].filter(Boolean).join(" ");
+        showLive(held);
+        clearTimeout(graceTimer);
+        graceTimer = setTimeout(sendHeld, GRACE_MS);
+        listen();
+        return;
       }
+      // The engine stopped on silence while a sentence was held: that's the
+      // end of it.
+      if (held) return sendHeld();
       showLive("");
       // Heard nothing. Keep the conversation open for a couple of rounds, then
       // stop rather than holding the mic open forever.
@@ -885,6 +946,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   overlay.querySelector("#v-wave").addEventListener("click", () => {
     if (docked) { undock(); return; }
     stopSpeaking();
+    // Mid-sentence, a tap means "that's it": send what's held.
+    if (held) return sendHeld();
     if (hearing) { stopHearing(); wave.set("idle"); setStatus("Paused \u2014 tap to talk."); }
     else { quiet = 0; faults = 0; listen(); }
   });

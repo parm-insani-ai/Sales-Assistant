@@ -28,7 +28,7 @@ Live at **[entoa.ai](https://entoa.ai)**.
 | **📅 Appointments, preset** | Home's second tile counts the appointments ahead and opens the list — every appointment by day, confirmed or not, with where its presets stand. Booking one presets the lot: a confirmation text to the customer, timed by the appointment — the afternoon before (4pm) for a morning appointment, the morning of (9am) for an afternoon one, right away if booked too late for that — held on Log for your OK; and reminders to you the morning of (8:30) and an hour before. Confirming clears the confirmation text; an outcome clears everything; moving the appointment resets it all. The wording is a template in settings (`apptConfirmText`; the hours are `apptConfirmAm`, `apptConfirmPm`, `apptMorning`) with `{first}` `{me}` `{dealership}` `{type}` `{day}` `{time}` `{vehicle}`. |
 | **📧 Email, the mail app's way** | Comms → Email is your Gmail or Outlook inbox, and it keeps itself current: a check every minute while the app is in front (`mailPollSec` in settings), one on coming back to the app, a pull down to check now, new mail announced wherever you are and a customer's reply filed into their history at once. New mail is a notification on the phone too — from the app while it's open, and from the function's sweep while it's shut (it watches a connected Gmail with the refresh token the app publishes; needs notifications turned on in Settings and the function's latest code). An email opens as a full page: pictures in place, attachments underneath (photos as thumbnails that open full size, files that open or save), quoted history folded. Reply or compose with a Cc line, files and photos from the phone, and a ✨ button that has the assistant write the email from the customer's profile and the whole conversation — with the no-figures rule — for you to edit and send. |
 | **💬 The conversation, as context** | Every text, email and call with a customer — both directions, plus what's in the connected Gmail/Outlook inbox — is one record the assistant refers to. It carries who has written in lately (and who's waiting on a reply) into every turn, answers *"what did Dana say?"*, *"read me Ken's email"*, *"who's waiting on me?"*, *"what came in today?"* from the actual messages, and every drafted text or reply continues from the whole exchange rather than the texts alone. |
-| **🎙️ Voice, as a conversation** | The Voice tab is the app's main way of working. Talk and your words appear on the thread as you say them; the assistant shows each step it takes ("Looking up Ann Lee", "Booking Ann Lee"), ticked as it goes; the answer lands in writing — spoken too, unless you mute it — or the action just gets done and the app opens the screen. Type instead whenever you like; it's the same thread. |
+| **🎙️ Voice, as a conversation** | The Voice tab is the app's main way of working. Talk and your words appear on the thread as you say them; the assistant shows each step it takes ("Looking up Ann Lee", "Booking Ann Lee"), ticked as it goes; the answer lands in writing — spoken too, unless you mute it — or the action just gets done and the app opens the screen. Type instead whenever you like; it's the same thread. A pause mid-sentence doesn't cut you off: the panel holds what it heard and sends it at the next real silence. Everything the assistant changes can be put back — an **Undo** chip sits under each change, and "undo that" does the same — so it acts on what you said rather than checking first. |
 | **🎙️ Voice control** | Tap the mic and talk: *"new lead John Smith interested in a Rogue," "add task call the bank tomorrow," "schedule a test drive with Priya at 3pm," "log a sale for Sarah, commission 700," "find a used Pathfinder on the network," "go to inventory."* It creates the record and speaks a confirmation. Commands are parsed on-device (no server). Where a browser's speech recognition is unavailable (some iOS versions), the same box accepts typed input — or use your keyboard's dictation mic. |
 
 ## Run it
@@ -95,6 +95,21 @@ already sitting in a customer's text thread.
 After deploying, keep **Verify JWT off** for this function — the app, the
 public booking page, and Twilio's webhook all call it without a Supabase token.
 Inbound texts are authenticated by Twilio's request signature instead.
+
+**The assistant's model.** The function calls Claude Sonnet 5.5 unless a
+`MODEL` secret names another model; `EFFORT` (default `medium`) sets how hard
+it thinks. The tool list and the standing part of the brief are sent as a
+cached prefix, so each turn pays in full only for the live part (the date,
+the names on file, what's come in) and the conversation itself. The brief
+lives in the app (`js/agent.js`) and ships with the normal update; the model
+and effort live in the function's secrets.
+
+**Measuring it.** `test/utterances.test.js` runs a set of real sentences a
+salesperson says ("Ken's coming in Thursday at 4", "sold one to Moe, made
+800", "undo that") against the live model and reports which tool each one
+picked. It needs `ANTHROPIC_API_KEY` in the environment of the stub server
+(`ANTHROPIC_API_KEY=… node test/server.js`); without it the eval says so and
+skips. Run it before and after changing the brief.
 
 ## Finding a car on the dealer network (search launcher)
 

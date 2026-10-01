@@ -118,7 +118,10 @@ if (!st.starts) fail("the panel opened without starting to listen — the mic bu
 
 // --- First turn: it acts, answers out loud, and goes straight back to listening.
 await p.evaluate(() => window.__say("what's the story with Ann Lee"));
-await p.waitForTimeout(900);
+// A sentence is held for a short grace after the engine stops (a breath
+// mid-sentence mustn't cut it in two), then sent — so the answer takes a
+// moment longer than the engine's stop.
+await p.waitForTimeout(2300);
 st = await p.evaluate(() => ({
   starts: window.__mic.starts, spoke: window.__mic.spoke,
   open: !!document.querySelector(".voice-overlay"),
@@ -132,7 +135,7 @@ if (st.starts < 2) fail("it didn't start listening again after answering");
 // --- Second turn, no tapping: the follow-up goes to the same session, so the
 // agent still has the first exchange in context.
 await p.evaluate(() => window.__say("book her Thursday at five"));
-await p.waitForTimeout(900);
+await p.waitForTimeout(2300);
 const convo = await p.evaluate(() => ({
   spoke: window.__mic.spoke, starts: window.__mic.starts,
   open: !!document.querySelector(".voice-overlay"),
@@ -281,7 +284,7 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
 
   // Talking to it docked still works.
   await p.evaluate(() => window.__say("what's the story with Ann Lee"));
-  await p.waitForTimeout(900);
+  await p.waitForTimeout(2300);
   const spoke = await p.evaluate(() => window.__mic.spoke.length);
   console.log("  spoken replies after docking:", spoke);
   if (spoke < 3) fail("a command given to the docked bar didn't run");

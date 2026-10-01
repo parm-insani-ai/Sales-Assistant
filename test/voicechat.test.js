@@ -43,15 +43,24 @@ await p.addInitScript(() => {
 });
 
 // The agent: first a look-up (with a word of thinking aloud), then the answer.
-// "delete Tony" gets a yes/no question with tappable answers first.
+// "delete Tony" gets a yes/no question with tappable answers first. "Add
+// Dana…" is a write: one create_lead call, then the answer.
 let calls = 0;
 const answers = [];
+const heard = [];   // every first-turn sentence the agent was sent
+const systems = []; // the brief, as sent (blocks)
 await p.route("**/functions/v1/voice-agent", (route) => {
   const body = route.request().postDataJSON() || {};
   if (!Array.isArray(body.messages)) return route.continue();
   calls++;
+  systems.push(body.system);
   const last = body.messages[body.messages.length - 1];
   const first = typeof last.content === "string";
+  if (first) heard.push(last.content);
+  if (first && /^add dana/i.test(last.content)) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ content: [
+    { type: "tool_use", id: "c1", name: "create_lead", input: { name: "Dana Muise", phone: "9025551212", vehicle: "Nissan Rogue", notes: last.content } },
+  ], stop_reason: "tool_use" }) });
+  if (!first && Array.isArray(last.content) && last.content.some((c) => c.tool_use_id === "c1")) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ content: [{ type: "text", text: "Added Dana, after a Rogue." }], stop_reason: "end_turn" }) });
   if (first && /delete tony/i.test(last.content)) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ content: [
     { type: "tool_use", id: "q1", name: "ask_user", input: { question: "Delete Tony Montana from your customers? This can't be undone.", options: ["Yes, delete Tony", "No, keep him"] } },
   ], stop_reason: "tool_use" }) });
@@ -133,6 +142,49 @@ const after = await p.evaluate(() => ({
 console.log("after tap:", JSON.stringify(after), "answer sent:", JSON.stringify(answers));
 if (after.me !== "No, keep him" || after.picked !== "No, keep him" || !after.settled) fail("the tap should read as your answer and settle the chips: " + JSON.stringify(after));
 if (answers[0] !== "No, keep him") fail("the tapped label should reach the assistant as the answer: " + JSON.stringify(answers));
+
+// --- A pause mid-sentence doesn't cut it in two: the engine stops at the
+// breath, the panel holds the first half and listens on, and the whole
+// sentence goes up as one.
+await p.waitForTimeout(300);
+const sentBefore = heard.length;
+await p.evaluate(() => window.__say("add Dana Muise 902 555 1212"));
+await p.waitForTimeout(350);
+const midway = await p.evaluate(() => ({ live: document.querySelector("#v-transcript").textContent, shown: !document.querySelector("#v-transcript").hidden, listening: !!window.__mic.live, bubbles: document.querySelectorAll("#v-thread .vt-me:not(.vt-live)").length }));
+console.log("mid-sentence:", JSON.stringify(midway));
+if (!/add Dana Muise/.test(midway.live) || !midway.shown || !midway.listening || heard.length !== sentBefore) fail("the first half should be held on the live line, mic still on, nothing sent yet: " + JSON.stringify(midway));
+const botsBefore = await p.evaluate(() => document.querySelectorAll("#v-thread .vt-bot").length);
+await p.evaluate(() => window.__say("she's after a Rogue"));
+await p.waitForFunction((n) => document.querySelectorAll("#v-thread .vt-bot").length === n + 1, botsBefore, { timeout: 8000 }).catch(() => fail("the joined sentence got no reply"));
+const joined = await p.evaluate(() => ({ me: [...document.querySelectorAll("#v-thread .vt-me:not(.vt-live)")].pop().textContent, bot: [...document.querySelectorAll("#v-thread .vt-bot")].pop().textContent }));
+console.log("joined:", JSON.stringify(joined), "sent:", JSON.stringify(heard.slice(sentBefore)));
+if (heard.length !== sentBefore + 1 || !/^add Dana Muise 902 555 1212 she's after a Rogue$/.test(heard[heard.length - 1])) fail("both halves should go up as ONE sentence: " + JSON.stringify(heard.slice(sentBefore)));
+if (joined.me !== heard[heard.length - 1]) fail("the bubble should be the whole sentence: " + joined.me);
+
+// --- A change gets an Undo chip; tapping it puts the records back and the
+// assistant hears about it with the next thing said.
+const added = await p.evaluate(async () => { const s = await import("/js/store.js"); const l = s.all("leads").find((x) => x.name === "Dana Muise"); return { lead: !!l, plan: l ? s.all("tasks").filter((t) => t.leadId === l.id).length : 0, chip: document.querySelector("#v-thread .vt-undo .vt-choice")?.textContent || "" }; });
+console.log("added:", JSON.stringify(added));
+if (!added.lead || !added.plan || !/^Undo — added Dana Muise/.test(added.chip)) fail("a write should land with an Undo chip under the reply: " + JSON.stringify(added));
+await p.click("#v-thread .vt-undo .vt-choice");
+await p.waitForFunction(() => /^Undone/.test([...document.querySelectorAll("#v-thread .vt-bot")].pop().textContent), null, { timeout: 3000 }).catch(() => fail("tapping Undo should say so on the thread"));
+const undone = await p.evaluate(async () => { const s = await import("/js/store.js"); return { lead: !!s.all("leads").find((x) => x.name === "Dana Muise"), tasks: s.all("tasks").filter((t) => /Dana/.test(t.title)).length, settled: !!document.querySelector("#v-thread .vt-undo.answered") }; });
+console.log("undone:", JSON.stringify(undone));
+if (undone.lead || undone.tasks || !undone.settled) fail("Undo should remove the customer and their plan together: " + JSON.stringify(undone));
+await p.waitForTimeout(300);
+const botsAfterUndo = await p.evaluate(() => document.querySelectorAll("#v-thread .vt-bot").length);
+await p.evaluate(() => window.__say("what's the story with Ann Lee"));
+await p.waitForFunction((n) => document.querySelectorAll("#v-thread .vt-bot").length === n + 1, botsAfterUndo, { timeout: 8000 }).catch(() => fail("no reply after the undo"));
+if (!/^\[The salesperson tapped Undo: "added Dana Muise.*reversed\.\] what's the story with Ann Lee$/.test(heard[heard.length - 1])) fail("the next turn should tell the assistant about the Undo: " + JSON.stringify(heard[heard.length - 1]));
+
+// --- The brief goes up as a cached standing part and a live part.
+const sys = systems[0];
+const standing = Array.isArray(sys) && sys[0] && sys[0].cache_control && sys[0].cache_control.type === "ephemeral" ? sys[0].text : "";
+const liveBrief = Array.isArray(sys) && sys[1] ? sys[1].text : "";
+if (!standing || !liveBrief) fail("the system brief should be two blocks, the first marked for caching: " + JSON.stringify(sys).slice(0, 200));
+if (/Today is|customers and \d+ appointments|Customers on file/.test(standing)) fail("the cached standing brief must not carry anything that changes between calls");
+if (!/Today is/.test(liveBrief) || !/Customers on file/.test(liveBrief)) fail("the live brief should carry the date and the names on file");
+if (!/EVERYTHING YOU WRITE CAN BE UNDONE/.test(standing)) fail("the brief should tell the assistant its changes are reversible");
 
 // --- The thread scrolls, the newest at the bottom, and the layout leaves it room.
 const layout = await p.evaluate(() => {

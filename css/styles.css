@@ -407,6 +407,8 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .vt-choice.picked { background: var(--brand); color: var(--brand-ink); }
 .vt-choices.answered .vt-choice:not(.picked) { opacity: 0.4; }
 .vt-choice:disabled { cursor: default; }
+/* The Undo chip under a change: quieter than a question's answers. */
+.vt-undo .vt-choice { background: transparent; border-style: dashed; font-weight: 500; }
 @keyframes step-pulse { 50% { transform: scale(0.55); opacity: 0.5; } }
 
 /* Frosted capsule input */

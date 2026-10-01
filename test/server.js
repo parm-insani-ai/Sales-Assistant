@@ -437,7 +437,10 @@ const server = http.createServer((req, res) => {
       // The Claude relay: return a canned draft in the real response shape,
       // remembering what it was asked so a test can read the prompt back.
       if (Array.isArray(msg.messages)) {
-        relays.push({ system: msg.system || "", tools: (msg.tools || []).map((t) => t.name), messages: msg.messages });
+        // The system brief arrives as blocks (the cached standing part, then
+        // the live part) or as one string; tests read it as text either way.
+        const system = typeof msg.system === "string" ? msg.system : Array.isArray(msg.system) ? msg.system.map((b) => b && b.text || "").join("\n") : "";
+        relays.push({ system, tools: (msg.tools || []).map((t) => t.name), messages: msg.messages });
         return json(res, 200, { content: [{ type: "text", text: draft }], stop_reason: "end_turn" });
       }
       // The inventory import: pretend the store's site had three units, and
@@ -472,6 +475,28 @@ const server = http.createServer((req, res) => {
 
   // Test hooks: inspect the stub's link table, or clear it so runs don't read
   // each other's links.
+  // The real model, for the utterance eval (test/utterances.test.js): the
+  // same request the function would make, with the key from the environment.
+  // No key, no model — the eval says so and skips.
+  if (url.pathname === "/__model") {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) return json(res, 503, { error: "ANTHROPIC_API_KEY isn't set" });
+    let b = ""; req.on("data", (c) => (b += c));
+    return req.on("end", async () => {
+      let msg = {}; try { msg = JSON.parse(b); } catch {}
+      const tools = (msg.tools || []).map((t, i, a) => (i === a.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t));
+      try {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-beta": "server-side-fallback-2026-07-01" },
+          body: JSON.stringify({ model: process.env.MODEL || "claude-sonnet-5-5", max_tokens: 1024, system: msg.system, tools, messages: msg.messages, output_config: { effort: process.env.EFFORT || "medium" }, fallbacks: "default" }),
+        });
+        const data = await r.json();
+        if (!r.ok) return json(res, 502, { error: (data.error && data.error.message) || `Claude error ${r.status}` });
+        json(res, 200, { content: data.content || [], stop_reason: data.stop_reason || "end_turn", usage: data.usage });
+      } catch (e) { json(res, 502, { error: String(e) }); }
+    });
+  }
   if (url.pathname === "/__links") return json(res, 200, [...links.values()]);
   if (url.pathname === "/__sent") return json(res, 200, sent);
   if (url.pathname === "/__relays") return json(res, 200, relays);

@@ -119,6 +119,7 @@ const TOOLS = [
   { name: "log_sale", description: "Log a CLOSED sale. Use ONLY when the salesperson clearly says the deal is done — 'sold', 'bought', 'signed', 'took delivery', 'made $X on'. Never for interest ('wants/looking at a Rogue' is create_lead or update_lead, not a sale). Capture tracker details when spoken: lead type, new/used, stock #, business manager, front vs business-office commission.", input_schema: { type: "object", properties: { customer: { type: "string" }, commission: { type: "number" }, front: { type: "number" }, back: { type: "number" }, vehicle: { type: "string" }, leadType: { type: "string", enum: ["Walk-in", "Hand Off", "Referral", "Facebook", "BDC", "Service", "Auto Alert", "Other"] }, newUsed: { type: "string", enum: ["New", "Used"] }, stock: { type: "string" }, bm: { type: "string", description: "business manager who worked the deal" }, frontComm: { type: "number", description: "front commission $" }, boComm: { type: "number", description: "business office commission $" } }, required: ["customer"] } },
   { name: "delete_customer", description: "Remove a customer from the book entirely — 'delete Tony Montana', 'get rid of that lead', 'remove him from the system'. Their open follow-ups and upcoming appointments go too; texts and emails already logged stay. This can't be undone, so it runs in two steps: call it, and if `confirmed` isn't true it tells you what to confirm; ask_user that one question, and only on a clear yes call again with confirmed: true. A customer who's merely gone quiet or bought elsewhere is update_lead to stage 'lost', not this.", input_schema: { type: "object", properties: { customer: { type: "string" }, confirmed: { type: "boolean", description: "true only after the salesperson has said yes to deleting this person" } }, required: ["customer"] } },
   { name: "undo_sale", description: "Remove a sale that was logged by mistake (e.g. 'I didn't sell that car', 'that wasn't a sale'). Deletes the customer's most recent sale record and moves their stage back from sold.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
+  { name: "undo_last", description: "Reverse the last change you made — 'undo that', 'no, not Dana', 'that was wrong', 'scrap that', 'take that back'. Puts the records exactly back: a customer added is removed, an update restored, an appointment unbooked, a sale taken off, a to-do reopened. Each call undoes one more change, newest first. Then do what they meant, if they said.", input_schema: { type: "object", properties: {} } },
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
@@ -130,9 +131,18 @@ const TOOLS = [
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
 
+// The brief is two parts, and the split is the cache. The standing part —
+// how to read speech, which tool answers what, the rules — is the same bytes
+// on every call, so it's sent as its own block marked for caching and read
+// back from the cache after the first turn. The live part (today's date, the
+// names on file, what's come in) changes and is paid for each time. Anything
+// that varies must stay out of the standing part, or nothing caches.
 function buildSystem(ctx) {
+  return [buildStanding(), buildLive(ctx)].join("\n");
+}
+function buildStanding() {
   return [
-    `You are viniva's hands-free assistant for a car salesperson${ctx.salesperson ? " named " + ctx.salesperson : ""}. Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
+    `You are viniva's hands-free assistant for a car salesperson.`,
     `Understand plain, casual speech — the user will NOT use command words. Infer what they want from whatever they tell you. A bare fact usually implies an action: "Ken's coming in Thursday at 4" → book an appointment; "sold one to Moe, made 800" → log a sale; "Sara's cell is 902-555-1212" → update Sara's phone; "who should I call?" → check the deal radar / follow-ups; "compare the Kicks with the CR-V" or "customer's cross-shopping the RAV4" → compare_vehicles (never search_inventory for that).`,
     `CRITICAL distinction: "X wants / is looking for / is interested in a <vehicle>" means INTEREST — create the lead (or update their vehicle of interest). It is NOT a sale. Log a sale only when the words clearly say the deal closed: "sold", "bought", "signed", "took delivery", "made $X on the deal". If they say a sale was logged by mistake, use undo_sale.`,
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
@@ -149,6 +159,7 @@ function buildSystem(ctx) {
     // the salesperson is describing the job, not operating a menu.
     `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all — or to confirm something that can't be undone. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
+    `EVERYTHING YOU WRITE CAN BE UNDONE. Every change you make — a customer added or updated, a note, an appointment, a sale, a to-do, a special — is reversible with undo_last, and the salesperson sees an Undo button after each one. So ACT on the most sensible reading and say what you did; never ask "should I?" or "did you mean?" before an ordinary change. Only a delete needs a yes first. "Undo that", "no, not Dana", "that was wrong", "scrap that", "take that back" → undo_last (the last change; call it again for the one before). If they then say what they meant, do that next.`,
     `BUTTONS OR WORDS: when the answer to your question is one of a few clear choices, give ask_user \`options\` — 2 to 5 short labels the salesperson taps instead of answering aloud: a yes/no ("Yes, delete Tony" / "No, keep him"), which customer ("Dana Muise" / "Dana Lee"), new or used, one of a few times. When the answer is free-form — a phone number, a name, a note, a date you can't guess — ask in words with no options. Options are exactly what they'd say, so the tapped label comes back to you as their answer.`,
     `Match people to existing customers by name; create a new lead only if clearly new.`,
     `DELETING: "delete Tony", "remove him from the system", "get rid of that lead" → delete_customer. It won't delete until you've asked ONE confirming question (ask_user, the exact wording it hands back) and heard a clear yes; then call it again with confirmed: true. Never say there's no way to delete a customer. "Lost", "bought elsewhere", "not interested" → update_lead stage "lost" instead.`,
@@ -165,13 +176,18 @@ function buildSystem(ctx) {
     // to go and find for themselves, is the assistant stopping half way.
     `The app FOLLOWS you: a tool that returns a list of people or jobs also puts that list on the salesperson's screen, with one-tap text and call buttons on every row. So do NOT read a list aloud. Name at most the top one or two and hand over to the screen — "Lynn and Mark are your hottest, both one tap away" — because they're already looking at it.`,
     `When finished, reply with ONE short, natural spoken sentence — what you did, or the answer.`,
-    ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
-    ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
-    ctx.recent ? `RECENT MESSAGES IN (newest first; WAITING = they wrote last and nobody has answered; get_messages has the whole exchange):\n${ctx.recent}` : ``,
     // Everything the user "says" reached here through speech recognition, and
     // saying so changes how the model reads a garbled sentence: as something to
     // repair from context rather than as a strange request to query.
     `What the user says arrives as a SPEECH TRANSCRIPT and may contain recognition errors — wrong homophones, a name spelled as ordinary words, a stray or missing short word. Read for intent and repair silently against the names below and the rest of the sentence. Do NOT ask the user to repeat themselves or point out that something was unclear; act on the most sensible reading. Numbers spoken aloud may arrive as words or be split up ("two two six" = 226) — join them.`,
+  ].join("\n");
+}
+function buildLive(ctx) {
+  return [
+    `The salesperson${ctx.salesperson ? " is named " + ctx.salesperson + "." : "'s name isn't set."} Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
+    ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
+    ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
+    ctx.recent ? `RECENT MESSAGES IN (newest first; WAITING = they wrote last and nobody has answered; get_messages has the whole exchange):\n${ctx.recent}` : ``,
     ctx.vocab && ctx.vocab.names.length
       ? `Customers on file (a mangled word close to one of these is almost certainly that name): ${ctx.vocab.names.join(", ")}.` : ``,
     ctx.vocab && ctx.vocab.models.length
@@ -205,8 +221,24 @@ export async function callRelay({ system, tools, messages, max_tokens = 1024 }) 
   if (!res.ok) throw new Error(await describeAgentError(res));
   return res.json(); // { content:[...], stop_reason }
 }
+// The request as the function sends it on: the standing brief marked as a
+// cached prefix, the live brief after it, the tools, the conversation.
+// (Exported for the utterance eval, which sends the same thing straight to
+// the model.)
+export function agentRequest(messages) {
+  const ctx = buildContext();
+  return {
+    system: [
+      { type: "text", text: buildStanding(), cache_control: { type: "ephemeral" } },
+      { type: "text", text: buildLive(ctx) },
+    ],
+    tools: TOOLS,
+    messages,
+    max_tokens: 1024,
+  };
+}
 function callAgent(messages) {
-  return callRelay({ system: buildSystem(buildContext()), tools: TOOLS, messages, max_tokens: 1024 });
+  return callRelay(agentRequest(messages));
 }
 
 // Cheap end-to-end check used by Settings: hits the saved URL with a tiny
@@ -347,8 +379,71 @@ const ROUTES = {
 // human-facing action summary (⚠ prefix = failure), or "" for silent reads.
 // Async because a few tools (send_email) do real network work. Exported so
 // tests can exercise every tool without a live Claude relay.
+// ---- Undo ----
+//
+// Every change the assistant makes can be put back. That's what lets it act
+// on a sentence instead of checking first: a wrong guess is one tap, not a
+// mess. The mechanism is a snapshot rather than per-tool bookkeeping — the
+// collections a write can touch are copied before it runs and compared after,
+// so a tool that creates a customer AND starts their plan AND logs them is
+// one entry that puts all three back, whatever the tool happened to do.
+const UNDO_COLLECTIONS = ["leads", "tasks", "appointments", "sales", "specials", "spifs", "deliveries", "activity"];
+const WRITE_TOOLS = /^(create_lead|update_lead|add_context|add_note|note|add_task|complete_task|finish_task|complete_delivery|mark_delivered|add_special|add_spif|log_spif|log_sale|undo_sale|book_appointment|schedule_appointment|appointment_outcome|set_outcome|start_cadence|start_followup|delete_customer|remove_customer|delete_lead)$/;
+const undoStack = [];
+function snapshotRecords() {
+  const snap = new Map();
+  UNDO_COLLECTIONS.forEach((c) => snap.set(c, new Map(store.all(c).map((r) => [r.id, JSON.stringify(r)]))));
+  return snap;
+}
+// What changed since the snapshot, as the moves that put it back — or null
+// when nothing did (a tool that only looked, or refused).
+function diffSince(before) {
+  const moves = [];
+  UNDO_COLLECTIONS.forEach((c) => {
+    const was = before.get(c);
+    const now = new Map(store.all(c).map((r) => [r.id, JSON.stringify(r)]));
+    now.forEach((json, id) => {
+      if (!was.has(id)) moves.push({ c, id, remove: true });
+      else if (was.get(id) !== json) moves.push({ c, id, put: JSON.parse(was.get(id)) });
+    });
+    was.forEach((json, id) => { if (!now.has(id)) moves.push({ c, id, put: JSON.parse(json) }); });
+  });
+  return moves.length ? moves : null;
+}
+function applyMoves(moves) {
+  store.bulk(() => {
+    moves.forEach((m) => {
+      if (m.remove) { store.remove(m.c, m.id); return; }
+      // Whole record back, not a merge: a field the change added has to go.
+      store.remove(m.c, m.id);
+      store.restore(m.c, m.put);
+    });
+  });
+}
+// Reverse the newest change. Returns what it was, or null with nothing to undo.
+export function undoLast() {
+  const u = undoStack.pop();
+  if (!u) return null;
+  applyMoves(u.moves);
+  return u.label;
+}
+export function lastUndoable() { return undoStack.length ? undoStack[undoStack.length - 1].label : null; }
+
 export async function execTool(name, p = {}) {
   const t = (name || "").toLowerCase();
+  if (t === "undo_last" || t === "undo") {
+    const label = undoLast();
+    return label ? { result: `undone: ${label}. Say so in a few words; if they said what they meant instead, do that now.`, note: `undid: ${label}` } : { result: "nothing to undo", note: "" };
+  }
+  if (!WRITE_TOOLS.test(t)) return runTool(t, p);
+  const before = snapshotRecords();
+  const out = await runTool(t, p);
+  const moves = diffSince(before);
+  if (moves) undoStack.push({ label: String(out.note || t).replace(/^⚠\s*/, ""), moves, at: Date.now() });
+  return out;
+}
+
+async function runTool(t, p = {}) {
   // The tools that read the radar wait for it to be current — a slice at a
   // time, so the panel keeps answering — instead of computing it in one go.
   if (/^(find_customers|get_customer|deal_radar|deal_options|get_prospects|work_the_book|get_plays)$/.test(t)) { try { await warmRadar(); } catch { /* priced on demand below */ } }
@@ -1002,7 +1097,7 @@ const STEP_LABELS = {
   book_appointment: (i) => `Booking ${i.customer || "the appointment"}`, appointment_outcome: "Setting the outcome",
   start_cadence: "Starting the follow-up plan", lot_lookup: "Checking the lot", mass_outreach: "Building the outreach",
   search_inventory: "Searching the network", when_it_makes_sense: "Working out the timing", lease_ends: "Listing the leases",
-  compare_vehicles: "Opening the comparison",
+  compare_vehicles: "Opening the comparison", undo_last: "Undoing that",
 };
 export function stepLabel(name, input = {}) {
   const l = STEP_LABELS[name];
@@ -1015,17 +1110,22 @@ export function stepLabel(name, input = {}) {
 export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
   const messages = [];
   let pending = null; // { results:[...], askId } while awaiting a human answer
+  let aside = "";     // something that happened off-thread (an Undo tap), told on the next turn
 
   // onProgress hears the work as it happens: the model's own words when it
   // thinks aloud before acting, each step as it starts, and what came of it.
   async function loop(onProgress) {
+    const undoBefore = undoStack.length;
+    // What this turn changed, for the Undo chip: the newest undoable change,
+    // if the turn made one.
+    const undone = (r) => ({ ...r, undo: undoStack.length > undoBefore ? lastUndoable() : null });
     for (let step = 0; step < 8; step++) {
       const resp = await call(messages);
       const content = resp.content || [];
       const toolUses = content.filter((b) => b.type === "tool_use");
       const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
 
-      if (!toolUses.length || resp.stop_reason !== "tool_use") return { say: text, done: true };
+      if (!toolUses.length || resp.stop_reason !== "tool_use") return undone({ say: text, done: true });
       if (text && onProgress) onProgress(text);
 
       messages.push({ role: "assistant", content });
@@ -1049,23 +1149,34 @@ export function createAgentSession({ call = callAgent, exec = execTool } = {}) {
       }
       // If the agent asked something, hold the other results and wait for the
       // human — we'll answer all tool calls together on the next send().
-      if (askId) { pending = { results, askId }; return { say: question, done: false, options }; }
+      if (askId) { pending = { results, askId }; return undone({ say: question, done: false, options }); }
       messages.push({ role: "user", content: results });
     }
-    return { say: "That needed too many steps — try breaking it into smaller asks.", done: true };
+    return undone({ say: "That needed too many steps — try breaking it into smaller asks.", done: true });
   }
 
   async function send(text, onProgress) {
+    const said = aside ? `${aside} ${text}` : String(text);
+    aside = "";
     if (pending) {
       const results = pending.results;
-      results.push({ type: "tool_result", tool_use_id: pending.askId, content: String(text) });
+      results.push({ type: "tool_result", tool_use_id: pending.askId, content: said });
       messages.push({ role: "user", content: results });
       pending = null;
     } else {
-      messages.push({ role: "user", content: String(text) });
+      messages.push({ role: "user", content: said });
     }
     return loop(onProgress);
   }
 
-  return { send };
+  // The Undo chip: reverse the last change here and now, and make sure the
+  // model hears about it with the next thing said, so it doesn't carry on as
+  // if the change stood.
+  function undo() {
+    const label = undoLast();
+    if (label) aside = `[The salesperson tapped Undo: "${label}" has been reversed.]`;
+    return label;
+  }
+
+  return { send, undo };
 }
