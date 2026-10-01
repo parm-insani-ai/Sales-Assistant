@@ -9,6 +9,9 @@ import { icon } from "../icons.js";
 import { isReminder, reminderWhen, wallClock, askNotifyPermission } from "../reminders.js";
 
 const pad = (n) => String(n).padStart(2, "0");
+// The to-dos the assistant is running right now (ids). Module-wide, so a
+// card drawn again after a trip to another screen still says Working….
+const running = new Set();
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 // The next round hour, so a to-do given a time defaults to something sensible.
 const nextHour = () => { const d = new Date(Date.now() + 3600000); return `${pad(d.getHours())}:00`; };
@@ -116,8 +119,6 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       return;
     }
 
-    const card = document.createElement("div");
-    card.className = "card";
     let more = null;
     if (hidden > 0) {
       more = document.createElement("button");
@@ -129,45 +130,93 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       more.addEventListener("click", () => { cap = Math.min(all.length, cap + (hidden > 200 ? 100 : hidden)); draw(); });
     }
     const now = Date.now();
-    open.forEach((t, i) => {
-      const row = document.createElement("div");
-      row.className = "check-item";
-      if (i === open.length - 1) row.style.borderBottom = "none";
+    const frag = document.createDocumentFragment();
+    open.forEach((t) => {
+      // Each to-do is its own card, laid out like a customer on Outreach:
+      // the title, who and when underneath, a badge on the right, and a
+      // banner across the bottom where the customer card shows the
+      // contract — here it's the assistant's half: Do it, Working…, or
+      // Done — check it out.
+      const card = document.createElement("div");
+      card.className = "card todo-card";
+      card.dataset.taskId = t.id;
       const rem = isReminder(t);
       const overdue = rem ? wallClock(t.remindAt) <= now : t.due && daysFromToday(t.due) < 0;
       const soon = !rem && t.due && daysFromToday(t.due) === 0;
-      if (rem && overdue) row.classList.add("rem-due");
+      if (rem && overdue) card.classList.add("rem-due");
       const lead = t.leadId ? store.get("leads", t.leadId) : null;
       const ask = doItFor(t, lead);
-      row.innerHTML = `
-        <input type="checkbox" />
-        <label>
-          ${t.priority === "high" ? `<span style="color:var(--danger)">${icon("alert")}</span> ` : ""}${esc(t.title)}
-          ${rem
-            ? `<div class="small rem-when ${overdue ? "" : "muted"}">${icon(overdue ? "bell" : "clock")} ${esc(reminderWhen(t, now))}${overdue ? " · now" : ""}</div>`
-            : t.due ? `<div class="small ${overdue ? "" : "muted"}" style="${overdue ? "color:var(--danger)" : ""}">${overdue ? icon("alert") + " " : soon ? icon("clock") + " " : ""}${esc(relativeDay(t.due))}${t.at ? " · " + esc(new Date(t.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })) : ""}</div>` : ""}
-        </label>
-        ${ask ? `<button type="button" class="btn btn-primary btn-sm do-it" data-do-it aria-label="Have the assistant do this">Do it</button>` : ""}
+      const when = rem
+        ? `${icon(overdue ? "bell" : "clock")} ${esc(reminderWhen(t, now))}`
+        : t.due ? `${esc(relativeDay(t.due))}${t.at ? " · " + esc(new Date(t.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })) : ""}` : "";
+      const sub = [lead ? esc(lead.name) : "", when].filter(Boolean).join(" · ");
+      const badge = rem && overdue ? `<span class="badge badge-due">Now</span>`
+        : overdue ? `<span class="badge badge-due">Overdue</span>`
+        : soon ? `<span class="badge badge-soon">Today</span>`
+        : t.priority === "high" ? `<span class="badge badge-due">High</span>` : "";
+      card.innerHTML = `
+        <div class="row">
+          <input type="checkbox" class="todo-tick" aria-label="Done" />
+          <div class="row-main">
+            <div class="row-title">${t.priority === "high" ? `<span style="color:var(--danger)">${icon("alert")}</span> ` : ""}${esc(t.title)}</div>
+            ${sub ? `<div class="row-sub ${overdue ? "todo-overdue" : ""}">${sub}</div>` : ""}
+          </div>
+          ${badge ? `<div class="row-meta">${badge}</div>` : ""}
+        </div>
+        ${ask ? `<div class="todo-banner"></div>` : ""}
       `;
+      const banner = card.querySelector(".todo-banner");
+      // The banner's three states. "Working…" survives a trip to the screen
+      // the assistant opens (the run keeps going; the card redraws from the
+      // set of running ones), and "Done" is on the to-do itself, so it's
+      // still there tomorrow until you tick it.
+      const paint = () => {
+        if (!banner) return;
+        const a = t.assist;
+        if (running.has(t.id)) {
+          banner.className = "todo-banner todo-banner-working";
+          banner.innerHTML = `<span class="tb-label" data-step>Working…</span><button type="button" class="btn btn-primary btn-sm do-it" data-do-it disabled>Working…</button>`;
+        } else if (a && a.at) {
+          banner.className = "todo-banner todo-banner-done";
+          banner.innerHTML = `<button type="button" class="tb-done" data-check-it>${icon("checkline")} Done — check it out <span class="tb-arrow">›</span></button>`;
+          banner.querySelector("[data-check-it]").addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (a.to && a.to !== location.hash) { location.hash = a.to; return; }
+            toast(a.say || "It's on screen.", "success");
+          });
+        } else {
+          banner.className = "todo-banner";
+          banner.innerHTML = `<span class="tb-label">The assistant can run this</span><button type="button" class="btn btn-primary btn-sm do-it" data-do-it aria-label="Have the assistant do this">Do it</button>`;
+          banner.querySelector("[data-do-it]").addEventListener("click", (e) => { e.stopPropagation(); run(); });
+        }
+      };
       // "Do it": the assistant runs the lookup or writes the draft behind
       // this to-do, now, and puts the result on screen. The to-do stays
-      // until you tick it — the assistant did its half.
-      const doBtn = row.querySelector("[data-do-it]");
-      if (doBtn) doBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        doBtn.disabled = true; doBtn.textContent = "Working…";
+      // until you tick it — the assistant did its half. Where it went is
+      // kept on the to-do, so "check it out" takes you back there.
+      const run = async () => {
+        running.add(t.id); paint();
+        const from = location.hash;
         try {
           const a = await import("../agent.js");
           if (!a.agentConfigured()) { toast("Set up the voice agent under Settings first", "warn"); return; }
-          const res = await a.createAgentSession().send(ask, (step) => { if (step && !/^⚠/.test(step)) doBtn.textContent = step.length > 18 ? step.slice(0, 16) + "…" : step; });
-          toast(res.say || "Done — it's on screen.", "success");
+          const res = await a.createAgentSession().send(ask, (step) => {
+            const s = banner.querySelector("[data-step]");
+            if (s && step && !/^⚠/.test(step)) s.textContent = step;
+          });
+          if (res.done === false) { toast(`It needs more from you: ${res.say}`, "warn"); return; }
+          const to = location.hash !== from ? location.hash : "";
+          t.assist = { at: new Date().toISOString(), say: res.say || "", to };
+          store.update("tasks", t.id, { assist: t.assist });
+          toast(res.say || "Done — check it out", "success");
         } catch (err) {
           toast(`Couldn't do it: ${err && err.message ? err.message : err}`, "danger");
         } finally {
-          doBtn.disabled = false; doBtn.textContent = "Do it";
+          running.delete(t.id); paint();
         }
-      });
-      row.querySelector("input").addEventListener("change", () => {
+      };
+      paint();
+      card.querySelector(".todo-tick").addEventListener("change", () => {
         store.update("tasks", t.id, { done: true });
         // A completed follow-up counts as a prospecting touch.
         if (t.cadence) {
@@ -178,11 +227,8 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
         draw();
         if (onChange) onChange();
       });
-      row.querySelector("label").addEventListener("click", (e) => {
-        if (e.target.tagName === "INPUT") return;
-        openTaskForm(t);
-      });
-      card.appendChild(swipeable(row, {
+      card.querySelector(".row-main").addEventListener("click", () => openTaskForm(t));
+      frag.appendChild(swipeable(card, {
         onDelete: () => {
           const snapshot = { ...t };
           store.remove("tasks", t.id);
@@ -197,7 +243,7 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       }));
     });
     container.innerHTML = "";
-    container.appendChild(card);
+    container.appendChild(frag);
     if (more) container.appendChild(more);
   }
 

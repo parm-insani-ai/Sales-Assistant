@@ -39,7 +39,7 @@ await p.waitForTimeout(300);
 const today = await p.evaluate(() => ({
   chips: [...document.querySelectorAll("#view .log-tabs [data-tab]")].map((b) => ({ tab: b.dataset.tab, active: b.classList.contains("btn-primary"), label: b.textContent.replace(/\s+/g, " ").trim() })),
   shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel),
-  todos: [...document.querySelectorAll('[data-panel="todos"] .check-item')].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
+  todos: [...document.querySelectorAll('[data-panel="todos"] .todo-card')].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   queue: [...document.querySelectorAll(".plays-slot .row .strong")].map((n) => n.textContent.trim()),
   note: document.querySelector('[data-panel="todos"] .hint')?.textContent,
   log: [...document.querySelectorAll('[data-panel="logged"] .log-row .row-title')].map((n) => n.textContent.trim()),
@@ -52,13 +52,13 @@ if (!/^Logged\s?1$/.test(today.chips[0].label) || !/^To-dos\s?6$/.test(today.chi
 if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list the customer logged this month");
 // One list, soonest first by when it's actually due: the reminder that's
 // due now, the one later today at its minute, then the to-dos dated today.
-if (today.todos.length !== 6 || !/^Ring Dana back.*now/.test(today.todos[0]) || !/Check the SV came in/.test(today.todos[1])) fail("to-dos and reminders should be one list, soonest first, the due one marked: " + JSON.stringify(today.todos));
+if (today.todos.length !== 6 || !/^Ring Dana back.*now/i.test(today.todos[0]) || !/Check the SV came in/.test(today.todos[1])) fail("to-dos and reminders should be one list, soonest first, the due one marked: " + JSON.stringify(today.todos));
 if (today.queue.some((t) => /Ring Dana|Check the SV/.test(t))) fail("a reminder leaked into the queue: " + JSON.stringify(today.queue));
 if (!/Settings → Notifications/.test(today.note || "")) fail("the list doesn't say how a timed to-do reaches a closed app: " + today.note);
 
 // --- Tapping a chip swaps the panel.
 await p.click('.log-tabs [data-tab="todos"]');
-const swapped = await p.evaluate(() => ({ shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel), active: document.querySelector(".log-tabs .btn-primary")?.dataset.tab, rows: [...document.querySelectorAll('[data-panel="todos"] .check-item')].filter((r) => r.getBoundingClientRect().height > 0).length }));
+const swapped = await p.evaluate(() => ({ shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel), active: document.querySelector(".log-tabs .btn-primary")?.dataset.tab, rows: [...document.querySelectorAll('[data-panel="todos"] .todo-card')].filter((r) => r.getBoundingClientRect().height > 0).length }));
 if (swapped.shown.join() !== "todos" || swapped.active !== "todos" || swapped.rows !== 6) fail("tapping To-dos should show only the to-dos: " + JSON.stringify(swapped));
 
 // --- The due reminder is under Right now on Home.
@@ -101,7 +101,7 @@ await p.click(".modal button[type=submit]");
 await p.waitForTimeout(400);
 const plain = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.title === "Wash the demo"); return { remindAt: t && t.remindAt, channel: t && t.channel, due: t && t.due }; });
 if (plain.remindAt || plain.channel === "reminder" || !plain.due) fail("a to-do with no time should not be a reminder: " + JSON.stringify(plain));
-await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => /Ring Dana back/.test(r.textContent)).querySelector("input").click());
+await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => /Ring Dana back/.test(r.textContent)).querySelector("input").click());
 await p.waitForTimeout(300);
 const ticked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "r1").done, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
 if (!ticked.done || ticked.count !== "7") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
@@ -110,20 +110,24 @@ if (!ticked.done || ticked.count !== "7") fail("ticking the reminder off didn't 
 // only the salesperson can do doesn't. Tapping it hands the to-do to the
 // assistant, with the customer named, and says what came back.
 const doit = await p.evaluate(() => {
-  const rowOf = (t) => [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => r.textContent.includes(t));
+  const rowOf = (t) => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes(t));
   return { budget: !!rowOf("3 in stock under their budget")?.querySelector("[data-do-it]"), trade: !!rowOf("Appraise the trade")?.querySelector("[data-do-it]"), plain: !!rowOf("Order the plates")?.querySelector("[data-do-it]") };
 });
 console.log("do it:", JSON.stringify(doit));
 if (!doit.budget || doit.trade || doit.plain) fail("Do it should be on the move the assistant can run and nowhere else: " + JSON.stringify(doit));
 const before = (await fetch(APP + "/__relays").then((r) => r.json())).length;
-await p.evaluate(() => { document.querySelector("#toast-root").innerHTML = ""; [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => r.textContent.includes("3 in stock under their budget")).querySelector("[data-do-it]").click(); });
+const cardOf = () => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("3 in stock under their budget"));
+await p.evaluate(() => { document.querySelector("#toast-root").innerHTML = ""; [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => r.textContent.includes("3 in stock under their budget")).querySelector("[data-do-it]").click(); });
+const working = await p.evaluate(`(${cardOf})().querySelector(".todo-banner").textContent`);
+if (!/Working/.test(working)) fail("the card should read Working… while the assistant runs: " + working);
 let relays = [];
 for (let i = 0; i < 40 && relays.length <= before; i++) { await p.waitForTimeout(200); relays = await fetch(APP + "/__relays").then((r) => r.json()); }
 if (relays.length <= before) fail("Do it never asked the assistant");
 await p.waitForFunction(() => /./.test(document.querySelector("#toast-root")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("Do it said nothing back"));
-const said = await p.evaluate(() => ({ toast: document.querySelector("#toast-root")?.textContent || "", btn: [...document.querySelectorAll('[data-panel="todos"] .check-item')].find((r) => r.textContent.includes("3 in stock under their budget")).querySelector("[data-do-it]").textContent }));
+const said = await p.evaluate(`(async () => { const s = await import("/js/store.js"); const c = (${cardOf})(); return { toast: document.querySelector("#toast-root")?.textContent || "", banner: c.querySelector(".todo-banner").textContent.replace(/\\s+/g, " ").trim(), done: !!c.querySelector(".todo-banner-done [data-check-it]"), kept: !!(s.get("tasks", "c1").assist || {}).at }; })()`);
 console.log("do it said:", JSON.stringify(said));
 if (/Couldn't do it|Set up the voice agent/.test(said.toast)) fail("Do it should have run: " + said.toast);
+if (!said.done || !/Done — check it out/.test(said.banner) || !said.kept) fail("once it's run the card should say Done — check it out, and remember so on the to-do: " + JSON.stringify(said));
 const sent = relays.length ? JSON.stringify(relays[relays.length - 1].messages) : "";
 if (!/Dana Muise/.test(sent) || !/deal_options/.test(sent) || !/3 in stock under their budget/.test(sent)) fail("Do it should hand the assistant the customer and the to-do: " + sent.slice(0, 300));
 const stillThere = await p.evaluate(async () => { const s = await import("/js/store.js"); return !s.get("tasks", "c1").done; });

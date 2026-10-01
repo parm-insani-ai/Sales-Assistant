@@ -1041,8 +1041,27 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
   cursor: pointer;
 }
 .check-item label { flex: 1; font-size: 0.96rem; }
-/* "Do it" on a to-do the assistant can take on. */
-.check-item .do-it { flex: none; padding: 7px 11px; font-size: 0.76rem; white-space: nowrap; }
+/* A to-do as its own card, laid out like a customer on Outreach. The
+   banner across the bottom is the assistant's half of it — Do it,
+   Working…, Done — where the customer's card carries the contract. */
+.todo-card .row { align-items: center; gap: 12px; }
+.todo-card .row-main { flex: 1; min-width: 0; cursor: pointer; }
+.todo-card .row-title { display: flex; align-items: center; gap: 5px; }
+.todo-card .row-title .ico { width: 15px; height: 15px; flex: none; }
+.todo-card .row-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.todo-card .row-sub .ico { width: 13px; height: 13px; }
+.todo-card .row-sub.todo-overdue { color: var(--danger); font-weight: 600; }
+.todo-card .todo-tick { width: 24px; height: 24px; flex: none; accent-color: var(--brand); cursor: pointer; margin: 0; }
+.todo-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px -18px -18px; padding: 10px 18px; background: var(--surface-2); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); min-height: 52px; }
+.todo-banner .tb-label { font-size: 0.8rem; color: var(--muted); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-banner .do-it { flex: none; padding: 8px 14px; font-size: 0.8rem; white-space: nowrap; }
+.todo-banner-working .tb-label { color: var(--text); }
+.todo-banner-working .tb-label::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: 0; background: var(--brand); animation: tb-pulse 1s ease-in-out infinite; }
+@keyframes tb-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+.todo-banner-done { background: var(--brand-tint); cursor: pointer; }
+.todo-banner-done .tb-done { flex: 1; display: flex; align-items: center; gap: 7px; border: none; background: none; padding: 2px 0; font-family: inherit; font-size: 0.92rem; font-weight: 700; color: var(--success); cursor: pointer; text-align: left; }
+.todo-banner-done .tb-done .ico { width: 17px; height: 17px; flex: none; }
+.todo-banner-done .tb-arrow { margin-left: auto; font-size: 1.2rem; line-height: 1; }
 .check-item.done label { text-decoration: line-through; color: var(--muted); }
 
 /* ---------- Progress bar ---------- */

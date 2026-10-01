@@ -110,7 +110,7 @@ console.log("\nHome and Today:");
 
   // A screenful of tasks, the rest behind a button that works.
   const t = await p.evaluate(() => {
-    const rows = () => document.querySelectorAll(".tasks-slot .check-item").length;
+    const rows = () => document.querySelectorAll(".tasks-slot .todo-card").length;
     const before = rows();
     const more = document.querySelector(".tasks-slot .list-more");
     const label = more ? more.textContent : "";

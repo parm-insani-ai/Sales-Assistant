@@ -256,7 +256,7 @@ await p.waitForTimeout(500);
 const card = await p.evaluate(() => {
   const title = [...document.querySelectorAll(".section-title")].find((t) => /^Next moves/.test(t.textContent));
   const slot = document.getElementById("moves-slot");
-  return { present: !!title, items: slot ? [...slot.querySelectorAll(".check-item, .task, [data-id]")].length : 0, text: slot ? slot.textContent.replace(/\s+/g, " ").trim().slice(0, 200) : "" };
+  return { present: !!title, items: slot ? [...slot.querySelectorAll(".todo-card, .check-item, .task, [data-id]")].length : 0, text: slot ? slot.textContent.replace(/\s+/g, " ").trim().slice(0, 200) : "" };
 });
 console.log("Next moves card:", JSON.stringify(card));
 if (!card.present) fail("no Next moves section on the page");
