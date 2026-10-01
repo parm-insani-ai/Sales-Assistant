@@ -220,6 +220,24 @@ function renderThread(view, leadId) {
     requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
   }
 
+  // The newest message stays in view when the keyboard opens. The shell
+  // shrinks to the visible area, but the scroller kept its old position —
+  // so the last few bubbles slid under the fold at the very moment you
+  // went to reply, and you had to scroll to see what you were answering.
+  // Whenever the reply box has focus and the viewport changes shape, go
+  // back to the bottom; the keyboard animates in, so a few goes.
+  const keepLatest = () => { if (!view.isConnected) return unwatch(); if (document.activeElement && document.activeElement.id === "ib-text") scrollToLatest(); };
+  const vv = window.visualViewport;
+  if (vv) { vv.addEventListener("resize", keepLatest); vv.addEventListener("scroll", keepLatest); }
+  window.addEventListener("resize", keepLatest);
+  function unwatch() {
+    if (vv) { vv.removeEventListener("resize", keepLatest); vv.removeEventListener("scroll", keepLatest); }
+    window.removeEventListener("resize", keepLatest);
+  }
+  function pinOnFocus(box) {
+    box.addEventListener("focus", () => { [0, 80, 250, 500].forEach((ms) => setTimeout(scrollToLatest, ms)); });
+  }
+
   function paintCompose() {
     const blocked = lead.smsOptOut ? "They've opted out — you can't text them from here." : smsBlocker();
     if (blocked) {
@@ -245,6 +263,7 @@ function renderThread(view, leadId) {
     const grow = () => { box.style.height = "auto"; box.style.height = Math.min(box.scrollHeight, 120) + "px"; };
     const sync = () => { sendBtn.disabled = !box.value.trim(); grow(); };
     box.addEventListener("input", sync);
+    pinOnFocus(box);
 
     // Arrived here from a "Text" button elsewhere in the app: it carries the
     // message it would have handed to iMessage. Read it, don't send it — the

@@ -522,6 +522,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     closed = true;
     try { if (rec) { rec.onend = null; rec.abort(); } } catch { }
     window.removeEventListener("viniva-navigated", onRoute);
+    unwatchViewport();
     document.body.classList.remove("voice-live");
     // Give the shell its top back, or the app stays pushed down behind a strip
     // that no longer exists.
@@ -599,6 +600,15 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   window.addEventListener("viniva-navigated", onRoute);
   // Pulse the waveform as dictated/typed words stream in.
   textInput.addEventListener("input", () => wave.bump(0.85));
+  // The newest turn stays in view when the keyboard comes up under the
+  // thread: the sheet shrinks to what's visible (see the CSS), and the
+  // thread goes back to its bottom as the keyboard animates in.
+  const keepLatest = () => { if (closed) return; if (document.activeElement === textInput) scrollThread(); };
+  textInput.addEventListener("focus", () => { [0, 80, 250, 500].forEach((ms) => setTimeout(keepLatest, ms)); });
+  const vvp = window.visualViewport;
+  if (vvp) { vvp.addEventListener("resize", keepLatest); vvp.addEventListener("scroll", keepLatest); }
+  window.addEventListener("resize", keepLatest);
+  const unwatchViewport = () => { if (vvp) { vvp.removeEventListener("resize", keepLatest); vvp.removeEventListener("scroll", keepLatest); } window.removeEventListener("resize", keepLatest); };
   overlay.querySelector("#v-wave").addEventListener("click", () => textInput.focus());
 
   // A conversational agent session for this panel, so it can ask a follow-up

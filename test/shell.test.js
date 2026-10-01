@@ -135,14 +135,16 @@ console.log("viewport:", vp.slice(0, 70));
 // --- There's slack under the last row rather than a dead stop.
 // Measured on a list screen: a thread supplies its own bottom edge.
 await p.goto(APP + "/#/comms"); await p.waitForTimeout(500);
+// The tab bar is in flow under the scroller, so the padding only has to
+// clear the raised voice button (which overlaps the scroller's bottom edge
+// by its negative margin) with a breath to spare — and no more, since the
+// blank run under a short page was cut on request.
 const pad = await p.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".view")).paddingBottom));
-const tabH = await p.evaluate(() => document.querySelector(".tabbar").getBoundingClientRect().height);
-const slack = pad - tabH;
-console.log(`scroll buffer: ${Math.round(pad)}px padding vs a ${Math.round(tabH)}px tab bar — ${Math.round(slack)}px of slack`);
-// Bounded at both ends: enough that the page doesn't stop dead at the tab bar,
-// not so much that a short list looks like it's floating above empty screen.
-if (slack < 20) fail(`only ${Math.round(slack)}px of slack — the page stops dead at the tab bar`);
-if (slack > 60) fail(`${Math.round(slack)}px of slack below the content — too much empty space under a short list`);
+const raise = await p.evaluate(() => Math.max(0, -parseFloat(getComputedStyle(document.querySelector(".voice-fab")).marginTop) || 0));
+const slack = pad - raise;
+console.log(`scroll buffer: ${Math.round(pad)}px padding vs a voice button raised ${Math.round(raise)}px — ${Math.round(slack)}px of slack`);
+if (slack < 12) fail(`only ${Math.round(slack)}px of slack — the last row stops under the voice button`);
+if (slack > 50) fail(`${Math.round(slack)}px of slack below the content — too much empty space under a short list`);
 await p.goto(APP + "/#/inbox/a"); await p.waitForTimeout(500);
 
 // --- The keyboard. The invariant is simple now and doesn't depend on which

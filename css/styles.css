@@ -308,6 +308,15 @@ body.typing #app, body.kb-open #app {
   animation: sheet-up 0.42s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes sheet-up { from { transform: translateY(101%); } to { transform: translateY(0); } }
+/* Keyboard up: the overlay is the visible area, not the whole screen, so the
+   sheet — the thread and the box you're typing in — sits on the keyboard's
+   lip rather than half under it. Same --vvh/--vvtop as the shell. */
+body.typing .voice-overlay:not(.voice-docked), body.kb-open .voice-overlay:not(.voice-docked) {
+  top: var(--vvtop, 0px); bottom: auto; height: var(--vvh, 100%);
+}
+body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-overlay:not(.voice-docked) .voice-sheet {
+  height: min(100%, 760px); padding-bottom: 12px; animation: none;
+}
 .voice-grip { width: 38px; height: 5px; border-radius: 999px; background: color-mix(in srgb, var(--text) 18%, transparent); margin: 2px auto 4px; flex: none; }
 .voice-close {
   position: absolute; top: 18px; right: 20px;
