@@ -58,6 +58,36 @@ function turnsOf(t) {
 
 const money = (n) => (n == null ? "—" : currency(Math.round(n)));
 const delta = (d) => (d == null ? "" : d === 0 ? "same" : d > 0 ? `+${money(d)}` : `−${money(-d)}`);
+const initials = (name) => String(name || "").trim().split(/\s+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase() || "?";
+
+// The reply as prose. The assistant is told plain words, but a model
+// under pressure still reaches for markdown — so bold becomes bold, a
+// bulleted run becomes a list, headings and backticks go, and nothing
+// shows up as asterisks.
+export function sayHtml(text) {
+  const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/__(.+?)__/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "$1").replace(/(^|\s)\*([^*\s][^*]*?)\*(?=[\s.,!?;:]|$)/g, "$1<em>$2</em>");
+  let html = "", list = [];
+  const flush = () => { if (list.length) { html += `<ul class="td-list">${list.map((x) => `<li>${x}</li>`).join("")}</ul>`; list = []; } };
+  String(text || "").replace(/\r/g, "").split("\n").forEach((raw) => {
+    const l = raw.trim();
+    if (!l) { flush(); return; }
+    const m = /^(?:[-*•]|\d+[.)])\s+(.*)$/.exec(l);
+    if (m) { list.push(inline(m[1])); return; }
+    flush();
+    html += `<p>${inline(l.replace(/^#+\s*/, ""))}</p>`;
+  });
+  flush();
+  return html || "<p>Done.</p>";
+}
+
+// The steps as a timeline: each one ticked, the one underway pulsing.
+function stepsHtml(steps, { live = false } = {}) {
+  const list = (steps || []).filter(Boolean).slice(0, 8);
+  return list.map((s, i) => {
+    const now = live && i === list.length - 1;
+    return `<div class="td-tl ${now ? "td-tl-now" : "td-tl-done"}"><span class="td-tl-dot">${now ? "" : icon("checkline")}</span><span class="td-tl-text">${esc(s)}</span></div>`;
+  }).join("");
+}
 
 export function renderTodo(view, { param } = {}) {
   const t = param ? store.get("tasks", param) : null;
@@ -99,9 +129,9 @@ export function renderTodo(view, { param } = {}) {
   // wired here so it works the same live and redrawn.
   function resultEl(r) {
     const d = document.createElement("div");
-    d.className = `td-result td-result-${r.kind}`;
+    d.className = `td-result td-result-${r.kind} td-in`;
     if (r.kind === "options") {
-      d.innerHTML = `<div class="td-rhead">${icon("dollar")} Payment-matched options${r.now != null ? ` <span class="muted">· pays ${esc(money(r.now))}/mo now</span>` : ""}</div>
+      d.innerHTML = `<div class="td-rhead">${icon("dollar")} Payment-matched options${r.now != null ? `<span class="muted td-rsub">pays ${esc(money(r.now))}/mo now</span>` : ""}</div>
         <table class="td-table"><thead><tr><th>Vehicle</th><th class="num">Monthly</th><th class="num">vs now</th></tr></thead><tbody>
         ${r.rows.map((x) => `<tr><td>${esc(x.vehicle)}${x.inStock ? "" : ` <span class="td-tag">to order</span>`}<div class="small muted">${esc(x.method || "")}</div></td><td class="num">${esc(money(x.monthly))}<span class="muted">/mo</span></td><td class="num ${x.delta != null && x.delta <= 0 ? "td-good" : ""}">${esc(delta(x.delta))}</td></tr>`).join("")}
         </tbody></table>`;
@@ -153,47 +183,55 @@ export function renderTodo(view, { param } = {}) {
   // One exchange as a card: what was asked, the steps, the results, the reply.
   function turnEl(turn, { live = false } = {}) {
     const c = document.createElement("div");
-    c.className = "card td-turn" + (live ? " td-turn-live" : "");
+    c.className = "card td-turn td-in" + (live ? " td-turn-live" : "");
     const steps = (turn.steps || []).filter(Boolean);
-    c.innerHTML = `<div class="td-ask">${esc(turn.ask)}</div>
-      <div class="td-steps" ${steps.length ? "" : "hidden"}>${steps.map((s) => `<span class="td-step">${esc(s)}</span>`).join(`<span class="td-sep">›</span>`)}</div>
+    c.innerHTML = `<div class="td-turn-head">
+        <span class="td-ask">${esc(turn.ask)}</span>
+        <span class="td-when">${live ? `<span class="td-pill td-pill-live">Working</span>` : turn.at ? esc(formatDateTime(turn.at)) : ""}</span>
+      </div>
+      <div class="td-steps" ${steps.length ? "" : "hidden"}>${stepsHtml(steps, { live })}</div>
       <div class="td-results"></div>
-      <div class="td-reply ${live ? "td-working" : ""}" ${live ? "data-step" : ""}>${live ? "Working…" : esc(turn.say || "Done.")}</div>
-      ${turn.at && !live ? `<div class="small muted" style="margin-top:8px">${esc(formatDateTime(turn.at))}</div>` : ""}`;
+      <div class="td-reply-row">
+        <span class="td-mark">${icon("sparkles")}</span>
+        <div class="td-reply ${live ? "td-working" : ""}" ${live ? "data-step" : ""}>${live ? "Working…" : sayHtml(turn.say)}</div>
+      </div>`;
     const box = c.querySelector(".td-results");
     (turn.results || []).forEach((r) => box.appendChild(resultEl(r)));
     return c;
   }
 
   const when = isReminder(t) ? reminderWhen(t) : t.due ? relativeDay(t.due) : "";
-  const sub = [lead ? `<a href="#/leads/${esc(lead.id)}" class="td-who">${esc(lead.name)}</a>` : "", esc(when)].filter(Boolean).join(" · ");
 
   function draw() {
     const turns = turnsOf(t);
     const actions = nextActions(t, lead);
+    const pend = pendingRun(t.id);
+    const last = turns[turns.length - 1];
+    const status = pend ? `<span class="td-pill td-pill-ask">${icon("help")} Waiting on you</span>`
+      : last ? `<span class="td-pill td-pill-done">${icon("checkline")} Done · ${esc(formatDateTime(last.at))}</span>`
+      : `<span class="td-pill">Not run yet</span>`;
     el.innerHTML = `
-      <div class="hero">
-        ${sub ? `<div class="hero-greeting">${sub}</div>` : ""}
-        <div class="hero-title" style="font-size:1.3rem">${esc(t.title)}</div>
+      <div class="td-hero">
+        ${lead ? `<a href="#/leads/${esc(lead.id)}" class="td-person"><span class="td-avatar">${esc(initials(lead.name))}</span><span class="td-person-name">${esc(lead.name)}</span>${when ? `<span class="td-person-when">· ${esc(when)}</span>` : ""}</a>` : when ? `<div class="hero-greeting">${esc(when)}</div>` : ""}
+        <div class="hero-title td-title">${esc(t.title)}</div>
+        <div class="td-status">${status}</div>
       </div>
       <div class="section-title">What it did</div>
       <div class="td-thread"></div>
-      ${!turns.length ? `<div class="card td-work"><div class="td-say muted">Not run yet.</div>${ask ? `<button type="button" class="btn btn-primary btn-block" data-act="run" style="margin-top:12px">Do it</button>` : ""}</div>` : ""}
+      ${!turns.length && !pend ? `<div class="card td-work td-in"><div class="td-reply-row"><span class="td-mark">${icon("sparkles")}</span><div class="td-reply muted">Nothing yet. Tap Do it and the work lands here.</div></div>${ask ? `<button type="button" class="btn btn-primary btn-block" data-act="run" style="margin-top:14px">${icon("sparkles")} Do it</button>` : ""}</div>` : ""}
       <div class="td-live"></div>
       ${actions.length ? `
       <div class="section-title">It can also</div>
       <div class="card td-actions">
-        ${actions.map((x, i) => `<button type="button" class="td-action" data-action="${i}">${icon(x.icon)}<span>${esc(x.label)}</span><span class="td-arrow">›</span></button>`).join("")}
+        ${actions.map((x, i) => `<button type="button" class="td-action" data-action="${i}"><span class="td-action-ico">${icon(x.icon)}</span><span class="td-action-label">${esc(x.label)}</span><span class="td-arrow">›</span></button>`).join("")}
       </div>` : ""}
-      <div class="card">
-        <form class="td-ask-form" style="display:flex;gap:8px;align-items:center">
-          <input type="text" class="td-input" placeholder="${esc(lead ? `Or tell it what else to do for ${first(lead.name)}…` : "Or tell it what else to do…")}" autocomplete="off" style="flex:1;min-width:0" />
-          <button type="submit" class="btn btn-primary btn-sm" style="flex:none">Go</button>
-        </form>
-      </div>
-      <div class="btn-row" style="margin-top:4px">
-        ${ask && turns.length ? `<button type="button" class="btn btn-ghost btn-sm" data-act="again" style="flex:1">Run it again</button>` : ""}
-        <button type="button" class="btn btn-ghost btn-sm" data-act="done" style="flex:1">${icon("check")} Tick it off</button>
+      <form class="td-ask-form">
+        <input type="text" class="td-input" placeholder="${esc(lead ? `Or tell it what else to do for ${first(lead.name)}…` : "Or tell it what else to do…")}" autocomplete="off" />
+        <button type="submit" class="btn btn-primary btn-sm" aria-label="Go">${icon("send")}</button>
+      </form>
+      <div class="td-foot">
+        <button type="button" class="btn btn-primary btn-block td-tick" data-act="done">${icon("check")} Tick it off</button>
+        ${ask && turns.length ? `<button type="button" class="btn btn-ghost btn-sm btn-block" data-act="again">Run it again</button>` : ""}
       </div>
       <div class="fab-note">Everything happens here. A text it drafts waits above for you to send; figures stay off it.</div>
     `;
@@ -201,7 +239,7 @@ export function renderTodo(view, { param } = {}) {
     turns.forEach((turn) => thread.appendChild(turnEl(turn)));
     // A run from the card that's waiting on an answer: its work so far,
     // its question, and the field — the answer finishes that run here.
-    const pend = pendingRun(t.id);
+    // (pend was read above, before the markup)
     if (pend) {
       clearPendingRun(t.id);
       session = pend.session; seeded = true;
@@ -209,6 +247,7 @@ export function renderTodo(view, { param } = {}) {
       const card = turnEl(turn, { live: true });
       const reply = card.querySelector(".td-reply");
       reply.classList.remove("td-working"); reply.removeAttribute("data-step"); reply.textContent = pend.question;
+      const w = card.querySelector(".td-when"); if (w) w.innerHTML = `<span class="td-pill td-pill-ask">${icon("help")} Needs you</span>`;
       el.querySelector(".td-live").appendChild(card);
       const notRun = el.querySelector(".td-work");
       if (notRun) notRun.remove();
@@ -279,14 +318,18 @@ export function renderTodo(view, { param } = {}) {
       const s = await getSession();
       const res = await s.send(fresh || cont ? text : seed(text), (step) => {
         if (!step || /^⚠/.test(step)) return;
-        if (turn.steps[turn.steps.length - 1] !== step) { turn.steps.push(step); const box = card.querySelector(".td-steps"); box.hidden = false; box.innerHTML = turn.steps.slice(0, 8).map((x) => `<span class="td-step">${esc(x)}</span>`).join(`<span class="td-sep">›</span>`); }
-        const d = card.querySelector("[data-step]"); if (d) d.textContent = step;
+        if (turn.steps[turn.steps.length - 1] !== step) { turn.steps.push(step); const box = card.querySelector(".td-steps"); box.hidden = false; box.innerHTML = stepsHtml(turn.steps, { live: true }); }
       });
       const reply = card.querySelector(".td-reply");
       reply.classList.remove("td-working");
-      reply.textContent = res.say || "Done.";
+      reply.innerHTML = sayHtml(res.say || "Done.");
+      reply.classList.add("td-in");
       turn.say = res.say || "Done.";
       turn.steps = turn.steps.slice(0, 8);
+      // The timeline settles: every step ticked, the pill becomes the time.
+      const stepsBox = card.querySelector(".td-steps");
+      if (stepsBox && turn.steps.length) stepsBox.innerHTML = stepsHtml(turn.steps);
+      if (res.done !== false) { const w = card.querySelector(".td-when"); if (w) w.innerHTML = `<span class="td-pill td-pill-done td-in">${icon("checkline")} Done</span>`; }
       if (res.done === false) {
         // A question back: answered right here, and the same turn carries on.
         const opts = Array.isArray(res.options) ? res.options : [];
