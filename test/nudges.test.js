@@ -133,6 +133,26 @@ console.log("after answering and confirming:", JSON.stringify(after));
 if (after.includes("reply")) fail("reading the thread didn't clear the reply nudge");
 if (after.includes("confirm")) fail("confirming the appointment didn't clear its nudge");
 
+// --- A new customer's welcome text never falls off the list. With a book
+// full of follow-up texts aged past its score, the four slots on Home were
+// all theirs and the welcome for the customer just added wasn't shown.
+const crowded = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const cadence = await import("/js/cadence.js"); const m = await import("/js/nudges.js");
+  const ago = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  for (let i = 0; i < 6; i++) {
+    const l = store.create("leads", { name: `Old Lead${i}`, phone: "902555000" + i, stage: "working" });
+    store.create("tasks", { title: `Text Old — value`, due: ago(3).slice(0, 10), at: ago(3), readyAt: ago(3), done: false, leadId: l.id, cadence: true, channel: "text", intent: "value", step: 3, of: 13 });
+  }
+  const lead = store.create("leads", { name: "Nadia Ross", phone: "9025559876", stage: "new", source: "Walk-in", loggedAt: new Date().toISOString() });
+  cadence.startCadence(lead.id);
+  await new Promise((r) => setTimeout(r, 300));
+  const four = m.getNudges({ limit: 4 }).map((n) => ({ title: n.title, urgency: n.urgency, locked: !!n.locked }));
+  return { four, home: document.querySelector(".nudge-slot")?.textContent.replace(/\s+/g, " ") || "" };
+});
+console.log("\ncrowded:", JSON.stringify(crowded.four));
+if (!crowded.four.length || !/Nadia's welcome text is drafted/.test(crowded.four[0].title) || !crowded.four[0].locked) fail("with older follow-ups outscoring it, the new customer's welcome text should still lead Right now: " + JSON.stringify(crowded.four));
+if (!/Nadia's welcome text is drafted/.test(crowded.home)) fail("Home's Right now should show the new customer's welcome text: " + crowded.home.slice(0, 160));
+
 // --- And it's on Home, above the day's queue.
 const home = await p.$eval(".nudge-slot", (n) => n.textContent.replace(/\s+/g, " ").trim()).catch(() => "");
 console.log("\nHome strip:", home.slice(0, 120));

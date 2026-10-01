@@ -94,6 +94,10 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
     out.push({
       key: `touch:${t.id}`,
       urgency: Math.min(98, (intro ? 93 : 86) + Math.floor(mins / 15)),
+      // A welcome text never falls off the list: with a book full of
+      // follow-ups aging past it, the one for the customer just added is
+      // still the one that converts. Pinned ahead of the cut (below).
+      pin: intro,
       kind: "touch",
       taskId: t.id,
       title: `${firstName(lead.name)}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is ready`,
@@ -115,6 +119,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
     out.push({
       key: `touch:${t.id}`,
       urgency: 92,
+      pin: t.intent === "intro",
       kind: "touch",
       taskId: t.id,
       locked: true,
@@ -267,7 +272,12 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       });
     });
 
-  return out.sort((a, b) => b.urgency - a.urgency).slice(0, limit);
+  // Most urgent first — with the pinned ones (a new customer's welcome
+  // text) ahead of the cut, so a short list never loses them to older,
+  // higher-scoring follow-ups.
+  out.sort((a, b) => b.urgency - a.urgency);
+  const pinned = out.filter((n) => n.pin), rest = out.filter((n) => !n.pin);
+  return [...pinned, ...rest].slice(0, limit);
 }
 
 // The one-line version, for the agent and for anywhere that wants a summary
