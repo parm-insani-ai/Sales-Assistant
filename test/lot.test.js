@@ -95,6 +95,19 @@ if (lot.answerLot(V, "book Ken Thursday at 4", {}, { today })) fail("an appointm
 if (lot.answerLot(V, "text Sara that her car is ready", {}, { today })) fail("a text is not a lot question");
 if (lot.answerLot(V, "who should I call today", {}, { today })) fail("a who-to-call is not a lot question");
 if (lot.answerLot(V, "add a lead named Rogue Smith", {}, { today })) fail("adding a lead is not a lot question");
+// "new" and "got" in a sentence about people or messages don't make it
+// about cars. These all go to the assistant.
+for (const q of ["have I got any new messages from my clients", "anything new from Dana", "any new leads today", "what's new", "did anyone reply", "any new appointments this week", "have I got any customers waiting", "anything in black from Ken"]) {
+  if (lot.answerLot(V, q, {}, { today })) fail(`not a lot question, taken as one: "${q}"`);
+}
+// …while the lot's own words still are.
+for (const q of ["anything new on the lot", "any new rogues", "what new cars have we got", "any black suvs", "anything in black on the lot"]) {
+  const a = lot.answerLot(V, q, {}, { today });
+  if (!a) fail(`a lot question went unrecognised: "${q}"`);
+}
+r = ask("what new cars have we got");
+show("what new cars have we got", r);
+if (!r || r.count !== 2 || !/^(Yes — )?2 new vehicles on the lot/.test(r.answer)) fail("a bare condition should read 'new vehicles', never 'news': " + (r && r.answer));
 
 // --- Structured hints from the agent override the words.
 r = ask("what have we got", { condition: "Used", body: /sedan/i, maxPrice: 30000 });

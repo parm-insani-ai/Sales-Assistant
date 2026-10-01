@@ -152,8 +152,20 @@ export function parseLotQuestion(text, vehicles, hints = {}) {
 
   // An instruction is never a lot question, whatever vehicle it names.
   if (/\b(add|create|new (lead|customer|prospect)|book|schedule|text|message|call|phone|remind|log|email|send|note|mark|update|delete|cancel|sold|bought|signed|deliver\w*)\b/.test(t) && !/\b(how many|how much|cheapest|price of|going for)\b/.test(t)) return null;
+  // Nor is anything about people or what they've said. "Have I got any new
+  // messages from my clients" has "new" and "got" in it and is not about
+  // cars; the lot is metal, and a sentence about messages, customers,
+  // appointments or the day's work goes to the assistant.
+  if (/\b(messages?|texts?|emails?|inbox|mail|repl(y|ies|ied)|clients?|customers?|leads?|prospects?|people|anyone|anybody|someone|who|appointments?|calls?|voicemails?|follow-?ups?|tasks?|to-?dos?|plays?|plate|reminders?|deliver\w*|deals?|sales?|commission|target|goal|waiting|heard|said|told|wrote)\b/.test(t) && !/\b(on the lot|in stock|inventory)\b/.test(t)) return null;
   const aboutLot = /\b(lot|stock|inventory|in stock|on hand|available|have|got|carry|sell|selling|units?|cars?|vehicles?|suvs?|trucks?|sedans?|listed|going for|priced?|kilomet\w*|kms?|mileage|cheapest|newest)\b/.test(t);
-  const filtered = f.models.length || f.makes.length || f.trims.length || f.stock || f.body || f.fuel || f.condition || f.colour || f.maxPrice || f.minPrice || f.maxKm || f.year || f.minYear || f.demo;
+  // A vehicle, a stock number, a body, a fuel, a price or a kilometre
+  // figure says "cars" on its own. A condition, a colour or a year does
+  // not — "anything new?", "the red one", "2024" — and only counts when
+  // the sentence also names the lot or what's on it.
+  const real = f.models.length || f.makes.length || f.trims.length || f.stock || f.body || f.fuel || f.maxPrice || f.minPrice || f.maxKm || f.demo;
+  const weak = f.condition || f.colour || f.year || f.minYear;
+  const lotNoun = /\b(lot|stock|inventory|in stock|on hand|units?|cars?|vehicles?|suvs?|trucks?|sedans?|hatch\w*|minivans?|demos?|trade-?ins?|kilomet\w*|kms?|mileage|cheapest|priciest|newest|listed|going for|priced?)\b/.test(t);
+  const filtered = real || (weak && lotNoun);
   if (!aboutLot && !filtered) return null;
   if (!filtered && !/\b(on the lot|the lot|inventory|in stock|on hand|what (do we|have we|we) (have|got)|how many (cars|vehicles|units)|cheapest|newest|anything (in|on|available))\b/.test(t)) return null;
   f.confidence = filtered ? (f.models.length || f.stock ? 2 : 1) : 0;
@@ -218,6 +230,8 @@ export function describeFilters(f) {
   if (f.models.length) bits.push(f.models.map(cap).join("/"));
   if (f.trims.length) bits.push(f.trims.map((x) => x.length <= 3 ? x.toUpperCase() : cap(x)).join(" "));
   if (f.body) bits.push(f.body.source.split("|")[0].toUpperCase() === "SUV" ? "SUV" : f.body.source.split("|")[0]);
+  // A bare adjective needs its noun, or the count comes out as "319 news".
+  if (bits.length && !f.makes.length && !f.models.length && !f.trims.length && !f.body) bits.push("vehicles");
   let s = bits.join(" ") || "vehicles";
   if (f.minPrice && f.maxPrice) s += ` between ${fmtMoney(f.minPrice)} and ${fmtMoney(f.maxPrice)}`;
   else if (f.maxPrice) s += ` under ${fmtMoney(f.maxPrice)}`;

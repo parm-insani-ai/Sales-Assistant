@@ -56,11 +56,14 @@ const parsed = await p.evaluate(async () => {
     lead: v.parseCommand("add a lead named Rogue Smith interested in a Kicks").action,
     appt: v.parseCommand("book Dana Thursday at 4").action,
     ev: v.parseCommand("do we have any electric vehicles").action,
+    msgs: v.parseCommand("Have I got any new messages from my clients").action,
+    whatsNew: v.parseCommand("what's new").action,
   };
 });
 console.log("parsed:", JSON.stringify(parsed));
 if (parsed.q !== "lot" || parsed.km !== "lot" || parsed.price !== "lot" || parsed.ev !== "lot") fail("lot questions aren't recognised: " + JSON.stringify(parsed));
 if (parsed.lead !== "lead" || parsed.appt !== "appointment") fail("a command got taken for a lot question: " + JSON.stringify(parsed));
+if (parsed.msgs === "lot" || parsed.whatsNew === "lot") fail("a question about messages or the day is not a lot question — it goes to the assistant: " + JSON.stringify(parsed));
 
 // --- Said into the voice panel with no agent set up: answered on the device.
 const spoken = await p.evaluate(async () => {
