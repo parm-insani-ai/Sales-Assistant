@@ -34,13 +34,13 @@ export function renderPerformance(view) {
       <button class="btn btn-ghost btn-sm" data-nav="1" aria-label="Next month">›</button>
       <button class="btn btn-ghost btn-sm" data-nav="year">Year</button>
     </div>
-    <div id="pf-body"></div>
-    <div class="btn-row" style="margin:14px 0 4px;gap:8px">
-      <button class="btn btn-primary" data-act="target">${icon("target")} Set target</button>
-      <button class="btn btn-ghost" data-act="tracker">${icon("checkline")} Sold Tracker</button>
-      <button class="btn btn-ghost" data-act="export">${icon("download")} Export sheet</button>
+    <div class="pf-actions">
+      <button class="pf-action" data-act="target">${icon("target")}<span>Set target</span></button>
+      <button class="pf-action" data-act="tracker">${icon("checkline")}<span>Sold Tracker</span></button>
+      <button class="pf-action" data-act="export">${icon("download")}<span>Export sheet</span></button>
     </div>
-    <div class="small muted" style="margin-top:8px">The export is the "Vehicles Sold Track" sheet, filled in for this ${yearMode ? "year" : "month"}: every column in the sheet's order and the summary panels down the right.</div>
+    <div id="pf-body"></div>
+    <div class="small muted" style="margin-top:14px;text-align:center">Export sheet downloads the "Vehicles Sold Track" sheet, filled in for the view above.</div>
   `;
   view.appendChild(el);
 
@@ -71,7 +71,6 @@ export function renderPerformance(view) {
       const at = ym === todayISO().slice(0, 7) ? now : new Date(y, m, 0, 12);
       const t = salesTarget(at);
       const p = t.plan;
-      const behind = t.expectedByNow - t.spoke;
       parts.push(section("Target sheet", p.target ? table(["", "New", "Used", "Total"], [
         ["Target", p.split ? p.targetNew : "—", p.split ? p.targetUsed : "—", p.target],
         ["Closing expected", pct(p.closingNew), pct(p.closingUsed), pct(p.closingNew)],
@@ -82,13 +81,7 @@ export function renderPerformance(view) {
         ["Units remaining", p.split ? Math.max(0, p.targetNew - t.soldNew) : "—", p.split ? Math.max(0, p.targetUsed - t.soldUsed) : "—", t.remainingUnits],
         ["Conversations remaining", p.split ? Math.max(0, p.needNew - t.spokeNew) : "—", p.split ? Math.max(0, p.needUsed - t.spokeUsed) : "—", t.remainingTalks],
         ["Target attainment", pct(p.targetNew ? t.soldNew / p.targetNew : null), pct(p.targetUsed ? t.soldUsed / p.targetUsed : null), pct(t.attainment)],
-      ]) + `
-        <div class="tg-chips" style="margin-top:8px">
-          <span class="tg-chip ${t.sold >= p.target ? "tg-good" : behind > 0 ? "tg-warn" : "tg-good"}">${t.sold >= p.target ? "Target reached" : behind > 0 ? `${behind} conversations behind pace` : "On pace"}</span>
-          <span class="tg-chip">Day ${t.day} of ${t.daysIn} · ${t.expectedByNow} expected by now</span>
-          <span class="tg-chip ${t.spokeWeek >= t.perWeek ? "tg-good" : ""}">Week ${t.week} of ${t.weeks}: ${t.spokeWeek}/${t.perWeek} spoken with</span>
-          ${t.spokeUnsplit || t.soldUnsplit ? `<span class="tg-chip">${t.spokeUnsplit ? `${t.spokeUnsplit} spoken with unsplit` : ""}${t.spokeUnsplit && t.soldUnsplit ? " · " : ""}${t.soldUnsplit ? `${t.soldUnsplit} sold unsplit` : ""}</span>` : ""}
-        </div>` : `<div class="card"><div class="small muted">No target set for this month. Set your new and used units and the closing ratio you expect, and the sheet works out the conversations.</div></div>`));
+      ]) : `<div class="card"><div class="small muted">No target set for this month. Set your new and used units and the closing ratio you expect, and the sheet works out the conversations.</div></div>`));
 
       // Appointments: the funnel, and the month's commission against the goal.
       const f = apptFunnel(ym);

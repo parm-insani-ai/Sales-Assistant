@@ -1778,6 +1778,17 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .topbar h1.day-link:active { opacity: 0.6; }
 .topbar h1.day-link .day-count { color: var(--muted); font-weight: 600; }
 
+/* Performance: three equal actions above the sheets, icon over label. */
+.pf-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.pf-action {
+  appearance: none; font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 14px 8px 12px; border-radius: 14px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 0.8rem; font-weight: 600; text-align: center;
+  transition: transform 0.1s, background 0.12s;
+}
+.pf-action svg { width: 22px; height: 22px; color: var(--brand); }
+.pf-action:active { transform: scale(0.97); background: var(--surface-2); }
 /* Performance: the sheets as rows — a label, then numbers right-aligned. */
 .pf-row { padding: 6px 0; border-bottom: 1px solid var(--border); gap: 8px; }
 .pf-row:last-child { border-bottom: none; }
