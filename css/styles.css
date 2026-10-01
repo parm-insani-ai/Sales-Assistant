@@ -954,7 +954,8 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .swipe-wrap-card { border-radius: var(--radius); margin-bottom: 14px; }
 .swipe-wrap-card > .card { margin-bottom: 0; }
 /* The buttons behind a row: any number, each 92px, delete on the far right. */
-.swipe-tray { position: absolute; top: 0; bottom: 0; right: 0; display: flex; }
+.swipe-tray { position: absolute; top: 0; bottom: 0; right: 0; display: flex; visibility: hidden; }
+.swipe-wrap.swiping .swipe-tray { visibility: visible; }
 .swipe-act {
   width: 92px; flex: none;
   border: none; background: var(--primary); color: #fff;
@@ -1632,7 +1633,7 @@ textarea:focus, input:focus, select:focus { outline: none; }
 .nudge-card .swipe-wrap:last-child .nudge-row { border-bottom: none; }
 .nudge-card .swipe-wrap .nudge-row { padding-left: 2px; padding-right: 2px; }
 .nudge-card .swipe-act { font-size: 0.74rem; }
-.nudge-row:active { opacity: .6; }
+.nudge-row:active { background: var(--surface-2); }
 .nudge-row .row-meta { color: var(--muted); font-size: 1.1rem; line-height: 1; }
 .nudge-hot .row-title { color: var(--brand-strong); }
 /* Drafted, locked for its minutes: a clock where the chevron would be. */

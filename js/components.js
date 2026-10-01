@@ -280,9 +280,14 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
 
   const setX = (x) => { el.style.transform = x ? `translate3d(${x}px,0,0)` : ""; };
   const restoreTray = () => { if (expanded) { expanded = false; W = baseW; firstTray(); } };
+  // The tray exists only while a swipe is underway or the row is open —
+  // otherwise a row made translucent (a tap, a loading state) shows the
+  // buttons behind it as if they had appeared.
+  const showTray = (on) => wrap.classList.toggle("swiping", !!on);
   const closeRow = () => {
     open = false; dx = 0; moved = false;
     setX(0);
+    showTray(false);
     restoreTray();
     if (closeOpenSwipe === closeRow) closeOpenSwipe = null;
   };
@@ -298,6 +303,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
       expanded = true;
       W = BTN * list.length;
       open = true; dx = -W;
+      showTray(true);
       setX(-W);
       closeOpenSwipe = closeRow;
     },
@@ -317,6 +323,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
       if (horiz) {
         try { el.setPointerCapture(e.pointerId); } catch {}
         el.classList.add("dragging");
+        showTray(true);
         if (closeOpenSwipe && closeOpenSwipe !== closeRow) closeOpenSwipe();
       }
     }
@@ -332,7 +339,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
     if (!horiz) return;
     open = dx < -W / 2;
     setX(open ? -W : 0);
-    if (!open) restoreTray();
+    if (!open) { restoreTray(); setTimeout(() => { if (!open) showTray(false); }, 260); }
     closeOpenSwipe = open ? closeRow : (closeOpenSwipe === closeRow ? null : closeOpenSwipe);
   };
   el.addEventListener("pointerup", finish);
