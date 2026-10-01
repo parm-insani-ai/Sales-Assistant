@@ -229,7 +229,7 @@ export function renderTodo(view, { param } = {}) {
     (turn.results || []).forEach((r) => box.appendChild(resultEl(r)));
     // A drafted text is the reply: the sentence describing it says nothing
     // the box above doesn't, so it stays off the page.
-    if (!live && (turn.results || []).some((r) => r.kind === "draft")) c.querySelector(".td-reply-row").hidden = true;
+    if (!live && (turn.results || []).some((r) => r.kind === "draft")) c.querySelector(".td-reply-row").remove();
     return c;
   }
 
@@ -357,7 +357,7 @@ export function renderTodo(view, { param } = {}) {
       reply.classList.remove("td-working");
       reply.innerHTML = sayHtml(res.say || "Done.");
       reply.classList.add("td-in");
-      if (res.done !== false && turn.results.some((r) => r.kind === "draft")) card.querySelector(".td-reply-row").hidden = true;
+      if (res.done !== false && turn.results.some((r) => r.kind === "draft")) card.querySelector(".td-reply-row").remove();
       turn.say = res.say || "Done.";
       turn.steps = turn.steps.slice(0, 8);
       // The timeline settles: every step ticked, the pill becomes the time.

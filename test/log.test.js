@@ -166,7 +166,7 @@ await p.fill(".td-live .td-result-draft .td-draft-body", "Hi Dana, found two opt
 await p.click(".td-live .td-result-draft [data-edit-done]");
 const edited = await p.evaluate(async () => { const s = await import("/js/store.js"); const tr = (s.get("tasks", "c1").assist || {}).turns || []; return { shown: document.querySelector(".td-live .td-result-draft .td-draft-text")?.textContent || "", kept: tr[1] && tr[1].results[0] && tr[1].results[0].message }; });
 if (!/two options/.test(edited.shown) || !/two options/.test(edited.kept || "")) fail("Done should keep the edit on screen and on the to-do: " + JSON.stringify(edited));
-const replyHidden = await p.evaluate(() => !!document.querySelector(".td-live .td-turn .td-reply-row")?.hidden);
+const replyHidden = await p.evaluate(() => !document.querySelector(".td-live .td-turn .td-reply-row"));
 if (!replyHidden || drafted.turns !== 2) fail("with a draft on the page the assistant's sentence about it stays hidden, and the exchange is kept on the to-do: " + JSON.stringify({ replyHidden, drafted }));
 await p.evaluate(() => document.querySelector(".td-live .td-result-draft [data-send]").click());
 await p.waitForFunction(() => /Sent/.test(document.querySelector(".td-live .td-result-draft [data-status]")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("Send didn't send"));
