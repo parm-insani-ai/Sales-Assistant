@@ -69,6 +69,35 @@ function cutsFor(sorted) {
   return { hot: cutAt(0.10, FLOORS.hot), strong: cutAt(0.35, FLOORS.strong), worth: FLOORS.worth };
 }
 
+// Why someone is worth a call now, in the salesperson's words: each
+// customer is filed under their single strongest reason. The order is the
+// order they're shown in — the ones already talking to you first.
+export const WHY_CATEGORIES = [
+  { key: "engaged", label: "Reaching out to you" },
+  { key: "payment", label: "Same payment or less" },
+  { key: "equity", label: "Equity to trade" },
+  { key: "ending", label: "Contract or lease ending" },
+  { key: "service", label: "In the service drive" },
+  { key: "rate", label: "Better rate available" },
+  { key: "warranty", label: "Warranty or km running out" },
+  { key: "flagged", label: "Flagged for you" },
+  { key: "cycle", label: "Due for a change" },
+  { key: "other", label: "Worth a look" },
+];
+export function categoryOf(chip) {
+  const c = String(chip || "");
+  if (/^(Opened your link|Texted you|Live lead|Shopping now)/.test(c)) return "engaged";
+  if (/\/mo less$|^Same payment|^\+\$/.test(c)) return "payment";
+  if (/equity$|^Positive equity|^Paid off/.test(c)) return "equity";
+  if (/^(Lease|Contract) ends/.test(c)) return "ending";
+  if (/^In service/.test(c)) return "service";
+  if (/% → |^Rate /.test(c)) return "rate";
+  if (/warranty|km/i.test(c)) return "warranty";
+  if (/^AutoAlert|^High priority|^🏷/.test(c)) return "flagged";
+  if (/^Owned /.test(c)) return "cycle";
+  return "other";
+}
+
 // The whole book, read once. Returns a Map leadId -> assessment.
 let cache = { key: "", byId: null, sorted: null, cuts: null, one: null, per: null, global: "" };
 function cacheKey() {
@@ -409,7 +438,13 @@ function assessOne(l, ctx) {
     else next = { label: "Nothing pressing — keep on file", kind: "none" };
   }
 
-  return { lead: l, score, tier, reasons, why: whyAll, whySafe, next, best, flags };
+  // Their strongest reason, as a category (see WHY_CATEGORIES).
+  // Someone who's talking to you, or in the service drive this fortnight,
+  // is filed there whatever else is true: those are the reasons with a
+  // clock on them. Otherwise it's the heaviest reason.
+  const pos = chips.filter((f) => f.pts > 0).map((f) => categoryOf(f.chip));
+  const cat = pos.includes("engaged") ? "engaged" : pos.includes("service") ? "service" : pos[0] || "other";
+  return { lead: l, score, tier, reasons, why: whyAll, whySafe, next, best, flags, cat };
 }
 
 // The read of the whole book, cached until something it reads changes.

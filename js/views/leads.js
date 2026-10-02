@@ -9,7 +9,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
-import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook } from "../assess.js";
+import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook, WHY_CATEGORIES } from "../assess.js";
 import { contractSummary } from "../contract.js";
 import { dictate } from "../dictate.js";
 import { nextMoves, undoMove } from "../moves.js";
@@ -154,11 +154,17 @@ export function renderLeads(view, { param }) {
   const CHIPS = ["tocontact", "timing", "due", "contacted", "all"];
   const rem = recall(REMEMBER);
   let filter = [preset, rem].find((f) => CHIPS.includes(f)) || "tocontact";
+  // Back from a customer: the chip you were on, even one a shortcut picked.
+  if (spot && !preset && isReturn() && CHIPS.includes(spot.filter)) filter = spot.filter;
   // A jump from elsewhere (a preset) is a new list; the spot only applies to
   // the list it was saved on.
   if (spot && (preset || !isReturn() || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
   // The search you had typed comes back with the spot — and only with it.
   if (spot && !search && spot.search) search = spot.search;
+  // Which "why" groups on Best now are showing everyone (the rest show three).
+  const WHY_OPEN = "viniva:leads-why-open";
+  const openWhy = new Set((() => { try { return JSON.parse(sessionStorage.getItem(WHY_OPEN) || "[]"); } catch { return []; } })());
+  const keepWhy = () => { try { sessionStorage.setItem(WHY_OPEN, JSON.stringify([...openWhy])); } catch { /* fine */ } };
   // Mass-delete selection mode (e.g. clearing a bad import to start fresh).
   let selecting = false;
   const selected = new Set();
@@ -442,7 +448,28 @@ export function renderLeads(view, { param }) {
     // Grouped by when to reach them — Ready now, Opening up in the next
     // three months, Everyone else — on the lists the book's timing applies
     // to. Inside each group the order stays best first.
-    const grouped = ["tocontact", "contacted", "all"].includes(filter) && timingReady();
+    // Best now is grouped by why: each customer under their strongest
+    // reason, the top three of each showing and the rest a tap away.
+    // Searching or filtering shows every match instead.
+    const byWhy = filter === "tocontact" && !selecting;
+    const CAP = (search || aud) ? Infinity : 3;
+    const whyCount = new Map(), whyShown = new Map(), whyLast = new Map(), whyOf = new Map();
+    if (byWhy) {
+      const book = assessAll().byId;
+      const catOf = (x) => { const a = book.get(x.id); return (a && a.cat) || "other"; };
+      const rank = new Map(WHY_CATEGORIES.map((c, k) => [c.key, k]));
+      const order = new Map(filtered.map((x, k) => [x.id, k]));
+      filtered.sort((a, b) => rank.get(catOf(a)) - rank.get(catOf(b)) || order.get(a.id) - order.get(b.id));
+      filtered.forEach((x) => { const c = catOf(x); whyCount.set(c, (whyCount.get(c) || 0) + 1); });
+      const kept = [];
+      filtered.forEach((x) => {
+        const c = catOf(x), n = whyShown.get(c) || 0;
+        if (n < CAP || openWhy.has(c)) { kept.push(x); whyShown.set(c, n + 1); whyLast.set(c, x.id); }
+      });
+      filtered.length = 0; kept.forEach((x) => filtered.push(x));
+      filtered.forEach((x) => { whyOf.set(x.id, catOf(x)); });
+    }
+    const grouped = !byWhy && ["contacted", "all"].includes(filter) && timingReady();
     // Ready now: the timing says so, or the read of the book calls them hot.
     const book = assessAll().byId;
     const groupOf = (x) => { const h = hzOf(x); const a = book.get(x.id); return (h && h.m === 0) || (a && a.tier && a.tier.key === "hot") ? 0 : h && h.m <= 3 ? 1 : 2; };
@@ -452,12 +479,39 @@ export function renderLeads(view, { param }) {
       const order = new Map(filtered.map((x, k) => [x.id, k]));
       filtered.sort((a, b) => groupOf(a) - groupOf(b) || order.get(a.id) - order.get(b.id));
       filtered.forEach((x) => { groupCounts[groupOf(x)]++; });
-    } else if (["tocontact", "contacted", "all"].includes(filter)) {
+    } else if (!byWhy && ["contacted", "all"].includes(filter)) {
       // The groups need the book read for timing; draw now, regroup when it lands.
-      warmTiming().then(() => { if (wrap.isConnected && ["tocontact", "contacted", "all"].includes(filter)) renderList({ keep: true }); });
+      warmTiming().then(() => { if (wrap.isConnected && ["contacted", "all"].includes(filter)) renderList({ keep: true }); });
     }
     let lastGroup = -1;
+    const WHY_LABEL = new Map(WHY_CATEGORIES.map((c) => [c.key, c.label]));
     const withHead = (x, into) => {
+      if (byWhy) {
+        const c = whyOf.get(x.id);
+        if (c !== lastGroup) {
+          lastGroup = c;
+          const h = document.createElement("div");
+          h.className = "section-title lead-group";
+          h.dataset.why = c;
+          h.innerHTML = `<span>${esc(WHY_LABEL.get(c) || "Worth a look")} <span class="muted">· ${(whyCount.get(c) || 0).toLocaleString()}</span></span>${openWhy.has(c) ? `<button type="button" class="lead-why-less" data-why="${esc(c)}">Show fewer</button>` : ""}`;
+          const less = h.querySelector(".lead-why-less");
+          if (less) less.addEventListener("click", () => { openWhy.delete(c); keepWhy(); renderList({ keep: true }); const head = wrap.querySelector(`.lead-group[data-why="${c}"]`); if (head) head.scrollIntoView({ block: "start" }); });
+          into.appendChild(h);
+        }
+        into.appendChild(card(x));
+        // After the last card showing in a group: the rest, or fewer again.
+        // After the third card of a closed group: the rest, a tap away.
+        if (!openWhy.has(c) && whyLast.get(c) === x.id && (whyCount.get(c) || 0) > CAP) {
+          const more = document.createElement("button");
+          more.type = "button";
+          more.className = "list-more lead-why-more";
+          more.dataset.why = c;
+          more.textContent = `Show all ${(whyCount.get(c) || 0).toLocaleString()} ›`;
+          more.addEventListener("click", () => { openWhy.add(c); keepWhy(); renderList({ keep: true }); });
+          into.appendChild(more);
+        }
+        return;
+      }
       if (grouped) {
         const g = groupOf(x);
         if (g !== lastGroup) {

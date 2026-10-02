@@ -322,6 +322,30 @@ console.log("\nOutreach layout:");
   if (!lay.acts.length) fail("the cards carry no action");
   if (lay.banners) fail("the payment banner is still on the list cards");
 
+  // Best now is grouped by why: known reason headings, at most three cards
+  // under each, and "Show all" opens the rest of that group.
+  const why = await p.evaluate(() => {
+    const heads = [...document.querySelectorAll(".lead-list .lead-group[data-why]")];
+    const per = heads.map((h) => { let n = 0, el = h.nextElementSibling; while (el && !el.classList.contains("lead-group")) { if (el.querySelector && el.querySelector(".card-tap")) n++; el = el.nextElementSibling; } return { why: h.dataset.why, label: h.textContent.replace(/\s+/g, " ").trim(), n }; });
+    return { per, more: [...document.querySelectorAll(".lead-why-more")].map((b) => b.dataset.why) };
+  });
+  console.log("  why groups:", JSON.stringify(why.per.slice(0, 4)));
+  const known = ["engaged", "payment", "equity", "ending", "service", "rate", "warranty", "flagged", "cycle", "other"];
+  if (!why.per.length || !why.per.every((g) => known.includes(g.why) && g.n >= 1 && g.n <= 3)) fail("Best now should be grouped by why, three at most per group: " + JSON.stringify(why.per));
+  const order = why.per.map((g) => known.indexOf(g.why));
+  if (order.some((v, k) => k && v < order[k - 1])) fail("the why groups are out of order: " + JSON.stringify(why.per.map((g) => g.why)));
+  if (why.more.length) {
+    const g = why.more[0];
+    await p.evaluate((g) => document.querySelector(`.lead-why-more[data-why="${g}"]`).click(), g); await p.waitForTimeout(400);
+    const opened = await p.evaluate((g) => { const h = document.querySelector(`.lead-group[data-why="${g}"]`); let n = 0, el = h.nextElementSibling; while (el && !el.classList.contains("lead-group")) { if (el.querySelector && el.querySelector(".card-tap")) n++; el = el.nextElementSibling; } return { n, total: Number((h.textContent.match(/· ([\d,]+)/) || [])[1]?.replace(/,/g, "")), btn: h.querySelector(".lead-why-less")?.textContent }; }, g);
+    console.log("  show all:", JSON.stringify(opened));
+    if (opened.n !== Math.min(opened.total, 40) && opened.n !== opened.total) fail("Show all should open the whole group: " + JSON.stringify(opened));
+    if (!/Show fewer/.test(opened.btn || "")) fail("an opened group should offer Show fewer: " + JSON.stringify(opened));
+    await p.evaluate((g) => document.querySelector(`.lead-group[data-why="${g}"] .lead-why-less`).click(), g); await p.waitForTimeout(300);
+    const closed = await p.evaluate((g) => !!document.querySelector(`.lead-why-more[data-why="${g}"]`), g);
+    if (!closed) fail("Show fewer should close the group back to three");
+  }
+
   // Long press: selecting, with that card picked.
   const box = await p.locator(".lead-list .card-tap").first().boundingBox();
   await p.mouse.move(box.x + 40, box.y + 20); await p.mouse.down(); await p.waitForTimeout(800); await p.mouse.up(); await p.waitForTimeout(300);

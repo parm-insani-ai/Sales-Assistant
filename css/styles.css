@@ -2233,3 +2233,6 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .lc-act .ico { width: 14px; height: 14px; }
 .lc-act.btn-ghost { border: 1.5px solid var(--text); background: var(--surface); color: var(--text); }
 .lead-radar-link { color: var(--brand); font-weight: 700; text-decoration: none; white-space: nowrap; }
+.lead-why-more { margin: -4px 0 16px; }
+.lead-group[data-why] { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.lead-why-less { border: none; background: none; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--brand); padding: 4px 0; cursor: pointer; flex: none; }
