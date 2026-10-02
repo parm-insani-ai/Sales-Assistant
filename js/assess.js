@@ -160,7 +160,7 @@ function bookContext(prev) {
 function readOne(ctx, l, per, byId) {
   const sig = ctx.sigOf(l);
   const was = ctx.reuse && ctx.reuse.get(l.id);
-  const a = was && was.sig === sig ? (was.a.lead === l ? was.a : { ...was.a, lead: l }) : (bookStats.read++, ctx.one(l));
+  const a = was && was.sig === sig && was.a.cat ? (was.a.lead === l ? was.a : { ...was.a, lead: l }) : (bookStats.read++, ctx.one(l));
   per.set(l.id, { sig, a });
   byId.set(l.id, a);
 }
@@ -199,6 +199,10 @@ export const bookStats = { read: 0, warmRuns: 0, syncRuns: 0, restored: 0, warmi
 // The read of the book kept for the next launch: each customer's read under
 // the signature it was read with, so a relaunch with the same lot re-reads
 // nobody whose record and signals are as they were.
+// Bumped whenever a customer's read gains or changes a field, so a read
+// saved by an older version is redone rather than reused. (Version 2: the
+// reason category, `cat`.)
+const READ_VERSION = 2;
 let rememberTimer = null;
 function rememberBook() {
   if (!cache.per) return;
@@ -207,7 +211,7 @@ function rememberBook() {
     try {
       const per = [];
       cache.per.forEach((v, id) => per.push([id, v.sig, stripLead(v.a)]));
-      cacheSet("book", { key: radarContentKey(), at: Date.now(), per }).catch(() => {});
+      cacheSet("book", { v: READ_VERSION, key: radarContentKey(), at: Date.now(), per }).catch(() => {});
     } catch { /* a convenience */ }
   }, 1500);
 }
@@ -216,7 +220,7 @@ async function restoreBook() {
   bookStats.restored = 1;
   try {
     const saved = await cacheGet("book");
-    if (!saved || saved.key !== radarContentKey()) return null;
+    if (!saved || saved.v !== READ_VERSION || saved.key !== radarContentKey()) return null;
     const byId = new Map(store.all("leads").map((l) => [l.id, l]));
     const per = new Map();
     saved.per.forEach(([id, sig, a]) => { if (byId.has(id)) per.set(id, { sig, a: rejoinLead(a, byId) }); });

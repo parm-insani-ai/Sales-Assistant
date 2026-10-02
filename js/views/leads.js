@@ -9,7 +9,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
-import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook, WHY_CATEGORIES } from "../assess.js";
+import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook, WHY_CATEGORIES, categoryOf } from "../assess.js";
 import { contractSummary } from "../contract.js";
 import { dictate } from "../dictate.js";
 import { nextMoves, undoMove } from "../moves.js";
@@ -456,7 +456,15 @@ export function renderLeads(view, { param }) {
     const whyCount = new Map(), whyShown = new Map(), whyLast = new Map(), whyOf = new Map();
     if (byWhy) {
       const book = assessAll().byId;
-      const catOf = (x) => { const a = book.get(x.id); return (a && a.cat) || "other"; };
+      // The read's category; a read without one (saved by an older version)
+      // is worked out from the reasons on the card, the same way.
+      const catOf = (x) => {
+        const a = book.get(x.id);
+        if (!a) return "other";
+        if (a.cat) return a.cat;
+        const cats = (a.reasons || []).map(categoryOf);
+        return cats.includes("engaged") ? "engaged" : cats.includes("service") ? "service" : cats.find((c) => c !== "other") || "other";
+      };
       const rank = new Map(WHY_CATEGORIES.map((c, k) => [c.key, k]));
       const order = new Map(filtered.map((x, k) => [x.id, k]));
       filtered.sort((a, b) => rank.get(catOf(a)) - rank.get(catOf(b)) || order.get(a.id) - order.get(b.id));
