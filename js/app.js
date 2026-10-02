@@ -197,6 +197,10 @@ function mount(base, ctx) {
   title.removeAttribute("title");
   const roots = [...document.querySelectorAll(".tabbar .tab[data-route]")].map((t) => t.dataset.route);
   const sub = !!ctx.param || !roots.includes(base);
+  // The tabs with no labels on the bar say their name here, in line with
+  // the "+", in the same type as Home's date.
+  const TAB_NAMES = { "/leads": "Outreach", "/log": "Log", "/comms": "Comms" };
+  if (!ctx.param && TAB_NAMES[base]) { title.textContent = TAB_NAMES[base]; title.classList.add("greeting"); }
   const back = document.getElementById("topbar-back");
   back.hidden = !sub;
   back.onclick = () => goBack(parentOf(base, ctx.param, roots));
