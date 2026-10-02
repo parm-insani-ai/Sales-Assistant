@@ -158,7 +158,7 @@ const settle = () => p.evaluate(() => new Promise((done) => {
 // --- Other list reads land somewhere you can act.
 // (/deals is a redirect: it presets the opportunity filter and hands off to
 // the leads list, so that's where the radar legitimately lands.)
-for (const [tool, want] of [["deal_radar", "#/leads"], ["get_tasks", "#/log"], ["get_appointments", "#/calendar"]]) {
+for (const [tool, want] of [["deal_radar", "#/deals"], ["get_tasks", "#/log"], ["get_appointments", "#/calendar"]]) {
   await goto("#/settings");
   const r = await run(tool);
   const got = Object.values(r.result).find(Array.isArray) || [];

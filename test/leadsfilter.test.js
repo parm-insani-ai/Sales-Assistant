@@ -40,11 +40,11 @@ await p.fill("#af-models", "Sentra");
 await p.check("#af-paid");
 await p.click('.modal [data-act="apply"]');
 await p.waitForTimeout(300);
-let shown = await p.evaluate(() => ({ names: [...document.querySelectorAll(".lead-list .row-title")].map((n) => n.textContent.trim()).sort().join(","), bar: document.querySelector(".lead-audience")?.textContent.replace(/\s+/g, " ").trim(), chip: document.querySelector('[data-act="audience"]')?.textContent.trim(), kept: sessionStorage.getItem("viniva:leads-audience") }));
+let shown = await p.evaluate(() => ({ names: [...document.querySelectorAll(".lead-list .row-title")].map((n) => n.textContent.trim()).sort().join(","), bar: document.querySelector(".lead-audience")?.textContent.replace(/\s+/g, " ").trim(), chip: document.querySelector('[data-act="audience"]')?.getAttribute("aria-pressed"), kept: sessionStorage.getItem("viniva:leads-audience") }));
 console.log("Sentra · paid off:", JSON.stringify(shown));
 if (shown.names !== "Dana Muise,Pat Roy") fail("paid-off Sentra owners: " + shown.names);
 if (!/2 match · Sentra owners · paid off/.test(shown.bar || "")) fail("the filter bar doesn't say who and how many: " + shown.bar);
-if (!/Filter on/.test(shown.chip || "") || !shown.kept) fail("the chip doesn't show the filter is on / it isn't remembered");
+if (shown.chip !== "true" || !shown.kept) fail("the chip doesn't show the filter is on / it isn't remembered");
 
 // --- A chip narrows on top of the filter, and the count follows.
 await p.click('[data-filter="all"]');

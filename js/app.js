@@ -27,6 +27,7 @@ const LOADERS = {
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
+  dealbuilder: () => import("./views/dealbuilder.js"),
   log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"), sold: () => import("./views/sold.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
@@ -152,10 +153,10 @@ const PAGES = {
   // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
   // old notifications, voice commands and bookmarks still land somewhere sane.
   "/prospecting": { title: "Prospecting", render: () => navigate("/") },
-  "/deals": { title: "Deal Radar", render: () => {
-    sessionStorage.setItem("leads-filter", "opportunity");
-    navigate("/leads");
-  } },
+  // The Deal Radar on its own screen: every owner who can move into a new
+  // vehicle for close to what they pay now, with the payment sliders.
+  // Reached from Outreach's Best now line and by the assistant.
+  "/deals": { title: "Deal Radar", render: lazyView("dealbuilder", "renderDeals") },
   "/spiffs": { title: "SPIF Organizer", render: lazyView("spiffs", "renderSpiffs") },
   "/specials": { title: "Monthly Specials", render: lazyView("specials", "renderSpecials") },
   "/compare": { title: "Compare Vehicles", render: lazyView("compare", "renderCompare") },

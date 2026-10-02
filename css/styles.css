@@ -2206,3 +2206,30 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* The quiet buttons on a play — Open, Do it — get an outline, so they read
    as buttons against the banner's grey. */
 .pl-banner .btn-ghost { border: 1.5px solid var(--text); background: var(--surface); color: var(--text); }
+
+
+/* Outreach (views/leads.js): one row for search and Filter, five chips that
+   fit the width (name over count), the book grouped by when to reach them,
+   and compact cards with the one action at the right. */
+.lead-search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.lead-search-row .searchbar { flex: 1; min-width: 0; margin-bottom: 0; }
+.lead-filter-btn { flex: none; width: 48px; height: 48px; padding: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; position: relative; }
+.lead-filter-btn.btn-ghost { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.lead-filter-btn .ico { width: 21px; height: 21px; }
+.lead-filter-dot { position: absolute; top: 9px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand-ink); }
+.lead-seg { display: flex; gap: 6px; margin-bottom: 14px; }
+.lead-seg-btn { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 7px 2px; border-radius: 14px; box-shadow: none; line-height: 1.15; }
+.lead-seg-btn .seg-name { font-size: 0.74rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.lead-seg-btn .seg-count { font-size: 0.86rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.lead-seg-btn.btn-ghost .seg-count { color: var(--muted); }
+.lead-seg-btn.btn-primary { box-shadow: none; }
+.lead-group { margin-top: 6px; }
+.lead-list .card-tap { padding: 13px 16px; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.lc-row { align-items: flex-start; gap: 12px; }
+.lc-row .row-sub .badge { margin-left: 6px; }
+.lc-row .row-reasons { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lc-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.lc-act { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; font-size: 0.8rem; white-space: nowrap; box-shadow: none; }
+.lc-act .ico { width: 14px; height: 14px; }
+.lc-act.btn-ghost { border: 1.5px solid var(--text); background: var(--surface); color: var(--text); }
+.lead-radar-link { color: var(--brand); font-weight: 700; text-decoration: none; white-space: nowrap; }

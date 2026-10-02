@@ -272,7 +272,7 @@ console.log("\nLeads filter memory:");
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
   const fresh = await chips();
   console.log("  fresh:", JSON.stringify(fresh));
-  if (fresh.order.join(",") !== "tocontact,contacted,due") fail(`chips are ordered ${fresh.order.join(", ")}`);
+  if (fresh.order.join(",") !== "tocontact,timing,due") fail(`chips are ordered ${fresh.order.join(", ")}`);
   if (fresh.on !== "tocontact") fail(`the default filter is ${fresh.on}, not To contact`);
 
   await p.evaluate(() => document.querySelector('[data-filter="contacted"]').click()); await p.waitForTimeout(100);
@@ -294,68 +294,48 @@ console.log("\nLeads filter memory:");
   if (after.on !== "contacted") fail(`the jump overwrote the remembered filter (now ${after.on})`);
 }
 
-// --- "By opportunity" is a button beside Add customer and Select, not a
-// chip: a lens over the entire book, remembered on its own, and the old
-// /deals address still lands on it.
-console.log("\nBy opportunity:");
+// --- The layout: one row of search and Filter, no buttons beyond it (the +
+// adds, a long press selects, Best now is the old By opportunity), five
+// chips that all fit on the screen, the book grouped by when to reach them,
+// and an action on each card. /deals lands on Best now.
+console.log("\nOutreach layout:");
 {
-  const state = () => p.evaluate(() => {
-    const row = document.querySelector('[data-act="opp"]')?.closest(".btn-row");
+  await p.evaluate(() => { localStorage.removeItem("viniva:leads-filter"); location.hash = "#/settings"; }); await p.waitForTimeout(100);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(600);
+  const lay = await p.evaluate(() => {
+    const vw = document.getElementById("view").getBoundingClientRect();
+    const chips = [...document.querySelectorAll(".lead-seg [data-filter]")];
     return {
-      chip: !!document.querySelector('[data-filter="opportunity"]'),
-      row: row ? [...row.querySelectorAll("button")].map((b) => b.dataset.act) : null,
-      lit: document.querySelector('[data-act="opp"]')?.classList.contains("btn-primary"),
-      ranked: !!document.querySelector("#deals-controls"),
-      chips: !!document.querySelector("[data-filter]"),
-      cards: document.querySelectorAll(".lead-list .card").length,
+      buttons: [...document.querySelectorAll('[data-act="add-lead"], [data-act="select"], [data-act="opp"]')].length,
+      filter: !!document.querySelector('.lead-search-row [data-act="audience"]'),
+      chips: chips.map((c) => c.querySelector(".seg-name")?.textContent),
+      fit: chips.every((c) => { const r = c.getBoundingClientRect(); return r.left >= vw.left && r.right <= vw.right + 1; }),
+      acts: [...document.querySelectorAll(".lead-list .lc-act")].slice(0, 3).map((b) => b.textContent.trim()),
+      banners: document.querySelectorAll(".lead-list .contract-banner").length,
     };
   });
-  await p.evaluate(() => { localStorage.removeItem("viniva:leads-opp"); location.hash = "#/settings"; }); await p.waitForTimeout(100);
-  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
-  let s = await state();
-  console.log("  off:", JSON.stringify(s));
-  if (s.chip) fail("By opportunity is still a chip");
-  if (!s.row || s.row.join(",") !== "add-lead,select,opp") fail(`the button row is ${JSON.stringify(s.row)}, not Add customer · Select · By opportunity`);
-  if (s.lit || s.ranked) fail("the lens is on before anyone tapped it");
+  console.log("  " + JSON.stringify(lay));
+  if (lay.buttons) fail("Add customer / Select / By opportunity buttons are still above the list");
+  if (!lay.filter) fail("Filter should sit beside the search");
+  if (lay.chips.join(",") !== "Best now,Timing,Follow up,Contacted,All") fail("the chips are " + lay.chips.join(", "));
+  if (!lay.fit) fail("a chip runs off the screen");
+  if (!lay.acts.length) fail("the cards carry no action");
+  if (lay.banners) fail("the payment banner is still on the list cards");
 
-  await p.evaluate(() => document.querySelector('[data-act="opp"]').click()); await p.waitForTimeout(300);
-  s = await state();
-  console.log("  on:", JSON.stringify(s));
-  if (!s.lit) fail("the button doesn't light up when the lens is on");
-  if (!s.ranked) fail("tapping By opportunity didn't show the ranked view");
-  if (!s.chips) fail("the chips should stay under the lens — they narrow the ranked list");
-  if (!s.row || !s.row.includes("add-lead")) fail("Add customer disappeared under the lens");
-  // The chips narrow the ranked list: nobody 'working' has a deal on file
-  // here, so that chip empties it, and All brings it back.
-  const dealCards = () => p.evaluate(() => document.querySelectorAll(".deals-list .card").length);
-  await p.evaluate(() => document.querySelector('[data-filter="all"]').click()); await p.waitForTimeout(300);
-  const under = await dealCards();
-  await p.evaluate(() => document.querySelector('[data-filter="due"]').click()); await p.waitForTimeout(300);
-  const narrowed = await dealCards();
-  await p.evaluate(() => document.querySelector('[data-filter="all"]').click()); await p.waitForTimeout(300);
-  const widened = await dealCards();
-  console.log("  ranked list under All:", under, "· under Working:", narrowed, "· back to All:", widened);
-  if (!under || narrowed !== 0 || widened !== under) fail(`the chips don't narrow the ranked list: ${under} → ${narrowed} → ${widened}`);
+  // Long press: selecting, with that card picked.
+  const box = await p.locator(".lead-list .card-tap").first().boundingBox();
+  await p.mouse.move(box.x + 40, box.y + 20); await p.mouse.down(); await p.waitForTimeout(800); await p.mouse.up(); await p.waitForTimeout(300);
+  const sel = await p.evaluate(() => ({ hash: location.hash, bar: !!document.querySelector('[data-act="sel-del"]'), count: document.querySelector("#sel-count")?.textContent }));
+  console.log("  long press:", JSON.stringify(sel));
+  if (sel.hash !== "#/leads" || !sel.bar || sel.count !== "1") fail("a long press should start selecting with that card picked: " + JSON.stringify(sel));
+  await p.click('[data-act="sel-done"]'); await p.waitForTimeout(300);
 
-  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(100);
-  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(300);
-  s = await state();
-  console.log("  after leaving and returning:", JSON.stringify({ lit: s.lit, ranked: s.ranked }));
-  if (!s.lit || !s.ranked) fail("the lens wasn't remembered across visits");
-
-  await p.evaluate(() => document.querySelector('[data-act="opp"]').click()); await p.waitForTimeout(300);
-  s = await state();
-  console.log("  tapped again:", JSON.stringify({ lit: s.lit, ranked: s.ranked, chips: s.chips, cards: s.cards }));
-  if (s.lit || s.ranked || !s.chips || !s.cards) fail("tapping the button again didn't bring the plain list back");
-
-  await p.evaluate(() => { location.hash = "#/deals"; }); await p.waitForTimeout(400);
-  s = await state();
-  console.log("  via /deals:", JSON.stringify({ hash: await p.evaluate(() => location.hash), lit: s.lit, ranked: s.ranked }));
-  if (!s.ranked) fail("/deals no longer lands on the ranked view");
-  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(100);
-  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(300);
-  s = await state();
-  if (s.ranked) fail("a jump via /deals switched the lens on permanently");
+  // The Deal Radar is its own screen now, linked from Best now's summary.
+  const link = await p.evaluate(() => document.querySelector('.lead-summary a[href="#/deals"]')?.textContent || "");
+  await p.evaluate(() => { location.hash = "#/deals"; }); await p.waitForTimeout(600);
+  const deals = await p.evaluate(() => ({ hash: location.hash, radar: !!document.querySelector("#deals-controls"), back: !document.getElementById("topbar-back").hidden }));
+  console.log("  Deal Radar:", JSON.stringify({ link, ...deals }));
+  if (!/Payment matches/.test(link) || deals.hash !== "#/deals" || !deals.radar || !deals.back) fail("Best now should link to the Deal Radar on its own screen: " + JSON.stringify({ link, ...deals }));
 }
 
 // --- "It's not smooth loading the changes when I move the payment sliders."

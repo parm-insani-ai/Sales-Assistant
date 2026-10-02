@@ -62,10 +62,10 @@ await slide("Ann Example");
 let t = await trayOf("Ann Example");
 console.log("after the slide:", JSON.stringify(t));
 if (!/#\/leads$/.test(t.hash)) fail("the slide opened the customer instead of revealing the buttons");
-if (t.buttons.map((x) => x.label).join() !== "Contacted,Delete") fail(`behind the card: ${t.buttons.map((x) => x.label).join()} — wanted Contacted, Delete`);
-if (!t.buttons[0].ok || !t.buttons[1].del) fail("the buttons aren't coloured as the OK one and the delete one");
+if (t.buttons.map((x) => x.label).join() !== "Contacted,Not now,Delete") fail(`behind the card: ${t.buttons.map((x) => x.label).join()} — wanted Contacted, Not now, Delete`);
+if (!t.buttons[0].ok || !t.buttons[2].del) fail("the buttons aren't coloured as the OK one and the delete one");
 if (!t.buttons.every((x) => x.onScreen)) fail("a button is off the card's edge");
-if (!/-184/.test(t.shift)) fail(`the card slid ${t.shift}, not the width of two buttons`);
+if (!/-276/.test(t.shift)) fail(`the card slid ${t.shift}, not the width of three buttons`);
 
 // --- Tap Contacted: the tray becomes Call / Text / Email. No sheet, no focus.
 await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act-ok");
@@ -112,7 +112,7 @@ const done = await p.evaluate(() => {
   return { shift: getComputedStyle(wrap.querySelector(".swipe-card")).transform, tray: [...wrap.querySelectorAll(".swipe-act")].map((b) => b.textContent.trim()).join() };
 });
 console.log("after Done:", JSON.stringify(done));
-if (done.shift !== "none" || done.tray !== "Contacted,Delete") fail("Done didn't close the row and put the first tray back");
+if (done.shift !== "none" || done.tray !== "Contacted,Not now,Delete") fail("Done didn't close the row and put the first tray back");
 
 // --- Undo takes it back.
 await p.click(".toast-undo button");
@@ -134,7 +134,7 @@ await p.click(".swipe-wrap:has-text('Ann Example') .swipe-card");
 await p.waitForTimeout(350);
 t = await trayOf("Ann Example");
 console.log("tapped the card instead:", JSON.stringify({ shift: t.shift, buttons: t.buttons.map((x) => x.label).join(), hash: t.hash }));
-if (t.shift !== "none" || t.buttons.map((x) => x.label).join() !== "Contacted,Delete") fail("tapping the card didn't cancel back to the first tray");
+if (t.shift !== "none" || t.buttons.map((x) => x.label).join() !== "Contacted,Not now,Delete") fail("tapping the card didn't cancel back to the first tray");
 if (!/#\/leads$/.test(t.hash)) fail("cancelling opened the customer");
 const stillNone = await p.evaluate(async () => (await import("/js/store.js")).callsFor("lead_ann").length);
 if (stillNone !== 0) fail("cancelling logged something");

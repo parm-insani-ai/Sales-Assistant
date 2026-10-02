@@ -146,9 +146,12 @@ export function renderLeads(view, { param }) {
   // (/deals and the voice agent still arrive by presetting "opportunity".)
   let preset = sessionStorage.getItem("leads-filter");
   sessionStorage.removeItem("leads-filter");
-  let opp = preset === "opportunity" || (!preset && recall(OPP_KEY) === "1");
-  if (preset === "opportunity") preset = null;
-  const CHIPS = ["tocontact", "contacted", "due", "timing", "all"];
+  // "By opportunity" is Best now: the same customers, ranked by how ready
+  // they are to trade. A preset from /deals or the assistant lands there.
+  const opp = false;
+  if (preset === "opportunity") preset = "tocontact";
+  remember(OPP_KEY, null);
+  const CHIPS = ["tocontact", "timing", "due", "contacted", "all"];
   const rem = recall(REMEMBER);
   let filter = [preset, rem].find((f) => CHIPS.includes(f)) || "tocontact";
   // A jump from elsewhere (a preset) is a new list; the spot only applies to
@@ -175,8 +178,11 @@ export function renderLeads(view, { param }) {
   // Does a customer pass the chip, the search and the audience filter? The
   // plain list and the ranked list narrow by the same rule.
   const dueNow = (l) => !["delivered", "lost"].includes(l.stage) && l.followUp && daysFromToday(l.followUp) <= 0;
+  // Put off with "Not now": off Best now until the date passes.
+  const todayK = todayISO();
+  const snoozed = (l) => !!l.prospectSnoozedUntil && l.prospectSnoozedUntil > todayK;
   const passes = (l) => {
-    if (filter === "tocontact" && (inLog(l) || l.lastContacted)) return false;
+    if (filter === "tocontact" && (inLog(l) || l.lastContacted || snoozed(l))) return false;
     if (filter === "contacted" && (inLog(l) || !l.lastContacted)) return false;
     if (filter === "due" && !dueNow(l)) return false;
     if (filter === "timing" && !(timingReady() && hz.byId.has(l.id))) return false;
@@ -189,7 +195,7 @@ export function renderLeads(view, { param }) {
   function draw() {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
-    if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted);
+    if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted && !snoozed(l));
     else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
     else if (filter === "due") list = list.filter(dueNow);
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
@@ -210,18 +216,19 @@ export function renderLeads(view, { param }) {
     // so nobody is ever out of reach of the search.
     const everyone = store.all("leads");
     const n = {
-      tocontact: everyone.filter((l) => !inLog(l) && !l.lastContacted).length,
+      tocontact: everyone.filter((l) => !inLog(l) && !l.lastContacted && !snoozed(l)).length,
       contacted: everyone.filter((l) => !inLog(l) && l.lastContacted).length,
       due: everyone.filter(dueNow).length,
       all: everyone.length,
     };
-    const withCount = (label, id) => (n[id] == null ? label : `${label} ${n[id].toLocaleString()}`);
+    // Five chips, each its name over its count, that fit the screen's width.
+    const tl = timingLabel().replace(/^Timing\s*/, "");
     const chips = [
-      { id: "tocontact", label: withCount("To contact", "tocontact") },
-      { id: "contacted", label: withCount("Contacted", "contacted") },
-      { id: "due", label: withCount("Due follow-ups", "due") },
-      { id: "timing", label: timingLabel() },
-      { id: "all", label: withCount("All", "all") },
+      { id: "tocontact", name: "Best now", count: n.tocontact.toLocaleString() },
+      { id: "timing", name: "Timing", count: tl },
+      { id: "due", name: "Follow up", count: n.due.toLocaleString() },
+      { id: "contacted", name: "Contacted", count: n.contacted.toLocaleString() },
+      { id: "all", name: "All", count: n.all.toLocaleString() },
     ];
 
     // Selecting is a job on the plain list; the lens waits until Done.
@@ -230,8 +237,11 @@ export function renderLeads(view, { param }) {
     // sitting directly on the list they filter. Under the lens, or while
     // selecting, the parts that don't apply aren't drawn at all.
     wrap.innerHTML = `
-      <div class="searchbar">
-        <input type="search" placeholder="Search customers…" value="${esc(search)}" />
+      <div class="lead-search-row">
+        <div class="searchbar">
+          <input type="search" placeholder="Search customers…" value="${esc(search)}" />
+        </div>
+        <button class="btn lead-filter-btn ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}" aria-label="Filter" title="Filter">${icon("sliders")}${aud ? '<span class="lead-filter-dot"></span>' : ""}</button>
       </div>
       ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
@@ -239,15 +249,9 @@ export function renderLeads(view, { param }) {
         <button class="btn btn-danger btn-sm" data-act="sel-del" style="flex:1">${icon("trash")} Delete (<span id="sel-count">${selected.size}</span>)</button>
         <button class="btn btn-ghost btn-sm" data-act="sel-done" style="flex:0 0 auto">Done</button>
       </div>
-      <div class="hint" style="margin-bottom:10px">Tap leads to select. The filter chips and search narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : `
-      <div class="btn-row lead-actions">
-        <button class="btn btn-primary" data-act="add-lead">Add customer</button>
-        <button class="btn btn-ghost" data-act="select">Select</button>
-        <button class="btn ${ranked ? "btn-primary" : "btn-ghost"}" data-act="opp" aria-pressed="${ranked}">${ranked ? "✓ By opportunity" : "By opportunity"}</button>
-      </div>`}
-      ${`<div class="lead-chips">
-        <button class="btn btn-sm ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}">${icon("search")} ${aud ? "Filter on" : "Filter"}</button>
-        ${chips.map((c) => `<button class="btn btn-sm ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}">${esc(c.label)}</button>`).join("")}
+      <div class="hint" style="margin-bottom:10px">Tap customers to select. The chips, search and filter narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : ""}
+      ${`<div class="lead-seg" role="tablist">
+        ${chips.map((c) => `<button class="btn btn-sm lead-seg-btn ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" role="tab" aria-selected="${filter === c.id}"><span class="seg-name">${esc(c.name)}</span> <span class="seg-count">${esc(c.count)}</span></button>`).join("")}
       </div>
       ${aud ? `<div class="card lead-audience" style="padding:10px 12px;margin-bottom:10px">
         <div class="row" style="align-items:center">
@@ -276,8 +280,8 @@ export function renderLeads(view, { param }) {
     // background and fill the chip in place — and the list, if it's on.
     if (!timingReady()) warmTiming().then(() => {
       if (!wrap.isConnected) return;
-      const tb = wrap.querySelector('[data-filter="timing"]');
-      if (tb) tb.textContent = timingLabel();
+      const tb = wrap.querySelector('[data-filter="timing"] .seg-count');
+      if (tb) tb.textContent = timingLabel().replace(/^Timing\s*/, "");
       if (filter === "timing") renderList();
     });
     // Under the lens the same chips, search and filter narrow the ranked
@@ -337,7 +341,6 @@ export function renderLeads(view, { param }) {
     wireChips();
 
     on('[data-act="add-lead"]', () => openLeadForm());
-    on('[data-act="select"]', () => { selecting = true; selected.clear(); draw(); });
     on('[data-act="sel-done"]', () => { selecting = false; selected.clear(); draw(); });
     on('[data-act="sel-all"]', () => {
       applyFilter().forEach((l) => selected.add(l.id));
@@ -433,7 +436,43 @@ export function renderLeads(view, { param }) {
       summary.innerHTML = `<span class="strong" style="color:var(--danger)">${now} ready now</span> · <span class="strong" style="color:var(--success)">${six}</span> open up in the next six months — soonest first, with the month and why on each. <a href="#/horizon" style="color:var(--brand)">Set the follow-ups</a>`;
       el.appendChild(summary);
     }
-    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, filter === "timing" ? { hz: hzOf(x) } : {}));
+    // A long press on a card starts selecting, with that card picked.
+    const startSelect = (id) => { selecting = true; selected.clear(); selected.add(id); draw(); };
+    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, { ...(filter === "timing" ? { hz: hzOf(x) } : {}), onLongPress: startSelect, onListChange: () => renderList({ keep: true }) }));
+    // Grouped by when to reach them — Ready now, Opening up in the next
+    // three months, Everyone else — on the lists the book's timing applies
+    // to. Inside each group the order stays best first.
+    const grouped = ["tocontact", "contacted", "all"].includes(filter) && timingReady();
+    // Ready now: the timing says so, or the read of the book calls them hot.
+    const book = assessAll().byId;
+    const groupOf = (x) => { const h = hzOf(x); const a = book.get(x.id); return (h && h.m === 0) || (a && a.tier && a.tier.key === "hot") ? 0 : h && h.m <= 3 ? 1 : 2; };
+    const GROUP_NAMES = ["Ready now", "Opening up in the next 3 months", "Everyone else"];
+    const groupCounts = [0, 0, 0];
+    if (grouped) {
+      const order = new Map(filtered.map((x, k) => [x.id, k]));
+      filtered.sort((a, b) => groupOf(a) - groupOf(b) || order.get(a.id) - order.get(b.id));
+      filtered.forEach((x) => { groupCounts[groupOf(x)]++; });
+    } else if (["tocontact", "contacted", "all"].includes(filter)) {
+      // The groups need the book read for timing; draw now, regroup when it lands.
+      warmTiming().then(() => { if (wrap.isConnected && ["tocontact", "contacted", "all"].includes(filter)) renderList({ keep: true }); });
+    }
+    let lastGroup = -1;
+    const withHead = (x, into) => {
+      if (grouped) {
+        const g = groupOf(x);
+        if (g !== lastGroup) {
+          lastGroup = g;
+          // One group only: no heading to say so.
+          if (groupCounts.filter(Boolean).length > 1) {
+            const h = document.createElement("div");
+            h.className = "section-title lead-group";
+            h.innerHTML = `${esc(GROUP_NAMES[g])} <span class="muted">· ${groupCounts[g].toLocaleString()}</span>`;
+            into.appendChild(h);
+          }
+        }
+      }
+      into.appendChild(card(x));
+    };
     // How many to put back before handing over to the scroll: the previous
     // count on a redraw, the saved count on a return, else a screenful. On a
     // return they go in at once — a scroll position can't be restored onto
@@ -442,18 +481,18 @@ export function renderLeads(view, { param }) {
     const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : first;
     const frag = document.createDocumentFragment();
     // What the read of the book found, in one line above it.
-    if (!selecting && !search && !aud && filter === "all") {
+    if (!selecting && !search && !aud && (filter === "all" || filter === "tocontact")) {
       const b = bookSummary();
       const summary = document.createElement("div");
       summary.className = "lead-summary small muted";
-      summary.innerHTML = `${b.total.toLocaleString()} customers · <span class="strong" style="color:var(--danger)">${b.hot} hot</span> · <span class="strong" style="color:var(--success)">${b.strong} strong</span> · ${b.worth} worth a call — best first, with the reason on each`;
+      summary.innerHTML = `${b.total.toLocaleString()} customers · <span class="strong" style="color:var(--danger)">${b.hot} hot</span> · <span class="strong" style="color:var(--success)">${b.strong} strong</span> · ${b.worth} worth a call — best first, with the reason on each. <a href="#/deals" class="lead-radar-link">Payment matches ›</a>`;
       frag.appendChild(summary);
     }
     // The top of the screen this frame, the rest of the first screenful
     // next frame: half the work before the first paint, so the list is on
     // screen sooner and a tap on the first card lands sooner.
     const now = restore ? first : Math.min(first, 20);
-    filtered.slice(0, now).forEach((x) => frag.appendChild(card(x)));
+    filtered.slice(0, now).forEach((x) => withHead(x, frag));
     el.appendChild(frag);
     let i = Math.min(now, filtered.length);
     shown = i;
@@ -467,7 +506,7 @@ export function renderLeads(view, { param }) {
     };
     const append = (n) => {
       const f = document.createDocumentFragment();
-      filtered.slice(i, i + n).forEach((x) => f.appendChild(card(x)));
+      filtered.slice(i, i + n).forEach((x) => withHead(x, f));
       i = Math.min(filtered.length, i + n);
       shown = i;
       el.insertBefore(f, sentinel);
@@ -502,7 +541,7 @@ export function renderLeads(view, { param }) {
   function applyFilter() {
     const q = search.toLowerCase();
     let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
-    if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted);
+    if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted && !snoozed(l));
     else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
     else if (filter === "due") list = list.filter(dueNow);
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
@@ -547,26 +586,33 @@ function cardHTML(l, { quick = false, hz = null } = {}) {
   // tier ("Worth a call") answers how strong, and next to "Now" the two
   // read as one contradictory verdict. The reasons still say the strength.
   const a = quick ? assessQuick(l.id) : assessment(l.id);
-  const tier = a && a.tier && !hz ? `<span class="badge ${a.tier.badge}" style="margin-right:6px">${esc(a.tier.label)}</span>` : "";
+  const tier = a && a.tier && !hz ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : "";
   const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
   // The last contact, on the card — so logging one is visibly registered.
   const contact = l.lastContacted
     ? `<div class="row-contact">${icon("checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")} ${esc(formatDateTime(l.lastContacted))}</div>` : "";
   // Their current contract in one line under the vehicle: what they pay,
   // how many payments are left, when it matures — or that it's paid off.
+  // The one thing to do from the list: a drafted opener to review, a call
+  // when there's no consent to text, or adding the number they lack.
+  const canText = !!l.phone && consentStatus(l).ok;
+  const act = canText
+    ? `<button type="button" class="btn btn-primary btn-sm lc-act" data-lc="review">${icon("message")} Review</button>`
+    : l.phone
+    ? `<a class="btn btn-primary btn-sm lc-act" data-lc="call" href="${telHref(l.phone)}">${icon("phone")} Call</a>`
+    : `<button type="button" class="btn btn-ghost btn-sm lc-act" data-lc="add">Add number</button>`;
   return `
-    <div class="row">
+    <div class="row lc-row">
       <div class="row-main">
         <div class="row-title">${esc(l.name)}</div>
-        <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${l.phone ? " · " + esc(phoneDisplay(l.phone)) : ""}</div>
+        <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${fuBadge}</div>
         ${timing}${reasons}${contact}
       </div>
-      <div class="row-meta">
+      <div class="row-meta lc-meta">
         ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}
+        ${act}
       </div>
     </div>
-    ${fuBadge ? `<div style="margin-top:8px">${fuBadge}</div>` : ""}
-    ${contractBanner(l)}
   `;
 }
 
@@ -597,7 +643,37 @@ function leadCard(l, onOpen, extra = {}) {
   el.innerHTML = cardHTML(l, extra);
   // While a note panel is up inside the card, the card is not a button.
   let busy = false;
-  el.addEventListener("click", () => { if (busy) return; if (onOpen) onOpen(); navigate(`/leads/${l.id}`); });
+  // A long press starts selecting (for clearing out an import); the tap that
+  // ends it opens nothing.
+  let pressT = null, pressed = false, px = 0, py = 0;
+  const cancelPress = () => { clearTimeout(pressT); pressT = null; };
+  el.addEventListener("pointerdown", (e) => {
+    if (!extra.onLongPress || busy || e.target.closest(".lc-act")) return;
+    pressed = false; px = e.clientX; py = e.clientY;
+    cancelPress();
+    pressT = setTimeout(() => { pressT = null; pressed = true; try { navigator.vibrate && navigator.vibrate(12); } catch { /* fine */ } extra.onLongPress(l.id); }, 550);
+  });
+  el.addEventListener("pointermove", (e) => { if (pressT && (Math.abs(e.clientX - px) > 8 || Math.abs(e.clientY - py) > 8)) cancelPress(); });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((t) => el.addEventListener(t, cancelPress));
+  el.addEventListener("contextmenu", (e) => { if (extra.onLongPress) e.preventDefault(); });
+  el.addEventListener("click", (e) => {
+    if (busy) return;
+    if (pressed) { pressed = false; return; }
+    // The card's own action: review a drafted opener, call, or add a number.
+    const act = e.target.closest(".lc-act");
+    if (act) {
+      e.stopPropagation();
+      if (act.dataset.lc === "call") { store.logActivity("touch"); return; }
+      e.preventDefault();
+      if (onOpen) onOpen();
+      if (act.dataset.lc === "add") { navigate(`/leads/${l.id}`); return; }
+      act.disabled = true; const was = act.innerHTML; act.textContent = "Drafting…";
+      reviewProspect(l.id).finally(() => { if (act.isConnected) { act.disabled = false; act.innerHTML = was; } });
+      return;
+    }
+    if (onOpen) onOpen();
+    navigate(`/leads/${l.id}`);
+  });
   const redraw = () => {
     const fresh = store.get("leads", l.id);
     if (fresh) el.innerHTML = cardHTML(fresh, { quick: true, ...extra });
@@ -626,6 +702,19 @@ function leadCard(l, onOpen, extra = {}) {
           ]);
         },
       }))),
+    }, {
+      // Not now: off Best now (and the queue's prospects) for a month.
+      label: "Not now", icon: "clock", kind: "later",
+      onTap: (api) => {
+        const was = l.prospectSnoozedUntil || null;
+        const until = snoozeProspect(l.id);
+        api.close();
+        if (extra.onListChange) extra.onListChange();
+        undoToast(`Not now — back ${relativeDay(until)}`, () => {
+          store.update("leads", l.id, { prospectSnoozedUntil: was });
+          if (extra.onListChange) extra.onListChange();
+        });
+      },
     }],
     onDelete: (restoreRow) => {
       const snapshot = { ...l };
