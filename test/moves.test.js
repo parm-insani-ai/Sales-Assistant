@@ -36,6 +36,11 @@ await p.addInitScript(() => {
 await p.goto(APP + "/#/");
 await p.waitForTimeout(600);
 
+// Notes name days of the week; the moves date them from the real today.
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const nextDow = (i) => { const d = new Date(); d.setDate(d.getDate() + ((i - d.getDay() + 7) % 7 || 7)); return `${MON[d.getMonth()]} ${d.getDate()}`; };
+const SUN = nextDow(0), SAT = nextDow(6);
+
 // --- The parsers, on their own.
 const parsed = await p.evaluate(async () => {
   const m = await import("/js/moves.js");
@@ -142,7 +147,7 @@ console.log("  budget again →", JSON.stringify(replan.budget), "budget tasks:"
 console.log("  can't make it →", JSON.stringify(replan.off), "live visits:", replan.live, "rebook at:", replan.rebook, "stage:", replan.stage);
 if (replan.appts.length !== 1 || !/T15:00$/.test(replan.appts[0])) fail("the visit wasn't moved to Sunday 3pm (still " + JSON.stringify(replan.appts) + ")");
 if (!replan.moved.some((x) => /^appointment: Visit moved to/.test(x))) fail("no move says the visit moved");
-if (!/Sep 27, 3:00 PM/.test(replan.confirmTitle || "")) fail("the confirmation text wasn't re-dated: " + replan.confirmTitle);
+if (!(replan.confirmTitle || "").includes(SUN + ", 3:00 PM")) fail("the confirmation text wasn't re-dated to " + SUN + ": " + replan.confirmTitle);
 if (replan.afterMove !== replan.before) fail(`moving the visit changed the count of things set up (${replan.before} → ${replan.afterMove})`);
 if (replan.budgets.length !== 1 || !/under Ann's budget/.test(replan.budgets[0])) fail("a second budget note made a second budget task: " + JSON.stringify(replan.budgets));
 if (replan.live !== 0) fail("can't make it didn't cancel the visit");
@@ -196,7 +201,7 @@ const eve = await p.evaluate(async () => {
 });
 console.log("eve →", JSON.stringify(eve.moves), "call due:", eve.call);
 if (eve.appts !== 0) fail("a callback was booked as a visit");
-if (!eve.moves.some((x) => /^task: Call them (Saturday|Sep 26)/.test(x))) fail("the callback wasn't put on the list for Saturday");
+if (!eve.moves.some((x) => x.startsWith("task: Call them Saturday") || x.startsWith("task: Call them " + SAT))) fail("the callback wasn't put on the list for Saturday (" + SAT + "): " + JSON.stringify(eve.moves));
 if (!/^\d{4}-\d{2}-\d{2}$/.test(eve.call || "")) fail("the callback task isn't dated");
 
 // --- With no inventory loaded at all, the vehicle move is to go and check.

@@ -1,5 +1,6 @@
-// The current contract, clear on every customer: a line under the vehicle
-// on the Leads card, and a card under the name on their page.
+// The current contract, clear on every customer: the Outreach list stays
+// compact (who, what, one action), and the banner sits under the name on
+// their page, where a tap edits the numbers.
 const { launch } = require("./browser.js");
 (async () => {
 const APP = "http://127.0.0.1:8137";
@@ -9,6 +10,7 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await p.addInitScript(() => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
+  localStorage.setItem("viniva:leads-filter", "all"); // every customer, not just Best now
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
       { id: "a", name: "Dana Muise", phone: "9025551111", stage: "working", vehicleInterest: "2021 Nissan Rogue SV", currentPayment: 532, paymentsLeft: 26, paymentsLeftAsOf: "2026-06-20", currentTerm: 72, payoff: 19455, currentValue: 21500, currentApr: 8.9, dealType: "Retail", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
@@ -20,12 +22,14 @@ await p.addInitScript(() => {
 });
 await p.goto(APP + "/#/leads");
 await p.waitForFunction(() => document.querySelectorAll("[data-lead-id]").length >= 3, null, { timeout: 15000 });
-const cards = await p.evaluate(() => [...document.querySelectorAll("[data-lead-id]")].map((c) => { const b = c.querySelector(".contract-banner"); return [c.querySelector(".row-title").textContent.trim(), b ? [...b.querySelectorAll(".cb-value")].map((v) => v.textContent.trim()) : null, b ? b.querySelectorAll(".cb-cell").length : 0]; }));
+// --- The list: compact cards, no contract figures on any of them.
+const cards = await p.evaluate(() => [...document.querySelectorAll("[data-lead-id]")].map((c) => [c.querySelector(".row-title").textContent.trim(), !!c.querySelector(".contract-banner")]));
 console.log("cards:", JSON.stringify(cards));
-const dana = cards.find((c) => c[0] === "Dana Muise"), ravi = cards.find((c) => c[0] === "Ravi Anand"), lynn = cards.find((c) => c[0] === "Lynn Chu");
-if (!dana || !dana[1] || dana[1][0] !== "$532/mo" || dana[1][1] !== "23" || dana[1][2] !== "8.9%" || dana[2] !== 3) fail("Dana's banner isn't payment, payments left and rate: " + JSON.stringify(dana));
-if (!ravi || !ravi[1] || ravi[1][0] !== "$299/mo" || ravi[1][1] !== "Paid off") fail("Ravi's paid-off contract isn't on his banner: " + JSON.stringify(ravi));
-if (!lynn || lynn[1]) fail("a customer with no contract got a banner: " + JSON.stringify(lynn));
+for (const who of ["Dana Muise", "Ravi Anand", "Lynn Chu"]) {
+  const c = cards.find((x) => x[0] === who);
+  if (!c) fail(who + " isn't on the list");
+  else if (c[1]) fail(who + "'s list card carries the contract banner — that belongs on their page");
+}
 
 // --- Her page: the banner under the name box, no Current contract card.
 await p.evaluate(() => { location.hash = "#/leads/a"; });

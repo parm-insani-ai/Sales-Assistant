@@ -33,6 +33,9 @@ if (!rows.every((r) => /^\$[\d,]+\/mo$/.test(r.mo))) fail("an option has no paym
 if (rows.some((r) => /Kicks/.test(r.title))) fail("a Kicks is suggested to an Infiniti owner");
 
 // --- Pick a vehicle: search, tap, and it's on the list with its payment.
+// The options sit in a closed section; open it the way a thumb would.
+await p.click('details[data-fold="lead:deals"] > summary');
+await p.waitForFunction(() => document.querySelector('details[data-fold="lead:deals"]').open, null, { timeout: 3000 });
 await p.click('[data-act="pick-vehicle"]');
 await p.waitForFunction(() => document.querySelector(".vp-list .vp-row"), null, { timeout: 5000 });
 const before = await p.evaluate(() => document.querySelectorAll(".vp-list .vp-row").length);

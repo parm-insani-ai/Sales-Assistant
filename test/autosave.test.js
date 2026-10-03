@@ -14,6 +14,7 @@ const seed = ({ far }) => {
   if (sessionStorage.getItem("seeded")) return;
   sessionStorage.setItem("seeded", "1");
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", expires_at: far, user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
+  localStorage.setItem("viniva:leads-filter", "all"); // a new customer sits under All, not Best now
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [{ id: "lead_ann", name: "Ann Example", phone: "9025550111", stage: "new", createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }],
     settings: { salesperson: "Parm", cloudAutoSync: true, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));

@@ -31,6 +31,12 @@ await rpc("t", "join_store", { code: st.code, display_name: "Parm" });
 await rpc("t2", "join_store", { code: st.code, display_name: "Dana" });
 const now = new Date(); const iso = (d) => d.toISOString(); const day = (n) => new Date(now.getTime() + n * 86400000); const ymd = (d) => d.toISOString().slice(0, 10);
 const first = ymd(new Date(now.getFullYear(), now.getMonth(), 1)).slice(0, 8) + "01";
+// The seeds below are dated from today, so the totals move with the clock:
+// today's 15:30 visit counts as shown-or-not only once 15:30 has passed, and
+// the appointment set yesterday falls in last month on the 1st.
+const todayPast = now.getHours() > 15 || (now.getHours() === 15 && now.getMinutes() >= 30);
+const RATE = todayPast ? "50%" : "100%";       // ap2 showed; ap1 is past only after 15:30
+const SET = day(-1).getMonth() === now.getMonth() ? 3 : 2;
 const seed = (user_id, rows) => fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id, rows }) });
 await seed(U1, [
   { id: "config", collection: "config", data: { id: "config", goalUnits: 12 } },
@@ -65,13 +71,13 @@ const home = await mgr.evaluate(() => ({
 console.log("management home:", JSON.stringify(home, null, 1));
 if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Appts,Voice,Customers,Team") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
 // Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
-if (!home.stats.some((s) => /^3 ?Appointments set in \w+ · 1 today/.test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => /^1 · 50% ?Shown/.test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
+if (!home.stats.some((s) => new RegExp(`^${SET} ?Appointments set in \\w+ · 1 today`).test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => new RegExp(`^1 · ${RATE} ?Shown`).test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
 const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
 console.log("plan:", plan);
 if (!/To hit 22 units: \d+ more appointments set by month end/.test(plan || "") || !/2 sold · [12] on the calendar/.test(plan) || !/typical rates/.test(plan) || !/Parm/.test(plan) || !/Dana/.test(plan)) fail("the plan card is wrong: " + plan);
 if (!home.word.some((w) => /^Parm.*1 untouched lead/.test(w)) || !home.word.some((w) => /^Dana.*1 untouched lead/.test(w)) || home.word.some((w) => /^Sam/.test(w))) fail("'needs a word' misses a rep, or nags the manager: " + JSON.stringify(home.word));
 if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.test(t))) fail("today's appointment isn't on the store's list with the rep: " + JSON.stringify(home.today));
-if (!home.reps[0].startsWith("Parm") || !/3 set · 1 today · 1 shown/.test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
+if (!home.reps[0].startsWith("Parm") || !new RegExp(`${SET} set · 1 today · 1 shown`).test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
 if (!home.tiles.includes("Insights") || !home.tiles.includes("Team") || !home.tiles.includes("Admin") || !home.tiles.includes("Invite a rep") || !home.tiles.includes("Sales view")) fail("the store's tools are missing: " + JSON.stringify(home.tiles));
 
 // --- No Refresh button: pulling down re-reads the board.
@@ -114,7 +120,7 @@ const insights = await mgr.evaluate(() => ({
 console.log("insights:", JSON.stringify(insights, null, 1));
 if (insights.title !== "O'Regan's Nissan Halifax") fail("insights isn't the store's: " + insights.title);
 for (const s of ["What the numbers say", "What it takes", "By rep", "The funnel", "Speed to lead", "By source", "When appointments get set", "What makes them show", "Eight weeks"]) if (!insights.sections.includes(s)) fail("insights is missing: " + s + " in " + JSON.stringify(insights.sections));
-if (!insights.rows.some((r) => /^Parm\|3\|50%\|\d+\|[\d.]+\|/.test(r)) || !insights.rows.some((r) => /^Dana\|0\|—\|\d+\|/.test(r))) fail("the by-rep table is wrong: " + JSON.stringify(insights.rows));
+if (!insights.rows.some((r) => new RegExp(`^Parm\\|${SET}\\|${RATE}\\|\\d+\\|[\\d.]+\\|`).test(r)) || !insights.rows.some((r) => /^Dana\|0\|—\|\d+\|/.test(r))) fail("the by-rep table is wrong: " + JSON.stringify(insights.rows));
 if (!insights.speed.some((r) => /^Never touched\|3 leads\|/.test(r))) fail("speed to lead doesn't count the untouched leads: " + JSON.stringify(insights.speed));
 if (insights.weeks !== 8) fail("the trend isn't eight weeks: " + insights.weeks);
 await mgr.evaluate((U2) => { document.querySelector('.lead-chips [data-who="' + U2 + '"]').click(); }, U2);
@@ -142,7 +148,7 @@ await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector
 // --- A rep keeps the salesperson's app.
 const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);
 await rep.goto(APP + "/#/");
-await rep.waitForSelector(".today-card", { timeout: 20000 });
+await rep.waitForSelector("#view .nudge-slot", { state: "attached", timeout: 20000 });
 await rep.waitForTimeout(800);
 const repHome = await rep.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn") }));
 console.log("rep home:", JSON.stringify(repHome));
@@ -166,7 +172,7 @@ await both.waitForFunction(() => /As of/.test(document.body.textContent), null, 
 const switched = await both.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
 if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 5) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
 await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) => /Sales view/.test(t.textContent)).click(); });
-await both.waitForSelector(".today-card", { timeout: 20000 });
+await both.waitForSelector("#view .nudge-slot", { state: "attached", timeout: 20000 });
 const back = await both.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: document.querySelectorAll(".tabbar .tab").length }));
 if (back.mg || back.tabs !== 5) fail("the switch back to the sales view didn't take: " + JSON.stringify(back));
 
