@@ -27,6 +27,7 @@ import {
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
 import { inAudience } from "../outreach.js";
+import { outreachReport } from "../outcomes.js";
 import { openAudienceFilter, audienceLabel } from "./audience.js";
 import { horizonFor, monthLabel } from "../horizon.js";
 import { makeMatcher } from "../match.js";
@@ -440,6 +441,18 @@ export function renderLeads(view, { param }) {
       const summary = document.createElement("div");
       summary.className = "lead-summary small muted";
       summary.innerHTML = `<span class="strong" style="color:var(--danger)">${now} ready now</span> · <span class="strong" style="color:var(--success)">${six}</span> open up in the next six months — soonest first, with the month and why on each. <a href="#/horizon" style="color:var(--brand)">Set the follow-ups</a>`;
+      el.appendChild(summary);
+    }
+    // Contacted: what came of the last four weeks of openers — sent,
+    // replied, booked — read from the thread and the calendar, with the
+    // full readout a tap away. Judgement becomes a number here.
+    if (filter === "contacted" && !selecting && !search && !aud) {
+      const t = outreachReport({ weeks: 4 }).total;
+      const summary = document.createElement("div");
+      summary.className = "lead-summary small muted lead-outcomes";
+      summary.innerHTML = t.sent
+        ? `Last 4 weeks: <span class="strong">${t.sent}</span> text${t.sent === 1 ? "" : "s"} sent · <span class="strong" style="color:var(--success)">${t.replied}</span> replied · <span class="strong">${t.booked}</span> booked${t.sold ? ` · <span class="strong">${t.sold}</span> sold` : ""}. <a href="#/coach" class="lead-radar-link">What's working ›</a>`
+        : `Texts sent from here are tracked — replies and appointments show up on this line within the week.`;
       el.appendChild(summary);
     }
     // A long press on a card starts selecting, with that card picked.
