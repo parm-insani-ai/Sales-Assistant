@@ -114,16 +114,26 @@ and effort live in the function's secrets.
 (the `viniva-night` cron job in `supabase/cron.sql`, 2am Halifax) reads each
 salesperson's book — live customers, the next days' appointments, follow-ups
 due, the last three days of texts and emails, deliveries in prep, with
-every figure taken out — and writes one `agentplays` record for the next
-working day. `NIGHT_MODEL` overrides the model for this pass alone. To run
+every figure taken out — and writes one `agentplays` record for the day
+that's starting (or the next working day). Each rep gets their own run of the
+function, and each rep is read at most once a day. `NIGHT_MODEL` overrides the model for this pass alone. To run
 it for one person by hand: `{"nightly": {"u": "<user id>"}}`.
 
 **Measuring it.** `test/utterances.test.js` runs a set of real sentences a
 salesperson says ("Ken's coming in Thursday at 4", "sold one to Moe, made
 800", "undo that") against the live model and reports which tool each one
-picked. It needs `ANTHROPIC_API_KEY` in the environment of the stub server
+picked. The easy way to run it: add `ANTHROPIC_API_KEY` as a repository secret on
+GitHub, then Actions → **Agent eval** → Run workflow. The score and every miss
+land on the run's summary, and the run fails under 90%. Locally it needs
+`ANTHROPIC_API_KEY` in the environment of the stub server
 (`ANTHROPIC_API_KEY=… node test/server.js`); without it the eval says so and
-skips. Run it before and after changing the brief.
+skips. Run it before and after changing the brief, the tools, the model or
+the effort.
+
+`test/fnrelay.test.js` runs the cloud function itself under Deno against a
+stand-in database and model: who may use the assistant, the daily budgets,
+the size and output caps, and the night read. It skips without Deno
+(`DENO_BIN=…`).
 
 ## Finding a car on the dealer network (search launcher)
 

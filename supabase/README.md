@@ -207,8 +207,41 @@ Claude what to do, and returns the actions; the app runs them on-device.
 3. Paste the printed URL into viniva → **Settings → Voice agent → Voice agent URL**.
 
 Notes: usage costs a small amount per request (billed by Anthropic). To change
-the model, set a `MODEL` secret (default is a fast Haiku). Leave the URL blank in
-viniva to keep using the free, offline on-device commands.
+the model, set a `MODEL` secret (default Claude Sonnet 5.5; `EFFORT` defaults to
+medium). Leave the URL blank in viniva to keep using the free, offline
+on-device commands.
+
+### Who can spend your key
+
+Anyone can make an account in the app, and signing in only proves who someone
+is. So the function decides who may use the model, and how much:
+
+1. **Run [`agent-usage.sql`](./agent-usage.sql) once** (SQL Editor → paste →
+   Run). It makes the table the daily spend is counted in. Only the function
+   can read or write it, so nobody can reset their own count. Until it's run,
+   the budgets below are off.
+2. **Set `AGENT_EMAILS`** to the accounts that may use the assistant, comma
+   separated: `supabase secrets set AGENT_EMAILS=you@example.com`. Anyone in
+   your store (they joined with a manager's invite code) is in without being
+   listed. Unset, any signed-in account can use it, which is how it worked
+   before.
+3. **Budgets** (optional): `AGENT_DAILY_USD` per person, default 5, and
+   `AGENT_DAILY_USD_TOTAL` for everyone together, default 50. A person over
+   budget hears "You've used today's assistant budget. It resets overnight."
+   To see the spend:
+   `select day, sum(usd), sum(calls) from agent_usage group by day order by day desc;`
+
+Every request is also capped in size and in output, whatever the app sends.
+
+### The night read
+
+The 2am job (`cron.sql`) hands each rep to their own run of the function, so
+a big store doesn't run out of time partway through. It plans the day that's
+starting, and reads each rep at most once a day however often the URL is
+posted to. The per-rep runs call the function at
+`<SUPABASE_URL>/functions/v1/quick-api`; if yours has another name, set
+`SELF_URL` to its URL. If a per-rep call can't be made, that rep's read runs
+in the main run instead.
 
 ## Email sending (optional)
 

@@ -211,8 +211,11 @@ async function describeAgentError(res) {
   const msg = j.error || j.message || "";
   if (res.status === 404)
     return "No function at that URL (404). Open Settings → Voice agent and tap Test connection — it will find the right function and fix the URL for you.";
+  // Not on the assistant's list, or over the day's budget: the function's
+  // own words say what to do.
+  if (j.code && msg) return msg;
   if (res.status === 401 || res.status === 403)
-    return msg && /sign in/i.test(msg) ? msg : `The function rejected the call (${res.status}). Sign in to your cloud account in Settings, and make sure the function has the latest code with "Verify JWT" off (it checks your session itself).`;
+    return msg && /sign in/i.test(msg) ? msg :`The function rejected the call (${res.status}). Sign in to your cloud account in Settings, and make sure the function has the latest code with "Verify JWT" off (it checks your session itself).`;
   return msg || `Agent error (${res.status})`;
 }
 
@@ -220,7 +223,7 @@ async function describeAgentError(res) {
 // salesperson's assistant and the manager's (manageagent.js) share this
 // relay and the session loop below; they differ in what they know and what
 // they can do.
-export async function callRelay({ system, tools, messages, max_tokens = 1024 }) {
+export async function callRelay({ system, tools, messages, max_tokens = 4096 }) {
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
   if (!url) throw new Error("Voice agent isn't set up");
   const res = await fetch(url, {
@@ -244,7 +247,10 @@ export function agentRequest(messages) {
     ],
     tools: TOOLS,
     messages,
-    max_tokens: 1024,
+    // Room for the model to think and then act: thinking counts against
+    // this, and a cap that's too tight cuts a turn off mid-step. Only what's
+    // used is billed.
+    max_tokens: 4096,
   };
 }
 function callAgent(messages) {
@@ -262,7 +268,7 @@ export async function testAgent() {
     res = await fetch(url, {
       method: "POST",
       headers: await backend.fnHeaders(),
-      body: JSON.stringify({ messages: [{ role: "user", content: "Reply with the word OK." }], max_tokens: 8 }),
+      body: JSON.stringify({ messages: [{ role: "user", content: "Reply with the word OK." }], max_tokens: 256 }),
     });
   } catch {
     throw new Error("Couldn't reach that URL — check it for typos and make sure you're online.");
@@ -1237,6 +1243,16 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
       const content = resp.content || [];
       const toolUses = content.filter((b) => b.type === "tool_use");
       const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+
+      // Out of room mid-answer. Thinking counts against the cap, so a long
+      // turn can stop partway through a tool call. Nothing half-written
+      // runs, and the cut call stays out of the history: a tool call with no
+      // result after it would make the next request fail outright.
+      if (resp.stop_reason === "max_tokens") {
+        const said = text || "That one ran long and got cut off. Try asking for one thing at a time.";
+        messages.push({ role: "assistant", content: [{ type: "text", text: said }] });
+        return undone({ say: said, done: true });
+      }
 
       if (!toolUses.length || resp.stop_reason !== "tool_use") {
         // The reply stays in the history: the next thing said is usually a

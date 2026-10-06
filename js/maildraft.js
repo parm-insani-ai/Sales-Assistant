@@ -48,7 +48,7 @@ async function ask(system, user) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 30000);
   try {
-    const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ system, messages: [{ role: "user", content: user }], max_tokens: 600 }), signal: ctl.signal });
+    const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ system, messages: [{ role: "user", content: user }], max_tokens: 2048 }), signal: ctl.signal });
     if (!res.ok) throw new Error(`The agent couldn't be reached (${res.status})`);
     const j = await res.json();
     return (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();

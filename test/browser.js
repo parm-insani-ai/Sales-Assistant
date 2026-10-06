@@ -4,7 +4,9 @@
 // Linux sandbox can't run. On a Mac: npx playwright install webkit, then
 //   VINIVA_BROWSER=webkit node test/contacted.test.js
 const fs = require("fs");
-const pw = require("/opt/node22/lib/node_modules/playwright");
+// The sandbox's pre-installed copy, or the package (GitHub's runner).
+let pw;
+try { pw = require("/opt/node22/lib/node_modules/playwright"); } catch { pw = require("playwright"); }
 
 async function launch(opts = {}) {
   const which = (process.env.VINIVA_BROWSER || "chromium").toLowerCase();

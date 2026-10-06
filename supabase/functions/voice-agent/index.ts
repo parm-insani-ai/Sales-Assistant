@@ -96,6 +96,7 @@ async function proxyICS(req: Request): Promise<Response> {
 // only says "u: <someone's id>" in its body is a stranger with a URL. Verified
 // against Supabase Auth once per token and remembered for a few minutes.
 const CALLERS = new Map<string, { id: string; exp: number }>();
+const CALLER_EMAIL = new Map<string, string>();
 async function callerId(req: Request): Promise<string> {
   const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") || "");
   if (!m) return "";
@@ -113,6 +114,7 @@ async function callerId(req: Request): Promise<string> {
     if (!/^[0-9a-f-]{36}$/.test(id)) return "";
     if (CALLERS.size > 500) CALLERS.clear();
     CALLERS.set(tok, { id, exp: Date.now() + 5 * 60_000 });
+    CALLER_EMAIL.set(id, String(j?.email || "").toLowerCase());
     return id;
   } catch {
     return "";
@@ -1348,9 +1350,110 @@ const NIGHT_TOOL = {
   },
 };
 
-async function handleNightly(body: any): Promise<Response> {
+// The model's address. ANTHROPIC_BASE_URL points it elsewhere (a test's
+// stand-in, or a proxy); unset, it's Anthropic.
+const MESSAGES_URL = () => `${(Deno.env.get("ANTHROPIC_BASE_URL") || "https://api.anthropic.com").replace(/\/+$/, "")}/v1/messages`;
+
+// ---- Who may spend the model, and how much ----
+// AGENT_EMAILS (a secret): the accounts that may use the assistant, comma
+// separated. Members of a store are in without being listed — joining one
+// takes a manager's invite code. Unset, any signed-in account may use it,
+// which is how it was before; the daily budgets below still apply.
+const MODEL_OK = new Map<string, { ok: boolean; exp: number }>();
+async function mayUseModel(uid: string): Promise<boolean> {
+  const list = (Deno.env.get("AGENT_EMAILS") || "").toLowerCase().split(/[\s,;]+/).filter(Boolean);
+  if (!list.length || list.includes("*")) return true;
+  if (list.includes(CALLER_EMAIL.get(uid) || "")) return true;
+  const hit = MODEL_OK.get(uid);
+  if (hit && hit.exp > Date.now()) return hit.ok;
+  let ok = false;
+  try {
+    const r = await fetch(sbUrl(`/store_members?user_id=eq.${encodeURIComponent(uid)}&select=user_id&limit=1`), { headers: sbHeaders() });
+    ok = r.ok && ((await r.json()) as any[]).length > 0;
+  } catch { ok = false; }
+  if (MODEL_OK.size > 500) MODEL_OK.clear();
+  MODEL_OK.set(uid, { ok, exp: Date.now() + 10 * 60_000 });
+  return ok;
+}
+
+// The biggest request the app makes is the assistant with its tools and a
+// long conversation, well under this. A bigger one isn't the app.
+const MAX_REQUEST_CHARS = 300_000;
+
+// What a call cost, in dollars, from the usage the API reports. Thinking is
+// in output_tokens. Cache writes are the five-minute kind (1.25x input).
+const RATES: Record<string, [number, number, number]> = { // per million: input, output, cache read
+  "claude-sonnet-5-5": [2, 10, 0.2],
+  "claude-sonnet-5": [2, 10, 0.2],
+  "claude-opus-5-5": [4, 20, 0.2],
+  "claude-opus-5": [5, 25, 0.5],
+  "claude-fable-5-1": [10, 50, 0.25],
+  "claude-fable-5": [10, 50, 1],
+  "claude-haiku-4-5": [1, 5, 0.1],
+};
+function costOf(model: string, u: any): number {
+  if (!u) return 0;
+  const key = Object.keys(RATES).sort((a, b) => b.length - a.length).find((k) => String(model || "").startsWith(k));
+  const [inp, out, read] = key ? RATES[key] : [10, 50, 1]; // unknown: count it as the dearest
+  const n = (x: any) => (isFinite(Number(x)) ? Number(x) : 0);
+  return (n(u.input_tokens) * inp + n(u.cache_creation_input_tokens) * inp * 1.25 + n(u.cache_read_input_tokens) * read + n(u.output_tokens) * out) / 1e6;
+}
+
+// The daily budgets, in dollars, kept in the agent_usage table — which only
+// this function can read or write (supabase/agent-usage.sql makes it). A
+// person can't reset their own count; it isn't in their records. Until that
+// SQL has been run there's nowhere to keep the count, and the budgets are off.
+//   AGENT_DAILY_USD        per person, default 5
+//   AGENT_DAILY_USD_TOTAL  everyone together, default 50
+const usageDay = () => new Date().toISOString().slice(0, 10);
+async function budgetLeft(uid: string): Promise<{ ok: boolean; why: string } | null> {
+  const per = Number(Deno.env.get("AGENT_DAILY_USD") || 5);
+  const all = Number(Deno.env.get("AGENT_DAILY_USD_TOTAL") || 50);
+  try {
+    const r = await fetch(sbUrl(`/agent_usage?day=eq.${usageDay()}&select=user_id,usd`), { headers: sbHeaders() });
+    if (!r.ok) return null; // no table yet
+    const rows = (await r.json()) as any[];
+    const mine = rows.filter((x) => x.user_id === uid).reduce((t, x) => t + Number(x.usd || 0), 0);
+    const total = rows.reduce((t, x) => t + Number(x.usd || 0), 0);
+    if (isFinite(per) && per > 0 && mine >= per) return { ok: false, why: "You've used today's assistant budget. It resets overnight." };
+    if (isFinite(all) && all > 0 && total >= all) return { ok: false, why: "The store has used today's assistant budget. It resets overnight." };
+    return { ok: true, why: "" };
+  } catch { return null; }
+}
+async function addSpend(uid: string, usd: number): Promise<void> {
+  if (!uid || !(usd > 0)) return;
+  try {
+    await fetch(sbUrl("/rpc/agent_add_usage"), { method: "POST", headers: sbHeaders(), body: JSON.stringify({ p_user: uid, p_day: usageDay(), p_usd: Math.round(usd * 1e6) / 1e6 }) });
+  } catch { /* the count is a guard, not the bill */ }
+}
+
+// ---- The night read: one run of this function per rep ----
+// The cron job asks once for the whole store. This run doesn't read anyone's
+// book itself: it calls the function again once per rep and moves on, so
+// each rep's read gets its own run and its own time limit. Done in a single
+// run, a store of twenty reps was twenty model calls in a row against one
+// clock, and whoever was last got no plays. The per-rep calls carry the
+// service key, which only this function and the database hold; a stranger
+// can't name a rep. If a per-rep call can't be made, that rep's read runs
+// here instead, so nothing is lost to a wrong URL.
+const selfUrl = () => Deno.env.get("SELF_URL") || `${Deno.env.get("SUPABASE_URL") || ""}/functions/v1/quick-api`;
+function isInternal(req: Request): boolean {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") || "");
+  return !!key && !!m && m[1].trim() === key;
+}
+// Work that should outlive the response: the platform's waitUntil when it
+// has one, otherwise just finish it first (local runs, tests).
+async function inBackground(work: Promise<unknown>): Promise<void> {
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt && typeof rt.waitUntil === "function") { rt.waitUntil(work); return; }
+  await work;
+}
+
+async function handleNightly(body: any, req: Request): Promise<Response> {
+  const internal = isInternal(req);
   const cronKey = Deno.env.get("CRON_KEY");
-  if (cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  if (!internal && cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return json({ error: "Server missing ANTHROPIC_API_KEY" }, 500);
 
@@ -1359,21 +1462,66 @@ async function handleNightly(body: any): Promise<Response> {
   if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
   const prefRows = (await res.json()) as any[];
   const only = typeof body.nightly === "object" && body.nightly && body.nightly.u ? String(body.nightly.u) : "";
+  // A second run for the same day writes nothing new, unless it's forced —
+  // and only the store's own calls can force it. That keeps the bill to one
+  // read per rep per day however often someone posts to the URL.
+  const force = !!(body.nightly && body.nightly.force) && (internal || (!!cronKey && body.key === cronKey));
   const now = Date.now();
-  const report: any[] = [];
 
-  for (const pr of prefRows) {
+  // One rep: a per-rep call from the run below (answered at once, the read
+  // finishing in the background), or a run asked for by name with the key.
+  if (only) {
+    const pr = prefRows.find((x: any) => String(x.user_id) === only);
+    if (!pr) return json({ error: "no such rep" }, 404);
+    if (internal) {
+      await inBackground(nightFor(pr, apiKey, now, force).catch(() => null));
+      return json({ accepted: true }, 202);
+    }
+    return json({ users: 1, report: [await nightFor(pr, apiKey, now, force)] });
+  }
+
+  // The store: one call per rep, all at once.
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const report = await Promise.all(prefRows.map(async (pr: any) => {
     const uid = String(pr.user_id);
-    if (only && uid !== only) continue;
+    if (service) {
+      try {
+        const r = await fetch(selfUrl(), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${service}`, apikey: service, "Content-Type": "application/json" },
+          body: JSON.stringify({ nightly: { u: uid, force } }),
+        });
+        if (r.ok) return { uid: uid.slice(0, 8), dispatched: true };
+      } catch { /* run it here instead */ }
+    }
+    return nightFor(pr, apiKey, now, force);
+  }));
+  return json({ users: prefRows.length, report });
+}
+
+// One rep's read: their book, compactly, to the model, and the plays it
+// picks saved for the morning. Returns a line for the run's report.
+async function nightFor(pr: any, apiKey: string, now: number, force = false): Promise<any> {
+    const uid = String(pr.user_id);
     const cfg = pr.data || {};
     const tzOffset = isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : 0;
     const days: number[] = Array.isArray(cfg.hoursDays) && cfg.hoursDays.length ? cfg.hoursDays : [1, 2, 3, 4, 5, 6];
-    // The next working day, in the salesperson's own calendar.
+    // The day being planned, in the salesperson's own calendar. The job runs
+    // in the small hours, so the day that just ended is yesterday and the
+    // plays are for today — or the next working day, if today isn't one. (In
+    // the afternoon or evening, a run plans tomorrow.)
     const local = new Date(now - tzOffset * 60000);
-    let target = new Date(local); target.setUTCDate(target.getUTCDate() + 1);
+    const smallHours = local.getUTCHours() < 12;
+    let target = new Date(local); if (!smallHours) target.setUTCDate(target.getUTCDate() + 1);
     for (let guard = 0; guard < 7 && !days.includes(target.getUTCDay()); guard++) target.setUTCDate(target.getUTCDate() + 1);
     const forDate = target.toISOString().slice(0, 10);
-    const todayLocal = local.toISOString().slice(0, 10);
+    const ended = new Date(local); if (smallHours) ended.setUTCDate(ended.getUTCDate() - 1);
+    const todayLocal = ended.toISOString().slice(0, 10);
+
+    if (!force) {
+      const had = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.agentplays&id=eq.${encodeURIComponent(`agentplays:${forDate}`)}&deleted=eq.false&select=id`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      if (Array.isArray(had) && had.length) return { uid: uid.slice(0, 8), date: forDate, skipped: "already read for that day" };
+    }
 
     const rows = async (coll: string) => {
       const r = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data`), { headers: sbHeaders() });
@@ -1390,7 +1538,7 @@ async function handleNightly(body: any): Promise<Response> {
       .filter((l: any) => ["new", "working", "appointment", "negotiating"].includes(l.stage) || (l.stage === "sold" && String(l.updatedAt || "").slice(0, 7) === monthKey))
       .sort((a: any, b: any) => String(b.lastContacted || b.updatedAt || "").localeCompare(String(a.lastContacted || a.updatedAt || "")))
       .slice(0, NIGHT_LEADS_MAX);
-    if (!live.length) { report.push({ uid: uid.slice(0, 8), skipped: "no live customers" }); continue; }
+    if (!live.length) return { uid: uid.slice(0, 8), skipped: "no live customers" };
     const ageDays = (iso: string) => { const t = new Date(iso || "").getTime(); return isFinite(t) ? Math.floor((now - t) / 86400000) : null; };
     const p = (l: any) => l.profile || {};
     const leadLines = live.map((l: any) => {
@@ -1443,12 +1591,15 @@ async function handleNightly(body: any): Promise<Response> {
     ].join("\n");
 
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch(MESSAGES_URL(), {
         method: "POST",
-        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        // A declined request falls back to another model rather than leave
+        // the morning empty, as the assistant's own calls do.
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-beta": "server-side-fallback-2026-07-01" },
         body: JSON.stringify({
+          fallbacks: "default",
           model: Deno.env.get("NIGHT_MODEL") || Deno.env.get("MODEL") || "claude-sonnet-5-5",
-          max_tokens: 2048,
+          max_tokens: 8192, // six plays with drafts, plus the thinking that picks them
           system: [{ type: "text", text: system }],
           tools: [NIGHT_TOOL],
           messages: [{ role: "user", content: user }],
@@ -1456,9 +1607,10 @@ async function handleNightly(body: any): Promise<Response> {
         }),
       });
       const data = await r.json();
-      if (!r.ok) { report.push({ uid: uid.slice(0, 8), error: data?.error?.message || `Claude error ${r.status}` }); continue; }
+      if (!r.ok) return { uid: uid.slice(0, 8), error: data?.error?.message || `Claude error ${r.status}` };
+      await addSpend(uid, costOf(data.model || "claude-sonnet-5-5", data.usage));
       const call = (data.content || []).find((b: any) => b.type === "tool_use" && b.name === "write_plays");
-      if (!call) { report.push({ uid: uid.slice(0, 8), skipped: "no plays written", said: String((data.content || []).map((b: any) => b.text || "").join(" ")).slice(0, 160) }); continue; }
+      if (!call) return { uid: uid.slice(0, 8), skipped: data.stop_reason === "max_tokens" ? "ran out of room before writing the plays" : "no plays written", said: String((data.content || []).map((b: any) => b.text || "").join(" ")).slice(0, 160) };
       const out = (Array.isArray(call.input?.plays) ? call.input.plays : []).map((pl: any) => {
         const q = String(pl.customer || "").trim().toLowerCase();
         const lead = leadsAll.find((l: any) => String(l.name || "").toLowerCase() === q) || leadsAll.find((l: any) => q && String(l.name || "").toLowerCase().includes(q)) || null;
@@ -1475,12 +1627,10 @@ async function handleNightly(body: any): Promise<Response> {
       }).filter((pl: any) => pl.title).slice(0, NIGHT_PLAYS_MAX);
       const rec = { id: `agentplays:${forDate}`, date: forDate, summary: redactMoneyServer(String(call.input?.summary || "")).slice(0, 300), plays: out, at: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       await saveRecord(uid, "agentplays", rec.id, rec);
-      report.push({ uid: uid.slice(0, 8), date: forDate, plays: out.length, customers: live.length, cached: data.usage?.cache_read_input_tokens || 0 });
+      return { uid: uid.slice(0, 8), date: forDate, plays: out.length, customers: live.length, cached: data.usage?.cache_read_input_tokens || 0 };
     } catch (e) {
-      report.push({ uid: uid.slice(0, 8), error: String(e) });
+      return { uid: uid.slice(0, 8), error: String(e) };
     }
-  }
-  return json({ users: prefRows.length, report });
 }
 
 async function handleMorningPlays(body: any): Promise<Response> {
@@ -2219,8 +2369,9 @@ Deno.serve(async (req: Request) => {
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
   const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.nudge || body.welcome || body.gauth || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  let caller = "";
   if (personal) {
-    const caller = await callerId(req);
+    caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
     for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome", "memail"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
   }
@@ -2302,7 +2453,7 @@ Deno.serve(async (req: Request) => {
   if (body.shorten) return handleShorten(body.shorten);
   if (body.sweep) return handleSweep(body);
   if (body.plays) return handleMorningPlays(body);
-  if (body.nightly) return handleNightly(body);
+  if (body.nightly) return handleNightly(body, req);
   if (body.testpush) {
     const uid = String(body.testpush.u || "");
     if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
@@ -2350,6 +2501,16 @@ Deno.serve(async (req: Request) => {
   if (!apiKey) return json({ error: "Server missing ANTHROPIC_API_KEY" }, 500);
   if (!Array.isArray(body.messages) || !body.messages.length) return json({ error: "No messages" }, 400);
 
+  // Signing in proves who someone is, not that they're one of yours: anyone
+  // can make an account. So the model is for the people on the list (or in
+  // a store, which took a manager's invite code), within a daily budget, on
+  // a request no bigger than the app ever sends.
+  if (!(await mayUseModel(caller))) return json({ error: "This account isn't set up for the assistant. Ask your manager to add you to the store.", code: "not_allowed" }, 403);
+  const size = JSON.stringify([body.system, body.tools, body.messages]).length;
+  if (size > MAX_REQUEST_CHARS || (Array.isArray(body.tools) && body.tools.length > 80)) return json({ error: "That request is bigger than the assistant takes. Start a fresh conversation.", code: "too_big" }, 413);
+  const budget = await budgetLeft(caller);
+  if (budget && !budget.ok) return json({ error: budget.why, code: "over_budget" }, 429);
+
   // The brain. Sonnet 5.5 by default (MODEL overrides): with forty-odd tools
   // and a long brief, the model is the stage most likely to pick the wrong
   // tool or drop a detail, and the smaller one did. What makes it affordable
@@ -2381,12 +2542,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch(MESSAGES_URL(), {
       method: "POST",
       headers,
       body: JSON.stringify({
         model,
-        max_tokens: Math.min(Number(body.max_tokens) || 1024, 2048),
+        // Thinking counts against the cap, so the room is generous; only what's
+        // used is billed. 8192 is plenty for a turn and bounds a runaway one.
+        max_tokens: Math.min(Number(body.max_tokens) || 4096, 8192),
         system,
         tools,
         messages: body.messages,
@@ -2395,6 +2558,7 @@ Deno.serve(async (req: Request) => {
     });
     const data = await r.json();
     if (!r.ok) return json({ error: data?.error?.message || `Claude error ${r.status}` }, 502);
+    await inBackground(addSpend(caller, costOf(data.model || model, data.usage)));
     // Declined by a classifier with no fallback taken: say so in words
     // rather than hand the app an empty answer to read out.
     if (data.stop_reason === "refusal") return json({ content: [{ type: "text", text: "I can't help with that one." }], stop_reason: "end_turn", usage: data.usage });

@@ -112,7 +112,7 @@ async function ask(system, messages) {
     const res = await fetch(url, {
       method: "POST",
       headers: await backend.fnHeaders(),
-      body: JSON.stringify({ system, messages, max_tokens: 300 }),
+      body: JSON.stringify({ system, messages, max_tokens: 2048 }), // thinking counts against it
       signal: ctl.signal,
     });
     if (!res.ok) return null;

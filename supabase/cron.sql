@@ -48,9 +48,11 @@ select cron.schedule(
 
 -- Once a day at 2am Halifax: the night read. The model goes through each
 -- salesperson's book the way a manager would at the end of the day and
--- writes the next working day's plays — who to reply to, who's gone quiet,
--- which appointment to shore up — with the draft for each text. They sit at
--- the top of the queue in the morning; the 8am push names the first.
+-- writes the plays for the day that's starting (or the next working day) —
+-- who to reply to, who's gone quiet, which appointment to shore up — with the
+-- draft for each text. Each rep is read in their own run of the function, at
+-- most once a day. They sit at the top of the queue in the morning; the 8am
+-- push names the first.
 select cron.schedule(
   'viniva-night',
   '0 5 * * *',

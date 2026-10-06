@@ -1,0 +1,72 @@
+name: Agent eval
+
+# Does the assistant reach for the right tool? Runs test/utterances.test.js —
+# about forty real sentences a salesperson says — against the live model,
+# with the app's real brief and tools, and writes the score and every miss
+# to the run's summary. Costs a few cents a run.
+#
+# One-time setup: GitHub → this repo → Settings → Secrets and variables →
+# Actions → New repository secret, named ANTHROPIC_API_KEY.
+# Then: Actions tab → Agent eval → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model (what the cloud function uses unless its MODEL secret says otherwise)"
+        default: "claude-sonnet-5-5"
+      effort:
+        description: "Effort: low, medium, high"
+        default: "medium"
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the test browser
+        run: |
+          npm i --no-save playwright@1
+          npx playwright install --with-deps chromium
+
+      - name: Check the key is set
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Add a repository secret named ANTHROPIC_API_KEY (Settings → Secrets and variables → Actions) and run this again."
+            exit 1
+          fi
+
+      - name: Run the eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+        run: |
+          node test/server.js > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:8137/__reset && break; sleep 0.5; done
+          set -o pipefail
+          node test/utterances.test.js 2>&1 | tee eval.log
+
+      - name: Write the summary
+        if: always()
+        run: |
+          {
+            echo "## Agent eval — ${{ inputs.model }}, effort ${{ inputs.effort }}"
+            echo
+            grep -E "^score:" eval.log || echo "No score — see the run log."
+            echo
+            echo '```'
+            grep -E "^  miss:|^FAIL" eval.log || echo "No misses."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -513,7 +513,7 @@ const server = http.createServer((req, res) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-beta": "server-side-fallback-2026-07-01" },
-          body: JSON.stringify({ model: process.env.MODEL || "claude-sonnet-5-5", max_tokens: 1024, system: msg.system, tools, messages: msg.messages, output_config: { effort: process.env.EFFORT || "medium" }, fallbacks: "default" }),
+          body: JSON.stringify({ model: process.env.MODEL || "claude-sonnet-5-5", max_tokens: Math.min(Number(msg.max_tokens) || 4096, 8192), system: msg.system, tools, messages: msg.messages, output_config: { effort: process.env.EFFORT || "medium" }, fallbacks: "default" }),
         });
         const data = await r.json();
         if (!r.ok) return json(res, 502, { error: (data.error && data.error.message) || `Claude error ${r.status}` });

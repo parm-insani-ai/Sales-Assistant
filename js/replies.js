@@ -101,7 +101,7 @@ async function ask(lead, messages) {
     const res = await fetch(url, {
       method: "POST",
       headers: await backend.fnHeaders(),
-      body: JSON.stringify({ system: buildSystem(lead), messages, max_tokens: 400 }),
+      body: JSON.stringify({ system: buildSystem(lead), messages, max_tokens: 2048 }),
       signal: ctl.signal,
     });
     if (!res.ok) return { ok: false, error: `The agent couldn't be reached (${res.status}).` };

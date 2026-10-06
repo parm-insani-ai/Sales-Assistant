@@ -374,7 +374,7 @@ export function managerVocabulary({ limit = 400 } = {}) {
 
 export function createManagerSession() {
   return createAgentSession({
-    call: async (messages) => callRelay({ system: buildSystem(await team()), tools: TOOLS, messages, max_tokens: 1024 }),
+    call: async (messages) => callRelay({ system: buildSystem(await team()), tools: TOOLS, messages, max_tokens: 4096 }),
     exec: execManagerTool,
   });
 }
