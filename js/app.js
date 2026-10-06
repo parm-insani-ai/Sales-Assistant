@@ -334,9 +334,21 @@ document.getElementById("quick-add").addEventListener("click", () => {
     };
     section("Add new", keys.map((k) => byKey[k]));
     section("Tools", tools.toolLinks());
+    if (backend.isSignedIn()) section("Account", [signOutTile()]);
     return wrap;
   }));
 });
+
+// Sign out, from the "+" sheet: asked once, since a tile is easy to brush.
+// Back in (as the same account), the page starts fresh.
+function signOutTile() {
+  return { icon: "logout", label: "Sign out", fn: async () => {
+    const { confirmDialog } = await import("./components.js");
+    if (!(await confirmDialog("Sign out of viniva? Anything not yet synced goes up first.", { confirmLabel: "Sign out" }))) return;
+    const { signOutNow } = await import("./signout.js");
+    signOutNow({ after: () => location.reload() });
+  } };
+}
 
 startRouter();
 

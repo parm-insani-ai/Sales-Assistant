@@ -291,6 +291,11 @@ export async function openManagerQuickAdd() {
       { icon: "settings", label: "Settings", fn: () => navigate("/settings") },
       { icon: "car", label: "Sales view", fn: () => { setViewMode("sales"); location.hash = "#/"; location.reload(); } },
     ]);
+    if (backend.isSignedIn()) section("Account", [{ icon: "logout", label: "Sign out", fn: async () => {
+      const { confirmDialog: ask } = await import("../components.js");
+      if (!(await ask("Sign out of viniva? Anything not yet synced goes up first.", { confirmLabel: "Sign out" }))) return;
+      (await import("../signout.js")).signOutNow({ after: () => location.reload() });
+    } }]);
     return wrap;
   });
 }

@@ -14,6 +14,7 @@ import * as backend from "../backend.js";
 import * as sync from "../sync.js";
 import { showLogin } from "../login.js";
 import { claimDevice } from "../account.js";
+import { signOutNow } from "../signout.js";
 import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
 import { goBack } from "../router.js";
@@ -721,23 +722,8 @@ function buildCloud(slot) {
     <div class="cloud-status small muted" style="margin-top:10px;text-align:center">${sync.lastSyncAt() ? "Synced " + esc(timeAgo(sync.lastSyncAt())) : "Not synced yet — tap Sync now"}</div>`;
   bindConfig();
 
-  slot.querySelector('[data-c="signout"]').addEventListener("click", async () => {
-    // Anything still queued leaves for the cloud first — if the next person
-    // through the door is a different account, this book is about to go.
-    try { await sync.syncNow(); } catch { }
-    await backend.signOut();
-    sync.disable();
-    toast("Signed out");
-    // Signed out is the front door. Come back through it and pick up syncing.
-    const user = await showLogin();
-    const switched = claimDevice(user);
-    // A different account: nothing on this page is theirs, and which app
-    // this is — the rep's or the store's — is decided at boot from who they
-    // are. Start over from Home so it's decided for them, not the last person.
-    if (switched) { location.hash = "#/"; location.reload(); return; }
-    sync.enable(); sync.init(); sync.syncNow();
-    rerender();
-  });
+  // The same sign-out as the "+" sheet's (signout.js).
+  slot.querySelector('[data-c="signout"]').addEventListener("click", () => signOutNow({ after: rerender }));
   slot.querySelector("#c-auto").addEventListener("change", (e) => {
     if (inStore()) { e.target.checked = true; return; }
     store.updateSettings({ cloudAutoSync: e.target.checked });
