@@ -77,7 +77,9 @@ const iso = (d) => d.toISOString();
 const day = (n) => new Date(now.getTime() + n * 86400000);
 const ymd = (d) => d.toISOString().slice(0, 10);
 const monthStart = ymd(new Date(now.getFullYear(), now.getMonth(), 1)).slice(0, 8) + "01";
-const inMonth = (d) => ymd(d) >= monthStart ? d : now; // near the 1st, keep everything inside this month
+// Near the start of a month, a date from last month moves to the 1st, not
+// to today: moved to today, it read as a second appointment today.
+const inMonth = (d) => ymd(d) >= monthStart ? d : new Date(monthStart + "T12:00:00.000Z");
 const seed = (user_id, rows) => fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id, rows }) });
 await seed(U1, [
   { id: "l1", collection: "leads", data: { id: "l1", name: "Fresh Lead", phone: "9025551111", stage: "new", vehicleInterest: "2026 Nissan Rogue SV", source: "Web", notes: "Wants AWD, budget ~550/mo", createdAt: iso(day(-3)) } },
@@ -112,7 +114,10 @@ const board = await mgr.evaluate(() => ({
 }));
 console.log("board:", JSON.stringify(board, null, 1));
 const parm = board.rows.find((r) => /^Parm/.test(r)) || "";
-if (!/2 touches today · 3 this month · 1 appt today/.test(parm)) fail("Parm's touches are wrong: " + parm);
+// Today's appointments, from the seeds themselves: on the 1st, the ones
+// moved to the 1st are today's too.
+const apptsToday = [inMonth(day(-4)), now, inMonth(day(-10))].filter((d) => ymd(d) === ymd(now)).length;
+if (!new RegExp(`2 touches today · 3 this month · ${apptsToday} appts? today`).test(parm)) fail("Parm's touches are wrong: " + parm);
 if (!/2 \/ 12/.test(parm) || !/pace/.test(parm)) fail("Parm's units against goal are wrong: " + parm);
 if (!/3 set/.test(parm) || !/2 shown/.test(parm) || !/1 untouched/.test(parm) || !/1 overdue/.test(parm)) fail("Parm's cells are wrong: " + parm);
 const dana = board.rows.find((r) => /^Dana Rep/.test(r)) || "";
