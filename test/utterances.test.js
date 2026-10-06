@@ -17,10 +17,15 @@ const { launch } = require("./browser.js");
 const CASES = [
   ["Ken's coming in Thursday at 4", ["book_appointment"]],
   ["book Dana a test drive tomorrow at 2", ["book_appointment"]],
-  ["add Dana Muise, 902 555 1212, she's after a used Rogue, loves the SV moonroof", ["create_lead"]],
+  ["add Lena Porter, 902 555 1212, she's after a used Rogue, loves the SV moonroof", ["create_lead"]],
+  // Dana is already on file: adding her again is a duplicate. Updating her,
+  // or asking whether it's the same Dana, is right.
+  ["add Dana Muise, 902 555 1212, she's after a used Rogue", ["update_lead", "ask_user"]],
   ["add Ann Fraser, she wants a Kicks", ["ask_user"]],                 // no number: ask for it first
   ["sold one to Moe, made 800", ["log_sale"]],
-  ["that wasn't a sale", ["undo_sale", "undo_last"]],
+  // "That" needs something before it: in a fresh session there's nothing to
+  // point at, so the sale is logged first and only the second line is scored.
+  [["sold one to Moe, made 800", "that wasn't a sale"], ["undo_sale", "undo_last"]],
   ["Sara's cell is 902 555 9876", ["update_lead"]],
   ["Parm said he loves the SV moonroof and his wife has to sign off", ["add_context"]],
   ["Ken's bought elsewhere", ["update_lead"]],
@@ -94,10 +99,13 @@ await p.waitForTimeout(500);
 
 // Each sentence on a fresh session: the real brief and tools, the live
 // model, and a stand-in executor that records the first tool and answers
-// "done" so the turn can finish without touching the book.
+// "done" so the turn can finish without touching the book. A case given as
+// several sentences says them in turn and scores only the last.
 const rows = [];
-for (const [said, want] of CASES) {
-  const got = await p.evaluate(async ([said]) => {
+for (const [lines, want] of CASES) {
+  const turns = Array.isArray(lines) ? lines : [lines];
+  const said = turns.join(" → ");
+  const got = await p.evaluate(async ([turns]) => {
     const a = await import("/js/agent.js");
     const picked = [];
     const call = async (messages) => {
@@ -110,12 +118,14 @@ for (const [said, want] of CASES) {
     const exec = async (name, input) => { picked.push({ name, input }); return { result: name === "ask_user" ? "" : "done (simulated)", note: "" }; };
     const s = a.createAgentSession({ call, exec });
     try {
-      const res = await s.send(said);
+      for (const before of turns.slice(0, -1)) await s.send(before);
+      picked.length = 0;
+      const res = await s.send(turns[turns.length - 1]);
       // ask_user never reaches exec: it comes back as the turn's question.
       if (res.done === false) picked.push({ name: "ask_user", input: { question: res.say, options: res.options } });
       return { picked, say: res.say, error: "" };
     } catch (e) { return { picked, say: "", error: String(e && e.message || e) }; }
-  }, [said]);
+  }, [turns]);
   const first = got.picked[0] ? got.picked[0].name : (got.error ? "ERROR" : "(none)");
   const ok = want.includes(first);
   rows.push({ said, want, first, ok, say: got.say, error: got.error, input: got.picked[0] ? got.picked[0].input : null });
