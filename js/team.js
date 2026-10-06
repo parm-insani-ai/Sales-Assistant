@@ -136,6 +136,14 @@ export function storeTotals(stats) {
     feed: ok.flatMap((r) => (r.events || []).map((e) => ({ ...e, rep: r.member }))).sort((a, b) => String(b.at).localeCompare(String(a.at))),
     // Everyone logged this month across the store, newest first, with their rep.
     logged: ok.flatMap((r) => (r.logged || []).map((l) => ({ ...l, rep: r.member }))).sort((a, b) => String(b.loggedAt).localeCompare(String(a.loggedAt))),
+    // The floor: customers waiting on a reply, longest first; appointments
+    // at risk, soonest first; no-shows to rebook; each rep's plays; who
+    // was logged today and not yet welcomed.
+    waiting: ok.flatMap((r) => (r.waiting || []).map((w) => ({ ...w, rep: r.member }))).sort((a, b) => a.at.localeCompare(b.at)),
+    atRisk: ok.flatMap((r) => (r.atRisk || []).map((a) => ({ ...a, rep: r.member }))).sort((a, b) => a.when.localeCompare(b.when)),
+    noShows: ok.flatMap((r) => (r.noShows || []).map((a) => ({ ...a, rep: r.member }))).sort((a, b) => b.when.localeCompare(a.when)),
+    playsByRep: ok.filter((r) => r.plays).map((r) => ({ rep: r.member, ...r.plays })),
+    welcomes: { logged: sum((r) => (r.welcomes ? r.welcomes.logged : 0)), welcomed: sum((r) => (r.welcomes ? r.welcomes.welcomed : 0)), pending: ok.flatMap((r) => (r.welcomes ? r.welcomes.pending.map((l) => ({ ...l, rep: r.member })) : [])) },
     // The store's appointment picture, from everyone's rows together.
     insight: storeInsight(ok.map((r) => r.raw).filter(Boolean)),
   };
@@ -215,7 +223,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, callsToday, playsToday] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -230,6 +238,12 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     // The follow-up plan's steps, done and to come, for the plan status
     // on each logged customer.
     backend.readRecords(userId, "tasks", { "data->>cadence": "eq.true" }, { select: "data", limit: 5000 }).catch(() => []),
+    // The week's texts and emails: who is waiting on a reply, who was
+    // reached today. Today's calls. The night read's plays for today.
+    backend.readRecords(userId, "texts", { "data->>at": `gte.${since(7)}` }, { select: "data", limit: 3000 }).catch(() => []),
+    backend.readRecords(userId, "emails", { "data->>createdAt": `gte.${since(7)}` }, { select: "data", limit: 1000 }).catch(() => []),
+    backend.readRecords(userId, "calls", { "data->>at": `gte.${today}` }, { select: "data", limit: 500 }).catch(() => []),
+    backend.readRecords(userId, "agentplays", { id: `eq.agentplays:${today}` }, { select: "data", limit: 1 }).catch(() => []),
   ]);
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
@@ -305,7 +319,46 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     ...s.filter((x) => dayKey(x.saleDate || x.createdAt) === today).map((x) => ({ kind: "sold", at: x.createdAt || x.saleDate, leadId: x.leadId || "", name: x.customerName || "", detail: x.vehicle || "" })),
   ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, at: now.toISOString() };
+  // --- The floor: who is waiting, who was reached, what's at risk ---
+  const nameOf = (leadId, fallback = "") => { const l = byId.get(leadId); return (l && l.name) || fallback || ""; };
+  const texts = rows(textsWeek), mails = rows(emailsWeek), calls = rows(callsToday);
+  // The last message with each customer, text or email. If it came from
+  // them and nobody answered, they're waiting.
+  const lastMsg = new Map();
+  const note = (key, m) => { if (!key) return; const cur = lastMsg.get(key); if (!cur || m.at > cur.at) lastMsg.set(key, m); };
+  texts.forEach((t) => note(t.leadId || t.phone, { leadId: t.leadId || "", phone: t.phone || "", channel: "text", in: t.dir === "in", read: !!t.read, at: String(t.at || t.createdAt || ""), preview: String(t.body || "").slice(0, 90), name: t.name || "" }));
+  mails.forEach((e) => note(e.leadId || e.from, { leadId: e.leadId || "", phone: "", channel: "email", in: e.direction === "in", read: !!e.read, at: String(e.receivedAt || e.createdAt || ""), preview: String(e.subject || e.snippet || e.body || "").slice(0, 90), name: e.fromName || e.from || "" }));
+  const waiting = [...lastMsg.values()].filter((m) => m.in && !m.read).map((m) => ({ ...m, name: nameOf(m.leadId, m.name || m.phone) })).sort((a, b) => a.at.localeCompare(b.at));
+  // Reached today: a text, an email or a call out to them.
+  const touchedToday = new Set();
+  texts.forEach((t) => { if (t.dir === "out" && t.leadId && dayKey(t.at || t.createdAt) === today) touchedToday.add(t.leadId); });
+  mails.forEach((e) => { if (e.direction === "out" && e.leadId && dayKey(e.createdAt) === today) touchedToday.add(e.leadId); });
+  calls.forEach((c) => { if (c.leadId && dayKey(c.at) === today) touchedToday.add(c.leadId); });
+  // Appointments at risk: inside 24 hours and not confirmed; recent
+  // no-shows nobody has rebooked.
+  const nowLocal = `${today}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const in24 = (() => { const d = new Date(now.getTime() + 86400000); return `${ymd(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`; })();
+  const liveAppts = allAppts.filter((a) => a.status !== "canceled");
+  const atRisk = liveAppts.filter((a) => !a.confirmed && !a.outcome && a.when > nowLocal && a.when <= in24).sort((a, b) => a.when.localeCompare(b.when));
+  const noShows = liveAppts.filter((a) => a.outcome === "no_show" && String(a.when).slice(0, 10) >= since(3) && !liveAppts.some((b) => b.leadId && b.leadId === a.leadId && b.when > nowLocal)).sort((a, b) => b.when.localeCompare(a.when));
+  // Today's plays from the night read, and which were reached.
+  const night = playsToday[0] && playsToday[0].data;
+  const plays = night && Array.isArray(night.plays) ? {
+    summary: night.summary || "",
+    items: night.plays.map((pl) => ({ customer: pl.customer || "", leadId: pl.leadId || "", action: pl.action || "other", title: pl.title || "", why: pl.why || "",
+      reached: !!(pl.leadId && (touchedToday.has(pl.leadId) || (pl.action === "confirm" && liveAppts.some((a) => a.leadId === pl.leadId && a.confirmed)) || (pl.action === "book" && liveAppts.some((a) => a.leadId === pl.leadId && dayKey(a.createdAt) === today)))) })),
+  } : null;
+  if (plays) plays.reached = plays.items.filter((x) => x.reached).length;
+  // Welcomed today: everyone logged today, and whether a text or an email
+  // went out to them today — the rep's own or the manager's.
+  const loggedTodayList = logged.filter((l) => dayKey(l.loggedAt) === today);
+  const welcomes = {
+    logged: loggedTodayList.length,
+    welcomed: loggedTodayList.filter((l) => touchedToday.has(l.id)).length,
+    pending: loggedTodayList.filter((l) => !touchedToday.has(l.id)).map((l) => ({ ...l, email: (byId.get(l.id) || {}).email || "", optOut: !!((byId.get(l.id) || {}).smsOptOut || (byId.get(l.id) || {}).doNotContact) })),
+  };
+
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, at: now.toISOString() };
 }
 
 // Every member's numbers, in parallel, in the order given.
@@ -358,6 +411,18 @@ export async function sendWelcomeNow(repId, leadId) {
   const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ welcome: { rep: repId, leadId } }) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j.error || `Couldn't send (${res.status})`);
+  return j;
+}
+// The manager's text to one of a rep's customers: sent from the store's
+// number, filed in the rep's thread marked as the manager's. A reply comes
+// back to the rep's thread like any other. (The function's `mtext` door.)
+export async function sendManagerText(repId, leadId, body) {
+  const s = (await import("./store.js")).getSettings();
+  const fn = (s.agentUrl || "").trim().replace(/\/+$/, "");
+  if (!fn) throw new Error("Set up the cloud function in Settings first");
+  const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ mtext: { rep: repId, leadId, body } }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(/No messages/.test(j.error || "") ? "Paste the latest function into quick-api to text as the manager" : j.error || `Couldn't send (${res.status})`);
   return j;
 }
 // Welcomes sent across the store in the last `days`, newest first.

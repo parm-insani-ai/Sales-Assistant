@@ -233,6 +233,21 @@ is. So the function decides who may use the model, and how much:
 
 Every request is also capped in size and in output, whatever the app sends.
 
+### The managers' sweep and the manager's texts
+
+The same ten-minute sweep (`viniva-sweep` in `cron.sql`) also pushes each
+manager with notifications on about what's costing business on the floor:
+a customer waiting more than fifteen minutes on a reply, a new lead nobody
+has touched for thirty, an appointment two hours out that isn't confirmed.
+Each once, inside the manager's business hours, tapping through to the
+Floor. Nothing to set up beyond notifications on the manager's phone.
+
+A manager can text any rep's customer from the Floor (a reply the rep
+hasn't got to, a confirmation) — `{"mtext": {"rep", "leadId", "body"}}` —
+from the store's `TWILIO_FROM` number, filed in the rep's thread marked as
+the manager's; the customer's reply comes back to the rep's thread. A text
+with a dollar amount or a rate in it is refused.
+
 ### The night read
 
 The 2am job (`cron.sql`) hands each rep to their own run of the function, so

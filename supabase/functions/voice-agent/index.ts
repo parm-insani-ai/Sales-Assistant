@@ -1289,7 +1289,76 @@ async function handleSweep(body: any): Promise<Response> {
     if (fresh.length) await rememberNudges(uid, already);
     report.push({ uid: uid.slice(0, 8), candidates: found.length, sent: fresh.length, pushed });
   }
-  return json({ users: users.length, report });
+  // The managers' sweep: the floor's problems, to the managers' phones.
+  const managers: any[] = [];
+  try { await managerPass(now, users, managers); } catch (e) { managers.push({ error: String(e) }); }
+  return json({ users: users.length, report, managers });
+}
+
+// ---- The managers' sweep ----
+// The Floor only helps while a manager is looking at it. This is for when
+// they aren't: once per store, the things on the floor that cost business
+// by the hour — a customer waiting on a reply, a fresh lead nobody has
+// touched, an appointment two hours out that isn't confirmed — pushed to
+// each manager with notifications on, each once, a few per sweep, in their
+// business hours. Tapping one opens the Floor.
+const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 30, MGR_CONFIRM_MIN = 120, MGR_CAP = 3;
+async function managerPass(now: number, pushUsers: string[], report: any[]): Promise<void> {
+  const stores = await fetch(sbUrl(`/stores?select=id,name`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  const canPush = new Set(pushUsers);
+  for (const st of stores as any[]) {
+    const members = await fetch(sbUrl(`/store_members?select=user_id,role,name,email&store_id=eq.${encodeURIComponent(st.id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    const managers = (members as any[]).filter((m) => m.role === "manager" && canPush.has(String(m.user_id)));
+    if (!managers.length) continue;
+    const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "a rep";
+    const rows = async (uid: string, coll: string, extra = "") => fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data${extra}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
+    // What's on the floor, across every member's book. Times are judged
+    // per manager below, since wall-clock appointments need their zone.
+    const found: { key: string; urgency: number; title: string; body: string; whenLocal?: string }[] = [];
+    for (const m of members as any[]) {
+      const uid = String(m.user_id);
+      const leads = await rows(uid, "leads");
+      const leadById = (id: string) => leads.find((l: any) => l.id === id) || null;
+      const unread = (await rows(uid, "texts", "&data->>dir=eq.in&data->>read=eq.false")) as any[];
+      const oldest = new Map<string, any>();
+      for (const t of unread) { const k = String(t.leadId || t.phone || ""); const at = new Date(t.at || t.createdAt).getTime(); if (!isFinite(at)) continue; const cur = oldest.get(k); if (!cur || at < new Date(cur.at || cur.createdAt).getTime()) oldest.set(k, t); }
+      for (const [k, t] of oldest) {
+        const waited = Math.round((now - new Date(t.at || t.createdAt).getTime()) / 60000);
+        if (waited < MGR_REPLY_MIN || waited > 24 * 60) continue;
+        const lead = leadById(k);
+        found.push({ key: `mgr:reply:${t.id}`, urgency: Math.min(100, 70 + Math.floor(waited / 10)), title: `${(lead?.name || t.phone || "A customer")} is waiting on ${nameOf(m)}`, body: `Replied ${waited < 60 ? `${waited} min` : `${Math.round(waited / 60)}h`} ago — ${String(t.body || "").slice(0, 70)}` });
+      }
+      for (const l of leads) {
+        if (l.stage !== "new" || l.firstContacted || l.lastContacted || !l.createdAt) continue;
+        const age = Math.round((now - new Date(l.createdAt).getTime()) / 60000);
+        if (!isFinite(age) || age < MGR_LEAD_MIN || age > 24 * 60) continue;
+        found.push({ key: `mgr:lead:${l.id}`, urgency: Math.min(95, 60 + Math.floor(age / 15)), title: `${l.name || "A new lead"} hasn't been touched — ${nameOf(m)}'s`, body: `Waiting ${age < 60 ? `${age} min` : `${Math.round(age / 60)}h`}. Leads book in the first hour and rarely after the first day.` });
+      }
+      for (const a of await rows(uid, "appointments")) {
+        if (a.status !== "scheduled" || a.confirmed || a.outcome || !a.when) continue;
+        found.push({ key: `mgr:confirm:${a.id}`, urgency: 90, title: `${a.customerName || "An appointment"} at ${String(a.when).slice(11, 16)} with ${nameOf(m)} isn't confirmed`, body: "A confirmation now is the difference between a show and a no-show.", whenLocal: String(a.when) });
+      }
+    }
+    for (const mg of managers) {
+      const uid = String(mg.user_id);
+      const cfg = (await rows(uid, "prefs"))[0] || {};
+      if (cfg.proactive === false) { report.push({ store: st.name, manager: uid.slice(0, 8), skipped: "switched off" }); continue; }
+      const offset = Number(cfg.tzOffsetMinutes); const tzOffset = isFinite(offset) ? offset : 0;
+      const localNow = new Date(now - tzOffset * 60000);
+      if (inQuietHours(localNow.getUTCHours(), Number(cfg.quietFrom ?? 21), Number(cfg.quietTo ?? 8)) || !inBusinessHours(localNow.getUTCHours(), localNow.getUTCDay(), cfg)) { report.push({ store: st.name, manager: uid.slice(0, 8), skipped: "outside hours" }); continue; }
+      const already = await sentNudges(uid);
+      const mine = found.filter((n) => {
+        if (already[n.key]) return false;
+        if (!n.whenLocal) return true;
+        const t = wallClockMs(n.whenLocal, tzOffset); const mins = Math.round((t - now) / 60000);
+        return isFinite(t) && mins > 0 && mins <= MGR_CONFIRM_MIN;
+      }).sort((a, b) => b.urgency - a.urgency).slice(0, MGR_CAP);
+      let pushed = 0;
+      for (const n of mine) { pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: "./#/floor" }); already[n.key] = new Date().toISOString(); }
+      if (mine.length) await rememberNudges(uid, already);
+      report.push({ store: st.name, manager: uid.slice(0, 8), candidates: found.length, sent: mine.map((n) => n.key), pushed });
+    }
+  }
 }
 
 // ---- The night read ----
@@ -2170,7 +2239,7 @@ async function twilioSend(to: string, text: string): Promise<{ ok: boolean; sid?
   const { sid, token, from } = twilioCfg();
   if (!sid || !token || !from) return { ok: false, error: "Texting is not set up on the server (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)" };
   const form = new URLSearchParams({ To: to, From: from, Body: text.slice(0, 1600) });
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+  const res = await fetch(`${Deno.env.get("TWILIO_API_URL") || "https://api.twilio.com"}/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: "POST",
     headers: { Authorization: "Basic " + btoa(`${sid}:${token}`), "Content-Type": "application/x-www-form-urlencoded" },
     body: form,
@@ -2368,12 +2437,12 @@ Deno.serve(async (req: Request) => {
   // public paths (a customer booking, cron with its key) carry no session and
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
-  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.nudge || body.welcome || body.gauth || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.mtext || body.nudge || body.welcome || body.gauth || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
   let caller = "";
   if (personal) {
     caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
-    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome", "memail"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome", "memail", "mtext"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
   }
 
   // The manager's welcome, to one customer, now — from a manager of the
@@ -2418,6 +2487,37 @@ Deno.serve(async (req: Request) => {
       await saveRecord(rep, "leads", leadId, { ...lead, managerEmailAt: now, updatedAt: now });
     } catch { /* sent; the log is best-effort */ }
     return json({ sent: true, id: r.id || null });
+  }
+
+  // The manager's text to one of a rep's customers — a reply the rep hasn't
+  // got to, a confirmation for tomorrow — from the store's number, filed in
+  // the rep's thread marked as the manager's. No figures, ever.
+  if (body.mtext) {
+    const x = body.mtext;
+    const rep = String(x.rep || ""), leadId = String(x.leadId || "");
+    const text = String(x.body || "").trim().slice(0, 600);
+    if (!/^[0-9a-f-]{36}$/.test(rep) || !leadId || !text) return json({ error: "bad request" }, 400);
+    const mm = await managedMember(String(x.u), rep);
+    if (!mm) return json({ error: "you don't manage that rep" }, 403);
+    const lead = await repLeadRow(rep, leadId);
+    if (!lead) return json({ error: "no such customer" }, 400);
+    if (!lead.phone) return json({ error: "no phone number on file" }, 400);
+    if (lead.doNotContact || lead.smsOptOut) return json({ error: "they've asked not to be texted" }, 400);
+    if (looksLikeMoneyServer(text)) return json({ error: "No figures in a text to a customer — take the dollar amount or rate out" }, 400);
+    const r = await twilioSend(String(lead.phone), text);
+    if (!r.ok) return json({ error: r.error }, /not set up/.test(r.error || "") ? 500 : 502);
+    const now = new Date().toISOString();
+    const tid = "txt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    const by = (mm.me && mm.me.name) || "";
+    try {
+      await saveRecord(rep, "texts", tid, { id: tid, leadId, dir: "out", body: text, phone: lead.phone, at: now, read: true, sid: r.sid || "", via: "manager", by, sentBy: String(x.u), createdAt: now, updatedAt: now });
+      await saveRecord(rep, "leads", leadId, { ...lead, managerTextAt: now, lastContacted: now, lastContactVia: "text", updatedAt: now });
+      // Their waiting texts are answered now: mark them read in the rep's
+      // thread, so the rep's inbox and the sweep stop counting them.
+      const unread = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(rep)}&collection=eq.texts&deleted=eq.false&data->>leadId=eq.${encodeURIComponent(leadId)}&data->>dir=eq.in&data->>read=eq.false&select=id,data&limit=20`), { headers: sbHeaders() }).then((q) => (q.ok ? q.json() : [])).catch(() => []);
+      for (const u of unread as any[]) await saveRecord(rep, "texts", u.id, { ...(u.data || {}), read: true, updatedAt: now });
+    } catch { /* sent; the log is best-effort */ }
+    return json({ sent: true, id: tid, sid: r.sid || null });
   }
 
   // A manager taps a rep's phone: "Fresh Lead has been waiting 3 hours."

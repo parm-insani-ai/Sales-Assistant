@@ -40,6 +40,8 @@ const storeVehicles = new Map();
 // Per-store config (the manager's welcome text), and the welcomes "sent".
 const storeConfig = new Map();
 const welcomes = [];
+// The manager's texts to reps' customers (POST {mtext}), for tests to read back.
+const mtexts = [];
 // Emails the manager "sent" to reps' customers.
 const emails = [];
 // Targets managers set, and the nudges (pushes) managers sent.
@@ -357,6 +359,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__nudges") return json(res, 200, nudges);
   if (url.pathname === "/__gauths") return json(res, 200, gauths);
   if (url.pathname === "/__welcomes") return json(res, 200, welcomes);
+  if (url.pathname === "/__mtexts") return json(res, 200, mtexts);
   if (url.pathname === "/__emails") return json(res, 200, emails);
   if (url.pathname === "/__admin") { const u = url.searchParams.get("u"); if (u) admins.add(u); return json(res, 200, [...admins]); }
   if (url.pathname === "/__pushes") return json(res, 200, pushes);
@@ -384,7 +387,7 @@ const server = http.createServer((req, res) => {
       // Like the real function: anything that acts as a person needs the
       // session's bearer token. A call without one is refused, which is how
       // a test finds a client path that forgot to send it.
-      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || msg.memail || msg.nudge || msg.welcome || msg.gauth || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
+      const personal = !!(msg.sms || msg.smscheck || msg.testpush || msg.shorten || msg.email || msg.memail || msg.mtext || msg.nudge || msg.welcome || msg.gauth || (msg.inventory && msg.inventory.u) || Array.isArray(msg.messages));
       if (personal && !/^Bearer\s+\S+/.test(String(req.headers["authorization"] || ""))) return json(res, 401, { error: "Sign in to your cloud account in Settings — this call needs your session." });
       // The Google token exchange, as the function does it with the secret:
       // a code becomes tokens, a refresh becomes a fresh access token.
@@ -442,6 +445,27 @@ const server = http.createServer((req, res) => {
         lead.data.managerEmailAt = nowiso; lead.data.updatedAt = nowiso; lead.updated_at = nowiso;
         emails.push({ from: uid, rep: e.rep, leadId: e.leadId, to: lead.data.email, subject: e.subject, text: e.text });
         return json(res, 200, { sent: true, id: eid });
+      }
+      // The manager's text to a rep's customer: "sent" from the store's
+      // number, filed in the rep's thread, their waiting texts marked read.
+      if (msg.mtext) {
+        const uid = USERS[bearer] || USERS.t;
+        const x = msg.mtext;
+        const st = [...stores.values()].find((s) => s.members.some((m) => m.user_id === x.rep));
+        const me = st && st.members.find((m) => m.user_id === uid);
+        const ok = admins.has(uid) || !!(me && me.role === "manager");
+        if (!ok) return json(res, 403, { error: "you don't manage that rep" });
+        const lead = records.get(x.rep + "|" + x.leadId);
+        if (!lead || lead.collection !== "leads") return json(res, 400, { error: "no such customer" });
+        if (!lead.data.phone) return json(res, 400, { error: "no phone number on file" });
+        if (!x.body) return json(res, 400, { error: "bad request" });
+        if (/\$\s?\d|\d\s?%/.test(x.body)) return json(res, 400, { error: "No figures in a text to a customer — take the dollar amount or rate out" });
+        const nowiso = new Date().toISOString(), tid = "txt_m" + (mtexts.length + 1);
+        records.set(x.rep + "|" + tid, { id: tid, user_id: x.rep, collection: "texts", data: { id: tid, leadId: x.leadId, dir: "out", body: x.body, phone: lead.data.phone, at: nowiso, read: true, via: "manager", by: (me && me.name) || "", sentBy: uid, createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
+        for (const r of records.values()) if (r.user_id === x.rep && r.collection === "texts" && r.data.leadId === x.leadId && r.data.dir === "in" && !r.data.read) { r.data.read = true; r.data.updatedAt = nowiso; r.updated_at = nowiso; }
+        lead.data.managerTextAt = nowiso; lead.data.lastContacted = nowiso; lead.data.updatedAt = nowiso; lead.updated_at = nowiso;
+        mtexts.push({ from: uid, rep: x.rep, leadId: x.leadId, to: lead.data.phone, body: x.body });
+        return json(res, 200, { sent: true, id: tid });
       }
       if (msg.nudge) {
         const uid = USERS[bearer] || USERS.t;
@@ -539,7 +563,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0;
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null; objects.clear();
     return json(res, 200, { ok: true });
   }

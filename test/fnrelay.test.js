@@ -22,7 +22,12 @@ const USERS = { "tok-a": { id: U1, email: "Rep@Example.com" }, "tok-b": { id: U2
 const SERVICE = "service-key-for-tests";
 
 // --- The stand-in: Supabase auth, the REST tables, and the model.
-const db = { records: [], usage: [], members: [{ user_id: U3 }], noUsageTable: false };
+const db = { records: [], usage: [], stores: [{ id: "s1", name: "O'Regan's Nissan Halifax" }], members: [{ user_id: U3, store_id: "s1", role: "manager", name: "Sam", email: "member@example.com" }, { user_id: U1, store_id: "s1", role: "rep", name: "Parm", email: "rep@example.com" }], noUsageTable: false };
+const twilio = { sent: [] }, push = { got: [] };
+// VAPID keys and a subscription key pair, so the function's pushes go to this mock.
+const crypto = require("crypto");
+const ecPair = () => { const kp = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }); const pub = kp.publicKey.export({ format: "jwk" }), priv = kp.privateKey.export({ format: "jwk" }); return { pub: Buffer.concat([Buffer.from([4]), Buffer.from(pub.x, "base64url"), Buffer.from(pub.y, "base64url")]).toString("base64url"), priv: Buffer.from(priv.d, "base64url").toString("base64url") }; };
+const VAPID = ecPair(), SUBKEY = ecPair();
 const model = { calls: [] };
 const eqs = (u) => { const f = {}; for (const [k, v] of u.searchParams) if (/^eq\./.test(v)) f[k] = decodeURIComponent(v.slice(3)); return f; };
 const match = (row, f) => Object.entries(f).every(([k, v]) => String(row[k]) === v);
@@ -31,12 +36,16 @@ const mock = http.createServer((req, res) => {
   let b = ""; req.on("data", (c) => (b += c));
   req.on("end", () => {
     const u = new URL(req.url, "http://x");
-    const body = b ? JSON.parse(b) : null;
+    let body = null; try { body = b ? JSON.parse(b) : null; } catch { body = null; } // Twilio posts a form
     if (u.pathname === "/auth/v1/user") {
       const tok = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
       return USERS[tok] ? send(res, 200, USERS[tok]) : send(res, 401, { msg: "bad jwt" });
     }
-    if (u.pathname === "/rest/v1/store_members") return send(res, 200, db.members.filter((m) => match(m, eqs(u))).slice(0, 1));
+    if (u.pathname === "/rest/v1/store_members") return send(res, 200, db.members.filter((m) => match(m, eqs(u))));
+    if (u.pathname === "/rest/v1/stores") return send(res, 200, db.stores.filter((m) => match(m, eqs(u))));
+    if (u.pathname === "/rest/v1/store_config" || u.pathname === "/rest/v1/admins") return send(res, 200, []);
+    if (/^\/2010-04-01\/Accounts\/[^/]+\/Messages\.json$/.test(u.pathname)) { twilio.sent.push(Object.fromEntries(new URLSearchParams(b))); return send(res, 201, { sid: "SM" + twilio.sent.length }); }
+    if (u.pathname.startsWith("/push/")) { push.got.push(u.pathname); res.writeHead(201); return res.end(); }
     if (u.pathname === "/rest/v1/agent_usage") {
       if (db.noUsageTable) return send(res, 404, { code: "PGRST205", message: "no such table" });
       return send(res, 200, db.usage.filter((r) => match(r, eqs(u))));
@@ -54,7 +63,12 @@ const mock = http.createServer((req, res) => {
         return send(res, 201, {});
       }
       const f = eqs(u); if (f.deleted) f.deleted = f.deleted === "true" ? "true" : "false";
-      return send(res, 200, db.records.filter((r) => match({ ...r, deleted: String(!!r.deleted) }, f)).map((r) => ({ id: r.id, user_id: r.user_id, data: r.data })));
+      // data->>field filters, as PostgREST reads them.
+      const inData = Object.entries(f).filter(([k]) => k.startsWith("data->>")); for (const [k] of inData) delete f[k];
+      const lim = Number(u.searchParams.get("limit") || 0);
+      let rows = db.records.filter((r) => match({ ...r, deleted: String(!!r.deleted) }, f) && inData.every(([k, v]) => String((r.data || {})[k.slice(7)]) === v));
+      if (lim > 0) rows = rows.slice(0, lim);
+      return send(res, 200, rows.map((r) => ({ id: r.id, user_id: r.user_id, data: r.data })));
     }
     if (u.pathname === "/v1/messages") {
       model.calls.push(body);
@@ -70,16 +84,25 @@ const mock = http.createServer((req, res) => {
 });
 
 // --- Two copies of the function: one locked to a list, one as it ships.
-const start = (port, env) => new Promise((resolve, reject) => {
-  const p = spawn(DENO, ["run", "--allow-net", "--allow-env", FN], {
-    env: { ...process.env, DENO_SERVE_ADDRESS: `tcp:127.0.0.1:${port}`, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: SERVICE, SUPABASE_ANON_KEY: "anon", ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: `http://127.0.0.1:${MOCK}`, SELF_URL: `http://127.0.0.1:${port}`, ...env },
+const start = async (port, env) => {
+  // A function left running by an earlier crashed run would answer in this
+  // one's place, with last time's code. Refuse to start on a busy port.
+  const busy = await fetch(`http://127.0.0.1:${port}/`, { method: "OPTIONS" }).then(() => true).catch(() => false);
+  if (busy) throw new Error(`port ${port} is already in use — kill the stray function process (pkill -f "deno run")`);
+  return new Promise((resolve, reject) => {
+  // --allow-sys: web-push reads the system's certificate store to push.
+  const p = spawn(DENO, ["run", "--allow-net", "--allow-env", "--allow-sys", FN], {
+    env: { ...process.env, DENO_SERVE_ADDRESS: `tcp:127.0.0.1:${port}`, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: SERVICE, SUPABASE_ANON_KEY: "anon", ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: `http://127.0.0.1:${MOCK}`, SELF_URL: `http://127.0.0.1:${port}`,
+      TWILIO_ACCOUNT_SID: "AC" + "0".repeat(32), TWILIO_AUTH_TOKEN: "0".repeat(32), TWILIO_FROM: "+15550001111", TWILIO_API_URL: `http://127.0.0.1:${MOCK}`, VAPID_PUBLIC_KEY: VAPID.pub, VAPID_PRIVATE_KEY: VAPID.priv, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let log = ""; p.stdout.on("data", (d) => (log += d)); p.stderr.on("data", (d) => (log += d));
+  p.getLog = () => log;
   const t0 = Date.now();
   const poll = () => fetch(`http://127.0.0.1:${port}/`, { method: "OPTIONS" }).then(() => resolve(p)).catch(() => (Date.now() - t0 > 30000 ? reject(new Error("function didn't start: " + log)) : setTimeout(poll, 200)));
   poll();
-});
+  });
+};
 const post = (port, body, tok) => fetch(`http://127.0.0.1:${port}/`, { method: "POST", headers: { "content-type": "application/json", ...(tok ? { authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify(body) })
   .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 const turn = (port, tok, extra = {}) => post(port, { system: "brief", tools: [{ name: "x", description: "x", input_schema: { type: "object", properties: {} } }], messages: [{ role: "user", content: "hi" }], ...extra }, tok);
@@ -179,6 +202,51 @@ try {
   const posing = await post(LOCKED, { nightly: { u: U1, force: true } }, "tok-a");
   if (model.calls.length !== m1) fail("a signed-in user's token passed for the service key: " + JSON.stringify(posing.body));
 
+  // --- The manager's text to a rep's customer: from the store's number,
+  // filed in the rep's thread, the customer's waiting texts marked read.
+  db.records.push(
+    { id: "c1", user_id: U1, collection: "leads", data: { id: "c1", name: "Dana Muise", phone: "9025551111", stage: "working" } },
+    { id: "in1", user_id: U1, collection: "texts", data: { id: "in1", leadId: "c1", dir: "in", body: "Can I come Saturday?", at: new Date(Date.now() - 20 * 60000).toISOString(), read: false } },
+  );
+  const mt = (tok, body) => post(LOCKED, { mtext: { rep: U1, leadId: "c1", body } }, tok);
+  const stranger2 = await mt("tok-b", "Hi Dana");
+  const money = await mt("tok-c", "Hi Dana, it's $300 a month");
+  const sent = await mt("tok-c", "Hi Dana, Saturday works — ask for Parm.");
+  console.log("mtext:", stranger2.status, money.status, sent.status, JSON.stringify(sent.body));
+  if (stranger2.status !== 403) fail("a stranger texted a rep's customer: " + JSON.stringify(stranger2));
+  if (money.status !== 400 || !/figures/.test(money.body.error)) fail("a text with a dollar amount in it wasn't refused: " + JSON.stringify(money));
+  if (sent.status !== 200 || !sent.body.sent) fail("the manager's text didn't send: " + JSON.stringify(sent));
+  const filed = db.records.find((r) => r.user_id === U1 && r.collection === "texts" && r.data.via === "manager");
+  const inbound = db.records.find((r) => r.id === "in1");
+  if (twilio.sent.length !== 1 || twilio.sent[0].To !== "9025551111" || !/Saturday works/.test(twilio.sent[0].Body)) fail("the text didn't go to Dana through Twilio: " + JSON.stringify(twilio.sent));
+  if (!filed || filed.data.leadId !== "c1" || filed.data.dir !== "out" || filed.data.by !== "Sam") fail("the manager's text isn't filed in the rep's thread as the manager's: " + JSON.stringify(filed));
+  if (!inbound.data.read) fail("Dana's waiting text wasn't marked read after the manager answered it");
+
+  // --- The managers' sweep: the floor's problems, pushed to the manager, each once.
+  db.records.push(
+    { id: "push1", user_id: U3, collection: "push", data: { id: "push1", sub: { endpoint: `http://127.0.0.1:${MOCK}/push/u3`, keys: { p256dh: SUBKEY.pub, auth: crypto.randomBytes(16).toString("base64url") } } } },
+    { id: "c2", user_id: U1, collection: "leads", data: { id: "c2", name: "Fresh Lead", phone: "9025552222", stage: "new", createdAt: new Date(Date.now() - 45 * 60000).toISOString() } },
+    { id: "c3", user_id: U1, collection: "leads", data: { id: "c3", name: "Ken Boudreau", phone: "9025553333", stage: "appointment" } },
+    { id: "in2", user_id: U1, collection: "texts", data: { id: "in2", leadId: "c3", dir: "in", body: "Running late", at: new Date(Date.now() - 25 * 60000).toISOString(), read: false } },
+    { id: "ap1", user_id: U1, collection: "appointments", data: { id: "ap1", leadId: "c3", customerName: "Ken Boudreau", when: new Date(Date.now() + 60 * 60000).toISOString().slice(0, 16), status: "scheduled", confirmed: false } },
+  );
+  // The manager's clock: UTC, open all day, no quiet hours (the night-read
+  // section above gave this row an afternoon zone).
+  const mePrefs = db.records.find((r) => r.user_id === U3 && r.collection === "prefs");
+  mePrefs.data = { tzOffsetMinutes: 0, hoursFrom: 0, hoursTo: 24, hoursDays: [0, 1, 2, 3, 4, 5, 6], quietFrom: 0, quietTo: 0 };
+  const sweep = await post(LOCKED, { sweep: 1 });
+  console.log("sweep:", JSON.stringify(sweep.body.managers));
+  const mg = (sweep.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
+  // What the sweep decided to send is the check; the push itself goes
+  // through web-push, which speaks TLS to the push service and so can't
+  // reach this plain mock (that path is exercised by the reps' sweep in
+  // production every ten minutes).
+  const kinds = (mg.sent || []).map((k) => k.split(":")[1]).sort().join(",");
+  if (mg.candidates !== 3 || kinds !== "confirm,lead,reply") { fail("the manager wasn't sent the three things on the floor: " + JSON.stringify(mg)); console.log("function log:\n" + procs[0].getLog().slice(-1500)); }
+  const again = await post(LOCKED, { sweep: 1 });
+  const mg2 = (again.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
+  if ((mg2.sent || []).length !== 0) fail("the same three were sent again on the next sweep: " + JSON.stringify(mg2));
+
   // When the per-rep call can't be made, the rep's read runs in the store's run.
   db.records = db.records.filter((r) => r.collection !== "agentplays");
   const fallback = await post(OPEN, { nightly: 1 });
@@ -190,5 +258,6 @@ try {
   procs.forEach((p) => p.kill());
   mock.close();
 }
+process.on("exit", () => procs.forEach((p) => { try { p.kill(); } catch { /* gone */ } }));
 console.log(process.exitCode ? "\nfnrelay.test.js FAILED" : "\nfnrelay.test.js passed");
 })();

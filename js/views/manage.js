@@ -22,9 +22,10 @@
 import * as backend from "../backend.js";
 import { navigate } from "../router.js";
 import { icon } from "../icons.js";
-import { toast } from "../components.js";
+import { toast, openModal } from "../components.js";
 import { esc, formatDateTime, currency } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo } from "../team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow } from "../team.js";
+import { looksLikeMoney } from "../replies.js";
 import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./team.js";
 import { findings } from "../insight.js";
 import { cachedBook, loadBook, addRepTask, cachedInventory, loadInventory } from "../team.js";
@@ -175,6 +176,7 @@ export function renderFloor(view) {
     paint: (c) => {
       const { team, now, manager, t, ins, rows, error, book, lot } = c;
       if (!manager) return repNotice(team);
+      const me = store.getSettings().salesperson || memberName((team.members || []).find((m) => m.user_id === (backend.currentUser() || {}).id)) || "the sales manager";
       if (!t) return `${errLine(error)}${asOf(c)}${notRead(c)}`;
       const fx = findings(ins).filter((x) => x.kind !== "needs").slice(0, 3);
       const today = now.toISOString().slice(0, 10);
@@ -197,10 +199,41 @@ export function renderFloor(view) {
         rows.flatMap((r) => (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 30 * 60000).map((l) => ({ l, r })) : []))
       ).filter((x, i, arr) => arr.findIndex((y) => y.l.id === x.l.id && y.r.member.user_id === x.r.member.user_id) === i)
        .sort((a, b) => String(a.l.createdAt).localeCompare(String(b.l.createdAt))).slice(0, 12);
+      const first = (n) => String(n || "there").split(" ")[0];
+      const waitedFor = (iso) => { const m = Math.max(0, Math.round((now - new Date(iso)) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
+      const whenWords = (w) => { const d = String(w).slice(0, 10), hm = String(w).slice(11, 16); return `${d === today ? "today" : d === tmrw ? "tomorrow" : esc(formatDateTime(w).split(",")[0])} ${esc(hm)}`; };
+      const tmrw = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+      // 1. Customers waiting on a reply, longest first.
+      const unanswered = t.waiting || [];
+      const waitingCard = `<div class="section-title" style="margin-top:0">Waiting on a reply <span class="muted" style="font-weight:500;font-size:0.78rem">· ${unanswered.length ? `${unanswered.length} · longest first` : "nobody"}</span></div>
+        <div class="card mg-waiting">${unanswered.length ? unanswered.slice(0, 10).map((w) => `<div class="row mg-wait" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${w.leadId ? `data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(w.name || "A customer")} <span class="small" style="color:var(--danger);font-weight:600">${waitedFor(w.at)}</span></div><div class="row-sub">${esc(memberName(w.rep))} · ${w.channel === "email" ? "emailed" : "texted"}: “${esc(w.preview)}”</div></div><button class="btn btn-ghost btn-sm" data-wnudge="${esc(w.rep.user_id)}" data-lead="${esc(w.leadId)}" data-name="${esc(w.name || "A customer")}" data-age="${waitedFor(w.at)}">${icon("bell")}</button>${w.channel === "text" && w.leadId ? `<button class="btn btn-primary btn-sm" data-mreply="${esc(w.leadId)}" data-rep="${esc(w.rep.user_id)}" data-name="${esc(w.name || "")}">Reply</button>` : w.leadId ? `<button class="btn btn-primary btn-sm" data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}">Open</button>` : ""}</div>`).join("") + (unanswered.length > 10 ? `<div class="hint">and ${unanswered.length - 10} more.</div>` : "") : `<div class="muted small">Every customer who wrote has been answered. A reply inside five minutes books far better than one inside an hour.</div>`}</div>`;
+      // 2. Appointments at risk: unconfirmed inside 24 hours, and no-shows nobody has rebooked.
+      const risk = t.atRisk || [], noShows = t.noShows || [];
+      const riskCard = `<div class="section-title">Appointments at risk <span class="muted" style="font-weight:500;font-size:0.78rem">· ${risk.length || noShows.length ? [risk.length ? `${risk.length} unconfirmed` : "", noShows.length ? `${noShows.length} to rebook` : ""].filter(Boolean).join(" · ") : "none"}</span></div>
+        <div class="card mg-risk">${risk.map((a) => `<div class="row mg-risk-row" data-kind="unconfirmed" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${a.leadId ? `data-fcust="${esc(a.leadId)}" data-frep="${esc(a.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")} <span class="small muted">${whenWords(a.when)}</span></div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""} · not confirmed</div></div><button class="btn btn-ghost btn-sm" data-anudge="${esc(a.rep.user_id)}" data-lead="${esc(a.leadId || "")}" data-title="${esc((a.customerName || "An appointment") + " at " + String(a.when).slice(11, 16) + " isn't confirmed")}" data-body="A confirmation now is the difference between a show and a no-show.">${icon("bell")}</button>${a.leadId ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(a.leadId)}" data-rep="${esc(a.rep.user_id)}" data-name="${esc(a.customerName || "")}" data-draft="${esc(`Hi ${first(a.customerName)}, it's ${me} at ${team.name}. Just confirming your ${a.type || "appointment"} ${whenWords(a.when).replace(/<[^>]+>/g, "")} with ${first(memberName(a.rep))} — reply YES to confirm, or let me know if another time works better.`)}">Text</button>` : ""}</div>`).join("")
+        + noShows.map((a) => `<div class="row mg-risk-row" data-kind="noshow" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${a.leadId ? `data-fcust="${esc(a.leadId)}" data-frep="${esc(a.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")} <span class="small" style="color:var(--warning);font-weight:600">no-show</span></div><div class="row-sub">${esc(memberName(a.rep))} · ${esc(formatDateTime(a.when))} · not rebooked</div></div><button class="btn btn-ghost btn-sm" data-anudge="${esc(a.rep.user_id)}" data-lead="${esc(a.leadId || "")}" data-title="${esc("Rebook " + (a.customerName || "the no-show"))}" data-body="${esc("They no-showed " + formatDateTime(a.when) + " — a call today gets them back on the calendar.")}">${icon("bell")}</button>${a.leadId ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(a.leadId)}" data-rep="${esc(a.rep.user_id)}" data-name="${esc(a.customerName || "")}" data-draft="${esc(`Hi ${first(a.customerName)}, it's ${me} at ${team.name}. Sorry we missed you — ${first(memberName(a.rep))} would love to get you in. What day works this week?`)}">Text</button>` : ""}</div>`).join("")
+        + (!risk.length && !noShows.length ? `<div class="muted small">Everything in the next 24 hours is confirmed, and no recent no-show is waiting to be rebooked.</div>` : "")}</div>`;
+      // 3. The service drive: customers on the books booked into service today or tomorrow, with the app's read.
+      const svc = book ? rankBook(book.rows, rankOpts(lot)).rows.filter((r) => { const d = String(r.lead.serviceAppt || "").slice(0, 10); return d === today || d === tmrw; }).sort((a, b) => String(a.lead.serviceAppt).localeCompare(String(b.lead.serviceAppt)) || b.read.score - a.read.score) : null;
+      const svcCard = `<div class="section-title">In the service drive <span class="muted" style="font-weight:500;font-size:0.78rem">· ${!svc ? "reading…" : svc.length ? `${svc.length} today and tomorrow` : "nobody booked"}</span></div>
+        <div class="card mg-service" style="padding:6px 0">${!svc ? `<div class="muted small" style="padding:10px 16px">Reading every rep's book…</div>` : svc.length ? svc.slice(0, 10).map((r) => `<div class="row" style="padding:8px 16px;border-bottom:1px solid var(--border);align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""} <span class="small muted">${String(r.lead.serviceAppt).slice(0, 10) === today ? "today" : "tomorrow"}${/T\d\d:\d\d/.test(String(r.lead.serviceAppt)) ? " " + esc(String(r.lead.serviceAppt).slice(11, 16)) : ""}</span></div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.slice(0, 3).map(esc).join(" · ")}</div>${r.read.deal ? `<div class="small" style="margin-top:2px">${esc(r.read.deal.name)} ≈ <b>$${Math.round(r.read.deal.monthly).toLocaleString("en-CA")}/mo</b>${r.read.deal.delta != null ? ` <span style="${r.read.deal.delta <= 0 ? "color:var(--success)" : ""}" class="${r.read.deal.delta <= 0 ? "" : "muted"}">(${r.read.deal.delta <= 0 ? "−" : "+"}$${Math.abs(Math.round(r.read.deal.delta)).toLocaleString("en-CA")}/mo)</span>` : ""}</div>` : ""}</div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody on the books is booked into service today or tomorrow. Service dates come in with the owner book import (the "service appointment" column).</div>`}</div>`;
+      // 4. Today's plays, by rep: what the night read set each rep, and how many they've reached.
+      const plays = t.playsByRep || [];
+      const playsCard = `<div class="section-title">Today's plays <span class="muted" style="font-weight:500;font-size:0.78rem">· ${plays.length ? `${plays.reduce((a, p) => a + p.reached, 0)} of ${plays.reduce((a, p) => a + p.items.length, 0)} reached` : "no night read yet"}</span></div>
+        <div class="card mg-plays" style="padding:6px 0">${plays.length ? plays.map((p) => `<div class="mg-plays-rep" data-rep="${esc(p.rep.user_id)}" style="padding:8px 16px;border-bottom:1px solid var(--border)"><div class="row mg-rep" data-rep="${esc(p.rep.user_id)}" style="cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(p.rep))} <span class="small" style="${p.reached === p.items.length ? "color:var(--success)" : "color:var(--muted)"};font-weight:600">${p.reached} of ${p.items.length} reached</span></div>${p.summary ? `<div class="row-sub">${esc(p.summary)}</div>` : ""}</div></div>${p.items.filter((x) => !x.reached).slice(0, 4).map((x) => `<div class="small mg-play" ${x.leadId ? `data-fcust="${esc(x.leadId)}" data-frep="${esc(p.rep.user_id)}" style="cursor:pointer;padding:3px 0 3px 8px;border-left:2px solid var(--border)"` : `style="padding:3px 0 3px 8px;border-left:2px solid var(--border)"`}><b>${esc(x.customer || "")}</b>${x.customer ? ": " : ""}${esc(x.title)}</div>`).join("")}</div>`).join("") : `<div class="muted small" style="padding:10px 16px">The night read writes each rep a few plays for the day; they show here with how many each rep has reached. It runs at 2am once the viniva-night job in supabase/cron.sql is set up.</div>`}</div>`;
+      // 5. Welcomed today: everyone logged today, and who hasn't had a text yet.
+      const wl = t.welcomes || { logged: 0, welcomed: 0, pending: [] };
+      const welcomeCard = `<div class="section-title">Welcomed today <span class="muted" style="font-weight:500;font-size:0.78rem">· ${wl.logged} logged · ${wl.welcomed} welcomed</span></div>
+        <div class="card mg-welcome">${wl.pending.length ? wl.pending.map((l) => `<div class="row mg-welcome-row" style="padding:7px 0;align-items:center;gap:8px"><div class="row-main" data-fcust="${esc(l.id)}" data-frep="${esc(l.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")}</div><div class="row-sub">${esc(memberName(l.rep))}${l.vehicleInterest ? " · " + esc(l.vehicleInterest) : ""} · no text yet</div></div>${l.optOut ? `<span class="small muted">opted out</span>` : l.phone || l.email ? `<button class="btn btn-primary btn-sm" data-welcome="${esc(l.id)}" data-rep="${esc(l.rep.user_id)}" data-name="${esc(l.name || "")}">Welcome now</button>` : `<span class="small muted">no number</span>`}</div>`).join("") : `<div class="muted small">${wl.logged ? "Everyone logged today has had a text." : "Nobody logged yet today."}</div>`}</div>`;
       return `
       ${errLine(error)}
       ${asOf(c)}
+      ${waitingCard}
+      ${riskCard}
       ${feedCard(t)}
+      ${svcCard}
+      ${playsCard}
+      ${welcomeCard}
 
       ${fx.length ? `<div class="section-title">What the numbers say <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#/insights" style="color:var(--brand)">all insights</a></span></div>
       <div class="card">${fx.map((x) => `<div class="row" style="padding:6px 0;align-items:flex-start;gap:10px"><span style="flex:none;color:var(--brand)">${icon("sparkles")}</span><div class="small">${esc(x.text)}</div></div>`).join("")}</div>` : ""}
@@ -219,10 +252,23 @@ export function renderFloor(view) {
       <div class="section-title">Today's appointments <span class="muted" style="font-weight:500;font-size:0.78rem">· ${t.apptsToday.length}</span></div>
       <div class="card">${t.apptsToday.length ? t.apptsToday.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(String(a.when).slice(11, 16))} · ${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("") : `<div class="muted small">Nothing on the store's calendar today.</div>`}</div>`;
     },
-    wire: ({ el, book, lot, draw }) => {
+    wire: ({ el, book, lot, draw, refresh }) => {
       const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
       on('[data-act="feed-all"]', () => { feedAll = !feedAll; draw(); });
       on('[data-act="copy-huddle"]', async (e) => { e.preventDefault(); const txt = el.querySelector("#mg-huddle")?.textContent || ""; try { await navigator.clipboard.writeText(txt); toast("Huddle copied", "success"); } catch { toast("Select the text to copy it", "warn"); } });
+      const nudgeBtn = (b, payload) => async () => {
+        b.disabled = true;
+        try { await nudgeRep(b.dataset.wnudge || b.dataset.anudge, payload); toast("Nudged", "success"); }
+        catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
+      };
+      el.querySelectorAll("[data-wnudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: `${b.dataset.name} is waiting on you`, body: `They wrote ${b.dataset.age} ago — answer them now.`, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/comms", tag: "wait-" + (b.dataset.lead || Date.now()) })));
+      el.querySelectorAll("[data-anudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: b.dataset.title, body: b.dataset.body, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/appts", tag: "appt-" + (b.dataset.lead || Date.now()) })));
+      el.querySelectorAll("[data-mreply], [data-mtext]").forEach((b) => b.addEventListener("click", () => openManagerTextSheet({ rep: b.dataset.rep, leadId: b.dataset.mreply || b.dataset.mtext, name: b.dataset.name, draft: b.dataset.draft || "", onSent: () => refresh(true) })));
+      el.querySelectorAll("[data-welcome]").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        try { await sendWelcomeNow(b.dataset.rep, b.dataset.welcome); toast(`Welcomed ${b.dataset.name || "them"}`, "success"); refresh(true); }
+        catch (err) { toast(err.message || "Couldn't send the welcome", "danger"); b.disabled = false; }
+      }));
       el.querySelectorAll("[data-nudge]").forEach((b) => b.addEventListener("click", async () => {
         b.disabled = true;
         try { await nudgeRep(b.dataset.nudge, { title: `${b.dataset.name} has been waiting ${b.dataset.age}`, body: "A fresh lead — call or text them now. Leads set appointments in the first hour.", url: `./#/leads/${b.dataset.lead}`, tag: "lead-" + b.dataset.lead }); toast("Nudged", "success"); }
@@ -309,6 +355,31 @@ export function renderReps(view) {
       el.querySelectorAll("[data-chip]").forEach((b) => b.addEventListener("click", () => { chip = b.dataset.chip; try { sessionStorage.setItem(CHIP_KEY, chip); } catch { /* fine */ } draw(); }));
       el.querySelectorAll("[data-target]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); openTargetSheet((team.members || []).find((m) => m.user_id === b.dataset.target), () => refresh(true)); }));
     },
+  });
+}
+
+// The manager's text to a rep's customer: a reply the rep hasn't got to, a
+// confirmation for tomorrow. Sent from the store's number, filed in the
+// rep's thread. No figures — the sheet won't send one.
+export function openManagerTextSheet({ rep, leadId, name = "", draft = "", onSent = null }) {
+  openModal(`Text ${name || "the customer"}`, (close) => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="field"><textarea id="mt-body" rows="5" maxlength="600" placeholder="Hi ${esc(String(name || "there").split(" ")[0])}, it's the sales manager here…">${esc(draft)}</textarea></div>
+      <div class="row small muted" style="margin:-4px 2px 10px"><span id="mt-count">${draft.length}/600</span><span>From the store's number · filed in the rep's thread</span></div>
+      <button class="btn btn-primary btn-block" data-act="send">${icon("send")} Send</button>
+      <div class="hint">Never a dollar amount, a payment or a rate — figures are for the sales desk. Their reply comes back to the rep's thread.</div>`;
+    const ta = root.querySelector("#mt-body"), count = root.querySelector("#mt-count");
+    ta.addEventListener("input", () => { count.textContent = `${ta.value.length}/600`; });
+    root.querySelector('[data-act="send"]').addEventListener("click", async (e) => {
+      const body = ta.value.trim();
+      if (!body) { toast("Write the text first", "warn"); return; }
+      if (looksLikeMoney(body)) { toast("No figures in a text to a customer — take the dollar amount or rate out", "warn"); return; }
+      e.target.disabled = true;
+      try { await sendManagerText(rep, leadId, body); toast(`Sent to ${name || "them"}`, "success"); close(); if (onSent) onSent(); }
+      catch (err) { toast(err.message || "Couldn't send", "danger"); e.target.disabled = false; }
+    });
+    return root;
   });
 }
 
