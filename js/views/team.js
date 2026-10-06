@@ -93,11 +93,10 @@ export function renderTeam(view, { param } = {}) {
     const manager = isManager(team);
     const mine = (team.members || []).find((m) => m.user_id === me.id);
     // An admin's screen leads with the admin controls.
+    // In the store's app the top bar says Admin; a rep reaching this from
+    // Tools gets the store's name here.
     el.innerHTML = `
-      <div class="hero">
-        <div class="hero-greeting">Admin</div>
-        <div class="hero-title">${esc(team.name)}</div>
-      </div>
+      ${document.body.classList.contains("management") ? "" : `<div class="hero"><div class="hero-title">${esc(team.name)}</div></div>`}
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       ${admin ? adminHTML() : ""}
       ${manager ? "" : repHTML(mine)}

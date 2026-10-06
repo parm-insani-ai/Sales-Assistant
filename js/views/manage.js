@@ -97,7 +97,7 @@ function wireCommon({ el, stats, team }) {
   }));
 }
 
-const asOf = ({ board, team, loading }) => `<div class="row" style="margin:0 2px 8px"><span class="small muted">${board && board.storeId === team.id ? "As of " + esc(formatDateTime(board.at)) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "Reading the reps…" : "Not read yet"}</span></div>`;
+const asOf = ({ board, team, loading }) => `<div class="row" style="margin:4px 2px 10px"><span class="small muted">${esc(new Date().toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))} · ${board && board.storeId === team.id ? "As of " + esc(formatDateTime(board.at).replace(/^[^,]*, /, "")) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "Reading the reps…" : "Not read yet"}</span></div>`;
 const notRead = ({ loading }) => (loading ? `<div class="card"><div class="muted small" style="text-align:center">Reading the reps' books…</div></div>` : `<div class="card"><div class="muted small">Pull down to read the board.</div></div>`);
 const repNotice = (team) => `<div class="card">You're on ${esc(team.name)}'s team as a rep. The board is the manager's; your own numbers are in the sales view.</div>`;
 const errLine = (error) => (error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : "");
@@ -114,10 +114,6 @@ export function renderManageHome(view) {
       const pace = t && t.goal ? Math.round((t.goal * now.getDate()) / daysIn) : 0;
       const today = now.toISOString().slice(0, 10);
       return `
-      <div class="hero">
-        <div class="hero-greeting">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))}</div>
-        <div class="hero-title">${esc(team.name)}</div>
-      </div>
       ${errLine(error)}
       ${!manager ? repNotice(team) : `
       ${asOf(c)}
@@ -178,8 +174,8 @@ export function renderFloor(view) {
     needBook: true,
     paint: (c) => {
       const { team, now, manager, t, ins, rows, error, book, lot } = c;
-      if (!manager) return `<div class="hero"><div class="hero-title">The floor</div></div>${repNotice(team)}`;
-      if (!t) return `<div class="hero"><div class="hero-greeting">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))}</div><div class="hero-title">The floor</div></div>${errLine(error)}${asOf(c)}${notRead(c)}`;
+      if (!manager) return repNotice(team);
+      if (!t) return `${errLine(error)}${asOf(c)}${notRead(c)}`;
       const fx = findings(ins).filter((x) => x.kind !== "needs").slice(0, 3);
       const today = now.toISOString().slice(0, 10);
       const attention = rows.filter((r) => !r.error && r.touches && r.insight).flatMap((r) => {
@@ -202,10 +198,6 @@ export function renderFloor(view) {
       ).filter((x, i, arr) => arr.findIndex((y) => y.l.id === x.l.id && y.r.member.user_id === x.r.member.user_id) === i)
        .sort((a, b) => String(a.l.createdAt).localeCompare(String(b.l.createdAt))).slice(0, 12);
       return `
-      <div class="hero">
-        <div class="hero-greeting">${esc(now.toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))}</div>
-        <div class="hero-title">The floor</div>
-      </div>
       ${errLine(error)}
       ${asOf(c)}
       ${feedCard(t)}
@@ -274,14 +266,14 @@ export function renderReps(view) {
   boardScreen(view, {
     paint: (c) => {
       const { team, now, manager, t, rows, error } = c;
-      if (!manager) return `<div class="hero"><div class="hero-title">Reps</div></div>${repNotice(team)}`;
+      if (!manager) return repNotice(team);
       const today = now.toISOString().slice(0, 10);
       const logged = t ? t.logged : [];
       const chips = `<div class="lead-seg" role="tablist">
         <button class="btn btn-sm lead-seg-btn ${chip === "reps" ? "btn-primary" : "btn-ghost"}" data-chip="reps" role="tab" aria-selected="${chip === "reps"}"><span class="seg-name">Reps</span> <span class="seg-count">${(team.members || []).length}</span></button>
         <button class="btn btn-sm lead-seg-btn ${chip === "logged" ? "btn-primary" : "btn-ghost"}" data-chip="logged" role="tab" aria-selected="${chip === "logged"}"><span class="seg-name">Logged</span> <span class="seg-count">${t ? logged.length : "—"}</span></button>
       </div>`;
-      const head = `<div class="hero"><div class="hero-title">Reps</div></div>${errLine(error)}${asOf(c)}${chips}`;
+      const head = `${errLine(error)}${asOf(c)}${chips}`;
       if (!t) return head + notRead(c);
       if (chip === "logged") {
         const noPlan = logged.filter((l) => !l.plan || !l.plan.of).length;

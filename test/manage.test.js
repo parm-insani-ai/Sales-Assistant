@@ -60,27 +60,31 @@ const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
 const home = await mgr.evaluate(() => ({
-  title: document.querySelector(".hero-title")?.textContent.trim(),
+  title: document.querySelector("#page-title")?.textContent.trim(),
   tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()),
   stats: [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()),
+  heroes: document.querySelectorAll("#view .hero").length,
   sections: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.trim()),
   tiles: [...document.querySelectorAll("#view .qa-label")].map((n) => n.textContent.trim()),
 }));
 console.log("management home:", JSON.stringify(home, null, 1));
+if (home.heroes) fail("Home still has a heading in the page — it belongs in the top bar, in line with the +");
 if (home.sections.length || home.tiles.length) fail("Home should be the numbers only — no sections or tiles: " + JSON.stringify([home.sections, home.tiles]));
 await mgr.click('.tabbar [data-route="/floor"]');
 await mgr.waitForFunction(() => location.hash === "#/floor" && document.querySelectorAll(".mg-rep").length > 0, null, { timeout: 20000 });
 Object.assign(home, await mgr.evaluate(() => ({
-  floor: document.querySelector(".hero-title")?.textContent.trim(),
+  floor: document.querySelector("#page-title")?.textContent.trim(),
   word: [...document.querySelectorAll(".card .mg-rep.row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   today: [...document.querySelectorAll(".card .row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).filter((t) => /15:30/.test(t)),
   floorSections: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim().split(" ·")[0]),
 })));
 console.log("floor:", JSON.stringify({ floor: home.floor, sections: home.floorSections }));
+if (home.floor !== "The floor") fail("the Floor page's name isn't in the top bar: " + home.floor);
 for (const s of ["Today on the floor", "Fresh leads waiting", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"]) if (!home.floorSections.includes(s)) fail("Floor is missing: " + s);
 await mgr.click('.tabbar [data-route="/reps"]');
 await mgr.waitForFunction(() => location.hash === "#/reps" && document.querySelector(".team-row"), null, { timeout: 20000 });
 home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
+if ((await mgr.evaluate(() => document.querySelector("#page-title")?.textContent.trim())) !== "Reps") fail("the Reps page's name isn't in the top bar");
 await mgr.click('.tabbar [data-route="/"]');
 await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector(".mg-plan"), null, { timeout: 10000 });
 if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Floor,Voice,Reps,Admin") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
@@ -160,7 +164,7 @@ await mgr.keyboard.press("Escape");
 // The Admin tab is the members and admin screen, and nothing else; Customers is under the "+".
 await mgr.click('.tabbar [data-route="/team"]');
 await mgr.waitForSelector(".admin-store");
-const adminPage = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), board: document.querySelectorAll(".team-row, .stat").length, members: !!document.querySelector('[data-role]'), invite: !!document.querySelector("#invite-link") }));
+const adminPage = await mgr.evaluate(() => ({ greeting: document.querySelector("#page-title")?.textContent.trim(), board: document.querySelectorAll(".team-row, .stat").length, members: !!document.querySelector('[data-role]'), invite: !!document.querySelector("#invite-link") }));
 if (adminPage.greeting !== "Admin" || adminPage.board || !adminPage.members || !adminPage.invite) fail("the Admin page isn't just the store's admin information: " + JSON.stringify(adminPage));
 await plusTap(mgr, "Customers");
 await mgr.waitForFunction(() => location.hash === "#/customers", null, { timeout: 5000 });
@@ -189,9 +193,9 @@ await both.waitForFunction(() => [...document.querySelectorAll(".qa-label")].som
 const stillSales = await both.evaluate(() => !document.body.classList.contains("management"));
 if (!stillSales) fail("a manager with a book was switched to the store's app by default");
 await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) => /Management view/.test(t.textContent)).click(); });
-await both.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".hero-title"), null, { timeout: 20000 });
+await both.waitForFunction(() => document.body.classList.contains("management") && document.querySelector("#page-title")?.textContent.trim(), null, { timeout: 20000 });
 await both.waitForFunction(() => /As of/.test(document.body.textContent), null, { timeout: 20000 });
-const switched = await both.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
+const switched = await both.evaluate(() => ({ title: document.querySelector("#page-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
 if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 5) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
 await plusTap(both, "Sales view");
 await both.waitForSelector("#view .nudge-slot", { state: "attached", timeout: 20000 });

@@ -49,7 +49,7 @@ import { handleGmailRedirect, pullGmailIfStale, ensureMailWatch } from "./gmail.
 import { loadMailbox, startMailboxWatch } from "./mailbox.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
-import { managementMode, myStore as readStore, myTarget } from "./team.js";
+import { managementMode, myStore as readStore, myTarget, cachedStore } from "./team.js";
 import { claimDevice } from "./account.js";
 import { initSaveState } from "./savestate.js";
 import { needsInstall } from "./push.js";
@@ -205,7 +205,11 @@ function mount(base, ctx) {
   const sub = !!ctx.param || !roots.includes(base);
   // The tabs with no labels on the bar say their name here, in line with
   // the "+", in the same type as Home's date.
-  const TAB_NAMES = { "/leads": "Outreach", "/log": "Log", "/comms": "Comms" };
+  // The store's app names its screens the same way: the store on Home,
+  // then The floor, Reps, Admin.
+  const TAB_NAMES = inManagement()
+    ? { "/": (cachedStore() || {}).name || "", "/floor": "The floor", "/reps": "Reps", "/team": "Admin" }
+    : { "/leads": "Outreach", "/log": "Log", "/comms": "Comms" };
   if (!ctx.param && TAB_NAMES[base]) { title.textContent = TAB_NAMES[base]; title.classList.add("greeting"); }
   const back = document.getElementById("topbar-back");
   back.hidden = !sub;
