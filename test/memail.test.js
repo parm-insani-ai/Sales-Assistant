@@ -39,8 +39,9 @@ await mgr.route("https://graph.microsoft.com/**", (route) => route.fulfill({ sta
   { id: "m2", subject: "Newsletter", from: { emailAddress: { address: "news@example.org", name: "News" } }, receivedDateTime: new Date().toISOString(), bodyPreview: "..." },
 ] }) }));
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector('[data-act="mail"]'), null, { timeout: 20000 });
-await mgr.click('[data-act="mail"]');
+await mgr.waitForFunction(() => document.body.classList.contains("management") && /As of|Reading/.test(document.body.textContent), null, { timeout: 20000 });
+const plusTap = async (p, label) => { await p.click("#quick-add"); await p.waitForFunction((l) => [...document.querySelectorAll(".modal .qa-label")].some((n) => n.textContent.trim() === l), label, { timeout: 10000 }); await p.evaluate((l) => [...document.querySelectorAll(".modal .qa-tile")].find((t) => t.querySelector(".qa-label").textContent.trim() === l).click(), label); };
+await plusTap(mgr, "Email a customer");
 await mgr.waitForSelector("#ml-q");
 await mgr.waitForFunction(() => /Connected as/.test(document.querySelector(".modal")?.textContent || ""), null, { timeout: 10000 });
 await mgr.fill("#ml-q", "dana");
@@ -103,8 +104,8 @@ if (emails.length !== 2 || emails[1].subject !== "Saturday it is") fail("the sec
 
 // --- The welcome by email: Email Only left no phone.
 await mgr.evaluate(async () => { (await import("/js/components.js")).closeAllModals(); location.hash = "#/"; });
-await mgr.waitForSelector('[data-act="welcome"]', { timeout: 15000 });
-await mgr.click('[data-act="welcome"]');
+await mgr.waitForFunction(() => !document.querySelector(".modal"), null, { timeout: 15000 });
+await plusTap(mgr, "Welcome text");
 await mgr.waitForFunction(() => document.querySelector('.modal [data-send="w2"]'), null, { timeout: 15000 });
 const wrow = await mgr.evaluate(() => [...document.querySelectorAll(".modal .card .row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).find((t) => /Email Only/.test(t)));
 console.log("welcome row:", wrow);

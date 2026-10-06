@@ -23,6 +23,30 @@ import { onPull } from "../pulltorefresh.js";
 const stageLabel = (s) => (store.stageMeta(s) || { label: s }).label;
 const stageBadge = (s) => (store.stageMeta(s) || { badge: "" }).badge;
 
+// The store sets a rep's month: units and appointments. Their app picks it
+// up on the next launch and rallies around it. Opened from the Reps screen.
+export function openTargetSheet(m, onSaved = null) {
+  if (!m) return;
+  const board = cachedBoard();
+  const st = board && board.stats.find((s) => s.member.user_id === m.user_id);
+  const cur = st && st.goal ? st.goal : { units: 0, appts: 0 };
+  openModal(`${memberName(m)} · ${new Date().toLocaleDateString("en-CA", { month: "long" })}`, (close) => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="field"><label>Units this month</label><input id="tg-units" type="number" inputmode="numeric" value="${cur.units || ""}" placeholder="12"></div>
+      <div class="field"><label>Appointments set this month</label><input id="tg-appts" type="number" inputmode="numeric" value="${cur.appts || ""}" placeholder="30"></div>
+      <button class="btn btn-primary btn-block" data-act="save">Set targets</button>
+      <div class="hint">These replace the rep's own goals in their app for this month, and the board's math plans on them.</div>`;
+    root.querySelector('[data-act="save"]').addEventListener("click", async () => {
+      try { await setTarget(m.user_id, { units: Number(root.querySelector("#tg-units").value) || 0, appts: Number(root.querySelector("#tg-appts").value) || 0, month: monthKey() }); close(); toast(`Targets set for ${memberName(m)}`, "success"); if (onSaved) onSaved(); }
+      catch (e) { toast(e.message || "Couldn't set targets", "danger"); }
+    });
+    return root;
+  });
+}
+
+// The Admin screen: the store itself — who's in it and as what, the invite
+// link, the account. The numbers are on Home, the reps under Reps.
 export function renderTeam(view, { param } = {}) {
   const el = document.createElement("div");
   view.appendChild(el);
@@ -34,8 +58,7 @@ export function renderTeam(view, { param } = {}) {
   }
 
   let team = cachedStore();
-  let board = cachedBoard();
-  let loading = false, error = "";
+  let error = "";
   let admin = isAdmin(team);
   let stores = null; // every store, for an admin
   // What the screen knows about itself, so a "why isn't this working" has
@@ -52,7 +75,6 @@ export function renderTeam(view, { param } = {}) {
     admin = check.admin || isAdmin(team);
     if (admin) { try { stores = await adminStores(); } catch { stores = null; } }
     draw();
-    if (team && isManager(team)) await refreshBoard();
   }
   function statusHTML() {
     const verdict = check.admin === null ? "checking…" : check.error ? `failed — ${esc(check.error)}` : check.admin ? "yes" : "no — this email isn't in the admins table";
@@ -66,27 +88,19 @@ export function renderTeam(view, { param } = {}) {
     try { stores = await adminStores(); } catch (e) { toast(e.message || "Couldn't read the stores", "danger"); }
     draw();
   }
-  async function refreshBoard() {
-    if (!team || loading) return;
-    loading = true; draw();
-    try { board = await loadBoard(team, { force: true }); }
-    catch (e) { error = e && e.message ? e.message : "couldn't read the board"; }
-    loading = false; draw();
-  }
-
   function draw() {
     if (!team) { drawNoStore(); return; }
     const manager = isManager(team);
     const mine = (team.members || []).find((m) => m.user_id === me.id);
-    // An admin's screen leads with the admin controls; the board follows when
-    // they also manage a store.
+    // An admin's screen leads with the admin controls.
     el.innerHTML = `
       <div class="hero">
+        <div class="hero-greeting">Admin</div>
         <div class="hero-title">${esc(team.name)}</div>
       </div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       ${admin ? adminHTML() : ""}
-      ${manager ? boardHTML() : repHTML(mine)}
+      ${manager ? "" : repHTML(mine)}
       ${statusHTML()}
       <div class="section-title">Members <span class="muted" style="font-weight:500;font-size:0.78rem">· ${(team.members || []).length}</span></div>
       <div class="card">
@@ -94,7 +108,6 @@ export function renderTeam(view, { param } = {}) {
           <div class="row" style="padding:6px 0">
             <div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(m))}${m.user_id === me.id ? ' <span class="muted small">(you)</span>' : ""}</div><div class="row-sub">${esc(m.email || "")}</div></div>
             <div class="row-meta"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>
-              ${manager || admin ? `<button class="btn btn-ghost btn-sm" data-target="${esc(m.user_id)}" style="margin-left:6px" title="Targets">${(() => { const st = board && board.stats.find((s) => s.member.user_id === m.user_id); return st && st.goal ? `${st.goal.units || "—"}u · ${st.goal.appts || "—"}a` : "Targets"; })()}</button>` : ""}
               ${m.user_id !== me.id && (admin || (manager && m.role === "rep")) ? `<button class="btn btn-ghost btn-sm" data-role="${esc(m.user_id)}" style="margin-left:6px">…</button>` : ""}</div>
           </div>`).join("")}
         <div class="btn-row" style="margin-top:10px">
@@ -112,7 +125,8 @@ export function renderTeam(view, { param } = {}) {
           ${navigator.share ? `<button class="btn btn-ghost btn-sm" data-act="share-invite" style="flex:0 0 auto">Share</button>` : ""}
         </div>
         <div class="hint">Invite code: <span class="mono">${esc(team.code)}</span> — a rep can also type it under Tools → Team. Reps join themselves; managers are appointed by the admin.</div>
-      </div>` : ""}
+      </div>
+      <div class="hint" style="margin:0 2px">Targets are set under Reps; the numbers are on Home and Floor.</div>` : ""}
     `;
     wireAdmin();
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
@@ -122,11 +136,9 @@ export function renderTeam(view, { param } = {}) {
     on('[data-act="rename"]', () => openNameSheet(mine));
     on('[data-act="leave"]', async () => {
       if (!(await confirmDialog(`Leave ${team.name}? A manager can invite you back with the link.`, { confirmLabel: "Leave" }))) return;
-      try { await leaveStore(); team = null; board = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
+      try { await leaveStore(); team = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
     });
     el.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", () => openRoleSheet((team.members || []).find((m) => m.user_id === b.dataset.role))));
-    el.querySelectorAll("[data-target]").forEach((b) => b.addEventListener("click", () => openTargetSheet((team.members || []).find((m) => m.user_id === b.dataset.target))));
-    el.querySelectorAll("[data-rep]").forEach((r) => r.addEventListener("click", () => openRep(r.dataset.rep)));
   }
 
   function drawNoStore() {
@@ -158,7 +170,7 @@ export function renderTeam(view, { param } = {}) {
       const name = el.querySelector("#st-name").value.trim(), meName = el.querySelector("#st-me").value.trim();
       if (!name) { toast("Give the store a name", "warn"); return; }
       ev.currentTarget.disabled = true;
-      try { team = await createStore(name, meName); error = ""; toast(`${name} is set up — you're its manager`, "success"); draw(); refreshStores(); refreshBoard(); }
+      try { team = await createStore(name, meName); error = ""; toast(`${name} is set up — you're its manager`, "success"); draw(); refreshStores(); }
       catch (e) { error = e.message || "Couldn't create the store"; draw(); }
     });
     el.querySelector('[data-act="join"]').addEventListener("click", async (ev) => {
@@ -170,76 +182,9 @@ export function renderTeam(view, { param } = {}) {
     });
   }
 
-  // ---- The board ----
-  function boardHTML() {
-    const stats = board ? board.stats : null;
-    const reps = (team.members || []);
-    const byId = new Map((stats || []).map((s) => [s.member.user_id, s]));
-    const rows = reps.map((m) => byId.get(m.user_id) || { member: m });
-    // Totals across the store.
-    const sum = (f) => rows.reduce((a, r) => a + (r.error || !r.touches ? 0 : f(r)), 0);
-    const totals = stats ? { touches: sum((r) => r.touches.today), set: sum((r) => r.appts.set), shown: sum((r) => r.appts.shown), units: sum((r) => r.sales.units), goal: sum((r) => r.goal.units), untouched: sum((r) => r.leads.untouched.length), overdue: sum((r) => r.leads.overdue.length) } : null;
-    const paceCls = (r) => (!r.goal.units ? "" : r.sales.units >= r.goal.pace ? "color:var(--success)" : r.sales.units < r.goal.pace * 0.6 ? "color:var(--danger)" : "color:var(--warning)");
-    rows.sort((a, b) => ((b.sales ? b.sales.units : -1) - (a.sales ? a.sales.units : -1)) || memberName(a.member).localeCompare(memberName(b.member)));
-    return `
-      <div class="row" style="margin:0 2px 8px"><span class="small muted">${board ? "As of " + esc(formatDateTime(board.at)) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "Reading…" : "Not read yet"}</span></div>
-      ${totals ? `<div class="stat-grid" style="margin-bottom:12px">
-        <div class="stat"><div class="stat-value">${totals.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${totals.goal}</span></div><div class="stat-label">Units this month</div></div>
-        <div class="stat"><div class="stat-value" style="color:var(--brand)">${totals.set}</div><div class="stat-label">Appointments set</div></div>
-        <div class="stat"><div class="stat-value">${totals.touches}</div><div class="stat-label">Touches today</div></div>
-        <div class="stat"><div class="stat-value" style="${totals.untouched ? "color:var(--danger)" : ""}">${totals.untouched}</div><div class="stat-label">Untouched leads</div></div>
-      </div>` : ""}
-      <div class="section-title">By rep <span class="muted" style="font-weight:500;font-size:0.78rem">· today · month to date</span></div>
-      <div class="card" style="padding:6px 0">
-        ${rows.length ? rows.map((r) => `
-          <div class="team-row" data-rep="${esc(r.member.user_id)}" style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer">
-            <div class="row" style="align-items:center">
-              <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
-                ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : r.touches ? `<div class="row-sub">${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.touches.month} this month${r.appts.today.length ? ` · ${r.appts.today.length} appt${r.appts.today.length === 1 ? "" : "s"} today` : ""}</div>` : `<div class="row-sub muted">Reading…</div>`}
-              </div>
-              ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.goal.units ? "pace " + r.goal.pace : "no goal set"}</div></div>` : ""}
-            </div>
-            ${r.appts ? `<div class="team-cells">
-              <span><b>${r.appts.set}</b> set</span><span><b>${r.appts.shown}</b> shown${r.appts.showRate != null ? ` <span class="muted">(${r.appts.showRate}%)</span>` : ""}</span>
-              <span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span>
-            </div>` : ""}
-          </div>`).join("") : `<div class="muted small" style="padding:10px 16px">No one on the board yet — send the invite link below.</div>`}
-      </div>
-    `;
-  }
-
   function repHTML(mine) {
     return `<div class="card"><div class="strong">You're on the team${mine && mine.name ? ", " + esc(mine.name) : ""}.</div>
       <div class="small muted" style="margin-top:4px">Your manager sees your touches, appointments, units and open leads, and can open a customer of yours read-only. Your book stays yours — nobody else on the team sees it.</div></div>`;
-  }
-
-  // ---- A rep, opened from the board ----
-  function openRep(userId) {
-    const r = (board && board.stats.find((x) => x.member.user_id === userId)) || null;
-    const m = (team.members || []).find((x) => x.user_id === userId);
-    if (!r || r.error || !r.touches) { toast("Pull down to read the board first", "warn"); return; }
-    openRepSheet(r, m);
-  }
-
-  // The store sets a rep's month: units and appointments. Their app picks
-  // it up on the next launch and rallies around it.
-  function openTargetSheet(m) {
-    if (!m) return;
-    const st = board && board.stats.find((s) => s.member.user_id === m.user_id);
-    const cur = st && st.goal ? st.goal : { units: 0, appts: 0 };
-    openModal(`${memberName(m)} · ${new Date().toLocaleDateString("en-CA", { month: "long" })}`, (close) => {
-      const root = document.createElement("div");
-      root.innerHTML = `
-        <div class="field"><label>Units this month</label><input id="tg-units" type="number" inputmode="numeric" value="${cur.units || ""}" placeholder="12"></div>
-        <div class="field"><label>Appointments set this month</label><input id="tg-appts" type="number" inputmode="numeric" value="${cur.appts || ""}" placeholder="30"></div>
-        <button class="btn btn-primary btn-block" data-act="save">Set targets</button>
-        <div class="hint">These replace the rep's own goals in their app for this month, and the board's math plans on them.</div>`;
-      root.querySelector('[data-act="save"]').addEventListener("click", async () => {
-        try { await setTarget(m.user_id, { units: Number(root.querySelector("#tg-units").value) || 0, appts: Number(root.querySelector("#tg-appts").value) || 0, month: monthKey() }); close(); toast(`Targets set for ${memberName(m)}`, "success"); await refreshBoard(); }
-        catch (e) { toast(e.message || "Couldn't set targets", "danger"); }
-      });
-      return root;
-    });
   }
 
   function openNameSheet(mine) {
@@ -272,7 +217,6 @@ export function renderTeam(view, { param } = {}) {
           if (!storeId) team = r; else if (r && team && r.id === team.id) team = r;
           close();
           if (admin) await refreshStores(); else draw();
-          if (board) refreshBoard();
         } catch (e) { toast(e.message || "Couldn't change that", "danger"); }
       }));
       return root;

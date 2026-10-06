@@ -88,6 +88,7 @@ const TAB_SVG = {
   home: '<path d="M3 10.6 12 3l9 7.6"/><path d="M5 9.4V20a1 1 0 0 0 1 1h3.5v-5.5h5V21H18a1 1 0 0 0 1-1V9.4"/>',
   insights: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
   store: '<path d="M3 9.5 5 4h14l2 5.5"/><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/>',
+  floor: '<path d="M3 20h18"/><path d="M5 20V9l7-5 7 5v11"/><path d="M9 20v-6h6v6"/><path d="M3 12h18"/>',
   appts: '<rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="m9.5 15.5 1.8 1.8 3.5-3.8"/>',
   team: '<circle cx="9" cy="8" r="3.3"/><path d="M3.4 20a5.6 5.6 0 0 1 11.2 0"/><path d="M16.2 5.3a3.3 3.3 0 0 1 0 5.9"/><path d="M18.4 20a5.6 5.6 0 0 0-3-4.95"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>',
@@ -102,12 +103,12 @@ function applyMode() {
   document.body.classList.toggle("management", mg);
   const bar = document.querySelector(".tabbar");
   // The store's app has its own voice button in the middle of the bar, like
-  // the rep's: the same panel, with the manager's assistant behind it. Five
-  // tabs so it sits dead centre; Insights lives on Home (its tile and the
-  // "all insights" link under the findings).
+  // the rep's: the same panel, with the manager's assistant behind it. Four
+  // screens around it — the numbers, the floor, the reps, the store — and
+  // everything else under the "+".
   const voiceTab = `<button id="voice-btn" class="tab tab-voice" aria-label="Voice command"><span class="voice-fab"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG.mic}</svg></span><span class="tab-label">Voice</span></button>`;
   bar.innerHTML = mg
-    ? [["/", "Home", "home"], ["/appointments", "Appts", "appts"], null, ["/customers", "Customers", "team"], ["/team", "Team", "store"]].map((x) => x
+    ? [["/", "Home", "home"], ["/floor", "Floor", "floor"], null, ["/reps", "Reps", "team"], ["/team", "Admin", "store"]].map((x) => x
         ? `<a href="#${x[0]}" class="tab" data-route="${x[0]}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[x[2]]}</svg></span><span class="tab-label">${x[1]}</span></a>`
         : voiceTab).join("")
     : SALES_TABBAR;
@@ -143,7 +144,10 @@ const PAGES = {
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
   "/sold": { title: "Sold", render: lazyView("sold", "renderSold") },
-  "/team": { title: "Team", render: lazyView("team", "renderTeam") },
+  "/floor": { title: "The floor", render: lazyView("manage", "renderFloor") },
+  "/reps": { title: "Reps", render: lazyView("manage", "renderReps") },
+  "/team": { title: "Admin", render: lazyView("team", "renderTeam") },
+  "/admin": { title: "Admin", render: () => navigate("/team") },
   "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") },
   "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") },
   "/customers": { title: "Customers", render: lazyView("customers", "renderCustomers") },

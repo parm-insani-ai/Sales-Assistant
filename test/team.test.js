@@ -43,7 +43,7 @@ await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.body.classList.contains("management") && /No store yet/.test(document.querySelector(".hero-title")?.textContent || ""), null, { timeout: 15000 });
 const landing = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()), voice: !!document.querySelector("#voice-btn"), plus: getComputedStyle(document.querySelector("#quick-add")).display }));
 console.log("admin lands on:", JSON.stringify(landing));
-if (landing.tabs.join() !== "Home,Appts,Voice,Customers,Team" || !landing.voice || landing.plus === "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
+if (landing.tabs.join() !== "Home,Floor,Voice,Reps,Admin" || !landing.voice || landing.plus === "none") fail("the admin account didn't get the store's app: " + JSON.stringify(landing));
 await mgr.click('[data-act="team"]');
 await mgr.waitForSelector('[data-act="create"]');
 await mgr.fill("#st-name", "O'Regan's Nissan Halifax");
@@ -104,12 +104,11 @@ await seed(U2, [
   { id: "c2", collection: "config", data: { id: "c2", goalUnits: 10 } },
 ]);
 
-// --- 4. The board.
-await mgr.reload();
+// --- 4. The board, under Reps.
+await mgr.goto(APP + "/#/reps");
 await mgr.waitForSelector("[data-rep]");
 await mgr.waitForFunction(() => [...document.querySelectorAll(".team-row")].every((r) => !/Reading/.test(r.textContent)), null, { timeout: 15000 });
 const board = await mgr.evaluate(() => ({
-  totals: [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()),
   rows: [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
 }));
 console.log("board:", JSON.stringify(board, null, 1));
@@ -117,13 +116,19 @@ const parm = board.rows.find((r) => /^Parm/.test(r)) || "";
 // Today's appointments, from the seeds themselves: on the 1st, the ones
 // moved to the 1st are today's too.
 const apptsToday = [inMonth(day(-4)), now, inMonth(day(-10))].filter((d) => ymd(d) === ymd(now)).length;
-if (!new RegExp(`2 touches today · 3 this month · ${apptsToday} appts? today`).test(parm)) fail("Parm's touches are wrong: " + parm);
-if (!/2 \/ 12/.test(parm) || !/pace/.test(parm)) fail("Parm's units against goal are wrong: " + parm);
+if (!/2 touches today/.test(parm)) fail("Parm's touches are wrong: " + parm);
+if (!/2 \/ 12/.test(parm) || !/needs \d+|on track/.test(parm)) fail("Parm's units against goal are wrong: " + parm);
 if (!/3 set/.test(parm) || !/2 shown/.test(parm) || !/1 untouched/.test(parm) || !/1 overdue/.test(parm)) fail("Parm's cells are wrong: " + parm);
 const dana = board.rows.find((r) => /^Dana Rep/.test(r)) || "";
 if (!/0 touches today/.test(dana) || !/0 \/ 10/.test(dana) || !/1 untouched/.test(dana)) fail("Dana's row is wrong: " + dana);
-if (!board.rows[0].startsWith("Parm")) fail("the rep with the most units isn't first: " + board.rows[0]);
-if (!board.totals.some((t) => /^2 \/ (22|34) ?Units this month/.test(t)) || !board.totals.some((t) => /^2 ?Untouched leads/.test(t))) fail("the store totals are wrong: " + JSON.stringify(board.totals));
+if (!board.rows[0].startsWith("Parm")) fail("the rep with the most appointments set isn't first: " + board.rows[0]);
+// The store's totals are on Home.
+await mgr.goto(APP + "/#/");
+await mgr.waitForFunction(() => document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
+const totals = await mgr.evaluate(() => [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()));
+if (!totals.some((t) => /^2 \/ (22|34) ?Units/.test(t)) || !totals.some((t) => /^2 ?Untouched new leads/.test(t))) fail("the store totals are wrong: " + JSON.stringify(totals));
+await mgr.goto(APP + "/#/reps");
+await mgr.waitForSelector("[data-rep]");
 
 // --- 5. Open a rep, then a customer, read-only.
 await mgr.click('[data-rep="' + U1 + '"]');
@@ -152,13 +157,18 @@ if (cross !== 0 || mgrRead !== 1) fail("row access is wrong: rep " + cross + ", 
 // Dana then has the board but can't appoint anyone herself.
 await mgr.keyboard.press("Escape"); await mgr.keyboard.press("Escape");
 await mgr.waitForTimeout(200);
+await mgr.goto(APP + "/#/team");
+await mgr.waitForSelector('[data-arole="' + U2 + '"]', { timeout: 15000 });
 await mgr.click('[data-arole="' + U2 + '"]');
 await mgr.waitForSelector('.modal [data-r="manager"]');
 await mgr.click('.modal [data-r="manager"]');
 await mgr.waitForFunction(() => [...document.querySelectorAll(".admin-store .badge-sold")].length >= 2, null, { timeout: 10000 });
-await rep2.reload();
+await rep2.goto(APP + "/#/reps");
 await rep2.waitForSelector("[data-rep]", { timeout: 15000 });
-const danaBoard = await rep2.evaluate(() => ({ reps: document.querySelectorAll("[data-rep]").length, admin: document.querySelectorAll(".admin-store").length }));
+const danaBoard = await rep2.evaluate(() => ({ reps: document.querySelectorAll("[data-rep]").length }));
+await rep2.goto(APP + "/#/team");
+await rep2.waitForSelector('[data-role="' + U1 + '"]', { timeout: 15000 });
+danaBoard.admin = await rep2.evaluate(() => document.querySelectorAll(".admin-store").length);
 if (danaBoard.reps < 2 || danaBoard.admin) fail("a promoted manager doesn't get the board, or gets the admin section: " + JSON.stringify(danaBoard));
 await rep2.click('[data-role="' + U1 + '"]');
 await rep2.waitForSelector('.modal [data-r="remove"]');

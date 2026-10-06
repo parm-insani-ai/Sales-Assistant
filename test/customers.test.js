@@ -60,7 +60,7 @@ const reach = await mgr.evaluate(() => ({
   rows: [...document.querySelectorAll(".cu-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), sub: r.querySelector(".row-sub").textContent.trim(), reasons: r.querySelector(".row-reasons")?.textContent.trim(), deal: r.querySelector(".cu-deal")?.textContent.replace(/\s+/g, " ").trim(), send: r.querySelector("[data-send]")?.textContent.trim() })),
 }));
 console.log("reach-outs:", JSON.stringify(reach, null, 1));
-if (reach.tabs.join() !== "Home,Appts,Voice,Customers,Team") fail("the Customers tab is missing: " + reach.tabs.join());
+if (reach.tabs.join() !== "Home,Floor,Voice,Reps,Admin") fail("the Customers tab is missing: " + reach.tabs.join());
 if (!/6 customers · 4 worth a call/.test(reach.line || "") || !/priced against 3 units/.test(reach.line)) fail("the book line is wrong: " + reach.line);
 const names = reach.rows.map((r) => r.name.replace(/\s*(Hot|Strong|Worth a call)$/, ""));
 if (names.includes("Just Sold") || names.includes("No Way To Reach")) fail("excluded or unreachable customers are on the reach-out list: " + names.join(", "));
@@ -102,8 +102,8 @@ const sheet = await mgr.evaluate(() => document.querySelector(".modal")?.textCon
 if (!sheet) fail("the customer sheet didn't open read-only");
 await mgr.keyboard.press("Escape");
 
-// --- Home: the assistant's card with the top five, and Send.
-await mgr.click('.tabbar [data-route="/"]');
+// --- Floor: the assistant's card with the top five, and Send.
+await mgr.click('.tabbar [data-route="/floor"]');
 await mgr.waitForFunction(() => document.querySelector("[data-hand]"), null, { timeout: 20000 });
 const home = await mgr.evaluate(() => ({ title: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => /Who to reach out to/.test(t)), names: [...document.querySelectorAll("[data-hand]")].map((b) => b.closest(".row").querySelector(".row-title").textContent.trim()) }));
 console.log("home card:", JSON.stringify(home));

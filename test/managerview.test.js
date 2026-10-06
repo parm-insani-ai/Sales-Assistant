@@ -52,16 +52,17 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
 ] }) });
 const loggedTodayWant = [ago(60), earlier, ago(30)].filter((d) => ymdLocal(d) === ymdLocal(now)).length;
 
-// --- The manager's Home.
+// --- The manager's Home: the numbers. Floor: the feed. Reps: the rows.
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".mg-feed"), null, { timeout: 20000 });
-await mgr.waitForFunction(() => /As of/.test(document.body.textContent), null, { timeout: 20000 });
-const home = await mgr.evaluate(() => ({
-  stats: [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()),
-  feed: [...document.querySelectorAll(".mg-feed .mg-event")].map((r) => r.dataset.kind + ": " + r.textContent.replace(/\s+/g, " ").trim()),
-  reps: [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
-}));
+await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
+const home = { stats: await mgr.evaluate(() => [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim())) };
+await mgr.click('.tabbar [data-route="/floor"]');
+await mgr.waitForFunction(() => document.querySelector(".mg-feed .mg-event"), null, { timeout: 20000 });
+home.feed = await mgr.evaluate(() => [...document.querySelectorAll(".mg-feed .mg-event")].map((r) => r.dataset.kind + ": " + r.textContent.replace(/\s+/g, " ").trim()));
+const toReps = async () => { await mgr.click('.tabbar [data-route="/reps"]'); await mgr.waitForFunction(() => document.querySelector(".team-row"), null, { timeout: 20000 }); };
+await toReps();
+home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
 console.log("manager home:", JSON.stringify(home, null, 1));
 if (!home.stats.some((s) => new RegExp(`^3 ?Customers logged in \\w+ · ${loggedTodayWant} today`).test(s))) fail("the store's logged-customers count is wrong: " + JSON.stringify(home.stats));
 if (!home.stats.some((s) => /^33% ?Closing/.test(s))) fail("the store's closing ratio isn't 1 sold of 3 logged: " + JSON.stringify(home.stats));
@@ -76,12 +77,15 @@ if (!/1 \/ 10/.test(parmRow)) fail("Parm's own target (6 new + 4 used) isn't his
 if (!/never synced/.test(danaRow)) fail("a rep whose phone has never synced isn't flagged: " + danaRow);
 
 // Tap the sale in the feed: nothing to open (no customer on file), so try the appointment.
+await mgr.click('.tabbar [data-route="/floor"]');
+await mgr.waitForFunction(() => document.querySelector('.mg-event[data-kind="appt"]'), null, { timeout: 20000 });
 await mgr.evaluate(() => document.querySelector('.mg-event[data-kind="appt"]').click());
 await mgr.waitForFunction(() => /Dana Muise/.test(document.querySelector(".modal h2")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("tapping the appointment in the feed didn't open the customer"));
 await mgr.keyboard.press("Escape");
 await mgr.waitForTimeout(300);
 
-// --- Parm's sheet.
+// --- Parm's sheet, from Reps.
+await toReps();
 await mgr.click('.team-row[data-rep="' + U1 + '"]');
 await mgr.waitForSelector(".modal .rep-target");
 const sheet = await mgr.evaluate(() => ({
@@ -99,6 +103,45 @@ if (!sheet.upcoming.some((r) => /Dana Muise.*test drive/.test(r))) fail("tomorro
 if (JSON.stringify(sheet.logged.slice().sort()) !== JSON.stringify(["Dana Muise", "Ken Boudreau", "Old Owner"])) fail("the logged list isn't the three logged this month: " + JSON.stringify(sheet.logged));
 if (sheet.logged[0] !== "Old Owner") fail("the logged list isn't newest first: " + JSON.stringify(sheet.logged));
 await mgr.keyboard.press("Escape");
+
+// --- Reps → Logged: everyone logged this month across the store, with the
+// follow-up plan and where it stands. Dana has a plan with step 3 due today;
+// Ken's plan is done; Old Owner never got one.
+const todayK = ymdLocal(now);
+await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U1, rows: [
+  { id: "t1", collection: "tasks", data: { id: "t1", leadId: "l1", cadence: true, step: 1, of: 13, channel: "text", due: todayK, done: true, title: "Text Dana — Welcome text" } },
+  { id: "t2", collection: "tasks", data: { id: "t2", leadId: "l1", cadence: true, step: 2, of: 13, channel: "call", due: todayK, done: true, title: "Call Dana — Intro call" } },
+  { id: "t3", collection: "tasks", data: { id: "t3", leadId: "l1", cadence: true, step: 3, of: 13, channel: "text", due: todayK, done: false, title: "Text Dana — Value text" } },
+  { id: "t4", collection: "tasks", data: { id: "t4", leadId: "l1", cadence: true, step: 4, of: 13, channel: "call", due: ymdLocal(new Date(now.getTime() + 2 * 86400000)), done: false, title: "Call Dana — Check-in" } },
+  { id: "t5", collection: "tasks", data: { id: "t5", leadId: "l2", cadence: true, step: 1, of: 2, channel: "text", due: ymdLocal(earlier), done: true, title: "Text Ken" } },
+  { id: "t6", collection: "tasks", data: { id: "t6", leadId: "l2", cadence: true, step: 2, of: 2, channel: "call", due: ymdLocal(earlier), done: true, title: "Call Ken" } },
+] }) });
+await mgr.goto(APP + "/#/reps");
+await mgr.waitForSelector("[data-chip]", { timeout: 20000 });
+// Pull-to-refresh is a touch gesture; a fresh read is what a reload does here.
+await mgr.evaluate(() => sessionStorage.removeItem("viniva:team-board"));
+await mgr.reload();
+await mgr.waitForFunction(() => document.querySelector('[data-chip="logged"] .seg-count')?.textContent.trim() === "3", null, { timeout: 20000 });
+await mgr.click('[data-chip="logged"]');
+await mgr.waitForSelector(".mg-logged-row", { timeout: 10000 });
+const loggedTab = await mgr.evaluate(() => [...document.querySelectorAll(".mg-logged-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), sub: r.querySelector(".row-sub").textContent.replace(/\s+/g, " ").trim(), plan: r.querySelector(".mg-plan-line").textContent.replace(/\s+/g, " ").trim(), stage: r.querySelector(".badge").textContent.trim() })));
+console.log("logged chip:", JSON.stringify(loggedTab, null, 1));
+if (loggedTab.map((r) => r.name).join() !== "Old Owner,Dana Muise,Ken Boudreau") fail("the logged list isn't everyone logged this month, newest first: " + loggedTab.map((r) => r.name).join());
+const dRow = loggedTab.find((r) => r.name === "Dana Muise") || {}, kRow = loggedTab.find((r) => r.name === "Ken Boudreau") || {}, oRow = loggedTab.find((r) => r.name === "Old Owner") || {};
+if (!/^Plan step 3 of 13 · text today/.test(dRow.plan || "")) fail("Dana's plan status is wrong: " + dRow.plan);
+if (!/Follow-up plan done · 2 of 2/.test(kRow.plan || "")) fail("Ken's finished plan isn't shown as done: " + kRow.plan);
+if (!/No follow-up plan/.test(oRow.plan || "")) fail("a customer with no plan isn't flagged: " + oRow.plan);
+if (!/Parm · 2023 Nissan Rogue SV · Used · logged today/.test(dRow.sub || "")) fail("the logged row doesn't say who, what and when: " + dRow.sub);
+if (dRow.stage !== "Working" || kRow.stage !== "Appointment") fail("the stage badges are wrong: " + JSON.stringify([dRow.stage, kRow.stage]));
+// The chip is remembered; a tap on a row opens the customer.
+await mgr.click(".mg-logged-row");
+await mgr.waitForFunction(() => /Old Owner/.test(document.querySelector(".modal h2")?.textContent || ""), null, { timeout: 8000 }).catch(() => fail("tapping a logged customer didn't open them"));
+await mgr.keyboard.press("Escape");
+await mgr.goto(APP + "/#/");
+await mgr.goto(APP + "/#/reps");
+await mgr.waitForSelector(".mg-logged-row", { timeout: 10000 }).catch(() => fail("the Logged chip wasn't remembered"));
+await mgr.click('[data-chip="reps"]');
+await mgr.waitForSelector(".team-row", { timeout: 10000 });
 
 // --- A rep in a store: syncing on, and the switch locked.
 const rep = await pageAs("t", "p@e.com", { cloudAutoSync: false });

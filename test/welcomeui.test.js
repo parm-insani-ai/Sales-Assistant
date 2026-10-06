@@ -36,8 +36,9 @@ await seed(U1, [
 // --- The sheet, from Home.
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector('[data-act="welcome"]'), null, { timeout: 20000 });
-await mgr.click('[data-act="welcome"]');
+await mgr.waitForFunction(() => document.body.classList.contains("management") && /As of|Reading/.test(document.body.textContent), null, { timeout: 20000 });
+const plusTap = async (p, label) => { await p.click("#quick-add"); await p.waitForFunction((l) => [...document.querySelectorAll(".modal .qa-label")].some((n) => n.textContent.trim() === l), label, { timeout: 10000 }); await p.evaluate((l) => [...document.querySelectorAll(".modal .qa-tile")].find((t) => t.querySelector(".qa-label").textContent.trim() === l).click(), label); };
+await plusTap(mgr, "Welcome text");
 await mgr.waitForSelector("#wl-on");
 await mgr.waitForFunction(() => document.querySelectorAll(".modal [data-send]").length > 0, null, { timeout: 15000 });
 const sheet = await mgr.evaluate(() => ({

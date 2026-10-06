@@ -134,6 +134,8 @@ export function storeTotals(stats) {
     closing: (() => { const sp = sum((r) => (r.sheet ? r.sheet.spoke : 0)), so = sum((r) => (r.sheet ? r.sheet.sold : 0)); return sp ? Math.round((so / sp) * 100) : null; })(),
     // Everything the floor did today, newest first.
     feed: ok.flatMap((r) => (r.events || []).map((e) => ({ ...e, rep: r.member }))).sort((a, b) => String(b.at).localeCompare(String(a.at))),
+    // Everyone logged this month across the store, newest first, with their rep.
+    logged: ok.flatMap((r) => (r.logged || []).map((l) => ({ ...l, rep: r.member }))).sort((a, b) => String(b.loggedAt).localeCompare(String(a.loggedAt))),
     // The store's appointment picture, from everyone's rows together.
     insight: storeInsight(ok.map((r) => r.raw).filter(Boolean)),
   };
@@ -213,7 +215,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -225,6 +227,9 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     // owner moved over from Outreach today was added years ago.
     backend.readRecords(userId, "leads", { "data->>loggedAt": `gte.${monthStart}` }, { select: "id,data" }),
     backend.lastWrite(userId).catch(() => null),
+    // The follow-up plan's steps, done and to come, for the plan status
+    // on each logged customer.
+    backend.readRecords(userId, "tasks", { "data->>cadence": "eq.true" }, { select: "data", limit: 5000 }).catch(() => []),
   ]);
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
@@ -278,7 +283,18 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   const sheet = targetSheet({ settings, leads: book, sales: s, appointments: allAppts, now });
   // Who they logged this month, newest first.
   const mKey = monthStart.slice(0, 7);
-  const logged = loggedInMonth(mKey, book).map((l) => ({ id: l.id, name: l.name || "", vehicleInterest: l.vehicleInterest || "", stage: l.stage || "", shopping: shoppingOf(l), source: l.source || "", loggedAt: loggedAtOf(l) }));
+  // Each customer's follow-up plan: how far through it is and the next
+  // step, from the plan's tasks. No tasks: no plan was started.
+  const plans = new Map();
+  rows(planTasks).forEach((t) => {
+    if (!t.leadId) return;
+    const pl = plans.get(t.leadId) || { of: 0, done: 0, next: null, last: "" };
+    pl.of = Math.max(pl.of, num(t.of), num(t.step));
+    if (t.done) { pl.done++; if (String(t.doneAt || t.updatedAt || "") > pl.last) pl.last = String(t.doneAt || t.updatedAt || ""); }
+    else if (!pl.next || String(t.due || "") < String(pl.next.due || "") || (String(t.due || "") === String(pl.next.due || "") && num(t.step) < num(pl.next.step))) pl.next = { step: num(t.step), channel: t.channel || "", due: t.due || "", title: t.title || "", intent: t.intent || "" };
+    plans.set(t.leadId, pl);
+  });
+  const logged = loggedInMonth(mKey, book).map((l) => ({ id: l.id, name: l.name || "", phone: l.phone || "", vehicleInterest: l.vehicleInterest || "", stage: l.stage || "", shopping: shoppingOf(l), source: l.source || "", loggedAt: loggedAtOf(l), lastContacted: l.lastContacted || "", followUp: l.followUp || "", plan: plans.get(l.id) || null }));
   const loggedToday = logged.filter((l) => dayKey(l.loggedAt) === today).length;
 
   // What they did today, as it happened: customers logged, appointments

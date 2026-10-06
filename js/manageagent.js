@@ -121,10 +121,10 @@ const TOOLS = [
   { name: "send_welcome", description: "Send the manager's welcome text to a customer a rep just logged, right now (it otherwise goes on its own an hour or two after they're logged). 'Welcome Dana now', 'send Ken the welcome'.", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "email_customer", description: "Send a real email to a customer on any rep's book, from you as the manager — YOU write the subject and body, warm and short, no figures. It's filed on the customer's page for the rep too. Needs their email on file.", input_schema: { type: "object", properties: { customer: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["customer", "subject", "body"] } },
   { name: "email_rep", description: "Send an email to a rep. YOU write the subject and body.", input_schema: { type: "object", properties: { rep: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["rep", "subject", "body"] } },
-  { name: "open_page", description: "Open a screen of the store's app.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "appointments", "customers", "insights", "team", "settings"] } }, required: ["page"] } },
+  { name: "open_page", description: "Open a screen of the store's app.", input_schema: { type: "object", properties: { page: { type: "string", enum: ["home", "floor", "reps", "appointments", "customers", "insights", "team", "admin", "settings"] } }, required: ["page"] } },
 ];
 
-const ROUTES = { home: "/", appointments: "/appointments", customers: "/customers", insights: "/insights", team: "/team", settings: "/settings" };
+const ROUTES = { home: "/", floor: "/floor", reps: "/reps", appointments: "/appointments", customers: "/customers", insights: "/insights", team: "/team", admin: "/team", settings: "/settings" };
 
 async function execManagerTool(name, input) {
   const t = await team();
@@ -374,7 +374,9 @@ export function managerVocabulary({ limit = 400 } = {}) {
 
 export function createManagerSession() {
   return createAgentSession({
-    call: async (messages) => callRelay({ system: buildSystem(await team()), tools: TOOLS, messages, max_tokens: 4096 }),
+    // The brief names every customer on file; read the book once if no
+    // screen has yet (Home no longer does — the Floor and Customers do).
+    call: async (messages) => { const t = await team(); if (!cachedBook()) { try { await loadBook(t); } catch { /* the brief goes without the names */ } } return callRelay({ system: buildSystem(t), tools: TOOLS, messages, max_tokens: 4096 }); },
     exec: execManagerTool,
   });
 }

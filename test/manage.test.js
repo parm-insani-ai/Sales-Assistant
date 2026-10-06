@@ -54,22 +54,36 @@ await seed(U2, [
   { id: "m2", collection: "leads", data: { id: "m2", name: "Late One", phone: "9025559998", stage: "working", vehicleInterest: "Kicks", followUp: ymd(day(-4)), createdAt: iso(day(-20)) } },
 ]);
 
-// --- The admin's Home is the board.
+// --- The admin's Home is the numbers; Floor the day; Reps the reps.
+const plusTap = async (p, label) => { await p.click("#quick-add"); await p.waitForFunction((l) => [...document.querySelectorAll(".modal .qa-label")].some((n) => n.textContent.trim() === l), label, { timeout: 10000 }); await p.evaluate((l) => [...document.querySelectorAll(".modal .qa-tile")].find((t) => t.querySelector(".qa-label").textContent.trim() === l).click(), label); };
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelectorAll(".mg-rep").length > 0, null, { timeout: 20000 });
-await mgr.waitForFunction(() => /As of/.test(document.body.textContent), null, { timeout: 20000 });
+await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
 const home = await mgr.evaluate(() => ({
   title: document.querySelector(".hero-title")?.textContent.trim(),
   tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()),
   stats: [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()),
-  word: [...document.querySelectorAll(".card .mg-rep.row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
-  today: [...document.querySelectorAll(".card .row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).filter((t) => /15:30/.test(t)),
-  reps: [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
-  tiles: [...document.querySelectorAll(".qa-label")].map((n) => n.textContent.trim()),
+  sections: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.trim()),
+  tiles: [...document.querySelectorAll("#view .qa-label")].map((n) => n.textContent.trim()),
 }));
 console.log("management home:", JSON.stringify(home, null, 1));
-if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Appts,Voice,Customers,Team") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
+if (home.sections.length || home.tiles.length) fail("Home should be the numbers only — no sections or tiles: " + JSON.stringify([home.sections, home.tiles]));
+await mgr.click('.tabbar [data-route="/floor"]');
+await mgr.waitForFunction(() => location.hash === "#/floor" && document.querySelectorAll(".mg-rep").length > 0, null, { timeout: 20000 });
+Object.assign(home, await mgr.evaluate(() => ({
+  floor: document.querySelector(".hero-title")?.textContent.trim(),
+  word: [...document.querySelectorAll(".card .mg-rep.row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
+  today: [...document.querySelectorAll(".card .row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).filter((t) => /15:30/.test(t)),
+  floorSections: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim().split(" ·")[0]),
+})));
+console.log("floor:", JSON.stringify({ floor: home.floor, sections: home.floorSections }));
+for (const s of ["Today on the floor", "Fresh leads waiting", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"]) if (!home.floorSections.includes(s)) fail("Floor is missing: " + s);
+await mgr.click('.tabbar [data-route="/reps"]');
+await mgr.waitForFunction(() => location.hash === "#/reps" && document.querySelector(".team-row"), null, { timeout: 20000 });
+home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
+await mgr.click('.tabbar [data-route="/"]');
+await mgr.waitForFunction(() => location.hash === "#/", null, { timeout: 5000 });
+if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Floor,Voice,Reps,Admin") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
 // Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
 if (!home.stats.some((s) => new RegExp(`^${SET} ?Appointments set in \\w+ · 1 today`).test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => new RegExp(`^1 · ${RATE} ?Shown`).test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
 const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
@@ -78,7 +92,13 @@ if (!/To hit 22 units: \d+ more appointments set by month end/.test(plan || "") 
 if (!home.word.some((w) => /^Parm.*1 untouched lead/.test(w)) || !home.word.some((w) => /^Dana.*1 untouched lead/.test(w)) || home.word.some((w) => /^Sam/.test(w))) fail("'needs a word' misses a rep, or nags the manager: " + JSON.stringify(home.word));
 if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.test(t))) fail("today's appointment isn't on the store's list with the rep: " + JSON.stringify(home.today));
 if (!home.reps[0].startsWith("Parm") || !new RegExp(`${SET} set · 1 today · 1 shown`).test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
-if (!home.tiles.includes("Insights") || !home.tiles.includes("Team") || !home.tiles.includes("Admin") || !home.tiles.includes("Invite a rep") || !home.tiles.includes("Sales view")) fail("the store's tools are missing: " + JSON.stringify(home.tiles));
+// Everything else is under the "+".
+await mgr.click("#quick-add");
+await mgr.waitForFunction(() => /Quick actions/.test(document.querySelector(".modal")?.textContent || ""), null, { timeout: 10000 });
+const plusTiles = await mgr.evaluate(() => [...document.querySelectorAll(".modal .qa-label")].map((n) => n.textContent.trim()));
+for (const l of ["Welcome text", "Email a customer", "Nudge a rep", "Set targets", "Invite a rep", "Appointments", "Customers", "Timing", "Lease ends", "Insights", "Admin", "Settings", "Sales view", "Sign out"]) if (!plusTiles.includes(l)) fail("the + is missing: " + l + " in " + plusTiles.join(","));
+await mgr.keyboard.press("Escape");
+await mgr.waitForFunction(() => !document.querySelector(".modal"), null, { timeout: 5000 });
 
 // --- No Refresh button: pulling down re-reads the board.
 if (await mgr.$('[data-act="refresh"]')) fail("the Refresh button is still on the board");
@@ -108,7 +128,7 @@ const quickNudges = await (await fetch(APP + "/__nudges")).json();
 if (!quickNudges.some((n) => /before lunch/.test(n.body))) fail("the nudge from the + didn't send: " + JSON.stringify(quickNudges));
 
 // --- Insights: the store, then one rep, with the math and the levers.
-await mgr.click('[data-act="insights"]');
+await plusTap(mgr, "Insights");
 await mgr.waitForFunction(() => location.hash === "#/insights" && document.querySelectorAll(".irow").length > 1, null, { timeout: 15000 });
 const insights = await mgr.evaluate(() => ({
   title: document.querySelector(".hero-title")?.textContent.trim(),
@@ -127,8 +147,8 @@ await mgr.evaluate((U2) => { document.querySelector('.lead-chips [data-who="' + 
 await mgr.waitForFunction(() => document.querySelector(".hero-title")?.textContent.trim() === "Dana", null, { timeout: 5000 });
 const dana = await mgr.evaluate(() => ({ takes: document.querySelector(".card .stat-grid")?.textContent.replace(/\s+/g, " ").trim(), byRep: !!document.querySelector(".irow") }));
 if (!/more appointments to set/.test(dana.takes || "") || dana.byRep) fail("a rep's insights page is wrong: " + JSON.stringify(dana));
-await mgr.click('.tabbar [data-route="/"]');
-await mgr.waitForFunction(() => location.hash === "#/", null, { timeout: 5000 });
+await mgr.click('.tabbar [data-route="/reps"]');
+await mgr.waitForFunction(() => location.hash === "#/reps" && document.querySelector('.team-row[data-rep="' + "00000000-0000-4000-8000-000000000002" + '"]'), null, { timeout: 15000 });
 
 // Tap a rep: their day, then a customer, read-only.
 await mgr.click('.team-row[data-rep="' + U2 + '"]');
@@ -137,13 +157,15 @@ const sheet = await mgr.evaluate(() => ({ title: document.querySelector(".modal 
 if (sheet.title !== "Dana" || sheet.leads.join() !== "Quiet Lead,Late One") fail("the rep sheet from Home is wrong: " + JSON.stringify(sheet));
 await mgr.keyboard.press("Escape");
 
-// The Team tab is the members and admin screen; the Settings tab exists.
+// The Admin tab is the members and admin screen, and nothing else; Customers is under the "+".
 await mgr.click('.tabbar [data-route="/team"]');
 await mgr.waitForSelector(".admin-store");
-await mgr.click('.tabbar [data-route="/customers"]');
+const adminPage = await mgr.evaluate(() => ({ greeting: document.querySelector(".hero-greeting")?.textContent.trim(), board: document.querySelectorAll(".team-row, .stat").length, members: !!document.querySelector('[data-role]'), invite: !!document.querySelector("#invite-link") }));
+if (adminPage.greeting !== "Admin" || adminPage.board || !adminPage.members || !adminPage.invite) fail("the Admin page isn't just the store's admin information: " + JSON.stringify(adminPage));
+await plusTap(mgr, "Customers");
 await mgr.waitForFunction(() => location.hash === "#/customers", null, { timeout: 5000 });
 await mgr.click('.tabbar [data-route="/"]');
-await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector('[data-act="settings"]'), null, { timeout: 10000 });
+await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector(".stat"), null, { timeout: 10000 });
 
 // --- A rep keeps the salesperson's app.
 const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);
@@ -171,7 +193,7 @@ await both.waitForFunction(() => document.body.classList.contains("management") 
 await both.waitForFunction(() => /As of/.test(document.body.textContent), null, { timeout: 20000 });
 const switched = await both.evaluate(() => ({ title: document.querySelector(".hero-title")?.textContent.trim(), tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()) }));
 if (switched.title !== "O'Regan's Nissan Halifax" || switched.tabs.length !== 5) fail("the switch to the management view didn't take: " + JSON.stringify(switched));
-await both.evaluate(() => { [...document.querySelectorAll(".qa-tile")].find((t) => /Sales view/.test(t.textContent)).click(); });
+await plusTap(both, "Sales view");
 await both.waitForSelector("#view .nudge-slot", { state: "attached", timeout: 20000 });
 const back = await both.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: document.querySelectorAll(".tabbar .tab").length }));
 if (back.mg || back.tabs !== 5) fail("the switch back to the sales view didn't take: " + JSON.stringify(back));

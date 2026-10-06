@@ -51,7 +51,7 @@ const board = await mgr.evaluate(() => ({
   today: [...document.querySelectorAll(".ap-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
 }));
 console.log("board:", JSON.stringify(board, null, 1));
-if (board.tabs.join() !== "Home,Appts,Voice,Customers,Team") fail("the Appts tab is missing: " + board.tabs.join());
+if (board.tabs.join() !== "Home,Floor,Voice,Reps,Admin") fail("the Appts tab is missing: " + board.tabs.join());
 if (!board.stats.some((s) => /^1 ?Today · 1 still to come/.test(s)) || !board.stats.some((s) => /^1 ?Tomorrow's not yet confirmed/.test(s)) || !board.stats.some((s) => /^1 ?No-shows/.test(s))) fail("the board's numbers are wrong: " + JSON.stringify(board.stats));
 if (!/Confirm tomorrow: 1 appointment unconfirmed/.test(board.queue || "")) fail("no confirmation queue: " + board.queue);
 if (board.chips.join() !== "Today 1,Tomorrow 2,This week 0,No-shows 1,Unlogged 1") fail("the chips are wrong: " + board.chips.join());
@@ -90,8 +90,8 @@ if (unloggedNow !== "Unlogged 0") fail("the unlogged count didn't drop: " + unlo
 const forged = await rpc("t2", "manager_update_appointment", { member: U1, appt_id: "td1", patch: { outcome: "sold" } });
 if (!forged.message || !/only a manager/.test(forged.message)) fail("a rep could mark another rep's appointment: " + JSON.stringify(forged));
 
-// --- Home: fresh leads waiting, nudge, huddle.
-await mgr.click('.tabbar [data-route="/"]');
+// --- Floor: fresh leads waiting, nudge, huddle.
+await mgr.click('.tabbar [data-route="/floor"]');
 await mgr.waitForFunction(() => /Fresh leads waiting/.test(document.body.textContent) && document.querySelector("[data-nudge]"), null, { timeout: 15000 });
 const home = await mgr.evaluate(() => ({ waiting: [...document.querySelectorAll("[data-nudge]")].map((b) => b.closest(".row").textContent.replace(/\s+/g, " ").trim()), huddle: document.querySelector("#mg-huddle")?.textContent }));
 console.log("waiting:", JSON.stringify(home.waiting), "\nhuddle:", home.huddle);
@@ -103,14 +103,14 @@ nudges = await (await fetch(APP + "/__nudges")).json();
 if (nudges.length !== 2 || !/Fresh Lead has been waiting 3 h/.test(nudges[1].title) || nudges[1].url !== "./#/leads/l1") fail("the lead nudge is wrong: " + JSON.stringify(nudges[1]));
 
 // --- Targets: the manager sets Parm's month; the board plans on it; Parm's app adopts it.
-await mgr.click('.tabbar [data-route="/team"]');
+await mgr.click('.tabbar [data-route="/reps"]');
 await mgr.waitForSelector('[data-target="' + U1 + '"]');
 await mgr.click('[data-target="' + U1 + '"]');
 await mgr.waitForSelector("#tg-units");
 await mgr.fill("#tg-units", "15");
 await mgr.fill("#tg-appts", "40");
 await mgr.click('.modal [data-act="save"]');
-await mgr.waitForFunction((U1) => /15u · 40a/.test(document.querySelector('[data-target="' + U1 + '"]')?.textContent || ""), U1, { timeout: 15000 });
+await mgr.waitForFunction((U1) => /Target 15 units · 40 appointments, set by you/.test(document.querySelector('.team-row[data-rep="' + U1 + '"]')?.textContent || ""), U1, { timeout: 15000 });
 const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);
 await rep.goto(APP + "/#/goals");
 await rep.waitForFunction(async () => { const s = await import("/js/store.js"); return s.getSettings().goalUnits === 15 && s.getSettings().goalAppointments === 40; }, null, { timeout: 15000 });
