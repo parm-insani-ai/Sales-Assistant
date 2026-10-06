@@ -88,9 +88,10 @@ const TAB_SVG = {
   home: '<path d="M3 10.6 12 3l9 7.6"/><path d="M5 9.4V20a1 1 0 0 0 1 1h3.5v-5.5h5V21H18a1 1 0 0 0 1-1V9.4"/>',
   insights: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
   store: '<path d="M3 9.5 5 4h14l2 5.5"/><path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/>',
-  floor: '<path d="M3 20h18"/><path d="M5 20V9l7-5 7 5v11"/><path d="M9 20v-6h6v6"/><path d="M3 12h18"/>',
+  floor: '<path d="M2.5 12h4l2.5-6 4 12 3-8 1.5 2h4"/>',
   appts: '<rect x="3" y="5" width="18" height="16" rx="2.4"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="m9.5 15.5 1.8 1.8 3.5-3.8"/>',
   team: '<circle cx="9" cy="8" r="3.3"/><path d="M3.4 20a5.6 5.6 0 0 1 11.2 0"/><path d="M16.2 5.3a3.3 3.3 0 0 1 0 5.9"/><path d="M18.4 20a5.6 5.6 0 0 0-3-4.95"/>',
+  admin: '<path d="M12 3 4.5 6v5.2c0 4.6 3.1 8.2 7.5 9.8 4.4-1.6 7.5-5.2 7.5-9.8V6z"/><path d="m9 12 2.2 2.2L15.4 10"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/>',
   settings: '<circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.9 15H3.8a2 2 0 1 1 0-4H4a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.5 4V3.8a2 2 0 1 1 4 0V4a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.5 1z"/>',
 };
@@ -108,7 +109,7 @@ function applyMode() {
   // everything else under the "+".
   const voiceTab = `<button id="voice-btn" class="tab tab-voice" aria-label="Voice command"><span class="voice-fab"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG.mic}</svg></span><span class="tab-label">Voice</span></button>`;
   bar.innerHTML = mg
-    ? [["/", "Home", "home"], ["/floor", "Floor", "floor"], null, ["/reps", "Reps", "team"], ["/team", "Admin", "store"]].map((x) => x
+    ? [["/", "Home", "home"], ["/floor", "Floor", "floor"], null, ["/reps", "Reps", "team"], ["/team", "Admin", "admin"]].map((x) => x
         ? `<a href="#${x[0]}" class="tab" data-route="${x[0]}"><span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_SVG[x[2]]}</svg></span><span class="tab-label">${x[1]}</span></a>`
         : voiceTab).join("")
     : SALES_TABBAR;

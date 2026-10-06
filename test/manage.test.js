@@ -82,7 +82,7 @@ await mgr.click('.tabbar [data-route="/reps"]');
 await mgr.waitForFunction(() => location.hash === "#/reps" && document.querySelector(".team-row"), null, { timeout: 20000 });
 home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
 await mgr.click('.tabbar [data-route="/"]');
-await mgr.waitForFunction(() => location.hash === "#/", null, { timeout: 5000 });
+await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector(".mg-plan"), null, { timeout: 10000 });
 if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Floor,Voice,Reps,Admin") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
 // Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
 if (!home.stats.some((s) => new RegExp(`^${SET} ?Appointments set in \\w+ · 1 today`).test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => new RegExp(`^1 · ${RATE} ?Shown`).test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
