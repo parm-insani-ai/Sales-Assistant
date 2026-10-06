@@ -13,7 +13,7 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast } from "../components.js";
 import { esc, formatDateTime, currency } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep } from "../team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo } from "../team.js";
 import { openRepSheet, openCustomerSheet, apptState } from "./team.js";
 import { findings } from "../insight.js";
 import { cachedBook, loadBook, addRepTask, cachedInventory, loadInventory } from "../team.js";
@@ -32,6 +32,7 @@ export function renderManageHome(view) {
   let book = cachedBook();
   let lot = cachedInventory();
   let loading = false, error = "";
+  let feedAll = false;
   const handed = new Set();
   const now = new Date();
   const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -59,6 +60,22 @@ export function renderManageHome(view) {
     const all = reachOuts(ranked, { limit: 100000 }).length;
     return `<div class="section-title">Who to reach out to <span class="muted" style="font-weight:500;font-size:0.78rem">· ${all.toLocaleString()} worth a call · <a href="#/customers" style="color:var(--brand)">see them all</a></span></div>
       <div class="card" style="padding:6px 0">${top.length ? top.map((r) => `<div class="row" style="padding:8px 16px;border-bottom:1px solid var(--border);align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.map(esc).join(" · ")}</div>${r.read.deal ? `<div class="small" style="margin-top:2px">${esc(r.read.deal.name)} ≈ <b>$${Math.round(r.read.deal.monthly).toLocaleString("en-CA")}/mo</b>${r.read.deal.delta != null ? ` <span style="${r.read.deal.delta <= 0 ? "color:var(--success)" : ""}" class="${r.read.deal.delta <= 0 ? "" : "muted"}">(${r.read.deal.delta <= 0 ? "−" : "+"}$${Math.abs(Math.round(r.read.deal.delta)).toLocaleString("en-CA")}/mo)</span>` : ""}</div>` : ""}</div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody on the book is worth a call right now — or the reps' books haven't synced.</div>`}</div>`;
+  }
+
+  // Today on the floor: every customer logged, appointment set and car sold
+  // across the store today, newest first, with who did it.
+  function feedCard(t) {
+    const feed = t.feed || [];
+    const shown = feedAll ? feed : feed.slice(0, 8);
+    const time = (iso) => { const s = String(iso || ""); if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return ""; const d = new Date(s); return isNaN(d) ? "" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); };
+    const what = (e) => e.kind === "logged" ? `Logged <b>${esc(e.name || "a customer")}</b>`
+      : e.kind === "appt" ? `Set an appointment with <b>${esc(e.name || "a customer")}</b>${e.when ? ` for ${esc(formatDateTime(e.when))}` : ""}`
+      : `Sold <b>${esc(e.name || "a customer")}</b>${e.detail ? ` a ${esc(e.detail)}` : ""}`;
+    const tag = { logged: "Logged", appt: "Appointment", sold: "Sold" };
+    return `<div class="section-title">Today on the floor <span class="muted" style="font-weight:500;font-size:0.78rem">· ${feed.length ? `${feed.length} so far` : "nothing yet"}</span></div>
+      <div class="card mg-feed">${feed.length ? shown.map((e) => `<div class="row mg-event" data-kind="${e.kind}" ${e.leadId ? `data-fcust="${esc(e.leadId)}" data-frep="${esc(e.rep.user_id)}"` : ""} style="padding:7px 0;align-items:flex-start;${e.leadId ? "cursor:pointer" : ""}"><div class="row-main"><div class="row-title" style="font-size:0.93rem;font-weight:500">${what(e)}</div><div class="row-sub">${esc(memberName(e.rep))}${time(e.at) ? " · " + esc(time(e.at)) : ""}${e.kind === "logged" && e.detail ? " · " + esc(e.detail) : e.kind === "appt" && e.detail ? " · " + esc(e.detail) : ""}</div></div><span class="badge ${e.kind === "sold" ? "badge-sold" : e.kind === "appt" ? "badge-appt" : "badge-new"}" style="flex:none">${tag[e.kind]}</span></div>`).join("")
+        + (feed.length > 8 ? `<button class="btn btn-ghost btn-sm btn-block" data-act="feed-all" style="margin-top:6px">${feedAll ? "Show less" : `Show all ${feed.length}`}</button>` : "")
+        : `<div class="muted small">No customers logged, appointments set or cars sold yet today. It fills in as the reps' phones sync.</div>`}</div>`;
   }
 
   function draw() {
@@ -104,6 +121,8 @@ export function renderManageHome(view) {
         <div class="stat"><div class="stat-value" style="${paceCls(t.units, t.goal, pace)}">${t.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${t.goal || "—"}</span></div><div class="stat-label">Units · ${currency(t.gross)} gross${t.goal ? ` · pace ${pace}` : ""}</div></div>
         <div class="stat"><div class="stat-value">${t.touchesToday}</div><div class="stat-label">Touches today${ins.touchesPerAppt ? ` · ${ins.touchesPerAppt} per appointment` : ""}</div></div>
         <div class="stat"><div class="stat-value" style="${t.untouched ? "color:var(--danger)" : ""}">${t.untouched}</div><div class="stat-label">Untouched new leads · ${t.overdue} overdue</div></div>
+        <div class="stat"><div class="stat-value">${t.loggedMonth}</div><div class="stat-label">Customers logged in ${esc(monthName)} · ${t.loggedToday} today</div></div>
+        <div class="stat"><div class="stat-value">${t.closing != null ? t.closing + "%" : "—"}</div><div class="stat-label">Closing · sold of customers logged</div></div>
       </div>
 
       ${ins.needs.goal ? `<div class="card mg-plan" style="margin-bottom:14px">
@@ -111,6 +130,8 @@ export function renderManageHome(view) {
         <div class="small muted" style="margin-top:4px">${ins.needs.sold} sold · ${ins.needs.futureSet} on the calendar (~${ins.needs.pipeline} units) · ${ins.needs.perAppt} units per appointment set (${ins.needs.showRate}% show × ${ins.needs.closeRate}% close${ins.needs.assumed ? ", typical rates until there's history" : ""})${ins.touchesPerDay && !ins.needs.onTrack ? ` · about ${ins.touchesPerDay} touches a day across the floor` : ""}</div>
         ${!ins.needs.onTrack ? `<div class="small" style="margin-top:8px">${rows.filter((r) => r.insight && r.insight.needs.goal).map((r) => `<span class="mg-need"><b>${esc(memberName(r.member))}</b> ${r.insight.needs.onTrack ? "on track" : r.insight.needs.perDay + "/day"}</span>`).join(" ")}</div>` : ""}
       </div>` : ""}
+
+      ${feedCard(t)}
 
       ${fx.length ? `<div class="section-title">What the numbers say <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#/insights" style="color:var(--brand)">all insights</a></span></div>
       <div class="card">${fx.map((x) => `<div class="row" style="padding:6px 0;align-items:flex-start;gap:10px"><span style="flex:none;color:var(--brand)">${icon("sparkles")}</span><div class="small">${esc(x.text)}</div></div>`).join("")}</div>` : ""}
@@ -144,10 +165,10 @@ export function renderManageHome(view) {
           <div class="team-row mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer">
             <div class="row" style="align-items:center">
               <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
-                ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today</div>`}</div>
+                ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today</div><div class="small mg-synced" style="${syncedAgo(r.lastWrite).stale ? "color:var(--warning)" : "color:var(--muted)"}">${esc(syncedAgo(r.lastWrite).text)}</div>`}</div>
               ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r.sales.units, r.goal.units, r.goal.pace)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.insight && r.insight.needs.goal ? (r.insight.needs.onTrack ? "on track" : `needs ${r.insight.needs.apptsNeeded} · ${r.insight.needs.perDay}/day`) : "no goal set"}</div></div>` : ""}
             </div>
-            ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span></div>` : ""}
+            ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span>${r.sheet ? `<span><b>${r.sheet.spoke}</b> logged this month</span>` : ""}</div>` : ""}
           </div>`).join("")}
         ${!rows.length ? `<div class="muted small" style="padding:10px 16px">No reps on the board yet.</div>` : ""}
       </div>` : loading ? `<div class="card"><div class="muted small" style="text-align:center">Reading the reps' books…</div></div>` : `<div class="card"><div class="muted small">Pull down to read the board.</div></div>`}`}
@@ -168,6 +189,7 @@ export function renderManageHome(view) {
     `;
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="team"]', () => navigate("/team"));
+    on('[data-act="feed-all"]', () => { feedAll = !feedAll; draw(); });
     on('[data-act="insights"]', () => navigate("/insights"));
     on('[data-act="appointments"]', () => navigate("/appointments"));
     on('[data-act="welcome"]', () => import("./welcome.js").then((m) => m.openWelcomeSheet(team)));
@@ -182,6 +204,9 @@ export function renderManageHome(view) {
       catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
     }));
     el.querySelectorAll("[data-cust]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(n.dataset.rep, n.dataset.cust)));
+    // A feed row opens the customer it's about (its own attributes, so the
+    // rep-sheet handler below doesn't open on top of it).
+    el.querySelectorAll("[data-fcust]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(n.dataset.frep, n.dataset.fcust)));
     el.querySelectorAll("[data-hand]").forEach((b) => b.addEventListener("click", async () => {
       const ranked = book ? rankBook(book.rows, rankOpts()) : null;
       const r = ranked && ranked.rows.find((x) => x.lead.id === b.dataset.hand && x.rep.user_id === b.dataset.hrep);
@@ -195,7 +220,7 @@ export function renderManageHome(view) {
       } catch (e) { toast(e.message || "Couldn't send", "danger"); b.disabled = false; }
     }));
     on('[data-act="invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied — send it to the rep", "success"); } catch { navigate("/team"); } });
-    el.querySelectorAll("[data-rep]").forEach((n) => n.addEventListener("click", () => {
+    el.querySelectorAll(".mg-rep[data-rep]").forEach((n) => n.addEventListener("click", () => {
       const r = stats && stats.find((x) => x.member.user_id === n.dataset.rep);
       const m = (team.members || []).find((x) => x.user_id === n.dataset.rep);
       if (!r || r.error || !r.touches) { toast("Pull down to read the board first", "warn"); return; }
@@ -223,6 +248,13 @@ export function renderManageHome(view) {
   draw();
   refresh(false);
   onPull(() => refresh(true));
+  // Back in the app: read the board again if it's more than a couple of
+  // minutes old, so what the reps did in the meantime is on it.
+  const back = () => {
+    if (!el.isConnected) { document.removeEventListener("visibilitychange", back); return; }
+    if (document.visibilityState === "visible") refresh(false);
+  };
+  document.addEventListener("visibilitychange", back);
 }
 
 // The manager's "+": the things a manager does from anywhere, one sheet.

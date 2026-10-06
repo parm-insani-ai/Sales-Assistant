@@ -9,7 +9,10 @@
 // manager runs the day on.
 
 import * as backend from "./backend.js";
+import * as store from "./store.js";
 import { repInsight, storeInsight } from "./insight.js";
+import { targetSheet, targetPlan, shoppingOf } from "./target.js";
+import { loggedInMonth, loggedAtOf } from "./logbook.js";
 
 const KEY = "viniva:store";
 
@@ -19,6 +22,10 @@ export function cachedStore() {
 }
 function remember(s) {
   try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* fine */ }
+  // In a store, the manager's board is built from this phone's synced
+  // records: a rep who switched syncing off would sit on the board with
+  // last week's numbers. While they're in a store it stays on.
+  if (s) { try { if (!store.getSettings().cloudAutoSync) store.updateSettings({ cloudAutoSync: true }); } catch { /* fine */ } }
 }
 
 // The store, and whether the signed-in user is an admin (kept beside it so
@@ -103,7 +110,8 @@ export function cachedBoard() {
 }
 export async function loadBoard(team, { force = false } = {}) {
   const have = cachedBoard();
-  if (have && !force && have.storeId === team.id && Date.now() - new Date(have.at) < 10 * 60000) return have;
+  // Two minutes: the board is the floor as it is, and reps sync as they go.
+  if (have && !force && have.storeId === team.id && Date.now() - new Date(have.at) < 2 * 60000) return have;
   const stats = await boardStats(team.members || [], { storeId: team.id });
   const board = { at: new Date().toISOString(), storeId: team.id, stats };
   try { sessionStorage.setItem(BOARD_KEY, JSON.stringify(board)); } catch { /* fine */ }
@@ -121,6 +129,11 @@ export function storeTotals(stats) {
     touchesToday: sum((r) => r.touches.today), touchesMonth: sum((r) => r.touches.month),
     untouched: sum((r) => r.leads.untouched.length), overdue: sum((r) => r.leads.overdue.length), open: sum((r) => r.leads.open),
     apptsToday: ok.flatMap((r) => r.appts.today.map((a) => ({ ...a, rep: r.member }))).sort((a, b) => String(a.when).localeCompare(String(b.when))),
+    // Customers logged (the target sheet's "spoken with") and what came of it.
+    loggedToday: sum((r) => r.loggedToday || 0), loggedMonth: sum((r) => (r.sheet ? r.sheet.spoke : 0)),
+    closing: (() => { const sp = sum((r) => (r.sheet ? r.sheet.spoke : 0)), so = sum((r) => (r.sheet ? r.sheet.sold : 0)); return sp ? Math.round((so / sp) * 100) : null; })(),
+    // Everything the floor did today, newest first.
+    feed: ok.flatMap((r) => (r.events || []).map((e) => ({ ...e, rep: r.member }))).sort((a, b) => String(b.at).localeCompare(String(a.at))),
     // The store's appointment picture, from everyone's rows together.
     insight: storeInsight(ok.map((r) => r.raw).filter(Boolean)),
   };
@@ -160,6 +173,16 @@ export async function nudgeRep(userId, { title, body, url = "./#/", tag = "" }) 
   return j.sent;
 }
 
+// How current a rep's numbers are: when their phone last wrote to the
+// cloud. Stale past a day — their phone has been off, or isn't syncing.
+export function syncedAgo(iso, now = Date.now()) {
+  const t = new Date(iso || "").getTime();
+  if (!iso || isNaN(t)) return { text: "never synced", stale: true };
+  const m = Math.max(0, Math.round((now - t) / 60000));
+  const text = m < 2 ? "synced just now" : m < 60 ? `synced ${m} min ago` : m < 1440 ? `synced ${Math.round(m / 60)} h ago` : `synced ${Math.round(m / 1440)} d ago`;
+  return { text, stale: m >= 1440 };
+}
+
 export function memberName(m) {
   return (m && (m.name || (m.email || "").split("@")[0])) || "Rep";
 }
@@ -170,6 +193,10 @@ const DAY = 86400000;
 const pad = (n) => String(n).padStart(2, "0");
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const num = (v) => (v == null || v === "" || !isFinite(Number(v)) ? 0 : Number(v));
+// The local day of a stored value: a plain date or wall-clock time as
+// written ("2026-10-06", "2026-10-06T15:30"), a full timestamp in this
+// phone's time.
+const dayKey = (v) => { const x = String(v || ""); if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(x)) return x.slice(0, 10); const d = new Date(x); return isNaN(d) ? "" : ymd(d); };
 const OPEN = ["new", "working", "appointment", "negotiating"];
 
 /**
@@ -186,7 +213,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -194,6 +221,10 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     backend.readRecords(userId, "leads", { "data->>stage": `in.(${OPEN.join(",")})` }, { select: "id,data" }),
     backend.readRecords(userId, "leads", { "data->>createdAt": `gte.${since(90)}` }, { select: "id,data" }),
     backend.readRecords(userId, "config", {}, { select: "data", limit: 2 }),
+    // Customers logged this month, however long they've been on file: an
+    // owner moved over from Outreach today was added years ago.
+    backend.readRecords(userId, "leads", { "data->>loggedAt": `gte.${monthStart}` }, { select: "id,data" }),
+    backend.lastWrite(userId).catch(() => null),
   ]);
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
@@ -222,7 +253,8 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
 
   const cfg = (config[0] && config[0].data) || {};
   // The store's target for the rep wins over the rep's own setting.
-  const goalUnits = target && num(target.goal_units) ? num(target.goal_units) : num(cfg.goalUnits);
+  // Without either, the rep's own target sheet (new + used) is the goal.
+  const goalUnits = target && num(target.goal_units) ? num(target.goal_units) : num(cfg.goalUnits) || targetPlan(cfg).target;
   const goalAppts = target && num(target.goal_appts) ? num(target.goal_appts) : num(cfg.goalAppointments);
   const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const goal = { units: goalUnits, appts: goalAppts, touchesDay: num(cfg.dailyTouchGoal), pace: goalUnits ? Math.round((goalUnits * now.getDate()) / daysIn * 10) / 10 : 0, fromStore: !!(target && (num(target.goal_units) || num(target.goal_appts))) };
@@ -235,7 +267,29 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   const slimLeads = rows(recentLeads).map((l) => ({ id: l.id, name: l.name || "", source: l.source || "", vehicleInterest: l.vehicleInterest || "", createdAt: l.createdAt || "", firstContacted: l.firstContacted || "", lastContacted: l.lastContacted || "", stage: l.stage || "" }));
   const raw = { appts: allAppts, leads: slimLeads, touches: touches.month, touchesByDay, goalUnits, sold: saleStats.units };
   const insight = repInsight({ ...raw, now });
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, at: now.toISOString() };
+
+  // The rep's own sales-target sheet, worked from their settings and book
+  // exactly as their Home works it — with the store's target, when there is
+  // one, as the unit goal.
+  const byId = new Map();
+  [...rows(recentLeads), ...open, ...rows(loggedLeads)].forEach((l) => { if (l && l.id) byId.set(l.id, l); });
+  const book = [...byId.values()];
+  const settings = { ...cfg, ...(goal.fromStore && goalUnits ? { goalUnits } : {}) };
+  const sheet = targetSheet({ settings, leads: book, sales: s, appointments: allAppts, now });
+  // Who they logged this month, newest first.
+  const mKey = monthStart.slice(0, 7);
+  const logged = loggedInMonth(mKey, book).map((l) => ({ id: l.id, name: l.name || "", vehicleInterest: l.vehicleInterest || "", stage: l.stage || "", shopping: shoppingOf(l), source: l.source || "", loggedAt: loggedAtOf(l) }));
+  const loggedToday = logged.filter((l) => dayKey(l.loggedAt) === today).length;
+
+  // What they did today, as it happened: customers logged, appointments
+  // set, cars sold. The manager's feed is everyone's of these, newest first.
+  const events = [
+    ...logged.filter((l) => dayKey(l.loggedAt) === today).map((l) => ({ kind: "logged", at: l.loggedAt, leadId: l.id, name: l.name, detail: [l.vehicleInterest, l.shopping].filter(Boolean).join(" · ") })),
+    ...allAppts.filter((a) => a.status !== "canceled" && a.createdAt && dayKey(a.createdAt) === today).map((a) => ({ kind: "appt", at: a.createdAt, leadId: a.leadId, name: a.customerName, when: a.when, detail: a.type || "" })),
+    ...s.filter((x) => dayKey(x.saleDate || x.createdAt) === today).map((x) => ({ kind: "sold", at: x.createdAt || x.saleDate, leadId: x.leadId || "", name: x.customerName || "", detail: x.vehicle || "" })),
+  ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, at: now.toISOString() };
 }
 
 // Every member's numbers, in parallel, in the order given.

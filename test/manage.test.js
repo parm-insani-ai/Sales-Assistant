@@ -133,7 +133,7 @@ await mgr.waitForFunction(() => location.hash === "#/", null, { timeout: 5000 })
 // Tap a rep: their day, then a customer, read-only.
 await mgr.click('.team-row[data-rep="' + U2 + '"]');
 await mgr.waitForSelector(".modal [data-lead]");
-const sheet = await mgr.evaluate(() => ({ title: document.querySelector(".modal h2")?.textContent.trim(), leads: [...document.querySelectorAll(".modal [data-lead] .row-title")].map((n) => n.textContent.trim()) }));
+const sheet = await mgr.evaluate(() => ({ title: document.querySelector(".modal h2")?.textContent.trim(), leads: [...document.querySelectorAll(".modal .rep-untouched [data-lead] .row-title, .modal .rep-overdue [data-lead] .row-title")].map((n) => n.textContent.trim()) }));
 if (sheet.title !== "Dana" || sheet.leads.join() !== "Quiet Lead,Late One") fail("the rep sheet from Home is wrong: " + JSON.stringify(sheet));
 await mgr.keyboard.press("Escape");
 

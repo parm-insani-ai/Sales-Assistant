@@ -211,6 +211,14 @@ export async function readRecords(userId, collection, filters = {}, { select = "
   return (await rest(`records?${q.toString()}`)) || [];
 }
 
+// When a person's records last reached the cloud: the newest row they wrote,
+// in any collection. For a rep, how current their numbers on the board are.
+export async function lastWrite(userId) {
+  const q = new URLSearchParams({ select: "updated_at", user_id: `eq.${userId}`, order: "updated_at.desc", limit: "1" });
+  const rows = (await rest(`records?${q.toString()}`)) || [];
+  return rows[0] ? rows[0].updated_at : null;
+}
+
 // Upsert a batch of records. Each row: { id, collection, data, updated_at, deleted }.
 // user_id is filled server-side from the auth token (never trust the client).
 export async function pushRecords(rows) {

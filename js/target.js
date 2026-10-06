@@ -85,20 +85,25 @@ export function markSpokenWith(leadId, via = "in person") {
 
 // The sheet, filled in from the book for the month `now` is in.
 export function salesTarget(now = new Date()) {
-  const s = store.getSettings();
-  const plan = targetPlan(s);
+  return targetSheet({ settings: store.getSettings(), leads: store.all("leads"), sales: store.all("sales"), appointments: store.all("appointments"), now });
+}
+
+// The same sheet from any rep's records — the manager's board reads it from
+// the rep's synced settings, customers, sales and appointments, so both of
+// them see one set of numbers.
+export function targetSheet({ settings = {}, leads = [], sales: allSales = [], appointments = [], now = new Date() } = {}) {
+  const plan = targetPlan(settings);
   const mKey = monthKeyOf(now);
-  const leads = store.all("leads");
   const byId = new Map(leads.map((l) => [l.id, l]));
   const events = logEvents(mKey, leads);
   const spoken = new Set(events.map((e) => e.leadId));
   let spokeNew = 0, spokeUsed = 0;
   spoken.forEach((id) => { const c = shoppingOf(byId.get(id)); if (c === "New") spokeNew++; else if (c === "Used") spokeUsed++; });
-  const sales = store.all("sales").filter((x) => mk(x.saleDate || x.createdAt) === mKey);
+  const sales = allSales.filter((x) => mk(x.saleDate || x.createdAt) === mKey);
   const soldNew = sales.filter((x) => x.newUsed === "New").length;
   const soldUsed = sales.filter((x) => x.newUsed === "Used").length;
   const sold = sales.length;
-  const appts = store.all("appointments").filter((a) => a.status !== "canceled" && mk(a.when) === mKey).length;
+  const appts = appointments.filter((a) => a.status !== "canceled" && mk(a.when) === mKey).length;
 
   // The month in weeks, the sheet's way: the required conversations spread
   // over the month's weeks (five in most months), and where this week

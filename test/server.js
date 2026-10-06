@@ -323,8 +323,9 @@ const server = http.createServer((req, res) => {
         if (k === "id") rows = rows.filter((r) => cmp(r.id, v));
         if (k.startsWith("data->>")) { const field = k.slice(7); rows = rows.filter((r) => cmp((r.data || {})[field], v)); }
       }
-      const lim = Number(url.searchParams.get("limit") || 0); if (lim > 0) rows = rows.slice(0, lim);
       rows.sort((a, b) => a.updated_at.localeCompare(b.updated_at) || a.id.localeCompare(b.id));
+      if (url.searchParams.get("order") === "updated_at.desc") rows.reverse();
+      const lim = Number(url.searchParams.get("limit") || 0); if (lim > 0) rows = rows.slice(0, lim);
       const total = rows.length;
       // Range pagination, and Prefer: count=exact → Content-Range with the total.
       let from = 0, to = rows.length - 1;

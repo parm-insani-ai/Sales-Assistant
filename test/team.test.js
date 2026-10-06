@@ -130,7 +130,7 @@ await mgr.click('[data-rep="' + U1 + '"]');
 await mgr.waitForSelector(".modal [data-lead]");
 const repSheet = await mgr.evaluate(() => ({
   title: document.querySelector(".modal h2")?.textContent.trim(),
-  untouched: [...document.querySelectorAll(".modal [data-lead]")].map((n) => n.querySelector(".row-title").textContent.trim()),
+  untouched: [...document.querySelectorAll(".modal .rep-untouched [data-lead], .modal .rep-overdue [data-lead]")].map((n) => n.querySelector(".row-title").textContent.trim()),
   today: document.querySelector(".modal")?.textContent.includes("Today's appointments"),
 }));
 console.log("rep sheet:", JSON.stringify(repSheet));

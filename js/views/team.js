@@ -16,7 +16,7 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo } from "../team.js";
 import { runningVersion, getVersion } from "../updater.js";
 import { onPull } from "../pulltorefresh.js";
 
@@ -373,16 +373,58 @@ export function openRepSheet(r, m) {
         <div class="stat"><div class="stat-value" style="color:var(--brand)">${r.appts.set}</div><div class="stat-label">Set · ${r.appts.shown} shown · ${r.appts.sold} sold</div></div>
         <div class="stat"><div class="stat-value">${r.touches.today}</div><div class="stat-label">Touches today · ${r.touches.month} MTD${r.goal.touchesDay ? " · goal " + r.goal.touchesDay + "/day" : ""}</div></div>
       </div>
+      ${(() => { const sy = syncedAgo(r.lastWrite); return `<div class="small rep-synced" style="margin:-4px 2px 12px;${sy.stale ? "color:var(--warning)" : "color:var(--muted)"}">Their phone ${esc(sy.text)}${sy.stale ? " — these numbers may be behind. Ask them to open the app." : "."}</div>`; })()}
+      ${repTargetCard(r)}
       ${r.appts.today.length ? `<div class="section-title">Today's appointments</div><div class="card">${r.appts.today.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(String(a.when).slice(11, 16))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("")}</div>` : ""}
+      ${(() => {
+        // The next two weeks of their calendar, after today.
+        const now = Date.now(), until = now + 14 * 86400000, todayK = new Date().toISOString().slice(0, 10);
+        const next = (r.raw ? r.raw.appts : []).filter((a) => a.status !== "canceled" && String(a.when).slice(0, 10) > todayK && new Date(a.when).getTime() <= until).sort((a, b) => String(a.when).localeCompare(String(b.when)));
+        return `<div class="section-title">Coming up <span class="muted" style="font-weight:500;font-size:0.78rem">· ${next.length ? `${next.length} in the next two weeks` : "nothing in the next two weeks"}</span></div>
+        <div class="card rep-upcoming">${next.length ? next.slice(0, 12).map((a) => `<div class="row" style="padding:6px 0" ${a.leadId ? `data-lead="${esc(a.leadId)}"` : ""}><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")}</div><div class="row-sub">${esc(formatDateTime(a.when))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("") : `<div class="muted small">No appointments booked after today.</div>`}</div>`;
+      })()}
+      <div class="section-title">Logged this month <span class="muted" style="font-weight:500;font-size:0.78rem">· ${(r.logged || []).length}${r.loggedToday ? ` · ${r.loggedToday} today` : ""}</span></div>
+      <div class="card rep-logged">${(r.logged || []).length ? r.logged.slice(0, 40).map((l) => leadRow(l, [l.vehicleInterest || "No vehicle noted", l.shopping, `logged ${loggedWhen(l.loggedAt)}`].filter(Boolean).join(" · "))).join("") + (r.logged.length > 40 ? `<div class="hint">and ${r.logged.length - 40} more.</div>` : "") : `<div class="muted small">Nobody logged yet this month.</div>`}</div>
       <div class="section-title">Untouched new leads <span class="muted" style="font-weight:500;font-size:0.78rem">· ${r.leads.untouched.length} older than a day</span></div>
-      <div class="card">${r.leads.untouched.length ? r.leads.untouched.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · added ${formatDate(l.createdAt)}`)).join("") : `<div class="muted small">None — every new lead has been touched.</div>`}</div>
+      <div class="card rep-untouched">${r.leads.untouched.length ? r.leads.untouched.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · added ${formatDate(l.createdAt)}`)).join("") : `<div class="muted small">None — every new lead has been touched.</div>`}</div>
       <div class="section-title">Overdue follow-ups <span class="muted" style="font-weight:500;font-size:0.78rem">· ${r.leads.overdue.length}</span></div>
-      <div class="card">${r.leads.overdue.length ? r.leads.overdue.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · due ${relativeDay(l.followUp)}`)).join("") : `<div class="muted small">None overdue.</div>`}</div>
+      <div class="card rep-overdue">${r.leads.overdue.length ? r.leads.overdue.slice(0, 30).map((l) => leadRow(l, `${l.vehicleInterest || "No vehicle noted"} · due ${relativeDay(l.followUp)}`)).join("") : `<div class="muted small">None overdue.</div>`}</div>
       <div class="hint">${r.leads.open} open leads in all. Tap a customer to read their page.</div>
     `;
     root.querySelectorAll("[data-lead]").forEach((n) => n.addEventListener("click", () => openCustomerSheet(userId, n.dataset.lead)));
     return root;
   });
+}
+
+// When a customer was logged: the time if today, the date otherwise.
+function loggedWhen(iso) {
+  const d = new Date(iso || "");
+  if (isNaN(d)) return "";
+  const today = new Date();
+  return d.toDateString() === today.toDateString() ? "today " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : formatDate(iso);
+}
+
+// The rep's sales-target sheet as their own Home shows it: sold against
+// target, customers spoken with against what the target calls for, the
+// closing ratio, and this week's share.
+function repTargetCard(r) {
+  const t = r.sheet;
+  if (!t) return "";
+  const p = t.plan;
+  if (!p.target) return `<div class="section-title">Sales target</div><div class="card rep-target muted small">No target set for this month. Set one from Team → Targets, or they can set their own on their Home.</div>`;
+  const pct = (x) => (x == null ? "—" : Math.round(x * 100) + "%");
+  const behind = t.spoke < t.expectedByNow;
+  return `<div class="section-title">Sales target <span class="muted" style="font-weight:500;font-size:0.78rem">· ${p.target} unit${p.target === 1 ? "" : "s"}${r.goal && r.goal.fromStore ? " · set by you" : ""}</span></div>
+    <div class="rep-target">
+      <div class="stat-grid" style="margin:0">
+        <div class="stat"><div class="stat-value">${t.sold}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${p.target}</span></div><div class="stat-label">Sold · ${t.remainingUnits} to go · ${pct(t.attainment)} of target</div></div>
+        <div class="stat"><div class="stat-value" style="${behind ? "color:var(--warning)" : ""}">${t.spoke}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${p.need}</span></div><div class="stat-label">Spoken with · ${t.expectedByNow} by today · ${t.remainingTalks} to go</div></div>
+        <div class="stat"><div class="stat-value">${pct(t.closing)}</div><div class="stat-label">Closing · planned ${Math.round(p.closingNew * 100)}%</div></div>
+        <div class="stat"><div class="stat-value">${t.spokeWeek}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${t.perWeek}</span></div><div class="stat-label">Spoken with this week (week ${t.week} of ${t.weeks})</div></div>
+      </div>
+      ${p.split ? `<div class="small" style="margin:8px 2px 0">New: sold ${t.soldNew} of ${p.targetNew}, spoken with ${t.spokeNew} of ${p.needNew} · Used: sold ${t.soldUsed} of ${p.targetUsed}, spoken with ${t.spokeUsed} of ${p.needUsed}</div>` : ""}
+      <div class="small muted" style="margin:6px 2px 0">${t.appts} appointment${t.appts === 1 ? "" : "s"} this month.</div>
+    </div>`;
 }
 
 export function apptState(a) {

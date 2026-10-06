@@ -2,6 +2,9 @@
 // and data backup (export / import / reset).
 
 import * as store from "../store.js";
+import { cachedStore } from "../team.js";
+// In a store, syncing stays on: the manager's board reads what the phone syncs.
+const inStore = () => { try { return !!cachedStore(); } catch { return false; } };
 import { BACKEND_DEFAULTS } from "../config.js";
 import { openModal, buildForm, toast, confirmDialog } from "../components.js";
 import { esc } from "../utils.js";
@@ -708,7 +711,9 @@ function buildCloud(slot) {
       </div>
       <button class="btn btn-ghost btn-sm" data-c="signout">Sign out</button>
     </div>
-    <label class="switch" style="margin-bottom:12px"><input id="c-auto" type="checkbox" ${s.cloudAutoSync ? "checked" : ""}><span>Auto-sync in the background</span></label>
+    ${inStore() ? `<label class="switch" style="margin-bottom:4px"><input id="c-auto" type="checkbox" checked disabled><span>Auto-sync in the background</span></label>
+    <div class="hint" style="margin:0 0 12px">Stays on while you're in a store: your manager's board is built from what your phone syncs.</div>`
+    : `<label class="switch" style="margin-bottom:12px"><input id="c-auto" type="checkbox" ${s.cloudAutoSync ? "checked" : ""}><span>Auto-sync in the background</span></label>`}
     <div class="btn-row">
       <button class="btn btn-primary btn-block" data-c="sync">${icon("download")} Sync now</button>
       <button class="btn btn-ghost btn-block" data-c="backup">${icon("upload")} Back up all</button>
@@ -733,8 +738,10 @@ function buildCloud(slot) {
     sync.enable(); sync.init(); sync.syncNow();
     rerender();
   });
-  slot.querySelector("#c-auto").addEventListener("change", (e) =>
-    store.updateSettings({ cloudAutoSync: e.target.checked }));
+  slot.querySelector("#c-auto").addEventListener("change", (e) => {
+    if (inStore()) { e.target.checked = true; return; }
+    store.updateSettings({ cloudAutoSync: e.target.checked });
+  });
   slot.querySelector('[data-c="sync"]').addEventListener("click", () => sync.syncNow());
   slot.querySelector('[data-c="backup"]').addEventListener("click", async () => {
     try { await sync.backupNow(); toast("Backed up to cloud", "success"); }
