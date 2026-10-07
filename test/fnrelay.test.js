@@ -238,6 +238,8 @@ try {
     { id: "c3", user_id: U1, collection: "leads", data: { id: "c3", name: "Ken Boudreau", phone: "9025553333", stage: "appointment" } },
     { id: "in2", user_id: U1, collection: "texts", data: { id: "in2", leadId: "c3", dir: "in", body: "Running late", at: new Date(Date.now() - 25 * 60000).toISOString(), read: false } },
     { id: "ap1", user_id: U1, collection: "appointments", data: { id: "ap1", leadId: "c3", customerName: "Ken Boudreau", when: new Date(Date.now() + 60 * 60000).toISOString().slice(0, 16), status: "scheduled", confirmed: false } },
+    // A welcome text drafted on Parm's phone two hours ago and not sent.
+    { id: "tt1", user_id: U1, collection: "tasks", data: { id: "tt1", leadId: "c2", cadence: true, channel: "text", intent: "intro", title: "Text Fresh — Welcome text", readyAt: new Date(Date.now() - 120 * 60000).toISOString(), done: false } },
   );
   // The manager's clock: UTC, open all day, no quiet hours (the night-read
   // section above gave this row an afternoon zone).
@@ -251,7 +253,7 @@ try {
   // reach this plain mock (that path is exercised by the reps' sweep in
   // production every ten minutes).
   const kinds = (mg.sent || []).map((k) => k.split(":")[1]).sort().join(",");
-  if (mg.candidates !== 3 || kinds !== "confirm,lead,reply") { fail("the manager wasn't sent the three things on the floor: " + JSON.stringify(mg)); console.log("function log:\n" + procs[0].getLog().slice(-1500)); }
+  if (mg.candidates !== 4 || kinds !== "confirm,lead,reply,texts") { fail("the manager wasn't sent the three things on the floor: " + JSON.stringify(mg)); console.log("function log:\n" + procs[0].getLog().slice(-1500)); }
   const again = await post(LOCKED, { sweep: 1 });
   const mg2 = (again.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
   if ((mg2.sent || []).length !== 0) fail("the same three were sent again on the next sweep: " + JSON.stringify(mg2));

@@ -238,7 +238,8 @@ Every request is also capped in size and in output, whatever the app sends.
 The same ten-minute sweep (`viniva-sweep` in `cron.sql`) also pushes each
 manager with notifications on about what's costing business on the floor:
 a customer waiting more than fifteen minutes on a reply, a new lead nobody
-has touched for thirty, an appointment two hours out that isn't confirmed.
+has touched for thirty, an appointment two hours out that isn't confirmed,
+a rep sitting on written texts for an hour.
 Each once, inside the manager's business hours, tapping through to the
 Floor. Nothing to set up beyond notifications on the manager's phone.
 

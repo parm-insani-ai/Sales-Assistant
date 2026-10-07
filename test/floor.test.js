@@ -46,6 +46,10 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
   { id: "x2", collection: "texts", data: { id: "x2", leadId: "l1", dir: "in", body: "Great, can I see it Saturday?", at: iso(ago(40)), read: false } },
   { id: "ap1", collection: "appointments", data: { id: "ap1", leadId: "l2", customerName: "Ken Boudreau", type: "test drive", when: local(in3h), status: "scheduled", confirmed: false, createdAt: iso(ago(300)) } },
   { id: "ap2", collection: "appointments", data: { id: "ap2", leadId: "l3", customerName: "Nick Noshow", type: "appointment", when: local(yday), status: "scheduled", outcome: "no_show", createdAt: iso(ago(3000)) } },
+  // Two texts drafted on Parm's phone and not sent: Wes's welcome (ready 90 min ago) and a follow-up to Dana.
+  { id: "tt1", collection: "tasks", data: { id: "tt1", leadId: "l5", cadence: true, channel: "text", intent: "intro", step: 1, of: 13, title: "Text Wes — Welcome text", due: today, readyAt: iso(ago(90)), done: false } },
+  { id: "tt2", collection: "tasks", data: { id: "tt2", leadId: "l1", cadence: true, channel: "text", intent: "value", step: 3, of: 13, title: "Text Dana — Value text", due: today, readyAt: iso(ago(30)), done: false } },
+  { id: "tt3", collection: "tasks", data: { id: "tt3", leadId: "l1", cadence: true, channel: "call", step: 4, of: 13, title: "Call Dana — Check-in", due: today, readyAt: iso(ago(20)), done: false } },
   { id: "agentplays:" + today, collection: "agentplays", data: { id: "agentplays:" + today, date: today, summary: "Two to move today.", plays: [
     { customer: "Dana Muise", leadId: "l1", action: "text", title: "Answer Dana about Saturday", why: "She asked to come in." },
     { customer: "Ken Boudreau", leadId: "l2", action: "confirm", title: "Confirm Ken's test drive", why: "Not confirmed yet." },
@@ -62,6 +66,7 @@ const read = () => mgr.evaluate(() => {
   return {
     titles: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim().split(" ·")[0]),
     waitingTitle: title("Waiting on a reply"), waiting: txt(".mg-waiting"),
+    dueTitle: title("Texts waiting to go"), due: txt(".mg-due"),
     riskTitle: title("Appointments at risk"), risk: [...document.querySelectorAll(".mg-risk-row")].map((r) => r.dataset.kind + ": " + r.textContent.replace(/\s+/g, " ").trim()),
     riskDraft: document.querySelector('.mg-risk-row[data-kind="unconfirmed"] [data-mtext]')?.dataset.draft,
     svcTitle: title("In the service drive"), svc: txt(".mg-service"),
@@ -71,7 +76,7 @@ const read = () => mgr.evaluate(() => {
 });
 let f = await read();
 console.log("floor:", JSON.stringify(f, null, 1));
-const order = ["Waiting on a reply", "Appointments at risk", "Today on the floor", "In the service drive", "Today's plays", "Welcomed today", "Fresh leads waiting", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"];
+const order = ["Waiting on a reply", "Texts waiting to go", "Appointments at risk", "Today on the floor", "In the service drive", "Today's plays", "Welcomed today", "Fresh leads waiting", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"];
 const at = order.map((s) => f.titles.indexOf(s));
 if (at.some((i, k) => i < 0 || (k && i < at[k - 1]))) fail("the Floor's cards aren't in order: " + f.titles.join(" | "));
 if (!/1 · longest first/.test(f.waitingTitle) || !/Dana Muise 40 min.*Parm · texted: “Great, can I see it Saturday\?”.*Reply/.test(f.waiting)) fail("Dana isn't shown waiting on a reply: " + f.waiting);
@@ -83,11 +88,18 @@ if (!/1 today and tomorrow/.test(f.svcTitle) || !/Sue Service.*today 10:30.*2021
 if (!/0 of 2 reached/.test(f.playsTitle) || !/Parm 0 of 2 reached.*Two to move today\..*Dana Muise: Answer Dana about Saturday.*Ken Boudreau: Confirm Ken's test drive/.test(f.plays)) fail("Parm's plays aren't shown: " + f.plays);
 if (!/1 logged · 0 welcomed/.test(f.welcomeTitle) || !/Wes Walkin.*Parm · Sentra · no text yet.*Welcome now/.test(f.welcome)) fail("Wes isn't waiting for a welcome: " + f.welcome);
 
+if (!/2 drafted, not sent/.test(f.dueTitle) || !/Parm 2 texts ready.*oldest waiting 2 h · Wes \(welcome\), Dana.*Nudge/.test(f.due)) fail("the texts Parm hasn't sent aren't on the Floor: " + f.due);
+await mgr.click(".mg-due [data-dnudge]");
+await mgr.waitForFunction(async () => (await (await fetch("/__nudges")).json()).length > 0, null, { timeout: 8000 });
+const dueNudge = (await (await fetch(APP + "/__nudges")).json())[0];
+if (!/2 texts are ready to send/.test(dueNudge.title) || !/2 h/.test(dueNudge.body)) fail("the nudge about unsent texts is wrong: " + JSON.stringify(dueNudge));
+await fetch(APP + "/__reset_nudges").catch(() => null);
+
 // --- Nudge the rep about Dana: a push with the wait on it.
 await mgr.click(".mg-wait [data-wnudge]");
-await mgr.waitForFunction(async () => (await (await fetch("/__nudges")).json()).length > 0, null, { timeout: 8000 });
-const nudges = await (await fetch(APP + "/__nudges")).json();
-if (!/Dana Muise is waiting on you/.test(nudges[0].title) || !/40 min/.test(nudges[0].body) || nudges[0].url !== "./#/inbox/l1") fail("the waiting nudge is wrong: " + JSON.stringify(nudges[0]));
+await mgr.waitForFunction(async () => (await (await fetch("/__nudges")).json()).some((n) => /Dana Muise is waiting/.test(n.title)), null, { timeout: 8000 });
+const nudges = (await (await fetch(APP + "/__nudges")).json()).filter((n) => /Dana Muise is waiting/.test(n.title));
+if (!nudges[0] || !/Dana Muise is waiting on you/.test(nudges[0].title) || !/40 min/.test(nudges[0].body) || nudges[0].url !== "./#/inbox/l1") fail("the waiting nudge is wrong: " + JSON.stringify(nudges[0]));
 
 // --- Reply as the manager: no figures, then sent, filed, and Dana no longer waiting.
 await mgr.click(".mg-wait [data-mreply]");

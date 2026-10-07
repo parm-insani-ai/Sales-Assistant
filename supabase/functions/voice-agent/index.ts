@@ -1306,7 +1306,7 @@ async function handleSweep(body: any): Promise<Response> {
 // touched, an appointment two hours out that isn't confirmed — pushed to
 // each manager with notifications on, each once, a few per sweep, in their
 // business hours. Tapping one opens the Floor.
-const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 30, MGR_CONFIRM_MIN = 120, MGR_CAP = 3;
+const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 30, MGR_CONFIRM_MIN = 120, MGR_CAP = 4, MGR_TEXTS_MIN = 60;
 async function managerPass(now: number, pushUsers: string[], report: any[]): Promise<void> {
   const stores = await fetch(sbUrl(`/stores?select=id,name`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
   const canPush = new Set(pushUsers);
@@ -1334,6 +1334,13 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
         if (waited < MGR_REPLY_MIN || waited > 24 * 60) continue;
         const lead = leadById(k);
         found.push({ key: `mgr:reply:${t.id}`, urgency: Math.min(100, 70 + Math.floor(waited / 10)), title: `${(lead?.name || t.phone || "A customer")} is waiting on ${nameOf(m)}`, body: `Replied ${waited < 60 ? `${waited} min` : `${Math.round(waited / 60)}h`} ago — ${String(t.body || "").slice(0, 70)}`, reply: lead && lead.phone && !lead.smsOptOut && !lead.doNotContact ? { rep: uid, repName: nameOf(m), lead, text: t, waited } : undefined });
+      }
+      // Texts drafted on the rep's phone and not sent for an hour: the
+      // welcome, a follow-up due. Once a day per rep.
+      const ready = (await rows(uid, "tasks", "&data->>cadence=eq.true&data->>channel=eq.text")).filter((t: any) => !t.done && t.readyAt && new Date(t.readyAt).getTime() <= now - MGR_TEXTS_MIN * 60000 && now - new Date(t.readyAt).getTime() < 24 * 3600000);
+      if (ready.length) {
+        const oldest = Math.round((now - Math.min(...ready.map((t: any) => new Date(t.readyAt).getTime()))) / 60000);
+        found.push({ key: `mgr:texts:${uid}:${new Date(now).toISOString().slice(0, 10)}`, urgency: Math.min(90, 60 + Math.floor(oldest / 30)), title: `${nameOf(m)} has ${ready.length} text${ready.length === 1 ? "" : "s"} written and not sent`, body: `The oldest has waited ${oldest < 60 ? `${oldest} min` : `${Math.round(oldest / 60)}h`} — a nudge gets them out.` });
       }
       for (const l of leads) {
         if (l.stage !== "new" || l.firstContacted || l.lastContacted || !l.createdAt) continue;

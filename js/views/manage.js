@@ -203,6 +203,7 @@ export function renderFloor(view, { param } = {}) {
       ).filter((x, i, arr) => arr.findIndex((y) => y.l.id === x.l.id && y.r.member.user_id === x.r.member.user_id) === i)
        .sort((a, b) => String(a.l.createdAt).localeCompare(String(b.l.createdAt))).slice(0, 12);
       const first = (n) => String(n || "there").split(" ")[0];
+      const firstName = (n) => String(n || "").trim().split(/\s+/)[0];
       const waitedFor = (iso) => { const m = Math.max(0, Math.round((now - new Date(iso)) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
       const whenWords = (w) => { const d = String(w).slice(0, 10), hm = String(w).slice(11, 16); return `${d === today ? "today" : d === tmrw ? "tomorrow" : esc(formatDateTime(w).split(",")[0])} ${esc(hm)}`; };
       const tmrw = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
@@ -210,6 +211,13 @@ export function renderFloor(view, { param } = {}) {
       const unanswered = t.waiting || [];
       const waitingCard = `<div class="section-title" style="margin-top:0">Waiting on a reply <span class="muted" style="font-weight:500;font-size:0.78rem">· ${unanswered.length ? `${unanswered.length} · longest first` : "nobody"}</span></div>
         <div class="card mg-waiting">${unanswered.length ? unanswered.slice(0, 10).map((w) => `<div class="row mg-wait" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${w.leadId ? `data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(w.name || "A customer")} <span class="small" style="color:var(--danger);font-weight:600">${waitedFor(w.at)}</span></div><div class="row-sub">${esc(memberName(w.rep))} · ${w.channel === "email" ? "emailed" : "texted"}: “${esc(w.preview)}”</div></div><button class="btn btn-ghost btn-sm" data-wnudge="${esc(w.rep.user_id)}" data-lead="${esc(w.leadId)}" data-name="${esc(w.name || "A customer")}" data-age="${waitedFor(w.at)}">${icon("bell")}</button>${w.channel === "text" && w.leadId ? `<button class="btn btn-primary btn-sm" data-mreply="${esc(w.leadId)}" data-rep="${esc(w.rep.user_id)}" data-name="${esc(w.name || "")}" ${heldDraft(w.leadId) ? `data-draft="${esc(heldDraft(w.leadId).body)}"` : ""}>${heldDraft(w.leadId) ? "Send draft" : "Reply"}</button>` : w.leadId ? `<button class="btn btn-primary btn-sm" data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}">Open</button>` : ""}</div>`).join("") + (unanswered.length > 10 ? `<div class="hint">and ${unanswered.length - 10} more.</div>` : "") : `<div class="muted small">Every customer who wrote has been answered. A reply inside five minutes books far better than one inside an hour.</div>`}</div>`;
+      // 1b. Texts drafted on a rep's phone and not sent — the welcome, a
+      // follow-up due — sitting on their Right now. The store's side of
+      // "waiting": the customer hasn't heard from us yet.
+      const due = t.textsDue || [];
+      const dueCount = due.reduce((a, d) => a + d.texts.length, 0);
+      const dueCard = `<div class="section-title">Texts waiting to go <span class="muted" style="font-weight:500;font-size:0.78rem">· ${dueCount ? `${dueCount} drafted, not sent` : "none"}</span></div>
+        <div class="card mg-due">${due.length ? due.map((d) => `<div class="mg-due-rep" data-rep="${esc(d.rep.user_id)}" style="padding:7px 0;border-bottom:1px solid var(--border)"><div class="row" style="align-items:center;gap:8px"><div class="row-main mg-rep" data-rep="${esc(d.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(memberName(d.rep))} <span class="small" style="color:var(--warning);font-weight:600">${d.texts.length} text${d.texts.length === 1 ? "" : "s"} ready</span></div><div class="row-sub">oldest waiting ${waitedFor(d.oldest)} · ${d.texts.slice(0, 3).map((x) => `${esc(firstName(x.name) || "a customer")}${x.intent === "intro" ? " (welcome)" : ""}`).join(", ")}${d.texts.length > 3 ? ` and ${d.texts.length - 3} more` : ""}</div></div><button class="btn btn-ghost btn-sm" data-dnudge="${esc(d.rep.user_id)}" data-n="${d.texts.length}" data-age="${waitedFor(d.oldest)}">${icon("bell")} Nudge</button></div>${d.texts.filter((x) => !x.hasPhone).length ? `<div class="small muted" style="margin-top:2px">${d.texts.filter((x) => !x.hasPhone).length} can't send — no phone number on file.</div>` : ""}</div>`).join("") : `<div class="muted small">Every text the reps' phones have drafted has gone out.</div>`}</div>`;
       // 2. Appointments at risk: unconfirmed inside 24 hours, and no-shows nobody has rebooked.
       const risk = t.atRisk || [], noShows = t.noShows || [];
       const riskCard = `<div class="section-title">Appointments at risk <span class="muted" style="font-weight:500;font-size:0.78rem">· ${risk.length || noShows.length ? [risk.length ? `${risk.length} unconfirmed` : "", noShows.length ? `${noShows.length} to rebook` : ""].filter(Boolean).join(" · ") : "none"}</span></div>
@@ -232,6 +240,7 @@ export function renderFloor(view, { param } = {}) {
       ${errLine(error)}
       ${asOf(c)}
       ${waitingCard}
+      ${dueCard}
       ${riskCard}
       ${feedCard(t)}
       ${svcCard}
@@ -264,6 +273,12 @@ export function renderFloor(view, { param } = {}) {
         try { await nudgeRep(b.dataset.wnudge || b.dataset.anudge, payload); toast("Nudged", "success"); }
         catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
       };
+      el.querySelectorAll("[data-dnudge]").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        const n = Number(b.dataset.n) || 1;
+        try { await nudgeRep(b.dataset.dnudge, { title: `${n} text${n === 1 ? " is" : "s are"} ready to send`, body: `The oldest has waited ${b.dataset.age}. They're written — read each one and tap Send.`, url: "./#/", tag: "due-" + Date.now() }); toast("Nudged", "success"); }
+        catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
+      }));
       el.querySelectorAll("[data-wnudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: `${b.dataset.name} is waiting on you`, body: `They wrote ${b.dataset.age} ago — answer them now.`, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/comms", tag: "wait-" + (b.dataset.lead || Date.now()) })));
       el.querySelectorAll("[data-anudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: b.dataset.title, body: b.dataset.body, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/appts", tag: "appt-" + (b.dataset.lead || Date.now()) })));
       el.querySelectorAll("[data-mreply], [data-mtext]").forEach((b) => b.addEventListener("click", () => openManagerTextSheet({ rep: b.dataset.rep, leadId: b.dataset.mreply || b.dataset.mtext, name: b.dataset.name, draft: b.dataset.draft || "", onSent: () => refresh(true) })));
@@ -352,7 +367,7 @@ export function renderReps(view) {
             <div class="team-row mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer">
               <div class="row" style="align-items:center">
                 <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
-                  ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today</div><div class="small mg-synced" style="${syncedAgo(r.lastWrite).stale ? "color:var(--warning)" : "color:var(--muted)"}">${esc(syncedAgo(r.lastWrite).text)}</div>`}</div>
+                  ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today${r.textsDue && r.textsDue.length ? ` · <span style="color:var(--warning)">${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send</span>` : ""}</div><div class="small mg-synced" style="${syncedAgo(r.lastWrite).stale ? "color:var(--warning)" : "color:var(--muted)"}">${esc(syncedAgo(r.lastWrite).text)}</div>`}</div>
                 ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r.sales.units, r.goal.units, r.goal.pace)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.insight && r.insight.needs.goal ? (r.insight.needs.onTrack ? "on track" : `needs ${r.insight.needs.apptsNeeded} · ${r.insight.needs.perDay}/day`) : "no goal set"}</div></div>` : ""}
               </div>
               ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span>${r.sheet ? `<span><b>${r.sheet.spoke}</b> logged this month</span>` : ""}</div>` : ""}

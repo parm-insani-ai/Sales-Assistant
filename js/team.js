@@ -140,6 +140,8 @@ export function storeTotals(stats) {
     // at risk, soonest first; no-shows to rebook; each rep's plays; who
     // was logged today and not yet welcomed.
     waiting: ok.flatMap((r) => (r.waiting || []).map((w) => ({ ...w, rep: r.member }))).sort((a, b) => a.at.localeCompare(b.at)),
+    // Texts drafted and not sent, by rep, the rep with the oldest first.
+    textsDue: ok.filter((r) => r.textsDue && r.textsDue.length).map((r) => ({ rep: r.member, texts: r.textsDue, oldest: r.textsDue[0].readyAt })).sort((a, b) => a.oldest.localeCompare(b.oldest)),
     atRisk: ok.flatMap((r) => (r.atRisk || []).map((a) => ({ ...a, rep: r.member }))).sort((a, b) => a.when.localeCompare(b.when)),
     noShows: ok.flatMap((r) => (r.noShows || []).map((a) => ({ ...a, rep: r.member }))).sort((a, b) => b.when.localeCompare(a.when)),
     playsByRep: ok.filter((r) => r.plays).map((r) => ({ rep: r.member, ...r.plays })),
@@ -321,6 +323,14 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
 
   // --- The floor: who is waiting, who was reached, what's at risk ---
   const nameOf = (leadId, fallback = "") => { const l = byId.get(leadId); return (l && l.name) || fallback || ""; };
+  // Texts drafted on the rep's phone and not sent: a plan step whose
+  // moment has come (the welcome five minutes after a customer was added,
+  // a follow-up due today) sits on their Right now until they tap Send.
+  // The same rule as the rep's list, read from the same tasks.
+  const nowISO = now.toISOString();
+  const textsDue = rows(planTasks).filter((t) => t.channel === "text" && !t.done && t.readyAt && String(t.readyAt) <= nowISO && now - new Date(t.readyAt) < 24 * 3600000)
+    .map((t) => ({ id: t.id, leadId: t.leadId || "", name: nameOf(t.leadId), intent: t.intent || "", title: String(t.title || "").replace(/^Text \S+ — /, ""), readyAt: String(t.readyAt), hasPhone: !!((byId.get(t.leadId) || {}).phone) }))
+    .sort((a, b) => a.readyAt.localeCompare(b.readyAt));
   const texts = rows(textsWeek), mails = rows(emailsWeek), calls = rows(callsToday);
   // The last message with each customer, text or email. If it came from
   // them and nobody answered, they're waiting.
@@ -358,7 +368,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     pending: loggedTodayList.filter((l) => !touchedToday.has(l.id)).map((l) => ({ ...l, email: (byId.get(l.id) || {}).email || "", optOut: !!((byId.get(l.id) || {}).smsOptOut || (byId.get(l.id) || {}).doNotContact) })),
   };
 
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, at: now.toISOString() };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, at: now.toISOString() };
 }
 
 // Every member's numbers, in parallel, in the order given.
