@@ -1292,7 +1292,11 @@ async function handleSweep(body: any): Promise<Response> {
   // The managers' sweep: the floor's problems, to the managers' phones.
   const managers: any[] = [];
   try { await managerPass(now, users, managers); } catch (e) { managers.push({ error: String(e) }); }
-  return json({ users: users.length, report, managers });
+  // The store's agent: confirmations, no-shows, the morning's hand-outs,
+  // the huddle and the recap.
+  const agent: any[] = [];
+  try { await storeAgentPass(now, users, agent); } catch (e) { agent.push({ error: String(e) }); }
+  return json({ users: users.length, report, managers, agent });
 }
 
 // ---- The managers' sweep ----
@@ -1314,7 +1318,10 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
     const rows = async (uid: string, coll: string, extra = "") => fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data${extra}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
     // What's on the floor, across every member's book. Times are judged
     // per manager below, since wall-clock appointments need their zone.
-    const found: { key: string; urgency: number; title: string; body: string; whenLocal?: string }[] = [];
+    const found: { key: string; urgency: number; title: string; body: string; whenLocal?: string; url?: string; reply?: { rep: string; repName: string; lead: any; text: any; waited: number } }[] = [];
+    const cfgRow = await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(st.id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}));
+    const agentCfg = { ...AGENT_DEFAULTS, ...(cfgRow.agent || {}) };
+    const managerName = String((cfgRow.welcome && cfgRow.welcome.manager) || nameOf(managers[0]));
     for (const m of members as any[]) {
       const uid = String(m.user_id);
       const leads = await rows(uid, "leads");
@@ -1326,7 +1333,7 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
         const waited = Math.round((now - new Date(t.at || t.createdAt).getTime()) / 60000);
         if (waited < MGR_REPLY_MIN || waited > 24 * 60) continue;
         const lead = leadById(k);
-        found.push({ key: `mgr:reply:${t.id}`, urgency: Math.min(100, 70 + Math.floor(waited / 10)), title: `${(lead?.name || t.phone || "A customer")} is waiting on ${nameOf(m)}`, body: `Replied ${waited < 60 ? `${waited} min` : `${Math.round(waited / 60)}h`} ago — ${String(t.body || "").slice(0, 70)}` });
+        found.push({ key: `mgr:reply:${t.id}`, urgency: Math.min(100, 70 + Math.floor(waited / 10)), title: `${(lead?.name || t.phone || "A customer")} is waiting on ${nameOf(m)}`, body: `Replied ${waited < 60 ? `${waited} min` : `${Math.round(waited / 60)}h`} ago — ${String(t.body || "").slice(0, 70)}`, reply: lead && lead.phone && !lead.smsOptOut && !lead.doNotContact ? { rep: uid, repName: nameOf(m), lead, text: t, waited } : undefined });
       }
       for (const l of leads) {
         if (l.stage !== "new" || l.firstContacted || l.lastContacted || !l.createdAt) continue;
@@ -1354,11 +1361,285 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
         return isFinite(t) && mins > 0 && mins <= MGR_CONFIRM_MIN;
       }).sort((a, b) => b.urgency - a.urgency).slice(0, MGR_CAP);
       let pushed = 0;
-      for (const n of mine) { pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: "./#/floor" }); already[n.key] = new Date().toISOString(); }
+      const drafted: string[] = [];
+      for (const n of mine) {
+        // A customer waiting on a reply: draft it in the manager's voice and
+        // hold it for their tap — the push carries it, and opens the sheet.
+        if (n.reply && agentCfg.replies) {
+          const d = await draftManagerReply(st, managerName, n.reply, uid);
+          if (d) {
+            await saveRecord(uid, "agentdrafts", `reply:${n.reply.lead.id}`, { id: `reply:${n.reply.lead.id}`, rep: n.reply.rep, repName: n.reply.repName, leadId: n.reply.lead.id, name: n.reply.lead.name || "", body: d, theirs: String(n.reply.text.body || "").slice(0, 200), at: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).catch(() => null);
+            n.title = `${firstName(n.reply.lead.name)} has waited ${n.reply.waited < 60 ? `${n.reply.waited} min` : `${Math.round(n.reply.waited / 60)}h`} — send this?`;
+            n.body = d.slice(0, 160);
+            n.url = `./#/floor/reply-${n.reply.lead.id}`;
+            drafted.push(n.key);
+          }
+        }
+        pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: n.url || "./#/floor" });
+        already[n.key] = new Date().toISOString();
+      }
       if (mine.length) await rememberNudges(uid, already);
-      report.push({ store: st.name, manager: uid.slice(0, 8), candidates: found.length, sent: mine.map((n) => n.key), pushed });
+      report.push({ store: st.name, manager: uid.slice(0, 8), candidates: found.length, sent: mine.map((n) => n.key), drafted, pushed });
     }
   }
+}
+
+// A reply to a waiting customer, in the manager's voice, from the thread —
+// figures taken out of what the model reads, and refused if it writes one.
+// Costs count against the manager's day. Returns the text, or null.
+async function draftManagerReply(st: any, manager: string, r: { rep: string; repName: string; lead: any; text: any }, managerUid: string): Promise<string | null> {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) return null;
+  const budget = await budgetLeft(managerUid);
+  if (budget && !budget.ok) return null;
+  const thread = (await rowsOf(r.rep, "texts", `&data->>leadId=eq.${encodeURIComponent(r.lead.id)}`)).sort((a: any, b: any) => String(a.at || a.createdAt || "").localeCompare(String(b.at || b.createdAt || ""))).slice(-8);
+  const first = firstName(r.lead.name);
+  const lines = thread.map((t: any) => `${t.dir === "in" ? first : t.via && /manager/.test(t.via) ? manager : r.repName}: ${redactMoneyServer(String(t.body || "")).replace(/\s+/g, " ").slice(0, 300)}`);
+  const system = [
+    `You are drafting ONE text message from ${manager}, the sales manager at ${st.name || "the dealership"}, to a customer who texted ${r.repName}, one of the salespeople, and hasn't had a reply. The manager reads it and sends it word for word, so write it as them.`,
+    `The customer: ${first}${r.lead.vehicleInterest ? `, who drives or wants a ${r.lead.vehicleInterest}` : ""}. Stage: ${r.lead.stage || "unknown"}.`,
+    `THE ONE RULE THAT CANNOT BEND: never state a dollar amount, a payment, a trade value, a rate, a percentage or a discount — not an estimate, not a range. If they asked for a number, say straight that a real number needs ten minutes in person with the car, and offer to set that up.`,
+    `One to three sentences, plain and warm, answering what they actually asked, then one easy next step — a time to come in, or that ${r.repName} will call. Say you're the sales manager stepping in because ${r.repName} is with a customer, in a few words, only if it reads naturally. No exclamation marks stacked up, no "Absolutely!", no corporate hedging. Never claim a vehicle is in stock or on a program.`,
+    `Reply with the message text and nothing else.`,
+  ].join("\n");
+  try {
+    const model = Deno.env.get("MODEL") || "claude-sonnet-5-5";
+    const current = /^claude-(sonnet-5|opus-5|fable)/.test(model);
+    const headers: Record<string, string> = { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" };
+    const extra: Record<string, unknown> = {};
+    if (current) { extra.output_config = { effort: "low" }; extra.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
+    const res = await fetch(MESSAGES_URL(), { method: "POST", headers, body: JSON.stringify({ model, max_tokens: 1024, system: [{ type: "text", text: system }], messages: [{ role: "user", content: `THE CONVERSATION SO FAR (oldest first):\n${lines.join("\n")}\n\nWrite ${manager}'s reply to ${first}.` }], ...extra }) });
+    const data = await res.json();
+    if (!res.ok) return null;
+    await addSpend(managerUid, costOf(data.model || model, data.usage));
+    const out = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join(" ").trim().replace(/^["']|["']$/g, "");
+    if (!out || looksLikeMoneyServer(out)) return null;
+    return out.slice(0, 600);
+  } catch { return null; }
+}
+
+// ---- The store's agent ----
+//
+// What the manager would do every day if there were time, done by the
+// function on the ten-minute sweep, under settings the manager keeps on
+// the Admin screen (store_config.agent):
+//   confirm    at confirmHour, text every appointment for tomorrow that
+//              nobody has confirmed, from the store's number in the
+//              manager's name;
+//   noShow     the morning after a no-show, a "sorry we missed you" text
+//              and a rebook to-do on the rep's list;
+//   handout    at huddleHour, each rep gets handoutN reach-outs from their
+//              own owner book as to-dos, with the reason, plus anyone of
+//              theirs in the service drive that day;
+//   huddle     at huddleHour the manager gets the huddle, at recapHour the
+//              day's recap — a push, and the full text by email when the
+//              store has email set up;
+//   replies    (in the managers' pass) a customer waiting on a reply gets
+//              one drafted by the model in the manager's voice, held for
+//              the manager's tap.
+// Each thing once: keyed in the rep's or manager's nudgelog. Never a figure
+// in anything sent to a customer.
+const AGENT_DEFAULTS = { replies: true, confirmOn: true, confirmHour: 17, noShowOn: true, noShowHour: 9, handoutOn: true, handoutN: 3, serviceOn: true, huddleOn: true, huddleHour: 8, recapOn: true, recapHour: 18 };
+const CONFIRM_TEXT = "Hi {first}, it's {manager} at {store}. Just confirming your {type} tomorrow at {time} with {rep} — reply YES to confirm, or let me know if another time works better.";
+const NOSHOW_TEXT = "Hi {first}, it's {manager} at {store}. Sorry we missed you yesterday — {rep} would love to get you in. What day works this week?";
+const fill = (t: string, v: Record<string, string>) => String(t).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
+const firstName = (n: any) => String(n || "there").trim().split(/\s+/)[0] || "there";
+const localOf = (now: number, cfg: any) => {
+  const off = Number(cfg && cfg.tzOffsetMinutes); const tz = isFinite(off) ? off : 0;
+  const d = new Date(now - tz * 60000);
+  const day = d.toISOString().slice(0, 10);
+  const shift = (n: number) => new Date(d.getTime() + n * 86400000).toISOString().slice(0, 10);
+  const hm = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  return { tz, day, hour: d.getUTCHours(), dow: d.getUTCDay(), yesterday: shift(-1), tomorrow: shift(1), nowLocal: `${day}T${hm}`, working: inBusinessHours(d.getUTCHours(), d.getUTCDay(), cfg || {}) };
+};
+const twelveHour = (hm: string) => { const [h, m] = String(hm).split(":").map(Number); if (!isFinite(h)) return hm; const ap = h >= 12 ? "pm" : "am"; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")} ${ap}` : `${hh} ${ap}`; };
+const rowsOf = async (uid: string, coll: string, extra = "") => fetch(sbUrl(`/records?user_id=${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data${extra}`.replace("user_id=", "user_id=eq.")), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
+
+// A text from the store's number to a rep's customer, filed in the rep's
+// thread and stamped on the customer. The agent's and the manager's texts
+// all go this way.
+async function storeText(repUid: string, lead: any, body: string, via: string, by: string): Promise<{ ok: boolean; error?: string }> {
+  if (!lead || !lead.phone) return { ok: false, error: "no phone" };
+  if (lead.doNotContact || lead.smsOptOut) return { ok: false, error: "opted out" };
+  if (looksLikeMoneyServer(body)) return { ok: false, error: "figure in the text" };
+  const r = await twilioSend(String(lead.phone), body);
+  if (!r.ok) return { ok: false, error: r.error };
+  const now = new Date().toISOString();
+  const tid = "txt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  try {
+    await saveRecord(repUid, "texts", tid, { id: tid, leadId: lead.id, dir: "out", body, phone: lead.phone, at: now, read: true, sid: r.sid || "", via, by, createdAt: now, updatedAt: now });
+    await saveRecord(repUid, "leads", lead.id, { ...lead, lastContacted: now, lastContactVia: "text", updatedAt: now });
+  } catch { /* sent; the log is best-effort */ }
+  return { ok: true };
+}
+// A to-do on a rep's list, from the store.
+async function storeTask(repUid: string, t: { leadId?: string; title: string; due: string; channel?: string; kind?: string; why?: string[]; by: string; note?: string }) {
+  const now = new Date().toISOString();
+  const tid = "tsk_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  await saveRecord(repUid, "tasks", tid, { id: tid, leadId: t.leadId || null, title: t.title, due: t.due, channel: t.channel || "call", priority: "high", kind: t.kind || "", why: t.why || [], note: t.note || "", source: "manager", by: t.by, done: false, createdAt: now, updatedAt: now });
+  return tid;
+}
+
+// The reach-out read, lite: the owner book's reasons a customer is worth
+// a call, from the fields the import carries. The app's own read is richer
+// (it prices the deal); this is the morning's list.
+function reachLite(l: any, today: string): { score: number; reasons: string[] } {
+  const reasons: string[] = []; let score = 0;
+  if (!l || !(l.phone || l.email) || l.doNotContact) return { score: 0, reasons };
+  if (["new", "working", "appointment", "negotiating"].includes(String(l.stage || ""))) return { score: 0, reasons }; // in play already
+  const days = (iso: any) => { const t = new Date(String(iso || "")).getTime(); return isFinite(t) ? Math.round((new Date(today + "T12:00:00Z").getTime() - t) / 86400000) : null; };
+  const since = days(l.lastContacted); if (since != null && since < 60) return { score: 0, reasons };
+  const camp = days(l.lastCampaignAt); if (camp != null && camp < 30) return { score: 0, reasons };
+  if (l.prospectSnoozedUntil && String(l.prospectSnoozedUntil) > today) return { score: 0, reasons };
+  const lease = days(l.leaseEnd); if (lease != null && lease <= 0 && lease >= -180) { const mo = Math.max(1, Math.round(-lease / 30)); reasons.push(`Lease ends in ${mo} mo`); score += 40; }
+  const equity = Number(l.currentValue) - Number(l.payoff); if (isFinite(equity) && Number(l.currentValue) > 0 && equity >= 2000) { reasons.push(`$${Math.round(equity / 500) * 500} equity`); score += 30; }
+  const left = Number(l.paymentsLeft); if (isFinite(left) && l.paymentsLeft !== "" && l.paymentsLeft != null && left <= 12) { reasons.push(left <= 0 ? "Paid off" : `${left} payments left`); score += 25; }
+  const owned = days(l.purchaseDate); if (owned != null && owned >= 3 * 365) { reasons.push(`Owned ${Math.floor(owned / 365)} yrs`); score += 20; }
+  if (l.alertType || l.priority) { reasons.push("AutoAlert flag"); score += 15; }
+  const svc = days(l.serviceAppt); if (svc != null && svc <= 0 && svc >= -7) { reasons.push("In service this week"); score += 15; }
+  return { score, reasons };
+}
+
+async function storeAgentPass(now: number, pushUsers: string[], report: any[]): Promise<void> {
+  const stores = await fetch(sbUrl(`/stores?select=id,name`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  const canPush = new Set(pushUsers);
+  for (const st of stores as any[]) {
+    const cfgRow = await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(st.id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}));
+    const cfg = { ...AGENT_DEFAULTS, ...(cfgRow.agent || {}) };
+    const members = await fetch(sbUrl(`/store_members?select=user_id,role,name,email&store_id=eq.${encodeURIComponent(st.id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    const managers = (members as any[]).filter((m) => m.role === "manager");
+    const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "us";
+    const manager = String((cfgRow.welcome && cfgRow.welcome.manager) || (managers[0] ? nameOf(managers[0]) : "the sales manager"));
+    const names = { manager, store: String(st.name || "the store") };
+    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[] };
+
+    // --- Per rep: confirmations, no-shows, the morning's hand-outs.
+    for (const m of members as any[]) {
+      const uid = String(m.user_id);
+      const prefs = (await rowsOf(uid, "prefs"))[0] || {};
+      const L = localOf(now, prefs);
+      const already = await sentNudges(uid);
+      let changed = false;
+      const leads = await rowsOf(uid, "leads");
+      const leadById = (id: string) => leads.find((l: any) => l.id === id) || null;
+      const appts = await rowsOf(uid, "appointments");
+      const live = appts.filter((a: any) => a.status !== "canceled");
+      const repFirst = firstName(nameOf(m));
+
+      if (cfg.confirmOn && L.hour >= Number(cfg.confirmHour)) {
+        for (const a of live) {
+          if (a.confirmed || a.outcome || String(a.when || "").slice(0, 10) !== L.tomorrow || already[`agent:confirm:${a.id}`]) continue;
+          const lead = a.leadId ? leadById(a.leadId) : null;
+          if (!lead || !lead.phone) continue;
+          const body = fill(CONFIRM_TEXT, { ...names, first: firstName(lead.name || a.customerName), type: String(a.type || "appointment"), time: twelveHour(String(a.when).slice(11, 16)), rep: repFirst });
+          const r = await storeText(uid, lead, body, "manager-confirm", manager);
+          already[`agent:confirm:${a.id}`] = new Date().toISOString(); changed = true;
+          if (r.ok) out.confirmed++; else out.errors.push(`confirm ${a.id}: ${r.error}`);
+        }
+      }
+      if (cfg.noShowOn && L.hour >= Number(cfg.noShowHour) && L.working) {
+        for (const a of live) {
+          if (a.outcome !== "no_show" || String(a.when || "").slice(0, 10) !== L.yesterday || already[`agent:noshow:${a.id}`]) continue;
+          if (a.leadId && live.some((b: any) => b.leadId === a.leadId && b.id !== a.id && String(b.when || "") > L.nowLocal)) continue; // rebooked already
+          const lead = a.leadId ? leadById(a.leadId) : null;
+          if (!lead) continue;
+          const body = fill(NOSHOW_TEXT, { ...names, first: firstName(lead.name || a.customerName), rep: repFirst });
+          const r = await storeText(uid, lead, body, "manager-noshow", manager);
+          try { await storeTask(uid, { leadId: lead.id, title: `Rebook ${lead.name || "the no-show"} — no-show yesterday`, due: L.day, channel: "call", kind: "rebook", why: [r.ok ? "The store texted them a sorry-we-missed-you; a call today gets them back on the calendar." : "A call today gets them back on the calendar."], by: manager }); } catch (e) { out.errors.push(`noshow task: ${String(e)}`); }
+          if (canPush.has(uid)) await sendPush(uid, { title: `Rebook ${lead.name || "the no-show"}`, body: r.ok ? "The store texted them; a call from you today gets them back on the calendar." : "They no-showed yesterday — a call today gets them back on the calendar.", tag: `agent:noshow:${a.id}`, url: `./#/leads/${lead.id}` });
+          already[`agent:noshow:${a.id}`] = new Date().toISOString(); changed = true;
+          out.noShows++;
+        }
+      }
+      if (cfg.handoutOn && L.working && L.hour >= Number(cfg.huddleHour) && !already[`agent:handout:${L.day}`]) {
+        const open = await rowsOf(uid, "tasks", "&data->>source=eq.manager");
+        const taken = new Set(open.filter((t: any) => !t.done && t.leadId).map((t: any) => String(t.leadId)));
+        // Anyone in the service drive today is the service list's, not a hand-out.
+        const inService = (l: any) => cfg.serviceOn && String(l.serviceAppt || "").slice(0, 10) === L.day;
+        const picks = leads.filter((l: any) => !inService(l)).map((l: any) => ({ l, r: reachLite(l, L.day) })).filter((x) => x.r.score >= 30 && !taken.has(String(x.l.id))).sort((a, b) => b.r.score - a.r.score).slice(0, Math.max(0, Number(cfg.handoutN) || 0));
+        for (const x of picks) {
+          try { await storeTask(uid, { leadId: x.l.id, title: `Reach out to ${x.l.name || "customer"} — ${x.r.reasons.slice(0, 2).join(", ")} (from ${manager})`, due: L.day, channel: "call", kind: "reach", why: x.r.reasons, by: manager }); out.handouts++; } catch (e) { out.errors.push(`handout: ${String(e)}`); }
+        }
+        let service = 0;
+        if (cfg.serviceOn) {
+          for (const l of leads) {
+            if (String(l.serviceAppt || "").slice(0, 10) !== L.day || !(l.phone || l.email) || l.doNotContact || taken.has(String(l.id))) continue;
+            const r = reachLite({ ...l, lastContacted: "", lastCampaignAt: "", stage: "delivered" }, L.day);
+            try { await storeTask(uid, { leadId: l.id, title: `In service today: ${l.name || "customer"}${r.reasons.length ? " — " + r.reasons.filter((w) => !/service/i.test(w)).slice(0, 2).join(", ") : ""}`, due: L.day, channel: "call", kind: "service", why: r.reasons.length ? r.reasons : ["In the service drive today — walk over."], by: manager }); service++; } catch (e) { out.errors.push(`service: ${String(e)}`); }
+          }
+        }
+        out.service += service;
+        if ((picks.length || service) && canPush.has(uid)) await sendPush(uid, { title: `Your morning: ${picks.length} reach-out${picks.length === 1 ? "" : "s"}${service ? ` · ${service} in service today` : ""}`, body: picks.slice(0, 2).map((x) => `${x.l.name}: ${x.r.reasons[0] || ""}`).join(" · ") || "On your list, with the reason on each.", tag: `agent:handout:${L.day}`, url: "./#/log" });
+        already[`agent:handout:${L.day}`] = new Date().toISOString(); changed = true;
+      }
+      if (changed) await rememberNudges(uid, already);
+    }
+
+    // --- The managers: the huddle and the recap.
+    if (cfg.huddleOn || cfg.recapOn) {
+      for (const mg of managers) {
+        const uid = String(mg.user_id);
+        const prefs = (await rowsOf(uid, "prefs"))[0] || {};
+        const L = localOf(now, prefs);
+        if (!L.working) continue;
+        const already = await sentNudges(uid);
+        const wantHuddle = cfg.huddleOn && L.hour >= Number(cfg.huddleHour) && !already[`agent:huddle:${L.day}`];
+        const wantRecap = cfg.recapOn && L.hour >= Number(cfg.recapHour) && !already[`agent:recap:${L.day}`];
+        if (!wantHuddle && !wantRecap) continue;
+        const text = await storeDayText(st, members as any[], L, now, wantRecap && !wantHuddle ? "recap" : "huddle");
+        const key = wantHuddle ? `agent:huddle:${L.day}` : `agent:recap:${L.day}`;
+        const title = `${wantHuddle ? "Morning huddle" : "Today's recap"} · ${st.name}`;
+        if (canPush.has(uid)) await sendPush(uid, { title, body: text.split("\n").slice(1, 3).join(" · ").slice(0, 160), tag: key, url: "./#/floor" });
+        if (mg.email) { try { await resendSend(String(mg.email), title, text); } catch { /* no email set up */ } }
+        already[key] = new Date().toISOString();
+        if (wantHuddle && wantRecap) already[`agent:recap:${L.day}`] = already[key]; // one message past both hours
+        await rememberNudges(uid, already);
+        out.huddles.push(key);
+      }
+    }
+    report.push(out);
+  }
+}
+
+// The huddle or the recap, from every rep's book: where the store stands,
+// what each rep has today, what's waiting.
+async function storeDayText(st: any, members: any[], L: any, now: number, kind: "huddle" | "recap"): Promise<string> {
+  const monthStart = L.day.slice(0, 8) + "01";
+  const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "a rep";
+  let units = 0, goal = 0, setMonth = 0, setToday = 0, loggedToday = 0, soldToday = 0, noShowsToday = 0, untouched = 0, waiting = 0;
+  const today: string[] = [], tomorrow: { n: number; unconfirmed: number } = { n: 0, unconfirmed: 0 }, perRep: string[] = [];
+  const targets = await fetch(sbUrl(`/store_targets?select=user_id,goal_units&store_id=eq.${encodeURIComponent(st.id)}&target_month=eq.${L.day.slice(0, 7)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  for (const m of members) {
+    const uid = String(m.user_id);
+    const [sales, appts, leads, texts, config] = await Promise.all([rowsOf(uid, "sales"), rowsOf(uid, "appointments"), rowsOf(uid, "leads"), rowsOf(uid, "texts", "&data->>dir=eq.in&data->>read=eq.false"), rowsOf(uid, "config")]);
+    const u = sales.filter((x: any) => String(x.saleDate || x.createdAt || "").slice(0, 10) >= monthStart).length;
+    const t = (targets as any[]).find((x) => x.user_id === uid);
+    const g = Number((t && t.goal_units) || (config[0] && config[0].goalUnits) || 0);
+    const live = appts.filter((a: any) => a.status !== "canceled");
+    const sm = live.filter((a: any) => String(a.createdAt || a.when || "").slice(0, 10) >= monthStart).length;
+    const sToday = live.filter((a: any) => String(a.createdAt || "").slice(0, 10) === L.day).length;
+    const tToday = live.filter((a: any) => String(a.when || "").slice(0, 10) === L.day);
+    const tTom = live.filter((a: any) => String(a.when || "").slice(0, 10) === L.tomorrow);
+    const un = leads.filter((l: any) => l.stage === "new" && !l.firstContacted && !l.lastContacted).length;
+    const lg = leads.filter((l: any) => String(l.loggedAt || "").slice(0, 10) === L.day).length;
+    units += u; goal += g; setMonth += sm; setToday += sToday; untouched += un; loggedToday += lg; waiting += new Set(texts.map((x: any) => x.leadId || x.phone)).size;
+    soldToday += sales.filter((x: any) => String(x.saleDate || x.createdAt || "").slice(0, 10) === L.day).length;
+    noShowsToday += tToday.filter((a: any) => a.outcome === "no_show").length;
+    tToday.forEach((a: any) => today.push(`${String(a.when).slice(11, 16)} ${a.customerName || ""} (${nameOf(m)})${a.confirmed ? "" : " — unconfirmed"}`));
+    tomorrow.n += tTom.length; tomorrow.unconfirmed += tTom.filter((a: any) => !a.confirmed).length;
+    if (g || u || un || lg) perRep.push(`${nameOf(m)} — ${u}/${g || "—"} units${un ? `, ${un} untouched` : ""}${kind === "recap" ? `, ${lg} logged today` : ""}`);
+  }
+  const L1 = kind === "huddle"
+    ? [`${st.name} · ${L.day}`, `Units ${units}/${goal || "—"} · ${setMonth} appointments set this month · ${setToday ? setToday + " set today" : "none set today yet"}`,
+       today.length ? `Today: ${today.sort().join(", ")}` : "Today: nothing on the calendar yet — first job is to change that.",
+       untouched || waiting ? `Waiting: ${[untouched ? `${untouched} untouched lead${untouched === 1 ? "" : "s"}` : "", waiting ? `${waiting} customer${waiting === 1 ? "" : "s"} waiting on a reply` : ""].filter(Boolean).join(", ")}` : "Nobody waiting.",
+       perRep.length ? "Each of you: " + perRep.join("; ") : ""]
+    : [`${st.name} · ${L.day} · recap`, `Today: ${loggedToday} logged · ${setToday} appointments set · ${soldToday} sold${noShowsToday ? ` · ${noShowsToday} no-show${noShowsToday === 1 ? "" : "s"}` : ""}`,
+       `Month: ${units}/${goal || "—"} units · ${setMonth} set`,
+       waiting || untouched ? `Still waiting: ${[waiting ? `${waiting} on a reply` : "", untouched ? `${untouched} untouched` : ""].filter(Boolean).join(", ")}` : "Nobody left waiting.",
+       `Tomorrow: ${tomorrow.n} appointment${tomorrow.n === 1 ? "" : "s"}${tomorrow.unconfirmed ? ` · ${tomorrow.unconfirmed} not confirmed` : ""}`,
+       perRep.length ? perRep.join("; ") : ""];
+  return L1.filter(Boolean).join("\n");
 }
 
 // ---- The night read ----
@@ -1940,6 +2221,10 @@ async function twilioSigned(url: string, params: Record<string, string>, sig: st
   return diff === 0;
 }
 
+// Tombstone a record (the app's sync reads deletions the same way).
+async function deleteRecord(uid: string, collection: string, id: string, data: unknown = {}) {
+  await fetch(sbUrl("/records"), { method: "POST", headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ id, user_id: uid, collection, data, deleted: true }) }).catch(() => null);
+}
 async function saveRecord(uid: string, collection: string, id: string, data: unknown) {
   const res = await fetch(sbUrl("/records"), {
     method: "POST",
@@ -2517,6 +2802,8 @@ Deno.serve(async (req: Request) => {
       const unread = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(rep)}&collection=eq.texts&deleted=eq.false&data->>leadId=eq.${encodeURIComponent(leadId)}&data->>dir=eq.in&data->>read=eq.false&select=id,data&limit=20`), { headers: sbHeaders() }).then((q) => (q.ok ? q.json() : [])).catch(() => []);
       for (const u of unread as any[]) await saveRecord(rep, "texts", u.id, { ...(u.data || {}), read: true, updatedAt: now });
     } catch { /* sent; the log is best-effort */ }
+    // The draft held for this customer, if any, is spent.
+    await deleteRecord(String(x.u), "agentdrafts", `reply:${leadId}`);
     return json({ sent: true, id: tid, sid: r.sid || null });
   }
 

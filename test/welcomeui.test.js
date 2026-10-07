@@ -33,6 +33,9 @@ await seed(U1, [
   { id: "w4", collection: "leads", data: { id: "w4", name: "Texted In", phone: "9025554444", stage: "new", source: "text", createdAt: ago(300) } },
 ]);
 
+// The store's welcome window is 9 to 20 by default; this runs at any hour.
+await rpc("tm", "store_config_set", { store: st.id, patch: { welcome: { hourFrom: 0, hourTo: 24 } } });
+
 // --- The sheet, from Home.
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");

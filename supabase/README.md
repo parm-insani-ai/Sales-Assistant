@@ -248,6 +248,20 @@ from the store's `TWILIO_FROM` number, filed in the rep's thread marked as
 the manager's; the customer's reply comes back to the rep's thread. A text
 with a dollar amount or a rate in it is refused.
 
+### The store's agent
+
+Settings live on the Admin screen (**The store's agent**) and in the
+store's config; the sweep reads them every ten minutes. Out of the box:
+reply drafts on, confirmations at 5pm, no-shows chased the next morning,
+three reach-outs per rep at 8am plus the service drive, the huddle at 8am
+and the recap at 6pm. Texts go from `TWILIO_FROM` in the name on the
+welcome text; the huddle and recap go by push and, with `RESEND_API_KEY`
+and `EMAIL_FROM` set, by email to the manager's sign-in address. Reply
+drafts use the model under the manager's daily budget. Hand-outs read the
+imported owner book (lease end, equity, payments left, purchase date, the
+service-appointment column). Each thing is done once, keyed in the rep's or
+the manager's own records.
+
 ### The night read
 
 The 2am job (`cron.sql`) hands each rep to their own run of the function, so

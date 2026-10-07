@@ -24,6 +24,7 @@ const SERVICE = "service-key-for-tests";
 // --- The stand-in: Supabase auth, the REST tables, and the model.
 const db = { records: [], usage: [], stores: [{ id: "s1", name: "O'Regan's Nissan Halifax" }], members: [{ user_id: U3, store_id: "s1", role: "manager", name: "Sam", email: "member@example.com" }, { user_id: U1, store_id: "s1", role: "rep", name: "Parm", email: "rep@example.com" }], noUsageTable: false };
 const twilio = { sent: [] }, push = { got: [] };
+db.config = []; // store_config rows: { store_id, data }
 // VAPID keys and a subscription key pair, so the function's pushes go to this mock.
 const crypto = require("crypto");
 const ecPair = () => { const kp = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }); const pub = kp.publicKey.export({ format: "jwk" }), priv = kp.privateKey.export({ format: "jwk" }); return { pub: Buffer.concat([Buffer.from([4]), Buffer.from(pub.x, "base64url"), Buffer.from(pub.y, "base64url")]).toString("base64url"), priv: Buffer.from(priv.d, "base64url").toString("base64url") }; };
@@ -43,7 +44,8 @@ const mock = http.createServer((req, res) => {
     }
     if (u.pathname === "/rest/v1/store_members") return send(res, 200, db.members.filter((m) => match(m, eqs(u))));
     if (u.pathname === "/rest/v1/stores") return send(res, 200, db.stores.filter((m) => match(m, eqs(u))));
-    if (u.pathname === "/rest/v1/store_config" || u.pathname === "/rest/v1/admins") return send(res, 200, []);
+    if (u.pathname === "/rest/v1/store_config") return send(res, 200, db.config.filter((m) => match(m, eqs(u))));
+    if (u.pathname === "/rest/v1/admins" || u.pathname === "/rest/v1/store_targets") return send(res, 200, []);
     if (/^\/2010-04-01\/Accounts\/[^/]+\/Messages\.json$/.test(u.pathname)) { twilio.sent.push(Object.fromEntries(new URLSearchParams(b))); return send(res, 201, { sid: "SM" + twilio.sent.length }); }
     if (u.pathname.startsWith("/push/")) { push.got.push(u.pathname); res.writeHead(201); return res.end(); }
     if (u.pathname === "/rest/v1/agent_usage") {
@@ -76,6 +78,13 @@ const mock = http.createServer((req, res) => {
       if (night) {
         const who = /- ([A-Z][a-z]+ [A-Z][a-z]+) —/.exec(body.messages[0].content);
         return send(res, 200, { model: body.model, stop_reason: "tool_use", usage: { input_tokens: 3000, output_tokens: 900 }, content: [{ type: "tool_use", id: "t1", name: "write_plays", input: { summary: "A quiet day.", plays: [{ customer: who ? who[1] : "Nobody", action: "call", title: "Call about the visit", why: "They asked to be called.", draft: "" }] } }] });
+      }
+      // The manager's reply draft: a figure for a customer called Money, a proper reply otherwise.
+      const sys = Array.isArray(body.system) ? body.system.map((b) => b.text || "").join(" ") : String(body.system || "");
+      if (/drafting ONE text message from/.test(sys)) {
+        const asked = String((body.messages[0] || {}).content || "");
+        const text = /Money/.test(asked) ? "It'd be about $300 a month, come by." : "Hi Dana, Sam here, the sales manager — Saturday works. Come by any time after ten and ask for Parm.";
+        return send(res, 200, { model: body.model, stop_reason: "end_turn", usage: { input_tokens: 800, output_tokens: 60 }, content: [{ type: "text", text }] });
       }
       return send(res, 200, { model: body.model, stop_reason: "end_turn", usage: { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 20000, cache_creation_input_tokens: 0 }, content: [{ type: "text", text: "ok" }] });
     }
@@ -246,6 +255,66 @@ try {
   const again = await post(LOCKED, { sweep: 1 });
   const mg2 = (again.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
   if ((mg2.sent || []).length !== 0) fail("the same three were sent again on the next sweep: " + JSON.stringify(mg2));
+
+  // --- The store's agent. Hours set to 0 so everything is due now; the
+  // rep's and the manager's clocks are UTC, open all week.
+  db.config.push({ store_id: "s1", data: { welcome: { manager: "Sam" }, agent: { confirmHour: 0, noShowHour: 0, huddleHour: 0, recapHour: 0, handoutN: 2 } } });
+  const dayN = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  db.records.push(
+    // Tomorrow, unconfirmed: the agent confirms it. Yesterday's no-show: a text and a rebook.
+    { id: "c4", user_id: U1, collection: "leads", data: { id: "c4", name: "Tam Tomorrow", phone: "9025554444", stage: "appointment" } },
+    { id: "ap2", user_id: U1, collection: "appointments", data: { id: "ap2", leadId: "c4", customerName: "Tam Tomorrow", type: "test drive", when: dayN(1) + "T14:30", status: "scheduled", confirmed: false } },
+    { id: "c5", user_id: U1, collection: "leads", data: { id: "c5", name: "Nick Noshow", phone: "9025555555", stage: "working" } },
+    { id: "ap3", user_id: U1, collection: "appointments", data: { id: "ap3", leadId: "c5", customerName: "Nick Noshow", when: dayN(-1) + "T10:00", status: "scheduled", outcome: "no_show" } },
+    // The owner book: a lease ending, equity, one with nothing going on, one in service today.
+    { id: "o1", user_id: U1, collection: "leads", data: { id: "o1", name: "Lee Lease", phone: "9025556001", stage: "delivered", leaseEnd: dayN(60), purchaseDate: "2023-01-01" } },
+    { id: "o2", user_id: U1, collection: "leads", data: { id: "o2", name: "Eve Equity", phone: "9025556002", stage: "delivered", currentValue: 21000, payoff: 12000, purchaseDate: "2024-01-01" } },
+    { id: "o3", user_id: U1, collection: "leads", data: { id: "o3", name: "Quiet Owner", phone: "9025556003", stage: "delivered", purchaseDate: "2025-06-01" } },
+    { id: "o4", user_id: U1, collection: "leads", data: { id: "o4", name: "Sue Service", phone: "9025556004", stage: "delivered", serviceAppt: dayN(0) + "T10:30", purchaseDate: "2020-01-01" } },
+    // Waiting on a reply: the agent drafts one for the manager; a figure is refused.
+    { id: "c6", user_id: U1, collection: "leads", data: { id: "c6", name: "Money Mike", phone: "9025556006", stage: "working" } },
+    { id: "in3", user_id: U1, collection: "texts", data: { id: "in3", leadId: "c6", dir: "in", body: "What would my payment be?", at: new Date(Date.now() - 30 * 60000).toISOString(), read: false } },
+  );
+  const repPrefs = db.records.find((r) => r.user_id === U1 && r.collection === "prefs");
+  repPrefs.data = { tzOffsetMinutes: 0, hoursFrom: 0, hoursTo: 24, hoursDays: [0, 1, 2, 3, 4, 5, 6], quietFrom: 0, quietTo: 0 };
+  twilio.sent.length = 0;
+  const ag = await post(LOCKED, { sweep: 1 });
+  const agentRep = (ag.body.agent || []).find((x) => x.store === "O'Regan's Nissan Halifax") || {};
+  const mgrRep = (ag.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
+  console.log("agent:", JSON.stringify(agentRep), "\nmanagers:", JSON.stringify(mgrRep));
+  const texts = (uid) => db.records.filter((r) => r.user_id === uid && r.collection === "texts" && !r.deleted).map((r) => r.data);
+  const tasks = (uid) => db.records.filter((r) => r.user_id === uid && r.collection === "tasks" && !r.deleted).map((r) => r.data);
+  const conf = twilio.sent.find((t) => /Just confirming your test drive tomorrow at 2:30 pm with Parm/.test(t.Body));
+  if (!conf || conf.To !== "9025554444" || agentRep.confirmed !== 1) fail("tomorrow's unconfirmed appointment wasn't confirmed: " + JSON.stringify([twilio.sent, agentRep]));
+  if (!texts(U1).some((t) => t.via === "manager-confirm" && t.leadId === "c4")) fail("the confirmation isn't filed in the rep's thread");
+  const ns = twilio.sent.find((t) => /Sorry we missed you yesterday — Parm would love to get you in/.test(t.Body));
+  if (!ns || ns.To !== "9025555555" || agentRep.noShows !== 1) fail("yesterday's no-show wasn't chased: " + JSON.stringify(twilio.sent));
+  if (!tasks(U1).some((t) => t.kind === "rebook" && t.leadId === "c5" && /Rebook Nick Noshow/.test(t.title))) fail("no rebook to-do on the rep's list: " + JSON.stringify(tasks(U1)));
+  const hand = tasks(U1).filter((t) => t.kind === "reach");
+  if (agentRep.handouts !== 2 || hand.length !== 2 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
+  if (!tasks(U1).some((t) => t.kind === "service" && t.leadId === "o4" && /In service today: Sue Service/.test(t.title))) fail("the customer in the service drive wasn't handed over: " + JSON.stringify(tasks(U1)));
+  if (!(agentRep.huddles || []).some((k) => /^agent:huddle:/.test(k))) fail("the huddle wasn't sent: " + JSON.stringify(agentRep));
+  // The reply drafts: Dana's (from the earlier mtext section she's answered, so it's Money Mike waiting) — a figure, refused: plain push, no draft held.
+  const drafts = db.records.filter((r) => r.user_id === U3 && r.collection === "agentdrafts" && !r.deleted).map((r) => r.data);
+  if (drafts.some((d) => d.leadId === "c6")) fail("a draft with a figure in it was held for the manager: " + JSON.stringify(drafts));
+  if (!(mgrRep.sent || []).includes("mgr:reply:in3") || (mgrRep.drafted || []).length) fail("the waiting customer with the refused draft didn't get the plain push: " + JSON.stringify(mgrRep));
+  // A customer whose draft is clean: held under the manager, and the push carries it.
+  db.records.push(
+    { id: "c7", user_id: U1, collection: "leads", data: { id: "c7", name: "Dana Draft", phone: "9025556007", stage: "working", vehicleInterest: "Rogue SV" } },
+    { id: "in4", user_id: U1, collection: "texts", data: { id: "in4", leadId: "c7", dir: "in", body: "Can I come Saturday?", at: new Date(Date.now() - 30 * 60000).toISOString(), read: false } },
+  );
+  const ag2 = await post(LOCKED, { sweep: 1 });
+  const mgrRep2 = (ag2.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
+  const held = db.records.find((r) => r.user_id === U3 && r.collection === "agentdrafts" && r.id === "reply:c7" && !r.deleted);
+  console.log("draft:", JSON.stringify(mgrRep2), held && held.data.body);
+  if (!held || !/Saturday works/.test(held.data.body) || held.data.rep !== U1) fail("the clean draft wasn't held for the manager: " + JSON.stringify(held));
+  if (!(mgrRep2.drafted || []).includes("mgr:reply:in4")) fail("the push for the drafted reply wasn't marked drafted: " + JSON.stringify(mgrRep2));
+  const agentRep2 = (ag2.body.agent || []).find((x) => x.store === "O'Regan's Nissan Halifax") || {};
+  if (agentRep2.confirmed || agentRep2.noShows || agentRep2.handouts || (agentRep2.huddles || []).length) fail("the agent did the day's work twice: " + JSON.stringify(agentRep2));
+  // The manager sends it: the held draft is spent.
+  const sendHeld = await post(LOCKED, { mtext: { rep: U1, leadId: "c7", body: held.data.body } }, "tok-c");
+  const spent = db.records.find((r) => r.user_id === U3 && r.collection === "agentdrafts" && r.id === "reply:c7");
+  if (sendHeld.status !== 200 || !spent || !spent.deleted) fail("sending the held draft didn't spend it: " + JSON.stringify([sendHeld.status, spent]));
 
   // When the per-rep call can't be made, the rep's read runs in the store's run.
   db.records = db.records.filter((r) => r.collection !== "agentplays");

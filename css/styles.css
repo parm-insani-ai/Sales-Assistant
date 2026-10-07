@@ -2235,4 +2235,9 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .lead-radar-link { color: var(--brand); font-weight: 700; text-decoration: none; white-space: nowrap; }
 .lead-why-more { margin: -4px 0 16px; }
 .lead-group[data-why] { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+/* The store's agent card (Admin): a switch per thing it does, with its hour beside it. */
+.agent-card .ag-switch { padding: 7px 0; }
+.agent-card .ag-row { align-items: center; gap: 8px; }
+.agent-card .ag-row .ag-switch { flex: 1; min-width: 0; }
+.agent-card .ag-hour { flex: none; width: 92px; font-size: 0.84rem; padding: 6px 8px; }
 .lead-why-less { border: none; background: none; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--brand); padding: 4px 0; cursor: pointer; flex: none; }

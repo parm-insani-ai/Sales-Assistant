@@ -24,7 +24,7 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast, openModal } from "../components.js";
 import { esc, formatDateTime, currency } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow } from "../team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft } from "../team.js";
 import { looksLikeMoney } from "../replies.js";
 import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./team.js";
 import { findings } from "../insight.js";
@@ -140,8 +140,11 @@ export function renderManageHome(view) {
 }
 
 // ---- Floor: the day as it happens ----
-export function renderFloor(view) {
+export function renderFloor(view, { param } = {}) {
   let feedAll = false;
+  // Opened from the agent's push ("Dana has waited 20 min — send this?"):
+  // the sheet opens on the held draft, once.
+  let deepLink = /^reply-(.+)$/.test(String(param || "")) ? String(param).slice(6) : "";
   const handed = new Set();
   const rankOpts = (lot) => { const s = store.getSettings(); return { defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot && lot.rows.length ? makeMatcher(lot.rows, s) : null }; };
   const age = (iso, now) => { const m = Math.max(0, Math.round((now - new Date(iso)) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
@@ -206,7 +209,7 @@ export function renderFloor(view) {
       // 1. Customers waiting on a reply, longest first.
       const unanswered = t.waiting || [];
       const waitingCard = `<div class="section-title" style="margin-top:0">Waiting on a reply <span class="muted" style="font-weight:500;font-size:0.78rem">· ${unanswered.length ? `${unanswered.length} · longest first` : "nobody"}</span></div>
-        <div class="card mg-waiting">${unanswered.length ? unanswered.slice(0, 10).map((w) => `<div class="row mg-wait" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${w.leadId ? `data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(w.name || "A customer")} <span class="small" style="color:var(--danger);font-weight:600">${waitedFor(w.at)}</span></div><div class="row-sub">${esc(memberName(w.rep))} · ${w.channel === "email" ? "emailed" : "texted"}: “${esc(w.preview)}”</div></div><button class="btn btn-ghost btn-sm" data-wnudge="${esc(w.rep.user_id)}" data-lead="${esc(w.leadId)}" data-name="${esc(w.name || "A customer")}" data-age="${waitedFor(w.at)}">${icon("bell")}</button>${w.channel === "text" && w.leadId ? `<button class="btn btn-primary btn-sm" data-mreply="${esc(w.leadId)}" data-rep="${esc(w.rep.user_id)}" data-name="${esc(w.name || "")}">Reply</button>` : w.leadId ? `<button class="btn btn-primary btn-sm" data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}">Open</button>` : ""}</div>`).join("") + (unanswered.length > 10 ? `<div class="hint">and ${unanswered.length - 10} more.</div>` : "") : `<div class="muted small">Every customer who wrote has been answered. A reply inside five minutes books far better than one inside an hour.</div>`}</div>`;
+        <div class="card mg-waiting">${unanswered.length ? unanswered.slice(0, 10).map((w) => `<div class="row mg-wait" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${w.leadId ? `data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(w.name || "A customer")} <span class="small" style="color:var(--danger);font-weight:600">${waitedFor(w.at)}</span></div><div class="row-sub">${esc(memberName(w.rep))} · ${w.channel === "email" ? "emailed" : "texted"}: “${esc(w.preview)}”</div></div><button class="btn btn-ghost btn-sm" data-wnudge="${esc(w.rep.user_id)}" data-lead="${esc(w.leadId)}" data-name="${esc(w.name || "A customer")}" data-age="${waitedFor(w.at)}">${icon("bell")}</button>${w.channel === "text" && w.leadId ? `<button class="btn btn-primary btn-sm" data-mreply="${esc(w.leadId)}" data-rep="${esc(w.rep.user_id)}" data-name="${esc(w.name || "")}" ${heldDraft(w.leadId) ? `data-draft="${esc(heldDraft(w.leadId).body)}"` : ""}>${heldDraft(w.leadId) ? "Send draft" : "Reply"}</button>` : w.leadId ? `<button class="btn btn-primary btn-sm" data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}">Open</button>` : ""}</div>`).join("") + (unanswered.length > 10 ? `<div class="hint">and ${unanswered.length - 10} more.</div>` : "") : `<div class="muted small">Every customer who wrote has been answered. A reply inside five minutes books far better than one inside an hour.</div>`}</div>`;
       // 2. Appointments at risk: unconfirmed inside 24 hours, and no-shows nobody has rebooked.
       const risk = t.atRisk || [], noShows = t.noShows || [];
       const riskCard = `<div class="section-title">Appointments at risk <span class="muted" style="font-weight:500;font-size:0.78rem">· ${risk.length || noShows.length ? [risk.length ? `${risk.length} unconfirmed` : "", noShows.length ? `${noShows.length} to rebook` : ""].filter(Boolean).join(" · ") : "none"}</span></div>
@@ -252,7 +255,7 @@ export function renderFloor(view) {
       <div class="section-title">Today's appointments <span class="muted" style="font-weight:500;font-size:0.78rem">· ${t.apptsToday.length}</span></div>
       <div class="card">${t.apptsToday.length ? t.apptsToday.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(String(a.when).slice(11, 16))} · ${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("") : `<div class="muted small">Nothing on the store's calendar today.</div>`}</div>`;
     },
-    wire: ({ el, book, lot, draw, refresh }) => {
+    wire: ({ el, book, lot, draw, refresh, t }) => {
       const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
       on('[data-act="feed-all"]', () => { feedAll = !feedAll; draw(); });
       on('[data-act="copy-huddle"]', async (e) => { e.preventDefault(); const txt = el.querySelector("#mg-huddle")?.textContent || ""; try { await navigator.clipboard.writeText(txt); toast("Huddle copied", "success"); } catch { toast("Select the text to copy it", "warn"); } });
@@ -264,6 +267,13 @@ export function renderFloor(view) {
       el.querySelectorAll("[data-wnudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: `${b.dataset.name} is waiting on you`, body: `They wrote ${b.dataset.age} ago — answer them now.`, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/comms", tag: "wait-" + (b.dataset.lead || Date.now()) })));
       el.querySelectorAll("[data-anudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: b.dataset.title, body: b.dataset.body, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/appts", tag: "appt-" + (b.dataset.lead || Date.now()) })));
       el.querySelectorAll("[data-mreply], [data-mtext]").forEach((b) => b.addEventListener("click", () => openManagerTextSheet({ rep: b.dataset.rep, leadId: b.dataset.mreply || b.dataset.mtext, name: b.dataset.name, draft: b.dataset.draft || "", onSent: () => refresh(true) })));
+      if (deepLink) {
+        const id = deepLink; deepLink = "";
+        const d = heldDraft(id);
+        const w = (t && t.waiting || []).find((x) => x.leadId === id);
+        if (d || w) openManagerTextSheet({ rep: d ? d.rep : w.rep.user_id, leadId: id, name: d ? d.name : w.name, draft: d ? d.body : "", onSent: () => refresh(true) });
+        else toast("They've been answered already", "success");
+      }
       el.querySelectorAll("[data-welcome]").forEach((b) => b.addEventListener("click", async () => {
         b.disabled = true;
         try { await sendWelcomeNow(b.dataset.rep, b.dataset.welcome); toast(`Welcomed ${b.dataset.name || "them"}`, "success"); refresh(true); }

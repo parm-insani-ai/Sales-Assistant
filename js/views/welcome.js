@@ -49,9 +49,11 @@ export async function openWelcomeSheet(team) {
         <div class="section-title">Sent <span class="muted" style="font-weight:500;font-size:0.78rem">· last 30 days</span></div>
         <div class="card">${log ? (log.length ? log.slice(0, 30).map((t) => `<div style="padding:6px 0;border-bottom:1px solid var(--border)"><div class="small muted">${esc(formatDateTime(t.at))} · ${esc(memberName(t.rep))}'s customer</div><div class="small" style="white-space:pre-wrap">${esc(t.body)}</div></div>`).join("") : `<div class="muted small">None sent yet.</div>`) : `<div class="muted small">Reading…</div>`}</div>
         <div class="hint">Replies land wherever the store's texting number is pointed — the rep's inbox when the number is theirs. The text shows in the rep's conversation with the customer, marked as yours; an emailed welcome is filed on the customer's page.</div>`;
+      // An hour of 0 is midnight, not "unset".
+      const hourOf = (sel, dflt) => { const v = root.querySelector(sel).value; const n = Number(v); return v !== "" && isFinite(n) && n >= 0 && n <= 24 ? n : dflt; };
       root.querySelector('[data-act="save"]').addEventListener("click", async () => {
         const next = { ...cfg, enabled: root.querySelector("#wl-on").checked, manager: root.querySelector("#wl-name").value.trim(), template: root.querySelector("#wl-template").value.trim() || DEFAULT_WELCOME.template,
-          minMinutes: Number(root.querySelector("#wl-min").value) || 45, maxMinutes: Number(root.querySelector("#wl-max").value) || 150, hourFrom: Number(root.querySelector("#wl-from").value) || 9, hourTo: Number(root.querySelector("#wl-to").value) || 20, tzOffsetMinutes: tzNow() };
+          minMinutes: Number(root.querySelector("#wl-min").value) || 45, maxMinutes: Number(root.querySelector("#wl-max").value) || 150, hourFrom: hourOf("#wl-from", 9), hourTo: hourOf("#wl-to", 20), tzOffsetMinutes: tzNow() };
         if (next.enabled && !next.manager) { toast("Put your name in first", "warn"); return; }
         try { const data = await saveConfig(team, { welcome: next }); cfg = { ...DEFAULT_WELCOME, ...(data.welcome || {}) }; toast(cfg.enabled ? "On — welcomes go out on the sweep" : "Saved, switched off", "success"); draw(); }
         catch (e) { toast(e.message || "Couldn't save", "danger"); }

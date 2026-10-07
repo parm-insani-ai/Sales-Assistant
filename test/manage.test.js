@@ -166,6 +166,16 @@ await mgr.click('.tabbar [data-route="/team"]');
 await mgr.waitForSelector(".admin-store");
 const adminPage = await mgr.evaluate(() => ({ greeting: document.querySelector("#page-title")?.textContent.trim(), board: document.querySelectorAll(".team-row, .stat").length, members: !!document.querySelector('[data-role]'), invite: !!document.querySelector("#invite-link") }));
 if (adminPage.greeting !== "Admin" || adminPage.board || !adminPage.members || !adminPage.invite) fail("the Admin page isn't just the store's admin information: " + JSON.stringify(adminPage));
+// The store's agent: its settings save to the store's config.
+await mgr.waitForSelector("#ag-handout-n", { timeout: 10000 });
+const agentDefaults = await mgr.evaluate(() => ({ replies: document.querySelector("#ag-replies").checked, confirm: document.querySelector("#ag-confirm-h").value, n: document.querySelector("#ag-handout-n").value, recap: document.querySelector("#ag-recap-h").value }));
+if (!agentDefaults.replies || agentDefaults.confirm !== "17" || agentDefaults.n !== "3" || agentDefaults.recap !== "18") fail("the agent card's defaults are wrong: " + JSON.stringify(agentDefaults));
+await mgr.evaluate(() => { document.querySelector("#ag-handout").checked = false; document.querySelector("#ag-confirm-h").value = "16"; document.querySelector("#ag-handout-n").value = "5"; });
+await mgr.click('[data-act="agent-save"]');
+await mgr.waitForFunction(async () => { const t = await import("/js/team.js"); const c = t.cachedConfig(); return c && c.agent && c.agent.confirmHour === 16; }, null, { timeout: 10000 }).catch(() => fail("the agent's settings didn't save"));
+const savedAgent = await mgr.evaluate(async (sid) => { const bk = await import("/js/backend.js"); return (await bk.rpc("store_config_get", { store: sid })).agent; }, st.id);
+console.log("agent settings:", JSON.stringify(savedAgent));
+if (!savedAgent || savedAgent.handoutOn !== false || savedAgent.confirmHour !== 16 || savedAgent.handoutN !== 5 || savedAgent.replies !== true) fail("the store's config doesn't hold the agent's settings: " + JSON.stringify(savedAgent));
 await plusTap(mgr, "Customers");
 await mgr.waitForFunction(() => location.hash === "#/customers", null, { timeout: 5000 });
 await mgr.click('.tabbar [data-route="/"]');

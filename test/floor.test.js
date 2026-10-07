@@ -120,6 +120,36 @@ const w = (await (await fetch(APP + "/__welcomes")).json())[0];
 if (w.rep !== U1 || w.leadId !== "l5") fail("the welcome didn't go to Wes: " + JSON.stringify(w));
 await mgr.waitForFunction(() => /1 logged · 1 welcomed/.test([...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ")).join(" ")), null, { timeout: 15000 }).catch(() => fail("after the welcome, Wes still counts as unwelcomed"));
 
+// --- A draft the agent held for a waiting customer: the Floor's button
+// sends it, and the push's link opens the sheet on it.
+await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U1, rows: [
+  { id: "l6", collection: "leads", data: { id: "l6", name: "Ira Inbound", phone: "9025556666", stage: "working", vehicleInterest: "Frontier", ...x } },
+  { id: "x6", collection: "texts", data: { id: "x6", leadId: "l6", dir: "in", body: "Is the Frontier still there?", at: iso(ago(25)), read: false } },
+] }) });
+await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: "00000000-0000-4000-8000-000000000003", rows: [
+  { id: "reply:l6", collection: "agentdrafts", data: { id: "reply:l6", rep: U1, repName: "Parm", leadId: "l6", name: "Ira Inbound", body: "Hi Ira, Sam here, the sales manager — it is, and Parm can have it out front for you. Does this afternoon or tomorrow morning suit?", at: iso(ago(1)) } },
+] }) });
+await mgr.evaluate(async () => { const s = await import("/js/sync.js"); await s.syncNow(); sessionStorage.removeItem("viniva:team-board"); });
+await mgr.goto(APP + "/#/floor/reply-l6");
+await mgr.waitForSelector("#mt-body", { timeout: 20000 }).catch(() => fail("the push's link didn't open the sheet on the held draft"));
+const heldBox = await mgr.evaluate(() => ({ title: document.querySelector(".modal h2")?.textContent.trim(), body: document.querySelector("#mt-body")?.value }));
+console.log("held draft:", JSON.stringify(heldBox));
+if (heldBox.title !== "Text Ira Inbound" || !/Parm can have it out front/.test(heldBox.body || "")) fail("the sheet didn't open on Ira with the agent's draft: " + JSON.stringify(heldBox));
+await mgr.keyboard.press("Escape");
+await mgr.waitForFunction(() => !document.querySelector(".modal"), null, { timeout: 5000 });
+await mgr.evaluate(() => sessionStorage.removeItem("viniva:team-board"));
+await mgr.goto(APP + "/#/floor");
+await settled();
+await mgr.waitForFunction(() => [...document.querySelectorAll(".mg-wait [data-mreply]")].some((x) => x.dataset.mreply === "l6"), null, { timeout: 20000 }).catch(() => fail("Ira isn't on the waiting card"));
+const sendDraft = await mgr.evaluate(() => { const b = [...document.querySelectorAll(".mg-wait [data-mreply]")].find((x) => x.dataset.mreply === "l6"); return b ? { label: b.textContent.trim(), draft: b.dataset.draft } : null; });
+if (!sendDraft || sendDraft.label !== "Send draft" || !/out front/.test(sendDraft.draft || "")) fail("Ira's row doesn't offer the held draft: " + JSON.stringify(sendDraft));
+await mgr.evaluate(() => [...document.querySelectorAll(".mg-wait [data-mreply]")].find((x) => x.dataset.mreply === "l6").click());
+await mgr.waitForSelector("#mt-body");
+await mgr.click('.modal [data-act="send"]');
+await mgr.waitForFunction(async () => (await (await fetch("/__mtexts")).json()).some((m) => m.leadId === "l6"), null, { timeout: 8000 });
+const gone = await mgr.evaluate(async () => { const s = await import("/js/store.js"); return !s.get("agentdrafts", "reply:l6"); });
+if (!gone) fail("sending the held draft didn't clear it from the manager's phone");
+
 // --- Text Ken to confirm, from the at-risk card, with the draft.
 await mgr.click('.mg-risk-row[data-kind="unconfirmed"] [data-mtext]');
 await mgr.waitForSelector("#mt-body");

@@ -16,7 +16,7 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo, cachedConfig, loadConfig, saveConfig } from "../team.js";
 import { runningVersion, getVersion } from "../updater.js";
 import { onPull } from "../pulltorefresh.js";
 
@@ -73,6 +73,7 @@ export function renderTeam(view, { param } = {}) {
     check = await checkAdmin();
     try { team = await myStore(); error = ""; } catch (e) { error = e && e.message ? e.message : "couldn't reach the store"; }
     admin = check.admin || isAdmin(team);
+    if (team && isManager(team)) { try { await loadConfig(team); } catch { /* the card shows defaults */ } }
     if (admin) { try { stores = await adminStores(); } catch { stores = null; } }
     draw();
   }
@@ -125,6 +126,7 @@ export function renderTeam(view, { param } = {}) {
         </div>
         <div class="hint">Invite code: <span class="mono">${esc(team.code)}</span> — a rep can also type it under Tools → Team. Reps join themselves; managers are appointed by the admin.</div>
       </div>
+      ${agentHTML()}
       <div class="hint" style="margin:0 2px">Targets are set under Reps; the numbers are on Home and Floor.</div>` : ""}
     `;
     wireAdmin();
@@ -138,6 +140,36 @@ export function renderTeam(view, { param } = {}) {
       try { await leaveStore(); team = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
     });
     el.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", () => openRoleSheet((team.members || []).find((m) => m.user_id === b.dataset.role))));
+    on('[data-act="agent-save"]', async (ev) => {
+      const v = (id) => el.querySelector("#" + id);
+      const hour = (id, dflt) => { const n = Number(v(id).value); return isFinite(n) && n >= 0 && n <= 23 ? n : dflt; };
+      const agent = { replies: v("ag-replies").checked, confirmOn: v("ag-confirm").checked, confirmHour: hour("ag-confirm-h", 17), noShowOn: v("ag-noshow").checked, handoutOn: v("ag-handout").checked, handoutN: Math.max(0, Math.min(10, Number(v("ag-handout-n").value) || 0)), serviceOn: v("ag-service").checked, huddleOn: v("ag-huddle").checked, huddleHour: hour("ag-huddle-h", 8), recapOn: v("ag-recap").checked, recapHour: hour("ag-recap-h", 18) };
+      ev.currentTarget.disabled = true;
+      try { await saveConfig(team, { agent }); toast("Saved — the agent runs on the sweep", "success"); draw(); }
+      catch (e) { toast(e.message || "Couldn't save", "danger"); ev.currentTarget.disabled = false; }
+    });
+  }
+
+  // The store's agent: what the function does for the manager every day,
+  // and when. Saved to the store's config; the function reads it on each
+  // sweep (AGENT_DEFAULTS there match these).
+  function agentHTML() {
+    const a = { replies: true, confirmOn: true, confirmHour: 17, noShowOn: true, handoutOn: true, handoutN: 3, serviceOn: true, huddleOn: true, huddleHour: 8, recapOn: true, recapHour: 18, ...((cachedConfig() || {}).agent || {}) };
+    const hourSel = (id, val) => `<select id="${id}" class="ag-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === Number(val) ? "selected" : ""}>${h % 12 || 12} ${h < 12 ? "am" : "pm"}</option>`).join("")}</select>`;
+    const on = (id, checked, label) => `<label class="switch ag-switch"><input type="checkbox" id="${id}" ${checked ? "checked" : ""}><span>${label}</span></label>`;
+    return `
+      <div class="section-title">The store's agent <span class="muted" style="font-weight:500;font-size:0.78rem">· runs every ten minutes</span></div>
+      <div class="card agent-card">
+        ${on("ag-replies", a.replies, "<b>Draft replies</b> for customers waiting on a rep — held for your tap")}
+        <div class="row ag-row">${on("ag-confirm", a.confirmOn, "<b>Confirm tomorrow's appointments</b> nobody has confirmed, at")}${hourSel("ag-confirm-h", a.confirmHour)}</div>
+        ${on("ag-noshow", a.noShowOn, "<b>Chase no-shows</b> the morning after — a text, and a rebook on the rep's list")}
+        <div class="row ag-row">${on("ag-handout", a.handoutOn, "<b>Hand out reach-outs</b> each morning, per rep:")}<input id="ag-handout-n" type="number" inputmode="numeric" min="0" max="10" value="${a.handoutN}" style="width:64px"></div>
+        ${on("ag-service", a.serviceOn, "<b>Flag the service drive</b> — a rep's customers in for service that day go on their list")}
+        <div class="row ag-row">${on("ag-huddle", a.huddleOn, "<b>Send me the huddle</b> at")}${hourSel("ag-huddle-h", a.huddleHour)}</div>
+        <div class="row ag-row">${on("ag-recap", a.recapOn, "<b>Send me the day's recap</b> at")}${hourSel("ag-recap-h", a.recapHour)}</div>
+        <button class="btn btn-primary btn-block" data-act="agent-save" style="margin-top:10px">Save</button>
+        <div class="hint">Texts go from the store's number in your name (the name on the welcome text), filed in the rep's thread; never a figure. Hand-outs and the service drive need the owner book imported. The huddle and recap come as a push, and by email when the store has email set up.</div>
+      </div>`;
   }
 
   function drawNoStore() {

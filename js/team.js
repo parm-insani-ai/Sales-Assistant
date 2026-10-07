@@ -423,7 +423,14 @@ export async function sendManagerText(repId, leadId, body) {
   const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ mtext: { rep: repId, leadId, body } }) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(/No messages/.test(j.error || "") ? "Paste the latest function into quick-api to text as the manager" : j.error || `Couldn't send (${res.status})`);
+  // The draft the agent held for this customer, if any, is spent.
+  try { if (store.get("agentdrafts", `reply:${leadId}`)) store.remove("agentdrafts", `reply:${leadId}`); } catch { /* fine */ }
   return j;
+}
+// The reply the agent drafted for a waiting customer, held for the
+// manager's tap (the function writes it to the manager's own records).
+export function heldDraft(leadId) {
+  try { return store.get("agentdrafts", `reply:${leadId}`) || null; } catch { return null; }
 }
 // Welcomes sent across the store in the last `days`, newest first.
 export async function welcomeLog(team, days = 30) {
