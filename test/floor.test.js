@@ -170,6 +170,23 @@ if (!/Just confirming your test drive/.test(draftInBox)) fail("the confirmation 
 await mgr.click('.modal [data-act="send"]');
 await mgr.waitForFunction(async () => (await (await fetch("/__mtexts")).json()).length === 2, null, { timeout: 8000 });
 
+// --- Nothing waiting: the card says, per rep, what the board read — so a
+// rep's phone showing a text the Floor doesn't is answered on the page.
+await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U1, rows: [
+  { id: "tt1", collection: "tasks", data: { id: "tt1", leadId: "l5", cadence: true, channel: "text", intent: "intro", step: 1, of: 13, title: "Text Wes — Welcome text", due: today, readyAt: iso(ago(90)), done: true } },
+  { id: "tt2", collection: "tasks", data: { id: "tt2", leadId: "l1", cadence: true, channel: "text", intent: "value", step: 3, of: 13, title: "Text Dana — Value text", due: today, readyAt: iso(ago(30)), done: true } },
+  // Still in its hold: ready in ten minutes.
+  { id: "tt4", collection: "tasks", data: { id: "tt4", leadId: "l6", cadence: true, channel: "text", intent: "intro", step: 1, of: 13, title: "Text Ira — Welcome text", due: today, readyAt: iso(ago(-10)), done: false } },
+] }) });
+await mgr.evaluate(() => sessionStorage.removeItem("viniva:team-board"));
+await mgr.goto(APP + "/#/floor");
+await settled();
+const found = await mgr.evaluate(() => ({ title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => t.startsWith("Texts waiting to go")), lines: [...document.querySelectorAll(".mg-due-found")].map((n) => n.textContent.replace(/\s+/g, " ").trim()) }));
+console.log("found:", JSON.stringify(found));
+const inTen = new Date(now.getTime() + 10 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+if (!/· none/.test(found.title || "")) fail("with every text sent the card still counts some: " + found.title);
+if (found.lines.length !== 1 || !new RegExp("^Parm · synced .* · 1 planned, next ready " + inTen.replace(/\s/g, "\\s") + "$").test(found.lines[0])) fail("the empty card doesn't say what it read from Parm's phone: " + JSON.stringify(found.lines));
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nfloor.test.js FAILED" : "\nfloor.test.js passed");

@@ -331,6 +331,15 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   const textsDue = rows(planTasks).filter((t) => t.channel === "text" && !t.done && t.readyAt && String(t.readyAt) <= nowISO && now - new Date(t.readyAt) < 24 * 3600000)
     .map((t) => ({ id: t.id, leadId: t.leadId || "", name: nameOf(t.leadId), intent: t.intent || "", title: String(t.title || "").replace(/^Text \S+ — /, ""), readyAt: String(t.readyAt), hasPhone: !!((byId.get(t.leadId) || {}).phone) }))
     .sort((a, b) => a.readyAt.localeCompare(b.readyAt));
+  // What the board actually found in their plan, so an empty card can say
+  // why: nothing planned, a text still in its hold, or one that lapsed —
+  // as opposed to a phone that hasn't synced or a store this account
+  // doesn't manage (then onFile is 0 and lastWrite null).
+  const planTexts = (() => {
+    const open = rows(planTasks).filter((t) => t.channel === "text" && !t.done);
+    const future = open.filter((t) => t.readyAt && String(t.readyAt) > nowISO).map((t) => String(t.readyAt)).sort();
+    return { onFile: open.length, steps: rows(planTasks).length, next: future[0] || null, lapsed: open.filter((t) => t.readyAt && now - new Date(t.readyAt) >= 24 * 3600000).length };
+  })();
   const texts = rows(textsWeek), mails = rows(emailsWeek), calls = rows(callsToday);
   // The last message with each customer, text or email. If it came from
   // them and nobody answered, they're waiting.
@@ -368,7 +377,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     pending: loggedTodayList.filter((l) => !touchedToday.has(l.id)).map((l) => ({ ...l, email: (byId.get(l.id) || {}).email || "", optOut: !!((byId.get(l.id) || {}).smsOptOut || (byId.get(l.id) || {}).doNotContact) })),
   };
 
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, at: now.toISOString() };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, planTexts, at: now.toISOString() };
 }
 
 // Every member's numbers, in parallel, in the order given.

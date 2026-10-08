@@ -216,8 +216,23 @@ export function renderFloor(view, { param } = {}) {
       // "waiting": the customer hasn't heard from us yet.
       const due = t.textsDue || [];
       const dueCount = due.reduce((a, d) => a + d.texts.length, 0);
+      // Nothing waiting: say, per rep, what the board read — so "the rep's
+      // phone shows a text and this doesn't" is answered on the page. A
+      // phone that never synced, or a rep in a store this account doesn't
+      // manage, reads as never synced with nothing on file.
+      const clock = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const found = (r) => {
+        if (r.error) return `<span style="color:var(--danger)">${esc(r.error)}</span>`;
+        const sy = syncedAgo(r.lastWrite, now.getTime()), p = r.planTexts || { onFile: 0, steps: 0, next: null, lapsed: 0 };
+        const bits = [sy.text];
+        if (!p.steps && !r.lastWrite) bits.push("nothing on file — their phone hasn't synced, or you don't manage their store");
+        else if (!p.onFile) bits.push("no texts planned");
+        else bits.push(`${p.onFile} planned${p.next ? `, next ready ${clock(p.next)}` : ""}${p.lapsed ? `, ${p.lapsed} lapsed (ready more than a day ago)` : ""}`);
+        return esc(bits.join(" · "));
+      };
+      const foundLines = rows.filter((r) => r.member.role !== "manager" || (r.planTexts && r.planTexts.onFile)).map((r) => `<div class="small mg-due-found" data-rep="${esc(r.member.user_id)}" style="padding:3px 0"><b>${esc(memberName(r.member))}</b> · ${found(r)}</div>`).join("");
       const dueCard = `<div class="section-title">Texts waiting to go <span class="muted" style="font-weight:500;font-size:0.78rem">· ${dueCount ? `${dueCount} drafted, not sent` : "none"}</span></div>
-        <div class="card mg-due">${due.length ? due.map((d) => `<div class="mg-due-rep" data-rep="${esc(d.rep.user_id)}" style="padding:7px 0;border-bottom:1px solid var(--border)"><div class="row" style="align-items:center;gap:8px"><div class="row-main mg-rep" data-rep="${esc(d.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(memberName(d.rep))} <span class="small" style="color:var(--warning);font-weight:600">${d.texts.length} text${d.texts.length === 1 ? "" : "s"} ready</span></div><div class="row-sub">oldest waiting ${waitedFor(d.oldest)} · ${d.texts.slice(0, 3).map((x) => `${esc(firstName(x.name) || "a customer")}${x.intent === "intro" ? " (welcome)" : ""}`).join(", ")}${d.texts.length > 3 ? ` and ${d.texts.length - 3} more` : ""}</div></div><button class="btn btn-ghost btn-sm" data-dnudge="${esc(d.rep.user_id)}" data-n="${d.texts.length}" data-age="${waitedFor(d.oldest)}">${icon("bell")} Nudge</button></div>${d.texts.filter((x) => !x.hasPhone).length ? `<div class="small muted" style="margin-top:2px">${d.texts.filter((x) => !x.hasPhone).length} can't send — no phone number on file.</div>` : ""}</div>`).join("") : `<div class="muted small">Every text the reps' phones have drafted has gone out.</div>`}</div>`;
+        <div class="card mg-due">${due.length ? due.map((d) => `<div class="mg-due-rep" data-rep="${esc(d.rep.user_id)}" style="padding:7px 0;border-bottom:1px solid var(--border)"><div class="row" style="align-items:center;gap:8px"><div class="row-main mg-rep" data-rep="${esc(d.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(memberName(d.rep))} <span class="small" style="color:var(--warning);font-weight:600">${d.texts.length} text${d.texts.length === 1 ? "" : "s"} ready</span></div><div class="row-sub">oldest waiting ${waitedFor(d.oldest)} · ${d.texts.slice(0, 3).map((x) => `${esc(firstName(x.name) || "a customer")}${x.intent === "intro" ? " (welcome)" : ""}`).join(", ")}${d.texts.length > 3 ? ` and ${d.texts.length - 3} more` : ""}</div></div><button class="btn btn-ghost btn-sm" data-dnudge="${esc(d.rep.user_id)}" data-n="${d.texts.length}" data-age="${waitedFor(d.oldest)}">${icon("bell")} Nudge</button></div>${d.texts.filter((x) => !x.hasPhone).length ? `<div class="small muted" style="margin-top:2px">${d.texts.filter((x) => !x.hasPhone).length} can't send — no phone number on file.</div>` : ""}</div>`).join("") : `<div class="muted small">Every text the reps' phones have drafted has gone out.</div>${foundLines}`}</div>`;
       // 2. Appointments at risk: unconfirmed inside 24 hours, and no-shows nobody has rebooked.
       const risk = t.atRisk || [], noShows = t.noShows || [];
       const riskCard = `<div class="section-title">Appointments at risk <span class="muted" style="font-weight:500;font-size:0.78rem">· ${risk.length || noShows.length ? [risk.length ? `${risk.length} unconfirmed` : "", noShows.length ? `${noShows.length} to rebook` : ""].filter(Boolean).join(" · ") : "none"}</span></div>
