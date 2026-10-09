@@ -450,15 +450,26 @@ function hydrate(parsed) {
   // day: speed to lead, untouched leads and the sweep's "hasn't been
   // touched" all counted them. Imports now stamp importedAt and give an
   // owner the purchase date as their created date; this does the same, once,
-  // for rows already on file — recognised by their source or the fields
-  // only a file brings — and queues them so the cloud copy matches.
-  if (!merged.settings.importStamped) {
+  // for rows already on file and queues them so the cloud copy matches.
+  // A row is from a file when its source says so, when it carries a field
+  // only the importer writes (the export's equity, alert, deal type,
+  // payments-left date, odometer, rate, term, second phone, service dates),
+  // or when it arrived in a batch: twenty or more rows created in the same
+  // second is a file, never a hand — the first pass went by source alone
+  // and missed a prospect list whose source column named the lead source.
+  // (Sold and delivered rows made from the sales and deliveries lists also
+  // arrive in a batch; they are left alone unless a file field says file.)
+  if (Number(merged.settings.importStamped || 0) < 2) {
     const now = new Date().toISOString();
     if (Array.isArray(merged.leads)) {
+      const batch = new Map();
+      merged.leads.forEach((l) => { const k = String((l && l.createdAt) || "").slice(0, 19); if (k) batch.set(k, (batch.get(k) || 0) + 1); });
       merged.leads.forEach((l) => {
         if (!l || l.importedAt) return;
-        const fromFile = /^(import|autoalert)$/i.test(String(l.source || "").trim()) || l.importedEquity != null || l.alertType || l.dealType || l.paymentsLeftAsOf;
-        if (!fromFile) return;
+        const bySource = /^(import|autoalert)$/i.test(String(l.source || "").trim());
+        const byField = l.importedEquity != null || l.alertType || l.dealType || l.priority || l.paymentsLeftAsOf || l.odometer != null || l.currentApr != null || l.currentTerm != null || l.phone2 || l.lastService || l.serviceAppt;
+        const byBatch = (batch.get(String(l.createdAt || "").slice(0, 19)) || 0) >= 20 && !l.loggedAt && !["sold", "delivered"].includes(l.stage || "");
+        if (!(bySource || byField || byBatch)) return;
         l.importedAt = l.createdAt || now;
         const bought = l.purchaseDate ? new Date(`${String(l.purchaseDate).slice(0, 10)}T12:00:00`) : null;
         if (bought && !isNaN(bought) && bought.toISOString() < String(l.createdAt || now)) l.createdAt = bought.toISOString();
@@ -467,7 +478,7 @@ function hydrate(parsed) {
         merged.outbox[`leads:${l.id}`] = { collection: "leads", id: l.id, deleted: false, at: now };
       });
     }
-    merged.settings.importStamped = true;
+    merged.settings.importStamped = 2;
     merged.needsPersist = true;
   }
   // v176-v183 wrote the settings mirror as config/"me", which is the id the

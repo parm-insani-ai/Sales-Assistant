@@ -29,6 +29,13 @@ await rep.addInitScript(({ nowISO }) => {
       { id: "pro", name: "Pat Prospect", phone: "9025550002", stage: "new", source: "AutoAlert", alertType: "Lease Maturity", ...x },
       // Someone who walked in today.
       { id: "walk", name: "Wes Walkin", phone: "9025550003", stage: "new", source: "Walk-in", ...x },
+      // A prospect list whose source column named the lead source: 25 rows
+      // in one second is a file, whatever it says. One "Internet" lead typed
+      // in at another moment is not.
+      ...Array.from({ length: 25 }, (_, i) => ({ id: "list" + i, name: "Lead " + i, phone: "902555" + String(2000 + i), stage: "new", source: "Internet", createdAt: "2026-09-15T14:00:00.000Z", updatedAt: "2026-09-15T14:00:00.000Z" })),
+      { id: "typed", name: "Terry Typed", phone: "9025550006", stage: "new", source: "Internet", createdAt: "2026-09-15T14:00:01.000Z", updatedAt: "2026-09-15T14:00:01.000Z" },
+      // Sold customers made from the sales list arrive in a batch too; they're sales, not a file.
+      ...Array.from({ length: 25 }, (_, i) => ({ id: "sold" + i, name: "Buyer " + i, stage: "sold", source: "Sale", createdAt: "2026-09-20T09:00:00.000Z", updatedAt: "2026-09-20T09:00:00.000Z" })),
     ],
     settings: { salesperson: "Parm", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" },
   }));
@@ -38,14 +45,15 @@ await rep.waitForSelector("#view", { timeout: 20000 });
 const stamped = await rep.evaluate(async () => {
   const s = await import("/js/store.js"); const lb = await import("/js/logbook.js");
   const g = (id) => s.get("leads", id);
-  return { own: { importedAt: g("own").importedAt, createdAt: g("own").createdAt, inLog: lb.inLog(g("own")) }, pro: { importedAt: g("pro").importedAt, createdAt: g("pro").createdAt, inLog: lb.inLog(g("pro")) }, walk: { importedAt: g("walk").importedAt || null, inLog: lb.inLog(g("walk")) }, outbox: s.getOutbox().map((e) => e.id).sort(), stamped: !!s.getSettings().importStamped };
+  return { list: s.all("leads").filter((l) => /^list/.test(l.id) && l.importedAt).length, typed: g("typed").importedAt || null, sold: s.all("leads").filter((l) => /^sold/.test(l.id) && l.importedAt).length, own: { importedAt: g("own").importedAt, createdAt: g("own").createdAt, inLog: lb.inLog(g("own")) }, pro: { importedAt: g("pro").importedAt, createdAt: g("pro").createdAt, inLog: lb.inLog(g("pro")) }, walk: { importedAt: g("walk").importedAt || null, inLog: lb.inLog(g("walk")) }, outbox: s.getOutbox().map((e) => e.id).sort(), stamped: !!s.getSettings().importStamped };
 });
 console.log("stamped:", JSON.stringify(stamped));
 const bought = new Date("2021-06-01T12:00:00").toISOString();
 if (stamped.own.importedAt !== iso(now) || stamped.own.createdAt !== bought) fail("the owner isn't on file since the purchase date: " + JSON.stringify(stamped.own));
 if (stamped.pro.importedAt !== iso(now) || stamped.pro.createdAt !== iso(now) || stamped.pro.inLog) fail("the prospect from the export isn't stamped, or counts as logged: " + JSON.stringify(stamped.pro));
 if (stamped.walk.importedAt || !stamped.walk.inLog) fail("the walk-in was treated as an import: " + JSON.stringify(stamped.walk));
-if (JSON.stringify(stamped.outbox) !== JSON.stringify(["own", "pro"]) || !stamped.stamped) fail("the stamped rows aren't queued for the cloud: " + JSON.stringify(stamped.outbox));
+if (stamped.list !== 25 || stamped.typed || stamped.sold !== 0) fail("the batch rule is wrong — list " + stamped.list + ", typed " + stamped.typed + ", sold " + stamped.sold);
+if (stamped.outbox.length !== 27 || !stamped.outbox.includes("own") || !stamped.outbox.includes("pro") || !stamped.outbox.includes("list0") || !stamped.stamped) fail("the stamped rows aren't queued for the cloud: " + JSON.stringify(stamped.outbox));
 
 // --- A fresh import builds rows the same way.
 const built = await rep.evaluate(() => import("/js/views/import.js").then((m) => {
