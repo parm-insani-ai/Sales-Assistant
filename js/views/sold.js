@@ -7,6 +7,7 @@ import { esc, formatDateTime } from "../utils.js";
 import { icon } from "../icons.js";
 import { openModal, toast, undoToast, emptyState } from "../components.js";
 import { docsFor, docCount, addDoc, docBlob, removeDoc, syncDocs, pendingDocs } from "../docs.js";
+import { readDealPages, applyDealRead } from "../dealread.js";
 
 const initials = (name) => String(name || "").trim().split(/\s+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase() || "?";
 const vehLabel = (s) => [s.year, s.brand, s.model, s.trim].filter(Boolean).join(" ") || s.vehicle || "";
@@ -82,6 +83,8 @@ export function renderSold(view) {
         <div class="sd-add">
           <label class="btn btn-primary btn-sm sd-addbtn">${icon("image")} Take a photo<input type="file" accept="image/*" capture="environment" multiple hidden data-add></label>
           <label class="btn btn-ghost btn-sm sd-addbtn">${icon("paperclip")} Add a file<input type="file" accept="image/*,application/pdf" multiple hidden data-add></label>
+          <label class="btn btn-ghost btn-sm sd-addbtn sd-readbtn" title="Photograph the approval order or the worksheet: the deal is read and the delivery prep list written">${icon("sparkles")} Read the paperwork<input type="file" accept="image/*" capture="environment" multiple hidden data-read></label>
+          ${s.dealReadAt ? `<span class="small muted sd-read-done">${icon("check")} read${s.products && s.products.length ? ` · ${s.products.length} product${s.products.length === 1 ? "" : "s"}` : ""}${s.deliveryId ? ` · <a href="#/deliveries/${esc(s.deliveryId)}" style="color:var(--brand)">prep list</a>` : ""}</span>` : ""}
           ${s.leadId && store.get("leads", s.leadId) ? `<a class="btn btn-ghost btn-sm" href="#/leads/${esc(s.leadId)}" style="margin-left:auto">${icon("users")} Customer</a>` : ""}
         </div>`;
       docs.forEach((d) => { const img = body.querySelector(`[data-doc="${d.id}"] img`); if (img) thumb(d, img); });
@@ -96,7 +99,56 @@ export function renderSold(view) {
         paintBody();
       }));
       body.querySelectorAll(".sd-thumb").forEach((b) => b.addEventListener("click", () => { const d = store.get("docs", b.dataset.doc); if (d) viewer(d, s, paintBody, card); }));
+      const readInp = body.querySelector("[data-read]");
+      if (readInp) readInp.addEventListener("change", async () => {
+        const files = [...readInp.files].filter((f) => /^image\//.test(f.type || ""));
+        readInp.value = "";
+        if (!files.length) return;
+        const btn = body.querySelector(".sd-readbtn");
+        if (btn) { btn.classList.add("disabled"); btn.innerHTML = `${icon("sparkles")} Reading…`; }
+        try {
+          const r = await readDealPages(store.get("sales", s.id) || s, files);
+          reviewRead(store.get("sales", s.id) || s, r, () => { card.querySelector(".sd-count").innerHTML = `${icon("file")} ${docCount(s.id)}`; paintBody(); });
+        } catch (e) { toast(e && e.message ? e.message : "Couldn't read the page", "danger"); paintBody(); }
+      });
     }
+  }
+
+  // What was read, for the rep to confirm: the car and the money as a
+  // check, every product as a line, and the prep list with its owners and
+  // lead times. One tap writes the delivery and the day's to-dos.
+  function reviewRead(s, r, after) {
+    const { read, items, headsUp: hu } = r;
+    const v = read.vehicle || {}, f = read.finance || {};
+    const car = [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
+    const trade = (read.trade || []).map((t) => [t.year, t.make, t.model].filter(Boolean).join(" ")).filter(Boolean).join(", ");
+    const pay = f.type ? `${f.type}${f.term ? ` · ${f.term} mo` : ""}${f.payment ? ` · $${Number(f.payment).toLocaleString("en-CA")}${f.frequency ? " " + f.frequency : ""}` : ""}${f.lender ? ` · ${f.lender}` : ""}` : "";
+    const owner = (o) => ({ service: "Service", parts: "Parts", finance: "F&I", customer: "Customer", rep: "You" })[o] || o;
+    const el = document.createElement("div");
+    el.className = "deal-read";
+    el.innerHTML = `
+      <div class="small muted">${esc(read.form === "worksheet" ? "Worksheet" : read.form === "bill_of_sale" ? "Bill of sale" : "Approval order")}${read.dealNo ? ` · deal ${esc(String(read.dealNo))}` : ""}${read.date ? ` · ${esc(String(read.date))}` : ""}</div>
+      <div class="card" style="margin-top:8px">
+        <div class="strong">${esc(car || s.vehicle || "Vehicle")}${v.stock ? ` <span class="muted small">· ${esc(v.stock)}</span>` : ""}</div>
+        <div class="small muted">${[v.newUsed, v.colour, trade ? "trade: " + trade : "", pay].filter(Boolean).map(esc).join(" · ")}</div>
+        ${read.notes && read.notes.length ? `<div class="small" style="margin-top:6px"><b>On the order:</b> ${read.notes.map(esc).join(" · ")}</div>` : ""}
+      </div>
+      <div class="section-title">On the deal <span class="muted" style="font-weight:500;font-size:0.78rem">· ${read.products.length} product${read.products.length === 1 ? "" : "s"}</span></div>
+      <div class="card deal-products">${read.products.length ? read.products.map((p) => `<div class="row" style="padding:4px 0"><div class="row-main small">${esc(p.name)}</div><span class="small muted">${esc(p.kind || "")}</span></div>`).join("") : `<div class="small muted">No products or accessories read on this page.</div>`}</div>
+      <div class="section-title">To get it ready <span class="muted" style="font-weight:500;font-size:0.78rem">· ${items.length}</span></div>
+      <div class="card deal-prep"><div class="small" style="margin-bottom:8px;color:var(--warning);font-weight:600">${esc(hu)}</div>
+        ${items.map((i, n) => `<label class="row deal-prep-item" style="padding:5px 0;align-items:flex-start;gap:8px"><input type="checkbox" data-item="${n}" checked style="margin-top:3px"><div class="row-main"><div class="small">${esc(i.label)}</div><div class="small muted">${esc(owner(i.owner))}${i.lead ? ` · ${i.lead} day${i.lead === 1 ? "" : "s"} lead` : " · day of"}${i.from && i.from !== "delivery" && i.from !== "vehicle" ? ` · ${esc(i.from)}` : ""}</div></div></label>`).join("")}
+      </div>
+      <button class="btn btn-primary btn-block" data-act="apply" style="margin-top:10px">Put it on the delivery</button>
+      <div class="hint">The photo is saved with the sale. The list goes on the delivery's prep checklist; anything with a lead time becomes a to-do for today. Nothing here is ever sent to the customer.</div>`;
+    const close = openModal("Read from the paperwork", () => el, { focus: false });
+    el.querySelector('[data-act="apply"]').addEventListener("click", () => {
+      const keep = items.filter((_, n) => { const c = el.querySelector(`[data-item="${n}"]`); return !c || c.checked; });
+      const out = applyDealRead(s, read, keep);
+      close();
+      toast(`${keep.length} on the prep list${out.tasks.length ? ` · ${out.tasks.length} to start today` : ""}`, "success");
+      if (after) after();
+    });
   }
 
   async function thumb(d, img) {

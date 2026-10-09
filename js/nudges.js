@@ -310,7 +310,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   const tomorrow = new Date(now + 24 * HOUR);
   const tomorrowK = localDayKey(tomorrow);
   store.all("deliveries")
-    .filter((d) => !d.done && String(d.when || d.date || "").slice(0, 10) === tomorrowK)
+    .filter((d) => !d.done && d.status !== "delivered" && String(d.deliveryDate || d.when || d.date || "").slice(0, 10) === tomorrowK)
     .forEach((d) => {
       const items = Array.isArray(d.checklist) ? d.checklist : [];
       const left = items.filter((i) => !i.done);

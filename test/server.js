@@ -47,6 +47,7 @@ const emails = [];
 // Targets managers set, and the nudges (pushes) managers sent.
 const targets = new Map();
 const nudges = [];
+const dealreads = [];
 // Google token exchanges the app asked for (test hook /__gauths).
 const gauths = [];
 const pushes = [];
@@ -360,6 +361,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__stores") return json(res, 200, [...stores.values()]);
   if (url.pathname === "/__nudges") return json(res, 200, nudges);
+  if (url.pathname === "/__dealreads") return json(res, 200, dealreads);
   if (url.pathname === "/__gauths") return json(res, 200, gauths);
   if (url.pathname === "/__welcomes") return json(res, 200, welcomes);
   if (url.pathname === "/__mtexts") return json(res, 200, mtexts);
@@ -405,6 +407,19 @@ const server = http.createServer((req, res) => {
       // Canned diagnosis, so the Settings readout can be exercised against the
       // shapes a real misconfiguration produces.
       if (msg.smscheck) return json(res, 200, checkReply);
+      // The paperwork read: a canned deal, so the Sold screen's flow can be
+      // exercised without a model. The pages themselves are ignored.
+      if (msg.dealread) {
+        const pages = Array.isArray(msg.dealread.images) ? msg.dealread.images : [];
+        if (!pages.length) return json(res, 400, { error: "no pages" });
+        dealreads.push({ pages: pages.length, saleId: msg.dealread.saleId || "" });
+        return json(res, 200, { pages: pages.length, read: { form: "approval", dealNo: "22299", date: "2026-10-08", deliveryDate: "", customer: { name: "Test Buyer" },
+          vehicle: { stock: "NH00001", vin: "1N4TEST0000000001", year: "2026", make: "Nissan", model: "Sentra", trim: "SV", colour: "Bluestone Pearl", newUsed: "New", fuel: "gas", odometer: 25 },
+          trade: [{ year: "2013", make: "Hyundai", model: "Elantra", vin: "KMHTEST0000000002", odometer: 196760, allowance: 3000, lien: "N/A" }],
+          finance: { type: "finance", lender: "", term: 84, rate: null, payment: 254, frequency: "bi-weekly", down: 0 },
+          products: [{ name: "Vehicle protection (10 yr rust)", kind: "protection", amount: 799 }, { name: "Security etch", kind: "etch", amount: 699.95 }, { name: "Walkaway protection", kind: "walkaway", amount: 549 }],
+          notes: ["84-Month finance. Bank Rate.", "$254 Bi-weekly OAC.", "$3,000 trade enhancement applied."], totals: { sellingPrice: 30067, totalDue: 33284.28 } } });
+      }
       // The manager's welcome, sent now to one customer: the text lands in the
       // rep's thread and the customer is marked welcomed. The function's sweep
       // does the same on its own clock (js/welcome.js has the rules).
@@ -566,7 +581,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; dealreads.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null; objects.clear();
     return json(res, 200, { ok: true });
   }

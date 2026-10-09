@@ -280,6 +280,10 @@ try {
   const repPrefs = db.records.find((r) => r.user_id === U1 && r.collection === "prefs");
   repPrefs.data = { tzOffsetMinutes: 0, hoursFrom: 0, hoursTo: 24, hoursDays: [0, 1, 2, 3, 4, 5, 6], quietFrom: 0, quietTo: 0 };
   twilio.sent.length = 0;
+  // Ken's appointment an hour out (the sweep section's) is tomorrow's once
+  // the clock is near midnight, and the agent would confirm it first; it's
+  // confirmed by hand here so Tam's is the one this section watches.
+  { const ap = db.records.find((r) => r.user_id === U1 && r.id === "ap1"); if (ap) ap.data.confirmed = true; }
   // An earlier sweep in this run sends the day's huddle at the default hour
   // once the clock is past eight; this section tests the send itself.
   db.records.filter((r) => r.user_id === U3 && r.collection === "nudgelog").forEach((r) => { const sent = (r.data && r.data.sent) || {}; Object.keys(sent).forEach((k) => { if (/^agent:(huddle|recap):/.test(k)) delete sent[k]; }); });

@@ -1279,7 +1279,7 @@ async function handleSweep(body: any): Promise<Response> {
     if (localHour >= 15) {
       const tomorrow = new Date(now - tzOffset * 60000 + 86400000).toISOString().slice(0, 10);
       for (const d of await rows("deliveries")) {
-        if (d.done || String(d.when || d.date || "").slice(0, 10) !== tomorrow) continue;
+        if (d.done || d.status === "delivered" || String(d.deliveryDate || d.when || d.date || "").slice(0, 10) !== tomorrow) continue;
         const left = (Array.isArray(d.checklist) ? d.checklist : []).filter((i: any) => !i.done);
         if (!left.length) continue;
         found.push({
@@ -1736,6 +1736,63 @@ const MESSAGES_URL = () => `${(Deno.env.get("ANTHROPIC_BASE_URL") || "https://ap
 // separated. Members of a store are in without being listed — joining one
 // takes a manager's invite code. Unset, any signed-in account may use it,
 // which is how it was before; the daily budgets below still apply.
+// ---- The paperwork, read ----
+const DEAL_TOOL = {
+  name: "read_deal",
+  description: "What the photographed dealership paperwork says. Fill every field you can read; leave unknown fields empty. Amounts are numbers without currency signs.",
+  input_schema: {
+    type: "object",
+    properties: {
+      form: { type: "string", enum: ["approval", "worksheet", "bill_of_sale", "other"], description: "Which document this is: a customer approval order, a line-by-line worksheet or quote, a bill of sale, or something else." },
+      dealNo: { type: "string" }, date: { type: "string", description: "The document's date, YYYY-MM-DD if it can be read." },
+      deliveryDate: { type: "string", description: "Delivery or pickup date if written anywhere, YYYY-MM-DD." },
+      customer: { type: "object", properties: { name: { type: "string" }, phone: { type: "string" }, email: { type: "string" } } },
+      vehicle: { type: "object", properties: { stock: { type: "string" }, vin: { type: "string" }, year: { type: "string" }, make: { type: "string" }, model: { type: "string" }, trim: { type: "string" }, colour: { type: "string" }, newUsed: { type: "string", enum: ["New", "Used", "Demo", ""] }, fuel: { type: "string", description: "electric, hybrid, gas, diesel, or empty" }, odometer: { type: "number" } } },
+      trade: { type: "array", items: { type: "object", properties: { year: { type: "string" }, make: { type: "string" }, model: { type: "string" }, vin: { type: "string" }, odometer: { type: "number" }, allowance: { type: "number" }, lien: { type: "string", description: "Lien amount or lienholder as written; N/A or empty when none." } } } },
+      finance: { type: "object", properties: { type: { type: "string", enum: ["finance", "lease", "cash", ""] }, lender: { type: "string" }, term: { type: "number" }, rate: { type: "number" }, payment: { type: "number" }, frequency: { type: "string", description: "monthly, bi-weekly, weekly, or empty" }, down: { type: "number" } } },
+      products: { type: "array", description: "Every product, protection, plan, package, accessory or add-on on the deal, one per line as printed — warranty or service plan, rust or paint protection, etch, walkaway, tire and rim, GAP or insurance products, accessory packages, individual accessories. Not taxes, fees, freight, levies or the vehicle itself.", items: { type: "object", properties: { name: { type: "string" }, kind: { type: "string", enum: ["warranty", "protection", "etch", "walkaway", "insurance", "package", "accessory", "other"] }, amount: { type: "number" } } } },
+      notes: { type: "array", items: { type: "string" }, description: "Lines from any 'no further work or add-ons included except' or special-instructions box, verbatim." },
+      totals: { type: "object", properties: { sellingPrice: { type: "number" }, totalDue: { type: "number" } } },
+    },
+    required: ["form", "products"],
+  },
+};
+const DEAL_MAX_PAGES = 4, DEAL_MAX_IMAGE_CHARS = 6_000_000;
+async function handleDealRead(x: any, caller: string): Promise<Response> {
+  const pages = Array.isArray(x.images) ? x.images.slice(0, DEAL_MAX_PAGES) : [];
+  if (!pages.length) return json({ error: "no pages" }, 400);
+  for (const p of pages) {
+    if (!p || typeof p.data !== "string" || !/^image\/(jpeg|png|webp)$/.test(String(p.media_type || ""))) return json({ error: "each page is a JPEG, PNG or WebP as base64" }, 400);
+    if (p.data.length > DEAL_MAX_IMAGE_CHARS) return json({ error: "a page is too big — the app shrinks photos before sending; is this one?" }, 413);
+  }
+  if (!(await mayUseModel(caller))) return json({ error: "This account isn't set up for the assistant. Ask your manager to add you to the store.", code: "not_allowed" }, 403);
+  const budget = await budgetLeft(caller);
+  if (budget && !budget.ok) return json({ error: budget.why, code: "over_budget" }, 429);
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY") || "";
+  if (!apiKey) return json({ error: "ANTHROPIC_API_KEY isn't set on the function" }, 500);
+  const content: any[] = pages.map((p: any) => ({ type: "image", source: { type: "base64", media_type: p.media_type, data: p.data } }));
+  content.push({ type: "text", text: "This is a car dealership's signed deal paperwork (a customer approval order, a worksheet, or a bill of sale). Read it and call read_deal with everything on it. List every product, plan, protection, package and accessory as its own line, named as printed. Do not invent a delivery date. If a field can't be read, leave it empty." });
+  const model = Deno.env.get("DEAL_MODEL") || Deno.env.get("MODEL") || "claude-sonnet-5-5";
+  let data: any;
+  try {
+    const r = await fetch(MESSAGES_URL(), {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 2048, tools: [DEAL_TOOL], tool_choice: { type: "tool", name: "read_deal" }, messages: [{ role: "user", content }] }),
+    });
+    data = await r.json();
+    if (!r.ok) return json({ error: data?.error?.message || `Claude error ${r.status}` }, 502);
+  } catch (e) { return json({ error: `Couldn't reach the model: ${(e as Error).message}` }, 502); }
+  await addSpend(caller, costOf(data.model || model, data.usage)).catch(() => {});
+  const call = (data.content || []).find((b: any) => b.type === "tool_use" && b.name === "read_deal");
+  if (!call || !call.input) return json({ error: "The page couldn't be read — try a straighter, brighter photo." }, 422);
+  const read = call.input;
+  read.products = (Array.isArray(read.products) ? read.products : []).filter((p: any) => p && p.name).slice(0, 40);
+  read.trade = (Array.isArray(read.trade) ? read.trade : []).filter((t: any) => t && (t.make || t.model || t.vin));
+  read.notes = (Array.isArray(read.notes) ? read.notes : []).map((n: any) => String(n).slice(0, 200)).slice(0, 10);
+  return json({ read, pages: pages.length });
+}
+
 const MODEL_OK = new Map<string, { ok: boolean; exp: number }>();
 async function mayUseModel(uid: string): Promise<boolean> {
   const list = (Deno.env.get("AGENT_EMAILS") || "").toLowerCase().split(/[\s,;]+/).filter(Boolean);
@@ -2749,13 +2806,22 @@ Deno.serve(async (req: Request) => {
   // public paths (a customer booking, cron with its key) carry no session and
   // never name a user from the body. The caller's id overwrites whatever the
   // body said.
-  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.mtext || body.nudge || body.welcome || body.gauth || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
+  const personal = !!(body.sms || body.smscheck || body.testpush || body.shorten || body.email || body.memail || body.mtext || body.nudge || body.welcome || body.gauth || body.dealread || (body.inventory && body.inventory.u) || Array.isArray(body.messages));
   let caller = "";
   if (personal) {
     caller = await callerId(req);
     if (!caller) return json({ error: "Sign in to your cloud account in Settings — this call needs your session." }, 401);
-    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome", "memail", "mtext"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
+    for (const k of ["sms", "smscheck", "testpush", "shorten", "inventory", "nudge", "welcome", "memail", "mtext", "dealread"]) if (body[k] && typeof body[k] === "object") body[k].u = caller;
   }
+
+  // The deal, read off the paperwork: a photo of the approval order or the
+  // worksheet comes in, what's on the deal comes back as fields — the car,
+  // the trade, how it's paid, every product and accessory sold — for the
+  // app to turn into the delivery prep list (js/dealprep.js). Same gate as
+  // the assistant: a store member, within the daily budget. The pages
+  // carry the customer's details, so nothing is kept here: the photo lives
+  // in the app's own bucket, and the read goes back to the caller only.
+  if (body.dealread) return handleDealRead(body.dealread, caller);
 
   // The manager's welcome, to one customer, now — from a manager of the
   // rep's store (or an admin). The sweep does the rest on its own clock.
