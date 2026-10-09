@@ -200,7 +200,7 @@ found = await readDue();
 console.log("found:", JSON.stringify(found));
 const inHour = new Date(now.getTime() + 60 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "\\s");
 if (!/· none$/.test(found.title || "")) fail("with every text sent the card still counts some: " + found.title);
-if (found.lines.length !== 1 || !new RegExp("^Parm · synced .* · 1 planned, next ready " + inHour + "$").test(found.lines[0])) fail("the empty card doesn't say what it read from Parm's phone: " + JSON.stringify(found.lines));
+if (found.lines.length !== 1 || !new RegExp("^Parm · synced .* · 1 customer on file · 1 planned, next ready " + inHour + "$").test(found.lines[0])) fail("the empty card doesn't say what it read from Parm's phone: " + JSON.stringify(found.lines));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

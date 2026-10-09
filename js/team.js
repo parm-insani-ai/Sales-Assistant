@@ -347,7 +347,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   const planTexts = (() => {
     const open = rows(planTasks).filter((t) => t.channel === "text" && !t.done);
     const future = open.filter((t) => t.readyAt && String(t.readyAt) > nowISO).map((t) => String(t.readyAt)).sort();
-    return { onFile: open.length, steps: rows(planTasks).length, next: future[0] || null, lapsed: open.filter((t) => t.readyAt && now - new Date(t.readyAt) >= 24 * 3600000).length };
+    return { onFile: open.length, steps: rows(planTasks).length, customers: byId.size, next: future[0] || null, lapsed: open.filter((t) => t.readyAt && now - new Date(t.readyAt) >= 24 * 3600000).length };
   })();
   const texts = rows(textsWeek), mails = rows(emailsWeek), calls = rows(callsToday);
   // The last message with each customer, text or email. If it came from

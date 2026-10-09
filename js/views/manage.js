@@ -223,14 +223,17 @@ export function renderFloor(view, { param } = {}) {
       const clock = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
       const found = (r) => {
         if (r.error) return `<span style="color:var(--danger)">${esc(r.error)}</span>`;
-        const sy = syncedAgo(r.lastWrite, now.getTime()), p = r.planTexts || { onFile: 0, steps: 0, next: null, lapsed: 0 };
-        const bits = [sy.text];
+        const sy = syncedAgo(r.lastWrite, now.getTime()), p = r.planTexts || { onFile: 0, steps: 0, customers: 0, next: null, lapsed: 0 };
+        const bits = [sy.text, `${p.customers || 0} customer${p.customers === 1 ? "" : "s"} on file`];
         if (!p.steps && !r.lastWrite) bits.push("nothing on file — their phone hasn't synced, or you don't manage their store");
-        else if (!p.onFile) bits.push("no texts planned");
+        else if (!p.onFile) bits.push(p.steps ? "no texts planned" : "no plan steps on file — their phone hasn't pushed them");
         else bits.push(`${p.onFile} planned${p.next ? `, next ready ${clock(p.next)}` : ""}${p.lapsed ? `, ${p.lapsed} lapsed (ready more than a day ago)` : ""}`);
         return esc(bits.join(" · "));
       };
-      const foundLines = rows.filter((r) => r.member.role !== "manager" || (r.planTexts && r.planTexts.onFile)).map((r) => `<div class="small mg-due-found" data-rep="${esc(r.member.user_id)}" style="padding:3px 0"><b>${esc(memberName(r.member))}</b> · ${found(r)}</div>`).join("");
+      // Every member but the manager reading it — a manager who also sells
+      // (Parm's account is one) has a phone and a plan like anyone else.
+      const myId = (backend.currentUser() || {}).id;
+      const foundLines = rows.filter((r) => r.member.user_id !== myId || (r.planTexts && r.planTexts.onFile)).map((r) => `<div class="small mg-due-found" data-rep="${esc(r.member.user_id)}" style="padding:3px 0"><b>${esc(memberName(r.member))}</b> · ${found(r)}</div>`).join("");
       // In their hold: the welcome in its five minutes. Nothing to nudge
       // about yet — it's there so a customer just logged is on the Floor
       // the moment the rep's phone syncs, as it is on the rep's Right now.
