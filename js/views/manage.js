@@ -98,6 +98,11 @@ function wireCommon({ el, stats, team }) {
   }));
 }
 
+// The day as this phone sees it. toISOString() is UTC, and at nine in the
+// evening in Halifax that is already tomorrow: appointments are stored as
+// wall-clock times, so "today" has to be the local date or the evening's
+// cards read as if the day were over.
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const asOf = ({ board, team, loading }) => `<div class="row" style="margin:4px 2px 10px"><span class="small muted">${esc(new Date().toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" }))} · ${board && board.storeId === team.id ? "As of " + esc(formatDateTime(board.at).replace(/^[^,]*, /, "")) + (loading ? " · reading…" : " · pull down to refresh") : loading ? "Reading the reps…" : "Not read yet"}</span></div>`;
 const notRead = ({ loading }) => (loading ? `<div class="card"><div class="muted small" style="text-align:center">Reading the reps' books…</div></div>` : `<div class="card"><div class="muted small">Pull down to read the board.</div></div>`);
 const repNotice = (team) => `<div class="card">You're on ${esc(team.name)}'s team as a rep. The board is the manager's; your own numbers are in the sales view.</div>`;
@@ -113,7 +118,7 @@ export function renderManageHome(view) {
       const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const monthName = now.toLocaleDateString("en-CA", { month: "long" });
       const pace = t && t.goal ? Math.round((t.goal * now.getDate()) / daysIn) : 0;
-      const today = now.toISOString().slice(0, 10);
+      const today = localDay(now);
       return `
       ${errLine(error)}
       ${!manager ? repNotice(team) : `
@@ -182,7 +187,7 @@ export function renderFloor(view, { param } = {}) {
       const me = store.getSettings().salesperson || memberName((team.members || []).find((m) => m.user_id === (backend.currentUser() || {}).id)) || "the sales manager";
       if (!t) return `${errLine(error)}${asOf(c)}${notRead(c)}`;
       const fx = findings(ins).filter((x) => x.kind !== "needs").slice(0, 3);
-      const today = now.toISOString().slice(0, 10);
+      const today = localDay(now);
       const attention = rows.filter((r) => !r.error && r.touches && r.insight).flatMap((r) => {
         // A manager with no book and no goal has nothing to be behind on.
         if (!r.leads.open && !r.goal.units && !r.sales.units) return [];
@@ -206,7 +211,7 @@ export function renderFloor(view, { param } = {}) {
       const firstName = (n) => String(n || "").trim().split(/\s+/)[0];
       const waitedFor = (iso) => { const m = Math.max(0, Math.round((now - new Date(iso)) / 60000)); return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
       const whenWords = (w) => { const d = String(w).slice(0, 10), hm = String(w).slice(11, 16); return `${d === today ? "today" : d === tmrw ? "tomorrow" : esc(formatDateTime(w).split(",")[0])} ${esc(hm)}`; };
-      const tmrw = new Date(now.getTime() + 86400000).toISOString().slice(0, 10);
+      const tmrw = localDay(new Date(now.getTime() + 86400000));
       // 1. Customers waiting on a reply, longest first.
       const unanswered = t.waiting || [];
       const waitingCard = `<div class="section-title" style="margin-top:0">Waiting on a reply <span class="muted" style="font-weight:500;font-size:0.78rem">· ${unanswered.length ? `${unanswered.length} · longest first` : "nobody"}</span></div>
@@ -362,7 +367,7 @@ export function renderReps(view) {
     paint: (c) => {
       const { team, now, manager, t, rows, error } = c;
       if (!manager) return repNotice(team);
-      const today = now.toISOString().slice(0, 10);
+      const today = localDay(now);
       const logged = t ? t.logged : [];
       const chips = `<div class="lead-seg" role="tablist">
         <button class="btn btn-sm lead-seg-btn ${chip === "reps" ? "btn-primary" : "btn-ghost"}" data-chip="reps" role="tab" aria-selected="${chip === "reps"}"><span class="seg-name">Reps</span> <span class="seg-count">${(team.members || []).length}</span></button>
