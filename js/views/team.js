@@ -16,7 +16,7 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo, cachedConfig, loadConfig, saveConfig } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo, cachedConfig, loadConfig, saveConfig, boardCheck } from "../team.js";
 import { runningVersion, getVersion } from "../updater.js";
 import { onPull } from "../pulltorefresh.js";
 
@@ -127,6 +127,12 @@ export function renderTeam(view, { param } = {}) {
         <div class="hint">Invite code: <span class="mono">${esc(team.code)}</span> — a rep can also type it under Tools → Team. Reps join themselves; managers are appointed by the admin.</div>
       </div>
       ${agentHTML()}
+      <div class="section-title">Check the board</div>
+      <div class="card board-check">
+        <div class="small muted">Reads each member's cloud copy the way the Floor does and shows the counts, so a phone that shows something the board doesn't is explained in numbers.</div>
+        <button class="btn btn-ghost btn-sm btn-block" data-act="board-check" style="margin-top:8px">Check now</button>
+        <div class="board-check-out"></div>
+      </div>
       <div class="hint" style="margin:0 2px">Targets are set under Reps; the numbers are on Home and Floor.</div>` : ""}
     `;
     wireAdmin();
@@ -140,6 +146,27 @@ export function renderTeam(view, { param } = {}) {
       try { await leaveStore(); team = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
     });
     el.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", () => openRoleSheet((team.members || []).find((m) => m.user_id === b.dataset.role))));
+    on('[data-act="board-check"]', async (ev) => {
+      const btn = ev.currentTarget, out = el.querySelector(".board-check-out");
+      btn.disabled = true; out.innerHTML = `<div class="small muted" style="margin-top:8px">Reading…</div>`;
+      try {
+        const rows = await boardCheck(team);
+        const n = (v) => (typeof v === "number" ? v.toLocaleString() : esc(String(v == null ? "—" : v)));
+        const bad = (v) => typeof v === "string" && /^error/.test(v);
+        out.innerHTML = rows.length ? rows.map((r) => {
+          const sy = syncedAgo(r.lastWrite && !bad(r.lastWrite) ? r.lastWrite : null);
+          const short = typeof r.leadsServer === "number" && typeof r.leadsRead === "number" && r.leadsRead < r.leadsServer;
+          const p = r.planSteps && typeof r.planSteps === "object" ? r.planSteps : null;
+          return `<div class="small board-check-row" data-rep="${esc(r.member.user_id)}" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+            <div><b>${esc(memberName(r.member))}</b> · ${esc(sy.text)}</div>
+            <div style="${short || bad(r.leadsServer) || bad(r.leadsRead) ? "color:var(--danger)" : ""}">Customers: ${n(r.leadsServer)} on the server, ${n(r.leadsRead)} read${short ? " — the read came back short" : ""}</div>
+            <div style="${bad(r.loggedMonth) ? "color:var(--danger)" : ""}">Logged this month: ${n(r.loggedMonth)}</div>
+            <div style="${p ? "" : "color:var(--danger)"}">${p ? `Plan steps: ${n(p.steps)} · texts due now: ${n(p.due)} · held: ${n(p.held)}` : `Plan steps: ${n(r.planSteps)}`}</div>
+          </div>`;
+        }).join("") : `<div class="small muted" style="margin-top:8px">Nobody else is in the store yet.</div>`;
+      } catch (e) { out.innerHTML = `<div class="small" style="color:var(--danger);margin-top:8px">${esc(e.message || "Couldn't read")}</div>`; }
+      btn.disabled = false;
+    });
     on('[data-act="agent-save"]', async (ev) => {
       const v = (id) => el.querySelector("#" + id);
       const hour = (id, dflt) => { const n = Number(v(id).value); return isFinite(n) && n >= 0 && n <= 23 ? n : dflt; };

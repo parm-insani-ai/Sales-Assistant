@@ -389,6 +389,33 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, at: now.toISOString() };
 }
 
+// The board's self-check: for each member, what the server holds against
+// what a read brings back, and the few counts the Floor is built on —
+// so "their phone shows it and the board doesn't" is answered with
+// numbers rather than guesses. Each read reports its own error.
+export async function boardCheck(team, { now = new Date() } = {}) {
+  const me = (backend.currentUser() || {}).id;
+  const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+  const nowISO = now.toISOString();
+  const out = [];
+  for (const m of team.members || []) {
+    if (m.user_id === me) continue;
+    const r = { member: m };
+    const step = async (name, fn) => { try { r[name] = await fn(); } catch (e) { r[name] = `error: ${e && e.message ? e.message : e}`; } };
+    await step("lastWrite", () => backend.lastWrite(m.user_id));
+    await step("leadsServer", () => backend.countFor(m.user_id, "leads"));
+    await step("leadsRead", async () => (await backend.readRecords(m.user_id, "leads", {}, { select: "id", limit: 20000 })).length);
+    await step("loggedMonth", async () => (await backend.readRecords(m.user_id, "leads", { "data->>loggedAt": `gte.${monthStart}` }, { select: "id", limit: 20000 })).length);
+    await step("planSteps", async () => {
+      const ts = (await backend.readRecords(m.user_id, "tasks", { "data->>cadence": "eq.true" }, { select: "data", limit: 5000 })).map((x) => x.data || {});
+      const open = ts.filter((t) => t.channel === "text" && !t.done && t.readyAt);
+      return { steps: ts.length, due: open.filter((t) => String(t.readyAt) <= nowISO && now - new Date(t.readyAt) < DAY).length, held: open.filter((t) => String(t.readyAt) > nowISO && new Date(t.readyAt) - now <= 15 * 60000).length };
+    });
+    out.push(r);
+  }
+  return out;
+}
+
 // Every member's numbers, in parallel, in the order given.
 export async function boardStats(members, opts = {}) {
   // The store's targets for the month, once, then each rep in parallel.

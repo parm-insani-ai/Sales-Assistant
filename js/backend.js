@@ -205,10 +205,48 @@ export async function rpc(name, args = {}) {
 // Records the signed-in user is allowed to read that belong to `userId` —
 // their own, or a rep's when they manage that rep's store. `filters` are
 // PostgREST conditions on the JSON, e.g. { "data->>stage": "in.(new,working)" }.
+//
+// The server answers with at most its own page — Supabase's default is
+// 1,000 rows — whatever `limit` asks for, and says nothing about the rest. A
+// book of 2,935 customers read in one request came back as the oldest
+// thousand with the newest missing: a customer logged that evening wasn't
+// on the manager's board. So this pages, the way the sync does, and reads
+// the true total from the first page's Content-Range to know when it's done.
+const PAGE = 1000;
 export async function readRecords(userId, collection, filters = {}, { select = "id,data,updated_at", limit = 5000 } = {}) {
-  const q = new URLSearchParams({ select, user_id: `eq.${userId}`, collection: `eq.${collection}`, deleted: "eq.false", limit: String(limit) });
+  const q = new URLSearchParams({ select, user_id: `eq.${userId}`, collection: `eq.${collection}`, deleted: "eq.false", order: "updated_at.asc,id.asc" });
   for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") q.append(k, String(v));
-  return (await rest(`records?${q.toString()}`)) || [];
+  const { url, anonKey } = cfg();
+  const out = [];
+  let total = null;
+  for (let from = 0; out.length < limit; ) {
+    const want = Math.min(PAGE, limit - out.length);
+    const t = await token();
+    const res = await fetch(`${url}/rest/v1/records?${q.toString()}`, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${t}`, Range: `${from}-${from + want - 1}`, "Range-Unit": "items", ...(total == null ? { Prefer: "count=exact" } : {}) },
+    });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || j.error || `Server error (${res.status})`); }
+    const page = (await res.json().catch(() => null)) || [];
+    if (total == null) { const m = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || ""); total = m ? Number(m[1]) : null; }
+    out.push(...page);
+    from += page.length;
+    if (!page.length) break;
+    if (total != null ? from >= total : page.length < want) break;
+  }
+  return out;
+}
+
+// How many live rows match, without reading them: the board's self-check
+// compares this with what a read brought back.
+export async function countFor(userId, collection, filters = {}) {
+  const q = new URLSearchParams({ select: "id", user_id: `eq.${userId}`, collection: `eq.${collection}`, deleted: "eq.false" });
+  for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") q.append(k, String(v));
+  const { url, anonKey } = cfg();
+  const t = await token();
+  const res = await fetch(`${url}/rest/v1/records?${q.toString()}`, { method: "HEAD", headers: { apikey: anonKey, Authorization: `Bearer ${t}`, Prefer: "count=exact", Range: "0-0", "Range-Unit": "items" } });
+  if (!res.ok) throw new Error(`Server error (${res.status})`);
+  const m = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
+  return m ? Number(m[1]) : null;
 }
 
 // When a person's records last reached the cloud: the newest row they wrote,

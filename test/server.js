@@ -333,7 +333,10 @@ const server = http.createServer((req, res) => {
       let from = 0, to = rows.length - 1;
       const range = req.headers["range"];
       if (range && /^\d+-\d+$/.test(range)) { [from, to] = range.split("-").map(Number); }
-      const page = rows.slice(from, to + 1);
+      // Supabase answers with at most its max-rows (1,000 by default), whatever
+      // the request asks for, and says nothing about the rest. Same here, so a
+      // read that doesn't page is caught by the tests.
+      const page = rows.slice(from, to + 1).slice(0, Number(process.env.STUB_MAX_ROWS || 1000));
       const select = (url.searchParams.get("select") || "*").split(",").map((x) => x.trim());
       const shaped = select.includes("*") ? page : page.map((r) => Object.fromEntries(select.map((c) => [c, r[c]])));
       const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*",
