@@ -76,7 +76,7 @@ const read = () => mgr.evaluate(() => {
 });
 let f = await read();
 console.log("floor:", JSON.stringify(f, null, 1));
-const order = ["Waiting on a reply", "Texts waiting to go", "Appointments at risk", "Today on the floor", "In the service drive", "Today's plays", "Welcomed today", "Fresh leads waiting", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"];
+const order = ["Fresh leads waiting", "Waiting on a reply", "Texts waiting to go", "Appointments at risk", "Today on the floor", "In the service drive", "Today's plays", "Welcomed today", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"];
 const at = order.map((s) => f.titles.indexOf(s));
 if (at.some((i, k) => i < 0 || (k && i < at[k - 1]))) fail("the Floor's cards aren't in order: " + f.titles.join(" | "));
 if (!/1 · longest first/.test(f.waitingTitle) || !/Dana Muise 40 min.*Parm · texted: “Great, can I see it Saturday\?”.*Reply/.test(f.waiting)) fail("Dana isn't shown waiting on a reply: " + f.waiting);

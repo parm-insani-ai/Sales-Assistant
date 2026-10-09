@@ -8,6 +8,7 @@ import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
 import { monthSummary } from "./goals.js";
 import { salesTarget, openTargetForm } from "../target.js";
+import { repInsight } from "../insight.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
 import { swipeable, undoToast } from "../components.js";
@@ -260,6 +261,23 @@ function targetSection(mtd, s, redraw) {
     chip(t.spokeWeek >= t.perWeek ? "tg-good" : "", `This week ${t.spokeWeek}/${t.perWeek}`),
     chip("", `${t.appts} appt${t.appts === 1 ? "" : "s"} set${s.goalAppointments ? ` <span class="muted">of ${s.goalAppointments}</span>` : ""}`),
   ].join("");
+  // Today's appointments to set, worked from the month: what's left to
+  // sell, what the calendar already covers, and the show and close rates —
+  // the same arithmetic the manager's board uses — spread over the days
+  // left. Then how many were set today. A number to beat before lunch.
+  const daily = (() => {
+    if (!p.target) return null;
+    const appts = store.all("appointments");
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const dayOf = (v) => { const x = String(v || ""); if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(x)) return x.slice(0, 10); const d = new Date(x); return isNaN(d) ? "" : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+    const ins = repInsight({ appts, leads: [], touches: 0, touchesByDay: {}, goalUnits: p.target, sold: t.sold, now });
+    const n = ins.needs;
+    const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? Math.max(1, Math.round(n.perDay)) : 0;
+    const set = appts.filter((a) => a.status !== "canceled" && dayOf(a.createdAt || a.when) === todayKey).length;
+    return { need, set, onTrack: !!(n.goal && n.onTrack), left: n.apptsNeeded, assumed: n.assumed };
+  })();
   const body = document.createElement("div");
   body.className = "card target-card";
   body.innerHTML = `
@@ -269,6 +287,11 @@ function targetSection(mtd, s, redraw) {
         ? `<button class="btn btn-sm btn-ghost" data-act="performance" style="flex:none">Performance ›</button>`
         : `<button class="btn btn-sm btn-primary" data-act="set-target" style="flex:none">Set your target</button>`}
     </div>
+    ${daily ? `<div class="tg-today ${daily.need && daily.set >= daily.need ? "tg-good" : ""}" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface-2)">
+      <div class="row" style="align-items:baseline"><div class="strong" style="font-size:1.05rem">${daily.need ? `Today: ${daily.set} of ${daily.need} appointment${daily.need === 1 ? "" : "s"} set` : daily.onTrack ? `On track · ${daily.set} set today` : `${daily.set} set today`}</div>${daily.need && daily.set >= daily.need ? `<span class="small" style="color:var(--success);font-weight:600">${icon("check")} done</span>` : ""}</div>
+      ${daily.need ? `<div class="progress tg-bar" style="margin-top:6px"><span style="width:${Math.min(100, Math.round((daily.set / daily.need) * 100))}%"></span></div>` : ""}
+      <div class="small muted" style="margin-top:4px">${daily.need ? `${daily.left} more to set this month to hit ${p.target}${daily.assumed ? ", at typical show and close rates" : ""}. Set today's before lunch.` : daily.onTrack ? "The calendar covers the rest of the month — keep them showing." : ""}</div>
+    </div>` : ""}
     ${p.target ? `
     <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "", "sold")}${tile("Spoken with", t.spoke, p.need, "", "spoken")}</div>
     ${p.split ? `<div class="tg-cats">${cat("New", t.soldNew, p.targetNew, t.spokeNew, p.needNew)}${cat("Used", t.soldUsed, p.targetUsed, t.spokeUsed, p.needUsed)}</div>` : ""}

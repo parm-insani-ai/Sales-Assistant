@@ -150,6 +150,10 @@ export function storeTotals(stats) {
     welcomes: { logged: sum((r) => (r.welcomes ? r.welcomes.logged : 0)), welcomed: sum((r) => (r.welcomes ? r.welcomes.welcomed : 0)), pending: ok.flatMap((r) => (r.welcomes ? r.welcomes.pending.map((l) => ({ ...l, rep: r.member })) : [])) },
     // The store's appointment picture, from everyone's rows together.
     insight: storeInsight(ok.map((r) => r.raw).filter(Boolean)),
+    // What the manager's taps came to.
+    loop: loopStats(ok, (() => { try { return store.all("mgractions"); } catch { return []; } })()),
+    // Rows that read empty, with the reason.
+    notes: ok.filter((r) => r.note).map((r) => ({ rep: r.member, note: r.note })),
   };
 }
 export function inviteLink(code) {
@@ -169,14 +173,48 @@ export async function targetsForStore(storeId, month = monthKey()) {
 export async function myTarget(month = monthKey()) {
   return backend.rpc("my_target", { target_month: month });
 }
+// ---- Closing the loop ----
+// Everything the manager does from the board — a nudge, a text, a hand-off,
+// a welcome, the agent's draft sent — is written down here, on the
+// manager's own records, with the customer it was about. Against the reps'
+// appointments that tells whether it worked: an appointment set for that
+// customer inside a day is one that came from the tap.
+export const LOOP_DAYS = 14;
+export function recordAction(kind, { rep = "", leadId = "", title = "" } = {}) {
+  try { return store.create("mgractions", { kind, rep, leadId: leadId || "", title: String(title || "").slice(0, 80), at: new Date().toISOString() }); } catch { return null; }
+}
+// The actions and what came of them: per kind and per rep, over the last
+// LOOP_DAYS. `stats` are the board's rows (for their appointments); `acts`
+// are the manager's own records plus the texts the function sent for the
+// store (filed in the reps' threads as the manager's or the agent's).
+export function loopStats(stats, acts, now = new Date()) {
+  const since = new Date(now.getTime() - LOOP_DAYS * DAY).toISOString();
+  const apptsByRep = new Map(stats.map((r) => [r.member.user_id, (r.raw ? r.raw.appts : []).filter((a) => a.status !== "canceled")]));
+  const all = [];
+  acts.forEach((a) => { if (a && a.at >= since) all.push({ kind: a.kind || "nudge", rep: a.rep || "", leadId: a.leadId || "", at: String(a.at) }); });
+  stats.forEach((r) => (r.storeTexts || []).forEach((t) => { if (t.at >= since) all.push({ kind: /welcome/.test(t.via) ? "welcome" : "text", rep: r.member.user_id, leadId: t.leadId || "", at: t.at, server: true }); }));
+  // One action per customer per day: three nudges about Dana are one try.
+  const seen = new Set();
+  const tries = all.filter((a) => { const k = `${a.rep}|${a.leadId}|${a.kind}|${a.at.slice(0, 10)}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  const booked = (a) => !!a.leadId && (apptsByRep.get(a.rep) || []).some((ap) => ap.leadId === a.leadId && ap.createdAt > a.at && new Date(ap.createdAt) - new Date(a.at) <= DAY);
+  const tally = (list) => { const n = list.filter((a) => a.leadId).length, set = list.filter(booked).length; return { tries: n, set, rate: n ? Math.round((set / n) * 100) : null }; };
+  const KINDS = [["nudge", "Nudges"], ["text", "Texts from the store"], ["handoff", "Hand-offs"], ["welcome", "Welcomes"], ["draft", "Drafts sent"]];
+  return {
+    all: tally(tries),
+    byKind: KINDS.map(([kind, label]) => ({ kind, label, ...tally(tries.filter((a) => a.kind === kind)) })).filter((k) => k.tries),
+    byRep: stats.map((r) => ({ rep: r.member, ...tally(tries.filter((a) => a.rep === r.member.user_id)) })),
+  };
+}
 export async function addRepTask(userId, task) {
-  return backend.rpc("manager_add_task", { member: userId, task });
+  const out = await backend.rpc("manager_add_task", { member: userId, task });
+  recordAction("handoff", { rep: userId, leadId: task && task.leadId, title: task && task.title });
+  return out;
 }
 export async function updateRepAppointment(userId, apptId, patch) {
   return backend.rpc("manager_update_appointment", { member: userId, appt_id: apptId, patch });
 }
 // A push to a rep's phone, from their manager, through the function.
-export async function nudgeRep(userId, { title, body, url = "./#/", tag = "" }) {
+export async function nudgeRep(userId, { title, body, url = "./#/", tag = "", leadId = "" }) {
   const s = (await import("./store.js")).getSettings();
   const fn = (s.agentUrl || "").trim().replace(/\/+$/, "");
   if (!fn) throw new Error("Set up the cloud function in Settings first");
@@ -184,6 +222,7 @@ export async function nudgeRep(userId, { title, body, url = "./#/", tag = "" }) 
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j.error || `Couldn't reach them (${res.status})`);
   if (!j.sent) throw new Error(j.errors && j.errors[0] ? j.errors[0] : "They haven't turned on notifications yet");
+  recordAction("nudge", { rep: userId, leadId, title });
   return j.sent;
 }
 
@@ -227,7 +266,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, callsToday, playsToday] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -246,8 +285,12 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     // reached today. Today's calls. The night read's plays for today.
     backend.readRecords(userId, "texts", { "data->>at": `gte.${since(7)}` }, { select: "data", limit: 3000 }).catch(() => []),
     backend.readRecords(userId, "emails", { "data->>createdAt": `gte.${since(7)}` }, { select: "data", limit: 1000 }).catch(() => []),
-    backend.readRecords(userId, "calls", { "data->>at": `gte.${today}` }, { select: "data", limit: 500 }).catch(() => []),
+    // Two weeks of calls: dials, connects, and what booked inside a day.
+    backend.readRecords(userId, "calls", { "data->>at": `gte.${since(LOOP_DAYS)}` }, { select: "data", limit: 3000 }).catch(() => []),
     backend.readRecords(userId, "agentplays", { id: `eq.agentplays:${today}` }, { select: "data", limit: 1 }).catch(() => []),
+    // How many customers their cloud copy holds at all — so an empty board
+    // row can say why, instead of showing zeros that look like a quiet day.
+    backend.countFor(userId, "leads").catch(() => null),
   ]);
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
@@ -351,7 +394,24 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     const future = open.filter((t) => t.readyAt && String(t.readyAt) > nowISO).map((t) => String(t.readyAt)).sort();
     return { onFile: open.length, steps: rows(planTasks).length, customers: byId.size, next: future[0] || null, lapsed: open.filter((t) => t.readyAt && now - new Date(t.readyAt) >= 24 * 3600000).length };
   })();
-  const texts = rows(textsWeek), mails = rows(emailsWeek), calls = rows(callsToday);
+  const texts = rows(textsWeek), mails = rows(emailsWeek), callsAll = rows(calls14), calls = callsAll.filter((c) => dayKey(c.at) === today);
+  // Call conversion over two weeks: dials, connects (reached, or a logged
+  // conversation), and calls followed by an appointment for that customer
+  // inside a day.
+  const callStats = (() => {
+    const dials = callsAll.filter((c) => c.dir !== "in");
+    const connects = dials.filter((c) => c.outcome === "reached" || c.logged);
+    const bookedAfter = (c) => !!c.leadId && allAppts.some((a) => a.status !== "canceled" && a.leadId === c.leadId && a.createdAt > String(c.at || "") && new Date(a.createdAt) - new Date(c.at) <= DAY);
+    const seen = new Set();
+    const booked = dials.filter((c) => { if (!bookedAfter(c)) return false; const k = `${c.leadId}|${String(c.at).slice(0, 10)}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    return { dials: dials.length, connects: connects.length, booked: booked.length, days: LOOP_DAYS };
+  })();
+  // Texts the store sent into this rep's threads — the manager's, the
+  // agent's — for the loop.
+  const storeTexts = texts.filter((t) => t.dir === "out" && /^(manager|agent)/.test(String(t.via || ""))).map((t) => ({ leadId: t.leadId || "", at: String(t.at || t.createdAt || ""), via: String(t.via || "") }));
+  // Why a row reads empty, when it does.
+  const readNote = bookCount === 0 ? "Nothing in their cloud copy yet — a new account, a phone that hasn't synced, or a store you don't manage."
+    : bookCount > 0 && !byId.size && !rows(planTasks).length && !activity.length ? `${bookCount.toLocaleString()} customers on file but nothing recent came back — pull down to read again.` : "";
   // The last message with each customer, text or email. If it came from
   // them and nobody answered, they're waiting.
   const lastMsg = new Map();
@@ -388,7 +448,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     pending: loggedTodayList.filter((l) => !touchedToday.has(l.id)).map((l) => ({ ...l, email: (byId.get(l.id) || {}).email || "", optOut: !!((byId.get(l.id) || {}).smsOptOut || (byId.get(l.id) || {}).doNotContact) })),
   };
 
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, at: now.toISOString() };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, note: readNote, at: now.toISOString() };
 }
 
 // The board's self-check: for each member, what the server holds against
@@ -468,6 +528,7 @@ export async function sendWelcomeNow(repId, leadId) {
   const res = await fetch(fn, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ welcome: { rep: repId, leadId } }) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(j.error || `Couldn't send (${res.status})`);
+  recordAction("welcome", { rep: repId, leadId });
   return j;
 }
 // The manager's text to one of a rep's customers: sent from the store's
@@ -481,7 +542,9 @@ export async function sendManagerText(repId, leadId, body) {
   const j = await res.json().catch(() => ({}));
   if (!res.ok || j.error) throw new Error(/No messages/.test(j.error || "") ? "Paste the latest function into quick-api to text as the manager" : j.error || `Couldn't send (${res.status})`);
   // The draft the agent held for this customer, if any, is spent.
-  try { if (store.get("agentdrafts", `reply:${leadId}`)) store.remove("agentdrafts", `reply:${leadId}`); } catch { /* fine */ }
+  const wasDraft = !!heldDraft(leadId);
+  try { if (wasDraft) store.remove("agentdrafts", `reply:${leadId}`); } catch { /* fine */ }
+  recordAction(wasDraft ? "draft" : "text", { rep: repId, leadId });
   return j;
 }
 // The reply the agent drafted for a waiting customer, held for the

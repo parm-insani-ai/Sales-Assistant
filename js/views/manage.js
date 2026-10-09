@@ -24,7 +24,7 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast, openModal } from "../components.js";
 import { esc, formatDateTime, currency } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft } from "../team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft, LOOP_DAYS } from "../team.js";
 import { looksLikeMoney } from "../replies.js";
 import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./team.js";
 import { findings } from "../insight.js";
@@ -119,10 +119,43 @@ export function renderManageHome(view) {
       const monthName = now.toLocaleDateString("en-CA", { month: "long" });
       const pace = t && t.goal ? Math.round((t.goal * now.getDate()) / daysIn) : 0;
       const today = localDay(now);
+      // Today's plan: what each rep needs to set today, what they've set, and
+      // the three things on their plate that produce appointments — fresh
+      // leads, customers waiting, texts to send, appointments to confirm.
+      const perRep = t ? rows.filter((r) => !r.error && r.insight).map((r) => {
+        const n = r.insight.needs, set = setToday(r, today);
+        const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? Math.max(1, Math.round(n.perDay)) : 0;
+        const fresh = (r.leads ? r.leads.untouched.length : 0) + (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.importedAt && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 5 * 60000 && !(r.leads && r.leads.untouched.some((u) => u.id === l.id))).length : 0);
+        const acts = [
+          fresh ? [`${fresh} fresh lead${fresh === 1 ? "" : "s"}`, "/floor"] : null,
+          r.waiting && r.waiting.length ? [`${r.waiting.length} waiting on a reply`, "/floor"] : null,
+          r.textsDue && r.textsDue.length ? [`${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send`, "/floor"] : null,
+          r.atRisk && r.atRisk.length ? [`${r.atRisk.length} to confirm`, "/floor"] : null,
+        ].filter(Boolean);
+        return { r, set, need, acts, onTrack: !!(n.goal && n.onTrack) };
+      }) : [];
+      const todayCard = t && ins ? `<div class="card mg-today mg-plan" style="margin-bottom:12px">
+        <div class="strong">${ins.needs.goal ? (ins.needs.onTrack ? `On track: the calendar covers the rest of ${esc(monthName)}.` : `To hit ${ins.needs.goal} units: ${ins.needs.apptsNeeded} more appointments set by month end — ${ins.needs.perDay} a day.`) : "No unit goals set — set each rep's target under Reps."}</div>
+        <div class="small muted" style="margin-top:4px">${ins.needs.goal ? `${ins.needs.sold} sold · ${ins.needs.futureSet} on the calendar (~${ins.needs.pipeline} units) · ${ins.needs.perAppt} units per appointment set (${ins.needs.showRate}% show × ${ins.needs.closeRate}% close${ins.needs.assumed ? ", typical rates until there's history" : ""})` : ""}${ins.touchesPerDay && ins.needs.goal && !ins.needs.onTrack ? ` · about ${ins.touchesPerDay} touches a day across the floor` : ""}</div>
+        <div class="mg-today-reps" style="margin-top:10px">${perRep.map(({ r, set, need, acts, onTrack }) => `<div class="row mg-today-rep mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;border-top:1px solid var(--border);align-items:flex-start;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))} <span class="mg-need small" style="font-weight:600;${need ? (set >= need ? "color:var(--success)" : "color:var(--warning)") : "color:var(--muted)"}">${need ? `${set} of ${need} set today` : onTrack ? `on track · ${set} set today` : `${set} set today`}</span></div><div class="row-sub mg-today-acts">${acts.length ? acts.map(([txt]) => `<span class="mg-act">${esc(txt)}</span>`).join(" · ") : "nothing waiting on them"}</div></div><span class="muted">›</span></div>`).join("")}</div>
+        <div class="hint" style="margin:8px 0 0">Tap a rep for their day. The work itself is on Floor.</div>
+      </div>` : "";
+      // What the manager's taps came to: appointments set within a day of a
+      // nudge, a text, a hand-off, a welcome — the proof the board earns its place.
+      const loop = t && t.loop;
+      const loopCard = loop ? `<div class="card mg-loop" style="margin-bottom:12px">
+        <div class="row"><div class="row-main"><div class="strong">What your taps came to <span class="muted small" style="font-weight:500">· last ${LOOP_DAYS} days</span></div>
+        <div class="small muted" style="margin-top:2px">${loop.all.tries ? `${loop.all.set} of ${loop.all.tries} ${loop.all.tries === 1 ? "action" : "actions"} had an appointment set within a day${loop.all.rate != null ? ` (${loop.all.rate}%)` : ""}.` : "Nudges, texts, hand-offs and welcomes from the board are counted here, with how many had an appointment set within a day."}</div></div></div>
+        ${loop.byKind.length ? `<div class="small" style="margin-top:8px">${loop.byKind.map((k) => `<span class="mg-loop-kind"><b>${esc(k.label)}</b> ${k.set} of ${k.tries}</span>`).join(" · ")}</div>` : ""}
+      </div>` : "";
+      const notesLine = t ? (t.notes || []).filter((n) => n.rep.user_id !== (backend.currentUser() || {}).id).map((n) => `<div class="fab-note mg-note" style="text-align:left;color:var(--warning);margin:0 2px 10px"><b>${esc(memberName(n.rep))}:</b> ${esc(n.note)}</div>`).join("") : "";
       return `
       ${errLine(error)}
       ${!manager ? repNotice(team) : `
       ${asOf(c)}
+      ${notesLine}
+      ${todayCard}
+      ${loopCard}
       ${t ? `
       <div class="stat-grid" style="margin-bottom:12px">
         <div class="stat"><div class="stat-value" style="${paceCls(t.units, t.goal, pace)}">${t.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${t.goal || "—"}</span></div><div class="stat-label">Units · ${currency(t.gross)} gross${t.goal ? ` · pace ${pace}` : ""}</div></div>
@@ -134,11 +167,6 @@ export function renderManageHome(view) {
         <div class="stat"><div class="stat-value">${t.touchesToday}</div><div class="stat-label">Touches today${ins.touchesPerAppt ? ` · ${ins.touchesPerAppt} per appointment` : ""}</div></div>
         <div class="stat"><div class="stat-value" style="${t.untouched ? "color:var(--danger)" : ""}">${t.untouched}</div><div class="stat-label">Untouched new leads · ${t.overdue} overdue</div></div>
       </div>
-      ${ins.needs.goal ? `<div class="card mg-plan" style="margin-bottom:14px">
-        <div class="strong">${ins.needs.onTrack ? `On track: the calendar covers the rest of ${esc(monthName)}.` : `To hit ${ins.needs.goal} units: ${ins.needs.apptsNeeded} more appointments set by month end.`}</div>
-        <div class="small muted" style="margin-top:4px">${ins.needs.sold} sold · ${ins.needs.futureSet} on the calendar (~${ins.needs.pipeline} units) · ${ins.needs.perAppt} units per appointment set (${ins.needs.showRate}% show × ${ins.needs.closeRate}% close${ins.needs.assumed ? ", typical rates until there's history" : ""})${ins.touchesPerDay && !ins.needs.onTrack ? ` · about ${ins.touchesPerDay} touches a day across the floor` : ""}</div>
-        ${!ins.needs.onTrack ? `<div class="small" style="margin-top:8px">${rows.filter((r) => r.insight && r.insight.needs.goal).map((r) => `<span class="mg-need"><b>${esc(memberName(r.member))}</b> ${r.insight.needs.onTrack ? "on track" : r.insight.needs.perDay + "/day"}</span>`).join(" ")}</div>` : ""}
-      </div>` : ""}
       <div class="hint" style="margin:0 2px">The day as it happens is on Floor; each rep is under Reps; everything else is under the "+".</div>` : notRead(c)}`}`;
     },
   });
@@ -204,7 +232,7 @@ export function renderFloor(view, { param } = {}) {
       // Fresh leads waiting: every untouched new lead in the store with the
       // clock on it, newest arrivals that have waited longest first.
       const waiting = rows.flatMap((r) => (r.leads ? r.leads.untouched.map((l) => ({ l, r })) : [])).concat(
-        rows.flatMap((r) => (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.importedAt && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 30 * 60000).map((l) => ({ l, r })) : []))
+        rows.flatMap((r) => (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.importedAt && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 5 * 60000).map((l) => ({ l, r })) : []))
       ).filter((x, i, arr) => arr.findIndex((y) => y.l.id === x.l.id && y.r.member.user_id === x.r.member.user_id) === i)
        .sort((a, b) => String(a.l.createdAt).localeCompare(String(b.l.createdAt))).slice(0, 12);
       const first = (n) => String(n || "there").split(" ")[0];
@@ -214,7 +242,7 @@ export function renderFloor(view, { param } = {}) {
       const tmrw = localDay(new Date(now.getTime() + 86400000));
       // 1. Customers waiting on a reply, longest first.
       const unanswered = t.waiting || [];
-      const waitingCard = `<div class="section-title" style="margin-top:0">Waiting on a reply <span class="muted" style="font-weight:500;font-size:0.78rem">· ${unanswered.length ? `${unanswered.length} · longest first` : "nobody"}</span></div>
+      const waitingCard = `<div class="section-title">Waiting on a reply <span class="muted" style="font-weight:500;font-size:0.78rem">· ${unanswered.length ? `${unanswered.length} · longest first` : "nobody"}</span></div>
         <div class="card mg-waiting">${unanswered.length ? unanswered.slice(0, 10).map((w) => `<div class="row mg-wait" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${w.leadId ? `data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(w.name || "A customer")} <span class="small" style="color:var(--danger);font-weight:600">${waitedFor(w.at)}</span></div><div class="row-sub">${esc(memberName(w.rep))} · ${w.channel === "email" ? "emailed" : "texted"}: “${esc(w.preview)}”</div></div><button class="btn btn-ghost btn-sm" data-wnudge="${esc(w.rep.user_id)}" data-lead="${esc(w.leadId)}" data-name="${esc(w.name || "A customer")}" data-age="${waitedFor(w.at)}">${icon("bell")}</button>${w.channel === "text" && w.leadId ? `<button class="btn btn-primary btn-sm" data-mreply="${esc(w.leadId)}" data-rep="${esc(w.rep.user_id)}" data-name="${esc(w.name || "")}" ${heldDraft(w.leadId) ? `data-draft="${esc(heldDraft(w.leadId).body)}"` : ""}>${heldDraft(w.leadId) ? "Send draft" : "Reply"}</button>` : w.leadId ? `<button class="btn btn-primary btn-sm" data-fcust="${esc(w.leadId)}" data-frep="${esc(w.rep.user_id)}">Open</button>` : ""}</div>`).join("") + (unanswered.length > 10 ? `<div class="hint">and ${unanswered.length - 10} more.</div>` : "") : `<div class="muted small">Every customer who wrote has been answered. A reply inside five minutes books far better than one inside an hour.</div>`}</div>`;
       // 1b. Texts drafted on a rep's phone and not sent — the welcome, a
       // follow-up due — sitting on their Right now. The store's side of
@@ -265,9 +293,16 @@ export function renderFloor(view, { param } = {}) {
       const wl = t.welcomes || { logged: 0, welcomed: 0, pending: [] };
       const welcomeCard = `<div class="section-title">Welcomed today <span class="muted" style="font-weight:500;font-size:0.78rem">· ${wl.logged} logged · ${wl.welcomed} welcomed</span></div>
         <div class="card mg-welcome">${wl.pending.length ? wl.pending.map((l) => `<div class="row mg-welcome-row" style="padding:7px 0;align-items:center;gap:8px"><div class="row-main" data-fcust="${esc(l.id)}" data-frep="${esc(l.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")}</div><div class="row-sub">${esc(memberName(l.rep))}${l.vehicleInterest ? " · " + esc(l.vehicleInterest) : ""} · no text yet</div></div>${l.optOut ? `<span class="small muted">opted out</span>` : l.phone || l.email ? `<button class="btn btn-primary btn-sm" data-welcome="${esc(l.id)}" data-rep="${esc(l.rep.user_id)}" data-name="${esc(l.name || "")}">Welcome now</button>` : `<span class="small muted">no number</span>`}</div>`).join("") : `<div class="muted small">${wl.logged ? "Everyone logged today has had a text." : "Nobody logged yet today."}</div>`}</div>`;
+      // 0. Fresh leads first: the clock on each is the single biggest lever
+      //    on whether a lead books, and it runs on screen.
+      const freshCard = `<div class="section-title" style="margin-top:0">Fresh leads waiting <span class="muted" style="font-weight:500;font-size:0.78rem">· ${waiting.length ? `${waiting.length} untouched · the first hour books` : "none"}</span></div>
+      <div class="card mg-fresh">${waiting.length ? waiting.map(({ l, r }) => `<div class="row mg-fresh-row" style="padding:7px 0;align-items:center"><div class="row-main" data-cust="${esc(l.id)}" data-rep="${esc(r.member.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")} <span class="small mg-clock" data-at="${esc(l.createdAt)}" style="color:${now - new Date(l.createdAt) > 3600000 ? "var(--danger)" : "var(--warning)"};font-weight:600">${age(l.createdAt, now)}</span></div><div class="row-sub">${esc(memberName(r.member))}${l.source ? " · " + esc(l.source) : ""}</div></div><button class="btn btn-ghost btn-sm" data-nudge="${esc(r.member.user_id)}" data-lead="${esc(l.id)}" data-name="${esc(l.name || "A lead")}" data-age="${age(l.createdAt, now)}">${icon("bell")} Nudge</button></div>`).join("") : `<div class="muted small">Every lead has been touched. Leads set appointments in the first hour and rarely after the first day.</div>`}</div>`;
+      const notesLine = (t.notes || []).filter((n) => n.rep.user_id !== (backend.currentUser() || {}).id).map((n) => `<div class="fab-note mg-note" style="text-align:left;color:var(--warning);margin:0 2px 10px"><b>${esc(memberName(n.rep))}:</b> ${esc(n.note)}</div>`).join("");
       return `
       ${errLine(error)}
       ${asOf(c)}
+      ${notesLine}
+      ${freshCard}
       ${waitingCard}
       ${dueCard}
       ${riskCard}
@@ -278,9 +313,6 @@ export function renderFloor(view, { param } = {}) {
 
       ${fx.length ? `<div class="section-title">What the numbers say <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#/insights" style="color:var(--brand)">all insights</a></span></div>
       <div class="card">${fx.map((x) => `<div class="row" style="padding:6px 0;align-items:flex-start;gap:10px"><span style="flex:none;color:var(--brand)">${icon("sparkles")}</span><div class="small">${esc(x.text)}</div></div>`).join("")}</div>` : ""}
-
-      <div class="section-title">Fresh leads waiting <span class="muted" style="font-weight:500;font-size:0.78rem">· ${waiting.length ? "untouched · oldest first" : "none"}</span></div>
-      <div class="card">${waiting.length ? waiting.map(({ l, r }) => `<div class="row" style="padding:7px 0;align-items:center"><div class="row-main" data-cust="${esc(l.id)}" data-rep="${esc(r.member.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")} <span class="small" style="color:var(--danger);font-weight:600">${age(l.createdAt, now)}</span></div><div class="row-sub">${esc(memberName(r.member))}${l.source ? " · " + esc(l.source) : ""}</div></div><button class="btn btn-ghost btn-sm" data-nudge="${esc(r.member.user_id)}" data-lead="${esc(l.id)}" data-name="${esc(l.name || "A lead")}" data-age="${age(l.createdAt, now)}">${icon("bell")} Nudge</button></div>`).join("") : `<div class="muted small">Every lead has been touched. Leads set appointments in the first hour and rarely after the first day.</div>`}</div>
 
       ${reachCard(book, lot)}
 
@@ -296,6 +328,12 @@ export function renderFloor(view, { param } = {}) {
     wire: ({ el, book, lot, draw, refresh, t }) => {
       const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
       on('[data-act="feed-all"]', () => { feedAll = !feedAll; draw(); });
+      // The fresh leads' clocks run while the screen is up.
+      const tick = setInterval(() => {
+        if (!el.isConnected) { clearInterval(tick); return; }
+        const n = new Date();
+        el.querySelectorAll(".mg-clock[data-at]").forEach((x) => { x.textContent = age(x.dataset.at, n); if (n - new Date(x.dataset.at) > 3600000) x.style.color = "var(--danger)"; });
+      }, 30000);
       on('[data-act="copy-huddle"]', async (e) => { e.preventDefault(); const txt = el.querySelector("#mg-huddle")?.textContent || ""; try { await navigator.clipboard.writeText(txt); toast("Huddle copied", "success"); } catch { toast("Select the text to copy it", "warn"); } });
       const nudgeBtn = (b, payload) => async () => {
         b.disabled = true;
@@ -308,8 +346,8 @@ export function renderFloor(view, { param } = {}) {
         try { await nudgeRep(b.dataset.dnudge, { title: `${n} text${n === 1 ? " is" : "s are"} ready to send`, body: `The oldest has waited ${b.dataset.age}. They're written — read each one and tap Send.`, url: "./#/", tag: "due-" + Date.now() }); toast("Nudged", "success"); }
         catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
       }));
-      el.querySelectorAll("[data-wnudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: `${b.dataset.name} is waiting on you`, body: `They wrote ${b.dataset.age} ago — answer them now.`, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/comms", tag: "wait-" + (b.dataset.lead || Date.now()) })));
-      el.querySelectorAll("[data-anudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: b.dataset.title, body: b.dataset.body, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/appts", tag: "appt-" + (b.dataset.lead || Date.now()) })));
+      el.querySelectorAll("[data-wnudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: `${b.dataset.name} is waiting on you`, body: `They wrote ${b.dataset.age} ago — answer them now.`, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/comms", tag: "wait-" + (b.dataset.lead || Date.now()), leadId: b.dataset.lead || "" })));
+      el.querySelectorAll("[data-anudge]").forEach((b) => b.addEventListener("click", nudgeBtn(b, { title: b.dataset.title, body: b.dataset.body, url: b.dataset.lead ? `./#/inbox/${b.dataset.lead}` : "./#/appts", tag: "appt-" + (b.dataset.lead || Date.now()), leadId: b.dataset.lead || "" })));
       el.querySelectorAll("[data-mreply], [data-mtext]").forEach((b) => b.addEventListener("click", () => openManagerTextSheet({ rep: b.dataset.rep, leadId: b.dataset.mreply || b.dataset.mtext, name: b.dataset.name, draft: b.dataset.draft || "", onSent: () => refresh(true) })));
       if (deepLink) {
         const id = deepLink; deepLink = "";
@@ -325,7 +363,7 @@ export function renderFloor(view, { param } = {}) {
       }));
       el.querySelectorAll("[data-nudge]").forEach((b) => b.addEventListener("click", async () => {
         b.disabled = true;
-        try { await nudgeRep(b.dataset.nudge, { title: `${b.dataset.name} has been waiting ${b.dataset.age}`, body: "A fresh lead — call or text them now. Leads set appointments in the first hour.", url: `./#/leads/${b.dataset.lead}`, tag: "lead-" + b.dataset.lead }); toast("Nudged", "success"); }
+        try { await nudgeRep(b.dataset.nudge, { title: `${b.dataset.name} has been waiting ${b.dataset.age}`, body: "A fresh lead — call or text them now. Leads set appointments in the first hour.", url: `./#/leads/${b.dataset.lead}`, tag: "lead-" + b.dataset.lead, leadId: b.dataset.lead }); toast("Nudged", "success"); }
         catch (err) { toast(err.message || "Couldn't nudge", "danger"); b.disabled = false; }
       }));
       el.querySelectorAll("[data-hand]").forEach((b) => b.addEventListener("click", async () => {
@@ -396,7 +434,7 @@ export function renderReps(view) {
             <div class="team-row mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer">
               <div class="row" style="align-items:center">
                 <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
-                  ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today${r.textsDue && r.textsDue.length ? ` · <span style="color:var(--warning)">${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send</span>` : ""}</div><div class="small mg-synced" style="${syncedAgo(r.lastWrite).stale ? "color:var(--warning)" : "color:var(--muted)"}">${esc(syncedAgo(r.lastWrite).text)}</div>`}</div>
+                  ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today${r.textsDue && r.textsDue.length ? ` · <span style="color:var(--warning)">${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send</span>` : ""}</div><div class="small mg-synced" style="${syncedAgo(r.lastWrite).stale ? "color:var(--warning)" : "color:var(--muted)"}">${esc(syncedAgo(r.lastWrite).text)}</div>${r.note ? `<div class="small mg-row-note" style="color:var(--warning)">${esc(r.note)}</div>` : ""}${r.calls ? `<div class="small muted mg-calls">${r.calls.days} days: ${r.calls.dials} call${r.calls.dials === 1 ? "" : "s"} · ${r.calls.connects} connected · <span style="${r.calls.booked ? "color:var(--success)" : ""}">${r.calls.booked} booked within a day</span>${(() => { const lp = t && t.loop && t.loop.byRep.find((x) => x.rep.user_id === r.member.user_id); return lp && lp.tries ? ` · your taps: ${lp.set} of ${lp.tries} booked` : ""; })()}</div>` : ""}`}</div>
                 ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r.sales.units, r.goal.units, r.goal.pace)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.insight && r.insight.needs.goal ? (r.insight.needs.onTrack ? "on track" : `needs ${r.insight.needs.apptsNeeded} · ${r.insight.needs.perDay}/day`) : "no goal set"}</div></div>` : ""}
               </div>
               ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span>${r.sheet ? `<span><b>${r.sheet.spoke}</b> logged this month</span>` : ""}</div>` : ""}

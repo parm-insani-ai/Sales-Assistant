@@ -1242,6 +1242,22 @@ async function handleSweep(body: any): Promise<Response> {
       });
     }
 
+    // 1b. A fresh lead nobody has touched. The first hour books; after the
+    //     first day almost nothing does. From five minutes, once, to the
+    //     customer's page. Rows from a file (importedAt) aren't leads that arrived.
+    for (const l of leads) {
+      if (l.stage !== "new" || l.importedAt || l.firstContacted || l.lastContacted || !l.createdAt) continue;
+      const age = Math.round((now - new Date(l.createdAt).getTime()) / 60000);
+      if (!isFinite(age) || age < REP_LEAD_MIN || age > 24 * 60) continue;
+      found.push({
+        key: `lead:${l.id}`,
+        urgency: Math.min(99, 90 + Math.floor(age / 10)),
+        title: `${String(l.name || "A new lead").split(" ")[0]} is waiting — ${age < 60 ? `${age} min` : `${Math.round(age / 60)}h`}`,
+        body: "A fresh lead. Call or text them now: leads book in the first hour and rarely after the first day.",
+        url: `./#/leads/${l.id}`,
+      });
+    }
+
     // 2. An appointment about to start that nobody has confirmed.
     for (const a of await rows("appointments")) {
       if (a.status !== "scheduled" || a.confirmed || a.outcome) continue;
@@ -1306,7 +1322,9 @@ async function handleSweep(body: any): Promise<Response> {
 // touched, an appointment two hours out that isn't confirmed — pushed to
 // each manager with notifications on, each once, a few per sweep, in their
 // business hours. Tapping one opens the Floor.
-const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 30, MGR_CONFIRM_MIN = 120, MGR_CAP = 4, MGR_TEXTS_MIN = 60;
+const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 15, MGR_CONFIRM_MIN = 120, MGR_CAP = 4, MGR_TEXTS_MIN = 60;
+// A rep hears about their own untouched lead at five minutes; the manager at fifteen.
+const REP_LEAD_MIN = 5;
 async function managerPass(now: number, pushUsers: string[], report: any[]): Promise<void> {
   const stores = await fetch(sbUrl(`/stores?select=id,name`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
   const canPush = new Set(pushUsers);
