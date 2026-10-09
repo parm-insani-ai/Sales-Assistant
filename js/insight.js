@@ -75,7 +75,14 @@ export function touchesPerAppt(touches, set) {
 
 // How fast a lead is first touched, and what that does to setting an
 // appointment. Buckets by minutes from the lead's arrival to first contact.
-export function speedToLead(leads, appts) {
+// A row loaded from a file (importedAt) is not a lead that arrived: it has no
+// arrival to measure from and no source that was worked, so it stays out of
+// speed to lead and the source table — an owner book of thousands would
+// otherwise swamp both.
+const arrived = (leads) => leads.filter((l) => !l.importedAt);
+
+export function speedToLead(allLeads, appts) {
+  const leads = arrived(allLeads);
   const withAppt = new Set(appts.filter(live).map((a) => a.leadId).filter(Boolean));
   const B = [
     { key: "1h", label: "Within an hour", max: 60 },
@@ -98,7 +105,8 @@ export function speedToLead(leads, appts) {
 }
 
 // Which sources set appointments: leads, appointments, set rate, by source.
-export function bySource(leads, appts) {
+export function bySource(allLeads, appts) {
+  const leads = arrived(allLeads);
   const src = new Map();
   const of = (l) => String(l.source || "Unknown").trim() || "Unknown";
   const leadSrc = new Map(leads.map((l) => [l.id, of(l)]));

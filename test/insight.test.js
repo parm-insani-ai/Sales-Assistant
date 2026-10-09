@@ -52,6 +52,10 @@ const leads = [];
 for (let i = 1; i <= 8; i++) leads.push({ id: "l" + i, source: i % 2 ? "Web" : "Walk-in", createdAt: iso(day(-20 + i, 9)), firstContacted: iso(day(-20 + i, i <= 4 ? 9 : 12)), stage: "working" }); // 1-4 within an hour, 5-8 within the day
 for (let i = 9; i <= 14; i++) leads.push({ id: "l" + i, source: "Web", createdAt: iso(day(-30 + i, 9)), firstContacted: iso(day(-28 + i, 9)), stage: "working" }); // after a day, none set
 for (let i = 15; i <= 18; i++) leads.push({ id: "l" + i, source: "Referral", createdAt: iso(day(-15, 9)), stage: "new" }); // never touched
+// An owner book loaded from a file: thousands of rows with the import day as
+// their created date. Not leads that arrived — they stay out of the speed
+// and source reads, which they would otherwise swamp.
+for (let i = 0; i < 40; i++) leads.push({ id: "imp" + i, source: "Import", createdAt: iso(day(-3, 10)), importedAt: iso(day(-3, 10)), stage: "new" });
 const sp = I.speedToLead(leads, appts);
 console.log("speed:", JSON.stringify(sp.buckets.map((b) => [b.key, b.leads, b.appts, b.setRate])), "median", sp.medianMinutes);
 if (sp.buckets[0].leads !== 4 || sp.buckets[0].appts !== 4 || sp.buckets[0].setRate !== 100) fail("within an hour: " + JSON.stringify(sp.buckets[0]));
@@ -66,6 +70,7 @@ const web = src.find((s) => s.source === "Web"), walk = src.find((s) => s.source
 if (!web || web.leads !== 10 || web.withAppt !== 4 || web.setRate !== 40) fail("web: " + JSON.stringify(web));
 if (!walk || walk.leads !== 4 || walk.withAppt !== 3 || walk.setRate !== 75) fail("walk-in: " + JSON.stringify(walk));
 if (!ref || ref.leads !== 4 || ref.setRate !== 0) fail("referral: " + JSON.stringify(ref));
+if (src.some((s) => s.source === "Import") || sp.leads !== 18) fail("the imported owner book counts as leads: " + JSON.stringify(src.map((s) => s.source)) + " " + sp.leads);
 
 // --- Best times: most sets at 9 am.
 const tm = I.bestTimes(appts);

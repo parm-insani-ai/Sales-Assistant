@@ -445,6 +445,31 @@ function hydrate(parsed) {
     // that has to survive, so it asks to be written out immediately.
     merged.needsPersist = true;
   }
+  // Rows loaded from a file used to carry the import time as their created
+  // date, so an owner book of 2,935 read as 2,935 leads that arrived that
+  // day: speed to lead, untouched leads and the sweep's "hasn't been
+  // touched" all counted them. Imports now stamp importedAt and give an
+  // owner the purchase date as their created date; this does the same, once,
+  // for rows already on file — recognised by their source or the fields
+  // only a file brings — and queues them so the cloud copy matches.
+  if (!merged.settings.importStamped) {
+    const now = new Date().toISOString();
+    if (Array.isArray(merged.leads)) {
+      merged.leads.forEach((l) => {
+        if (!l || l.importedAt) return;
+        const fromFile = /^(import|autoalert)$/i.test(String(l.source || "").trim()) || l.importedEquity != null || l.alertType || l.dealType || l.paymentsLeftAsOf;
+        if (!fromFile) return;
+        l.importedAt = l.createdAt || now;
+        const bought = l.purchaseDate ? new Date(`${String(l.purchaseDate).slice(0, 10)}T12:00:00`) : null;
+        if (bought && !isNaN(bought) && bought.toISOString() < String(l.createdAt || now)) l.createdAt = bought.toISOString();
+        l.updatedAt = now;
+        merged.outbox = merged.outbox || {};
+        merged.outbox[`leads:${l.id}`] = { collection: "leads", id: l.id, deleted: false, at: now };
+      });
+    }
+    merged.settings.importStamped = true;
+    merged.needsPersist = true;
+  }
   // v176-v183 wrote the settings mirror as config/"me", which is the id the
   // prefs row already used. The cloud table's primary key is (user_id, id)
   // and excludes the collection, so those are one row up there — every full

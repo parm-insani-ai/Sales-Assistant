@@ -283,11 +283,13 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   const goal = { units: goalUnits, appts: goalAppts, touchesDay: num(cfg.dailyTouchGoal), pace: goalUnits ? Math.round((goalUnits * now.getDate()) / daysIn * 10) / 10 : 0, fromStore: !!(target && (num(target.goal_units) || num(target.goal_appts))) };
 
   const open = rows(openLeads);
-  const untouched = open.filter((l) => l.stage === "new" && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) > DAY)
+  // A row from a file isn't a lead waiting on a call: the owner book is
+  // worked from Outreach, not chased as untouched leads.
+  const untouched = open.filter((l) => l.stage === "new" && !l.importedAt && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) > DAY)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const overdue = open.filter((l) => l.followUp && String(l.followUp).slice(0, 10) < today)
     .sort((a, b) => String(a.followUp).localeCompare(String(b.followUp)));
-  const slimLeads = rows(recentLeads).map((l) => ({ id: l.id, name: l.name || "", source: l.source || "", vehicleInterest: l.vehicleInterest || "", createdAt: l.createdAt || "", firstContacted: l.firstContacted || "", lastContacted: l.lastContacted || "", stage: l.stage || "" }));
+  const slimLeads = rows(recentLeads).map((l) => ({ id: l.id, name: l.name || "", source: l.source || "", vehicleInterest: l.vehicleInterest || "", createdAt: l.createdAt || "", importedAt: l.importedAt || "", firstContacted: l.firstContacted || "", lastContacted: l.lastContacted || "", stage: l.stage || "" }));
   const raw = { appts: allAppts, leads: slimLeads, touches: touches.month, touchesByDay, goalUnits, sold: saleStats.units };
   const insight = repInsight({ ...raw, now });
 
@@ -428,7 +430,7 @@ export async function boardStats(members, opts = {}) {
 // ---- The store's whole book ----
 // Every rep's customers, slimmed to what the manager's read and the list
 // need, kept in memory for the session and refreshed on demand.
-const KEEP = ["id", "name", "phone", "email", "stage", "vehicleInterest", "source", "purchaseDate", "leaseEnd", "dealType", "currentPayment", "payoff", "currentValue", "currentApr", "paymentsLeft", "paymentsLeftAsOf", "currentTerm", "odometer", "alertType", "priority", "serviceAppt", "lastContacted", "firstContacted", "lastCampaignAt", "createdAt", "updatedAt", "followUp", "smsOptOut", "consent", "doNotContact"];
+const KEEP = ["id", "name", "phone", "email", "stage", "vehicleInterest", "source", "purchaseDate", "leaseEnd", "dealType", "currentPayment", "payoff", "currentValue", "currentApr", "paymentsLeft", "paymentsLeftAsOf", "currentTerm", "odometer", "alertType", "priority", "serviceAppt", "lastContacted", "firstContacted", "lastCampaignAt", "createdAt", "importedAt", "updatedAt", "followUp", "smsOptOut", "consent", "doNotContact"];
 let bookCache = { storeId: null, at: 0, rows: [] };
 export function cachedBook() { return bookCache.storeId ? bookCache : null; }
 export async function loadBook(team, { force = false } = {}) {

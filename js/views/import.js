@@ -319,8 +319,17 @@ export function buildRecord(type, row, mapping) {
   const notes = [context, val("notes")].filter(Boolean).join("\n");
 
   const isCustomer = !!(purchaseDate || currentPayment != null);
+  // A row from a file is not a lead that walked in today. Every imported
+  // row carries the import time as importedAt, so lead-age reads (speed to
+  // lead, untouched leads, the sweep's "hasn't been touched") leave it out;
+  // an owner is on file since the day they bought, not the day the export
+  // was loaded, so their created date is the purchase date.
+  const importedAt = new Date().toISOString();
+  const onFileSince = purchaseDate ? new Date(`${purchaseDate}T12:00:00`) : null;
   return {
     name,
+    importedAt,
+    ...(onFileSince && !isNaN(onFileSince) && onFileSince < new Date() ? { createdAt: onFileSince.toISOString() } : {}),
     phone,
     email: val("email"),
     vehicleInterest: vehicle,

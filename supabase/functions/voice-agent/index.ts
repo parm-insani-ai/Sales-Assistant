@@ -1343,7 +1343,9 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
         found.push({ key: `mgr:texts:${uid}:${new Date(now).toISOString().slice(0, 10)}`, urgency: Math.min(90, 60 + Math.floor(oldest / 30)), title: `${nameOf(m)} has ${ready.length} text${ready.length === 1 ? "" : "s"} written and not sent`, body: `The oldest has waited ${oldest < 60 ? `${oldest} min` : `${Math.round(oldest / 60)}h`} — a nudge gets them out.` });
       }
       for (const l of leads) {
-        if (l.stage !== "new" || l.firstContacted || l.lastContacted || !l.createdAt) continue;
+        // A row from a file (importedAt) isn't a lead that arrived: the owner
+        // book is worked from Outreach, not chased as untouched.
+        if (l.stage !== "new" || l.importedAt || l.firstContacted || l.lastContacted || !l.createdAt) continue;
         const age = Math.round((now - new Date(l.createdAt).getTime()) / 60000);
         if (!isFinite(age) || age < MGR_LEAD_MIN || age > 24 * 60) continue;
         found.push({ key: `mgr:lead:${l.id}`, urgency: Math.min(95, 60 + Math.floor(age / 15)), title: `${l.name || "A new lead"} hasn't been touched — ${nameOf(m)}'s`, body: `Waiting ${age < 60 ? `${age} min` : `${Math.round(age / 60)}h`}. Leads book in the first hour and rarely after the first day.` });

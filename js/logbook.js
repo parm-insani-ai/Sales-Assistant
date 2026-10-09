@@ -19,6 +19,9 @@ export function monthKeyOf(d = new Date()) { return `${d.getFullYear()}-${pad(d.
 export function inLog(l) {
   if (!l) return false;
   if (l.loggedAt) return true;
+  // A row from a file is outreach until someone logs them — not a
+  // conversation had on the day the export was loaded.
+  if (l.importedAt) return false;
   return !["delivered", "lost"].includes(l.stage || "new");
 }
 

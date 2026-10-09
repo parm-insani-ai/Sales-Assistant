@@ -204,7 +204,7 @@ export function renderFloor(view, { param } = {}) {
       // Fresh leads waiting: every untouched new lead in the store with the
       // clock on it, newest arrivals that have waited longest first.
       const waiting = rows.flatMap((r) => (r.leads ? r.leads.untouched.map((l) => ({ l, r })) : [])).concat(
-        rows.flatMap((r) => (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 30 * 60000).map((l) => ({ l, r })) : []))
+        rows.flatMap((r) => (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.importedAt && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 30 * 60000).map((l) => ({ l, r })) : []))
       ).filter((x, i, arr) => arr.findIndex((y) => y.l.id === x.l.id && y.r.member.user_id === x.r.member.user_id) === i)
        .sort((a, b) => String(a.l.createdAt).localeCompare(String(b.l.createdAt))).slice(0, 12);
       const first = (n) => String(n || "there").split(" ")[0];
