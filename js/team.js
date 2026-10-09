@@ -142,6 +142,8 @@ export function storeTotals(stats) {
     waiting: ok.flatMap((r) => (r.waiting || []).map((w) => ({ ...w, rep: r.member }))).sort((a, b) => a.at.localeCompare(b.at)),
     // Texts drafted and not sent, by rep, the rep with the oldest first.
     textsDue: ok.filter((r) => r.textsDue && r.textsDue.length).map((r) => ({ rep: r.member, texts: r.textsDue, oldest: r.textsDue[0].readyAt })).sort((a, b) => a.oldest.localeCompare(b.oldest)),
+    // Texts in their hold, by rep, the one that sends soonest first.
+    textsHeld: ok.filter((r) => r.textsHeld && r.textsHeld.length).map((r) => ({ rep: r.member, texts: r.textsHeld, next: r.textsHeld[0].readyAt })).sort((a, b) => a.next.localeCompare(b.next)),
     atRisk: ok.flatMap((r) => (r.atRisk || []).map((a) => ({ ...a, rep: r.member }))).sort((a, b) => a.when.localeCompare(b.when)),
     noShows: ok.flatMap((r) => (r.noShows || []).map((a) => ({ ...a, rep: r.member }))).sort((a, b) => b.when.localeCompare(a.when)),
     playsByRep: ok.filter((r) => r.plays).map((r) => ({ rep: r.member, ...r.plays })),
@@ -328,9 +330,16 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // a follow-up due today) sits on their Right now until they tap Send.
   // The same rule as the rep's list, read from the same tasks.
   const nowISO = now.toISOString();
-  const textsDue = rows(planTasks).filter((t) => t.channel === "text" && !t.done && t.readyAt && String(t.readyAt) <= nowISO && now - new Date(t.readyAt) < 24 * 3600000)
-    .map((t) => ({ id: t.id, leadId: t.leadId || "", name: nameOf(t.leadId), intent: t.intent || "", title: String(t.title || "").replace(/^Text \S+ — /, ""), readyAt: String(t.readyAt), hasPhone: !!((byId.get(t.leadId) || {}).phone) }))
-    .sort((a, b) => a.readyAt.localeCompare(b.readyAt));
+  const slimText = (t) => ({ id: t.id, leadId: t.leadId || "", name: nameOf(t.leadId), intent: t.intent || "", title: String(t.title || "").replace(/^Text \S+ — /, ""), readyAt: String(t.readyAt), hasPhone: !!((byId.get(t.leadId) || {}).phone) });
+  const openTexts = rows(planTasks).filter((t) => t.channel === "text" && !t.done && t.readyAt);
+  const textsDue = openTexts.filter((t) => String(t.readyAt) <= nowISO && now - new Date(t.readyAt) < 24 * 3600000)
+    .map(slimText).sort((a, b) => a.readyAt.localeCompare(b.readyAt));
+  // Drafted and waiting out their hold — the welcome in the five minutes
+  // after a customer was added. On the rep's Right now from the start,
+  // locked until their minute; here too, so a customer just logged shows
+  // on the Floor as soon as the rep's phone syncs. Same window as the rep's.
+  const textsHeld = openTexts.filter((t) => String(t.readyAt) > nowISO && new Date(t.readyAt) - now <= 15 * 60000)
+    .map(slimText).sort((a, b) => a.readyAt.localeCompare(b.readyAt));
   // What the board actually found in their plan, so an empty card can say
   // why: nothing planned, a text still in its hold, or one that lapsed —
   // as opposed to a phone that hasn't synced or a store this account
@@ -377,7 +386,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     pending: loggedTodayList.filter((l) => !touchedToday.has(l.id)).map((l) => ({ ...l, email: (byId.get(l.id) || {}).email || "", optOut: !!((byId.get(l.id) || {}).smsOptOut || (byId.get(l.id) || {}).doNotContact) })),
   };
 
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, planTexts, at: now.toISOString() };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, at: now.toISOString() };
 }
 
 // Every member's numbers, in parallel, in the order given.

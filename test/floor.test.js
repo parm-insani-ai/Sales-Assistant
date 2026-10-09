@@ -181,11 +181,26 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
 await mgr.evaluate(() => sessionStorage.removeItem("viniva:team-board"));
 await mgr.goto(APP + "/#/floor");
 await settled();
-const found = await mgr.evaluate(() => ({ title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => t.startsWith("Texts waiting to go")), lines: [...document.querySelectorAll(".mg-due-found")].map((n) => n.textContent.replace(/\s+/g, " ").trim()) }));
+const readDue = () => mgr.evaluate(() => ({ title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => t.startsWith("Texts waiting to go")), held: [...document.querySelectorAll(".mg-held-rep")].map((n) => n.textContent.replace(/\s+/g, " ").trim()), lines: [...document.querySelectorAll(".mg-due-found")].map((n) => n.textContent.replace(/\s+/g, " ").trim()) }));
+let found = await readDue();
+console.log("held:", JSON.stringify(found));
+const inTen = new Date(now.getTime() + 10 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "\\s");
+// The welcome in its hold is on the Floor as it is on Parm's Right now: held, with its minute.
+if (!/· 1 held$/.test(found.title || "")) fail("the held welcome isn't counted: " + found.title);
+if (found.held.length !== 1 || !new RegExp("^Parm 1 text held ?sends " + inTen + " · Ira \\(welcome\\)$").test(found.held[0])) fail("the held welcome isn't on the card: " + JSON.stringify(found.held));
+if (found.lines.length) fail("the what-was-read lines show while a text is held: " + JSON.stringify(found.lines));
+// Nothing drafted at all: the card says what it read from each rep's phone.
+await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U1, rows: [
+  { id: "tt4", collection: "tasks", data: { id: "tt4", leadId: "l6", cadence: true, channel: "text", intent: "intro", step: 1, of: 13, title: "Text Ira — Welcome text", due: today, readyAt: iso(ago(-60)), done: false } },
+] }) });
+await mgr.evaluate(() => sessionStorage.removeItem("viniva:team-board"));
+await mgr.reload();
+await settled();
+found = await readDue();
 console.log("found:", JSON.stringify(found));
-const inTen = new Date(now.getTime() + 10 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-if (!/· none/.test(found.title || "")) fail("with every text sent the card still counts some: " + found.title);
-if (found.lines.length !== 1 || !new RegExp("^Parm · synced .* · 1 planned, next ready " + inTen.replace(/\s/g, "\\s") + "$").test(found.lines[0])) fail("the empty card doesn't say what it read from Parm's phone: " + JSON.stringify(found.lines));
+const inHour = new Date(now.getTime() + 60 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "\\s");
+if (!/· none$/.test(found.title || "")) fail("with every text sent the card still counts some: " + found.title);
+if (found.lines.length !== 1 || !new RegExp("^Parm · synced .* · 1 planned, next ready " + inHour + "$").test(found.lines[0])) fail("the empty card doesn't say what it read from Parm's phone: " + JSON.stringify(found.lines));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
