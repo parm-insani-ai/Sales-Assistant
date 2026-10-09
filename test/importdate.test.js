@@ -66,6 +66,10 @@ console.log("built:", JSON.stringify(built));
 if (!built.a.importedAt || built.a.createdAt !== new Date("2022-06-15T12:00:00").toISOString() || built.a.stage !== "delivered") fail("an imported owner isn't dated from the purchase: " + JSON.stringify(built.a));
 if (!built.c.importedAt || built.c.createdAt || built.c.stage !== "new") fail("an imported prospect carries a made-up created date: " + JSON.stringify(built.c));
 
+// The rep's book goes to the cloud before the manager reads it, so the
+// board's counts below include the typed lead and not the stamped list.
+await rep.evaluate(() => import("/js/sync.js").then((s) => s.syncNow()));
+
 // --- The manager's board: imported rows aren't untouched or fresh leads.
 const rpc = (tok, fn, args) => fetch(APP + "/rest/v1/rpc/" + fn, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args) }).then((r) => r.json());
 const st = await rpc("tm", "create_store", { store_name: "Store", display_name: "Sam" });
@@ -86,7 +90,7 @@ await mgr.goto(APP + "/#/reps");
 await mgr.waitForFunction(() => document.querySelector(".team-cells"), null, { timeout: 30000 });
 const cells = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
 console.log("reps:", JSON.stringify(cells));
-if (!cells.some((c) => /^Parm .*1 untouched0 overdue/.test(c))) fail("the board counts the imported book as untouched leads: " + JSON.stringify(cells));
+if (!cells.some((c) => /^Parm .*2 untouched0 overdue/.test(c))) fail("the board should count the two real untouched leads (the web lead and the typed one) and none of the imported book: " + JSON.stringify(cells));
 await mgr.goto(APP + "/#/floor");
 await mgr.waitForFunction(() => document.querySelector(".mg-due") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
 const fresh = await mgr.evaluate(() => { const t = [...document.querySelectorAll("#view .section-title")].find((n) => /^Fresh leads waiting/.test(n.textContent)); const card = t && t.nextElementSibling; return card ? card.textContent.replace(/\s+/g, " ").trim() : ""; });
