@@ -466,7 +466,7 @@ function hydrate(parsed) {
       merged.leads.forEach((l) => { const k = String((l && l.createdAt) || "").slice(0, 19); if (k) batch.set(k, (batch.get(k) || 0) + 1); });
       merged.leads.forEach((l) => {
         if (!l || l.importedAt) return;
-        const bySource = /^(import|autoalert)$/i.test(String(l.source || "").trim());
+        const bySource = /^(import|autoalert)\b/i.test(String(l.source || "").trim()); // "Import", "AutoAlert", "AutoAlert paid-off"
         const byField = l.importedEquity != null || l.alertType || l.dealType || l.priority || l.paymentsLeftAsOf || l.odometer != null || l.currentApr != null || l.currentTerm != null || l.phone2 || l.lastService || l.serviceAppt;
         const byBatch = (batch.get(String(l.createdAt || "").slice(0, 19)) || 0) >= 20 && !l.loggedAt && !["sold", "delivered"].includes(l.stage || "");
         if (!(bySource || byField || byBatch)) return;

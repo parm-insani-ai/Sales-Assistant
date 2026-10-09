@@ -26,7 +26,7 @@ await rep.addInitScript(({ nowISO }) => {
       // An owner from the book: bought in 2021, loaded today.
       { id: "own", name: "Olive Owner", phone: "9025550001", stage: "delivered", source: "Import", purchaseDate: "2021-06-01", currentPayment: 540, vehicleInterest: "2021 Rogue", ...x },
       // A prospect from an AutoAlert export: no purchase date.
-      { id: "pro", name: "Pat Prospect", phone: "9025550002", stage: "new", source: "AutoAlert", alertType: "Lease Maturity", ...x },
+      { id: "pro", name: "Pat Prospect", phone: "9025550002", stage: "new", source: "AutoAlert paid-off", ...x },
       // Someone who walked in today.
       { id: "walk", name: "Wes Walkin", phone: "9025550003", stage: "new", source: "Walk-in", ...x },
       // A prospect list whose source column named the lead source: 25 rows
