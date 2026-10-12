@@ -48,6 +48,10 @@ export const DEFAULT_PLAN = {
   sources: DEFAULT_SOURCES,
 };
 
+// The store sells six days a week; a rep works five. A rep's day is their
+// share of the month over their own working days, not the store's.
+export const REP_DAYS_PER_WEEK = 5;
+
 const pad = (n) => String(n).padStart(2, "0");
 const r1 = (n) => Math.round(n * 10) / 10;
 const ceil = (n) => Math.ceil(n - 1e-9);
@@ -63,7 +67,8 @@ export function sellingDays(now = new Date(), days = DEFAULT_PLAN.sellingDays) {
     if (!days.includes(dow)) continue;
     all++; if (d <= now.getDate()) gone++;
   }
-  return { all, gone, left: all - gone, isSellingDay: days.includes(now.getDay()) };
+  const rep = Math.round((all * REP_DAYS_PER_WEEK) / Math.max(1, days.length));
+  return { all, gone, left: all - gone, isSellingDay: days.includes(now.getDay()), rep };
 }
 
 /**
@@ -118,7 +123,7 @@ export function storePlan(cfg = {}, { members = [], now = new Date() } = {}) {
     const a = units ? ceil(set * (u / units)) : 0;
     return { member: m, units: u, customers: c, appts: a, shows: units ? ceil(shows * (u / units)) : 0,
       week: { units: r1(u / weeks), customers: r1(c / weeks), appts: r1(a / weeks) },
-      day: { customers: days.all ? r1(c / days.all) : 0, appts: days.all ? r1(a / days.all) : 0 } };
+      day: { customers: days.rep ? r1(c / days.rep) : 0, appts: days.rep ? r1(a / days.rep) : 0 } };
   });
 
   // Pace: where each number should be today, by selling days gone.

@@ -9,7 +9,7 @@ const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 const oct12 = new Date("2026-10-12T15:00:00");
 const d = M.sellingDays(oct12, [1, 2, 3, 4, 5, 6]);
 console.log("days:", JSON.stringify(d));
-if (d.all !== 27 || d.gone !== 10 || d.left !== 17 || !d.isSellingDay) fail("October's selling days: " + JSON.stringify(d));
+if (d.all !== 27 || d.gone !== 10 || d.left !== 17 || !d.isSellingDay || d.rep !== 23) fail("October's selling days, and a rep's 23: " + JSON.stringify(d));
 
 const reps = [{ user_id: "a", name: "Parm" }, { user_id: "b", name: "Dana" }, { user_id: "c", name: "Ken" }, { user_id: "d", name: "Sam" }];
 const plan = M.storePlan({}, { members: reps, now: oct12 });
@@ -27,9 +27,9 @@ if (!ds || ds.upsNeeded !== 57 || ds.close !== 26 || !ap || ap.upsNeeded !== 26 
 if (plan.sources[0].key !== "dealer_site") fail("the biggest source isn't first");
 if (Math.abs(plan.sources.reduce((a, s) => a + s.unitsExpected, 0) - 80) > 1.5) fail("the sources don't add up to the target: " + plan.sources.reduce((a, s) => a + s.unitsExpected, 0));
 if (!plan.lever || plan.lever.apptClose !== 72 || plan.lever.perUp !== 0.3) fail("the appointment lever: " + JSON.stringify(plan.lever));
-// Four reps, an even 20 each: 49 customers, 28 appointments; 4.5 weeks.
+// Four reps, an even 20 each: 49 customers, 28 appointments; 4.5 weeks; a rep's 23 working days.
 const parm = plan.perRep.find((r) => r.member.user_id === "a");
-if (!parm || parm.units !== 20 || parm.customers !== 49 || parm.appts !== 28 || parm.week.units !== 4.4 || parm.day.customers !== 1.8 || parm.day.appts !== 1) fail("Parm's share: " + JSON.stringify(parm));
+if (!parm || parm.units !== 20 || parm.customers !== 49 || parm.appts !== 28 || parm.week.units !== 4.4 || parm.day.customers !== 2.1 || parm.day.appts !== 1.2) fail("Parm's share: " + JSON.stringify(parm));
 // Pace on the 12th: 10 of 27 selling days gone = 37%.
 if (plan.pace.frac !== 37 || plan.pace.units !== 29.6 || plan.pace.customers !== 71.9 || plan.pace.appts !== 41.5) fail("pace: " + JSON.stringify(plan.pace));
 

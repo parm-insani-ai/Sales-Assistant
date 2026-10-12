@@ -47,6 +47,13 @@ export const ASSUMED = { showRate: 60, closeRate: 40, minPast: 8 };
  * Returns { unitsLeft, pipeline, apptsNeeded, perDay, daysLeft, perAppt,
  *           showRate, closeRate, assumed, onTrack }.
  */
+export const SELLING_DOW = [1, 2, 3, 4, 5, 6], REP_DAYS_PER_WEEK = 5;
+export function workDaysLeft(now = new Date()) {
+  const y = now.getFullYear(), m = now.getMonth(), last = new Date(y, m + 1, 0).getDate();
+  let selling = 0;
+  for (let d = now.getDate(); d <= last; d++) if (SELLING_DOW.includes(new Date(y, m, d).getDay())) selling++;
+  return Math.max(1, Math.ceil((selling * REP_DAYS_PER_WEEK) / SELLING_DOW.length));
+}
 export function needs({ goal, sold, futureSet = 0, showRate = null, closeRate = null, now = new Date() }) {
   const assumed = showRate == null || closeRate == null;
   const s = (showRate == null ? ASSUMED.showRate : showRate) / 100;
@@ -56,7 +63,10 @@ export function needs({ goal, sold, futureSet = 0, showRate = null, closeRate = 
   // "hundreds of appointments", which is a data problem, not a plan.
   const perAppt = Math.max(0.08, s * c);
   const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const daysLeft = Math.max(1, daysIn - now.getDate() + 1);
+  // Days left to a rep: the store sells Monday to Saturday and a rep works
+  // five of those six, so the rate is over their working days, today
+  // included — not the calendar's.
+  const daysLeft = workDaysLeft(now);
   const pipeline = Math.round(futureSet * perAppt * 10) / 10;
   const unitsLeft = Math.max(0, num(goal) - num(sold) - pipeline);
   const apptsNeeded = num(goal) ? Math.ceil(unitsLeft / perAppt) : 0;

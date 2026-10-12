@@ -30,8 +30,8 @@ if (f.showRate !== 60 || f.closeRate !== 33 || f.setToSold !== 20) fail("funnel 
 // --- What it takes. 12 units, 5 sold, 2 on the calendar, 60% show, 40% close.
 let n = I.needs({ goal: 12, sold: 5, futureSet: 2, showRate: 60, closeRate: 40, now });
 console.log("needs:", JSON.stringify(n));
-// per appt 0.24; pipeline 0.5; units left 6.5; appts needed ceil(6.5/0.24)=28; 7 days left (24..30) → 4 a day
-if (n.perAppt !== 0.24 || n.pipeline !== 0.5 || n.unitsLeft !== 6.5 || n.apptsNeeded !== 28 || n.daysLeft !== 7 || n.perDay !== 4 || n.assumed || n.onTrack) fail("the math: " + JSON.stringify(n));
+// per appt 0.24; pipeline 0.5; units left 6.5; appts needed ceil(6.5/0.24)=28; Thu 24 to Wed 30 is six selling days, five of them a rep's → 5.6 a day
+if (n.perAppt !== 0.24 || n.pipeline !== 0.5 || n.unitsLeft !== 6.5 || n.apptsNeeded !== 28 || n.daysLeft !== 5 || n.perDay !== 5.6 || n.assumed || n.onTrack) fail("the math: " + JSON.stringify(n));
 n = I.needs({ goal: 12, sold: 12, futureSet: 0, showRate: 60, closeRate: 40, now });
 if (!n.onTrack || n.apptsNeeded !== 0) fail("goal already hit should need nothing: " + JSON.stringify(n));
 n = I.needs({ goal: 10, sold: 2, futureSet: 0, now });
