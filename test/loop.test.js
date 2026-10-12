@@ -69,7 +69,7 @@ if (!home.reps.some((r) => /^Parm 1 of \d+ set today ?1 fresh lead/.test(r))) fa
 if (!home.reps.some((r) => /^Dana /.test(r))) fail("Dana's row is missing: " + JSON.stringify(home.reps));
 if (!/2 of 3 actions had an appointment set within a day \(67%\)/.test(home.loop) || !/Nudges 1 of 1 · Texts from the store 1 of 1 · Hand-offs 0 of 1/.test(home.loop)) fail("the loop is wrong: " + home.loop);
 if (home.notes.length !== 1 || !/^Dana: Nothing in their cloud copy yet/.test(home.notes[0])) fail("the empty-book note should name Dana and only Dana: " + JSON.stringify(home.notes));
-if (!/mg-today/.test(home.first || "")) fail("today's plan isn't the first card: " + home.first);
+if (!/mg-math/.test(home.first || "")) fail("the month's math isn't the first card: " + home.first);
 
 // --- Reps: call conversion and the loop on Parm's row.
 await mgr.goto(APP + "/#/reps");

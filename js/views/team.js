@@ -17,6 +17,7 @@ import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
 import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo, cachedConfig, loadConfig, saveConfig, boardCheck } from "../team.js";
+import { storePlan, DEFAULT_PLAN } from "../opmodel.js";
 import { runningVersion, getVersion } from "../updater.js";
 import { onPull } from "../pulltorefresh.js";
 
@@ -126,6 +127,7 @@ export function renderTeam(view, { param } = {}) {
         </div>
         <div class="hint">Invite code: <span class="mono">${esc(team.code)}</span> — a rep can also type it under Tools → Team. Reps join themselves; managers are appointed by the admin.</div>
       </div>
+      ${planHTML()}
       ${agentHTML()}
       <div class="section-title">Check the board</div>
       <div class="card board-check">
@@ -146,6 +148,22 @@ export function renderTeam(view, { param } = {}) {
       try { await leaveStore(); team = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
     });
     el.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", () => openRoleSheet((team.members || []).find((m) => m.user_id === b.dataset.role))));
+    on('[data-act="plan-save"]', async (ev) => {
+      const btn = ev.currentTarget; btn.disabled = true;
+      try { await saveConfig(team, { plan: readPlanForm() }); toast("Saved — Home shows the month's math", "success"); draw(); }
+      catch (e) { toast(e.message || "Couldn't save", "danger"); btn.disabled = false; }
+    });
+    on('[data-act="plan-write"]', async (ev) => {
+      const btn = ev.currentTarget; btn.disabled = true;
+      try {
+        const cfg = readPlanForm();
+        await saveConfig(team, { plan: cfg });
+        const plan = storePlan(cfg, { members: team.members || [] });
+        let n = 0;
+        for (const pr of plan.perRep) { if (pr.units > 0) { await setTarget(pr.member.user_id, { units: Math.round(pr.units), appts: pr.appts }); n++; } }
+        toast(`${n} rep${n === 1 ? "" : "s"} set for the month`, "success"); draw();
+      } catch (e) { toast(e.message || "Couldn't write the targets", "danger"); btn.disabled = false; }
+    });
     on('[data-act="board-check"]', async (ev) => {
       const btn = ev.currentTarget, out = el.querySelector(".board-check-out");
       btn.disabled = true; out.innerHTML = `<div class="small muted" style="margin-top:8px">Reading…</div>`;
@@ -175,6 +193,41 @@ export function renderTeam(view, { param } = {}) {
       try { await saveConfig(team, { agent }); toast("Saved — the agent runs on the sweep", "success"); draw(); }
       catch (e) { toast(e.message || "Couldn't save", "danger"); ev.currentTarget.disabled = false; }
     });
+  }
+
+  // The store's targets and ratios: the month worked backwards. Saved to
+  // the store's config; Home reads it. "Write to phones" sets each rep's
+  // month (units and appointments) from the allocation.
+  function planHTML() {
+    const cfg = { ...DEFAULT_PLAN, ...((cachedConfig() || {}).plan || {}) };
+    const reps = (team.members || []);
+    const plan = storePlan(cfg, { members: reps });
+    const num = (id, val, step = 1, w = 72) => `<input id="${id}" type="number" inputmode="decimal" step="${step}" value="${esc(String(val))}" style="width:${w}px">`;
+    return `
+      <div class="section-title">Store targets <span class="muted" style="font-weight:500;font-size:0.78rem">· the month's math</span></div>
+      <div class="card plan-card">
+        <div class="row plan-row"><span>Units this month</span><span class="row-meta">new ${num("pl-new", cfg.targetNew)} used ${num("pl-used", cfg.targetUsed)}</span></div>
+        <div class="row plan-row"><span>Closing, sold ÷ spoken with (%)</span><span class="row-meta">new ${num("pl-cnew", cfg.closingNew, 0.5, 64)} used ${num("pl-cused", cfg.closingUsed, 0.5, 64)}</span></div>
+        <div class="row plan-row"><span>Units through an appointment (%)</span><span class="row-meta">${num("pl-share", cfg.apptShare, 1, 64)}</span></div>
+        <div class="row plan-row"><span>Show rate · closing on a show (%)</span><span class="row-meta">${num("pl-show", cfg.showRate, 1, 64)} ${num("pl-cos", cfg.closeOnShow, 1, 64)}</span></div>
+        <div class="row plan-row"><span>Selling days</span><span class="row-meta"><label class="small"><input type="checkbox" id="pl-sat" ${cfg.sellingDays.includes(6) ? "checked" : ""}> Sat</label> <label class="small"><input type="checkbox" id="pl-sun" ${cfg.sellingDays.includes(0) ? "checked" : ""}> Sun</label></span></div>
+        <div class="small muted" style="margin:8px 0 4px">${plan.targets.units} units → ${plan.customers.total} customers spoken with (${plan.customers.perDay} a selling day) → ${plan.appts.set} appointments set (${plan.appts.perDay} a day) for ${plan.appts.shows} shows → ${plan.upsNeeded} ups at the year's mix.</div>
+        <div class="section-title" style="margin-top:10px">Each rep's share <span class="muted" style="font-weight:500;font-size:0.78rem">· units; blank splits what's left evenly</span></div>
+        <div class="plan-alloc">${reps.map((m) => { const pr = plan.perRep.find((x) => x.member.user_id === m.user_id); return `<div class="row plan-alloc-row" data-rep="${esc(m.user_id)}" style="padding:4px 0"><div class="row-main"><div class="small"><b>${esc(memberName(m))}</b>${m.role === "manager" ? ' <span class="muted">(manager)</span>' : ""}</div><div class="small muted">${pr ? `${pr.customers} customers · ${pr.appts} appointments · ${pr.day.customers}/${pr.day.appts} a day` : ""}</div></div><input type="number" inputmode="decimal" step="0.5" data-alloc="${esc(m.user_id)}" value="${cfg.alloc && cfg.alloc[m.user_id] != null ? esc(String(cfg.alloc[m.user_id])) : ""}" placeholder="${pr ? pr.units : ""}" style="width:64px"></div>`; }).join("")}</div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn-primary btn-sm" data-act="plan-save" style="flex:1">Save</button>
+          <button class="btn btn-ghost btn-sm" data-act="plan-write" style="flex:1">Write to reps' phones</button>
+        </div>
+        <div class="hint">Save keeps the targets and ratios for Home. Write sets each rep's month — units and appointments — so their Home shows the same numbers. Ratios start from the store's year to date and should be replaced by the measured month.</div>
+      </div>`;
+  }
+  function readPlanForm() {
+    const v = (id) => Number(el.querySelector("#" + id).value);
+    const days = [1, 2, 3, 4, 5]; if (el.querySelector("#pl-sat").checked) days.push(6); if (el.querySelector("#pl-sun").checked) days.unshift(0);
+    const alloc = {};
+    el.querySelectorAll("[data-alloc]").forEach((i) => { if (i.value !== "" && isFinite(Number(i.value))) alloc[i.dataset.alloc] = Number(i.value); });
+    const cur = (cachedConfig() || {}).plan || {};
+    return { ...cur, targetNew: v("pl-new") || 0, targetUsed: v("pl-used") || 0, closingNew: v("pl-cnew") || DEFAULT_PLAN.closingNew, closingUsed: v("pl-cused") || DEFAULT_PLAN.closingUsed, apptShare: v("pl-share") || DEFAULT_PLAN.apptShare, showRate: v("pl-show") || DEFAULT_PLAN.showRate, closeOnShow: v("pl-cos") || DEFAULT_PLAN.closeOnShow, sellingDays: days, alloc };
   }
 
   // The store's agent: what the function does for the manager every day,

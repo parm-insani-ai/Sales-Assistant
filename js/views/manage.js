@@ -24,7 +24,8 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast, openModal } from "../components.js";
 import { esc, formatDateTime, currency } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft, LOOP_DAYS } from "../team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft, LOOP_DAYS, loadConfig, cachedConfig } from "../team.js";
+import { storePlan, paceRead, sourceKey } from "../opmodel.js";
 import { looksLikeMoney } from "../replies.js";
 import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./team.js";
 import { findings } from "../insight.js";
@@ -50,7 +51,7 @@ function boardScreen(view, { needBook = false, paint, wire = null }) {
     st.loading = true; draw();
     try {
       st.team = await myStore();
-      if (st.team && isManager(st.team)) st.board = await loadBoard(st.team, { force });
+      if (st.team && isManager(st.team)) { try { await loadConfig(st.team); } catch { /* the plan shows defaults */ } st.board = await loadBoard(st.team, { force }); }
       st.error = "";
     } catch (e) { st.error = e && e.message ? e.message : "couldn't reach the store"; }
     st.loading = false; draw();
@@ -119,6 +120,23 @@ export function renderManageHome(view) {
       const monthName = now.toLocaleDateString("en-CA", { month: "long" });
       const pace = t && t.goal ? Math.round((t.goal * now.getDate()) / daysIn) : 0;
       const today = localDay(now);
+      // The month's math: the targets at the store's ratios back to customers
+      // and appointments, where each should be today against where it is,
+      // ups by source needed against logged, and each rep's day.
+      const plan = t ? storePlan((cachedConfig() || {}).plan || {}, { members: (team.members || []).filter((m) => m.role !== "manager" || rows.some((r) => r.member.user_id === m.user_id && !r.error && r.sheet && (r.sheet.spoke || (r.sales && r.sales.units)))), now }) : null;
+      const planRead = plan ? paceRead(plan, { units: t.units, customers: t.loggedMonth, appts: ins.setThisMonth }) : [];
+      const upsBySrc = t ? (t.logged || []).reduce((acc, l) => { const k = sourceKey(l.source); acc[k] = (acc[k] || 0) + 1; return acc; }, {}) : {};
+      const stateCls = (st) => (st === "ahead" ? "color:var(--success)" : st === "behind" ? "color:var(--danger)" : "color:var(--muted)");
+      const mathCard = plan ? `<div class="card mg-math" style="margin-bottom:12px">
+        <div class="row"><div class="row-main"><div class="strong">The month's math <span class="muted small" style="font-weight:500">· ${plan.targets.units} units: ${plan.targets.new} new, ${plan.targets.used} used · ${plan.days.gone} of ${plan.days.all} selling days</span></div>
+          <div class="small muted" style="margin-top:2px">At ${plan.closing.store}% closing that's ${plan.customers.total} customers spoken with (${plan.customers.perDay} a day) and, with ${plan.appts.unitsVia} units through an appointment, ${plan.appts.set} appointments set (${plan.appts.perDay} a day) for ${plan.appts.shows} shows.</div></div></div>
+        <div class="mg-math-pace" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">${planRead.map((x) => `<div class="mg-pace" data-k="${esc(x.label)}" style="background:var(--surface-2);border-radius:10px;padding:8px 10px"><div class="strong" style="font-size:1.1rem;font-variant-numeric:tabular-nums">${x.have}<span class="muted" style="font-size:0.8rem;font-weight:500"> / ${x.want}</span></div><div class="small muted">${esc(x.label)}</div><div class="small" style="font-weight:600;${stateCls(x.state)}">${esc(x.text)}</div></div>`).join("")}</div>
+        ${plan.lever ? `<div class="small" style="margin-top:8px"><b>The lever:</b> an up that arrives as an appointment closes at ${plan.lever.apptClose}% against ${plan.lever.mixClose}% for the mix — every internet up turned into an appointment before it arrives is worth ${plan.lever.perUp} of a unit.</div>` : ""}
+        <details class="mg-math-src" style="margin-top:8px"><summary class="small" style="cursor:pointer;color:var(--brand)">Ups by source · ${plan.upsNeeded} needed this month, ${(t.logged || []).length} logged so far</summary>
+          <div class="small" style="margin-top:6px">${plan.sources.map((sr) => { const have = upsBySrc[sr.key] || 0, want = Math.round(sr.upsNeeded * plan.pace.frac / 100); return `<div class="row mg-src" data-src="${esc(sr.key)}" style="padding:3px 0"><div class="row-main">${esc(sr.label)} <span class="muted">· closes ${sr.close}%</span></div><span style="font-variant-numeric:tabular-nums;${have >= want ? "color:var(--success)" : "color:var(--danger)"}">${have} / ${want}</span><span class="muted" style="margin-left:6px;font-variant-numeric:tabular-nums">of ${sr.upsNeeded}</span></div>`; }).join("")}</div>
+          <div class="hint">Needed is this month's share of the year's mix; the second number is where each source should be by today. Logged counts customers logged this month by their source.</div></details>
+        <div class="hint" style="margin:8px 0 0">Targets, ratios and each rep's share are set under Admin → Store targets.</div>
+      </div>` : "";
       // Today's plan: what each rep needs to set today, what they've set, and
       // the three things on their plate that produce appointments — fresh
       // leads, customers waiting, texts to send, appointments to confirm.
@@ -132,12 +150,13 @@ export function renderManageHome(view) {
           r.textsDue && r.textsDue.length ? [`${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send`, "/floor"] : null,
           r.atRisk && r.atRisk.length ? [`${r.atRisk.length} to confirm`, "/floor"] : null,
         ].filter(Boolean);
-        return { r, set, need, acts, onTrack: !!(n.goal && n.onTrack) };
+        const pr = plan && plan.perRep.find((x) => x.member.user_id === r.member.user_id);
+        return { r, set, need: pr && pr.day.appts ? Math.max(need, Math.ceil(pr.day.appts)) : need, acts, onTrack: !!(n.goal && n.onTrack), plan: pr };
       }) : [];
       const todayCard = t && ins ? `<div class="card mg-today mg-plan" style="margin-bottom:12px">
         <div class="strong">${ins.needs.goal ? (ins.needs.onTrack ? `On track: the calendar covers the rest of ${esc(monthName)}.` : `To hit ${ins.needs.goal} units: ${ins.needs.apptsNeeded} more appointments set by month end — ${ins.needs.perDay} a day.`) : "No unit goals set — set each rep's target under Reps."}</div>
         <div class="small muted" style="margin-top:4px">${ins.needs.goal ? `${ins.needs.sold} sold · ${ins.needs.futureSet} on the calendar (~${ins.needs.pipeline} units) · ${ins.needs.perAppt} units per appointment set (${ins.needs.showRate}% show × ${ins.needs.closeRate}% close${ins.needs.assumed ? ", typical rates until there's history" : ""})` : ""}${ins.touchesPerDay && ins.needs.goal && !ins.needs.onTrack ? ` · about ${ins.touchesPerDay} touches a day across the floor` : ""}</div>
-        <div class="mg-today-reps" style="margin-top:10px">${perRep.map(({ r, set, need, acts, onTrack }) => `<div class="row mg-today-rep mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;border-top:1px solid var(--border);align-items:flex-start;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))} <span class="mg-need small" style="font-weight:600;${need ? (set >= need ? "color:var(--success)" : "color:var(--warning)") : "color:var(--muted)"}">${need ? `${set} of ${need} set today` : onTrack ? `on track · ${set} set today` : `${set} set today`}</span></div><div class="row-sub mg-today-acts">${acts.length ? acts.map(([txt]) => `<span class="mg-act">${esc(txt)}</span>`).join(" · ") : "nothing waiting on them"}</div></div><span class="muted">›</span></div>`).join("")}</div>
+        <div class="mg-today-reps" style="margin-top:10px">${perRep.map(({ r, set, need, acts, onTrack }) => `<div class="row mg-today-rep mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;border-top:1px solid var(--border);align-items:flex-start;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))} <span class="mg-need small" style="font-weight:600;${need ? (set >= need ? "color:var(--success)" : "color:var(--warning)") : "color:var(--muted)"}">${need ? `${set} of ${need} set today` : onTrack ? `on track · ${set} set today` : `${set} set today`}</span></div><div class="row-sub mg-today-acts">${acts.length ? acts.map(([txt]) => `<span class="mg-act">${esc(txt)}</span>`).join(" · ") : "nothing waiting on them"}</div>${plan ? `<div class="small muted mg-today-plan">${(() => { const pr = plan.perRep.find((x) => x.member.user_id === r.member.user_id); return pr ? `${pr.units} units this month · ${pr.day.customers} customers and ${pr.day.appts} appointments a day · ${r.loggedToday || 0} logged today` : ""; })()}</div>` : ""}</div><span class="muted">›</span></div>`).join("")}</div>
         <div class="hint" style="margin:8px 0 0">Tap a rep for their day. The work itself is on Floor.</div>
       </div>` : "";
       // What the manager's taps came to: appointments set within a day of a
@@ -154,6 +173,7 @@ export function renderManageHome(view) {
       ${!manager ? repNotice(team) : `
       ${asOf(c)}
       ${notesLine}
+      ${mathCard}
       ${todayCard}
       ${loopCard}
       ${t ? `
