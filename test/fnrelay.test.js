@@ -26,6 +26,7 @@ const db = { records: [], usage: [], stores: [{ id: "s1", name: "O'Regan's Nissa
 const twilio = { sent: [] }, push = { got: [] };
 db.config = []; // store_config rows: { store_id, data }
 db.targets = []; // store_targets rows
+db.pool = []; // store_customers rows
 // VAPID keys and a subscription key pair, so the function's pushes go to this mock.
 const crypto = require("crypto");
 const ecPair = () => { const kp = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }); const pub = kp.publicKey.export({ format: "jwk" }), priv = kp.privateKey.export({ format: "jwk" }); return { pub: Buffer.concat([Buffer.from([4]), Buffer.from(pub.x, "base64url"), Buffer.from(pub.y, "base64url")]).toString("base64url"), priv: Buffer.from(priv.d, "base64url").toString("base64url") }; };
@@ -52,6 +53,11 @@ const mock = http.createServer((req, res) => {
     if (u.pathname === "/rest/v1/store_targets") {
       if (req.method === "POST") { for (const t of (Array.isArray(body) ? body : [body])) { const i = db.targets.findIndex((x) => x.store_id === t.store_id && x.user_id === t.user_id && x.month === t.month); if (i >= 0) db.targets[i] = t; else db.targets.push(t); } return send(res, 201, {}); }
       return send(res, 200, db.targets.filter((m) => match(m, eqs(u))));
+    }
+    if (u.pathname === "/rest/v1/store_customers") {
+      const f = eqs(u); if (f.deleted) f.deleted = f.deleted === "true" ? "true" : "false";
+      if (req.method === "PATCH") { db.pool.filter((c) => match({ ...c, deleted: String(!!c.deleted) }, f)).forEach((c) => Object.assign(c, body)); return send(res, 204, {}); }
+      return send(res, 200, db.pool.filter((c) => match({ ...c, deleted: String(!!c.deleted) }, f)).map((c) => ({ id: c.id, data: c.data, status: c.status })));
     }
     if (u.pathname === "/rest/v1/admins") return send(res, 200, []);
     if (/^\/2010-04-01\/Accounts\/[^/]+\/Messages\.json$/.test(u.pathname)) { twilio.sent.push(Object.fromEntries(new URLSearchParams(b))); return send(res, 201, { sid: "SM" + twilio.sent.length }); }
@@ -297,6 +303,14 @@ try {
     // The be-backs: logged five days ago, still working, quiet for four.
     { id: "c9", user_id: U1, collection: "leads", data: { id: "c9", name: "Una Unsold", phone: "9025557009", stage: "working", vehicleInterest: "Sentra", loggedAt: hoursAgo(120), lastContacted: hoursAgo(96) } },
   );
+  // The store's book: Parm's own book has two worth a call, the plan asks for twelve, so the
+  // dispatcher deals from the pool — Pat (equity) and Lia (lease), not Eve, whom Parm already has by phone.
+  db.pool.push(
+    { store_id: "s1", id: "ph:9025558001", data: { id: "ph:9025558001", name: "Pat Pool", phone: "9025558001", stage: "delivered", currentValue: 24000, payoff: 11000, purchaseDate: "2023-05-01" }, status: "new", deleted: false },
+    { store_id: "s1", id: "ph:9025558002", data: { id: "ph:9025558002", name: "Lia Lease", phone: "9025558002", stage: "delivered", leaseEnd: dayN(45), purchaseDate: "2023-01-01" }, status: "new", deleted: false },
+    { store_id: "s1", id: "ph:9025556002", data: { id: "ph:9025556002", name: "Eve Equity", phone: "9025556002", stage: "delivered", currentValue: 21000, payoff: 12000, purchaseDate: "2024-01-01" }, status: "new", deleted: false },
+    { store_id: "s1", id: "ph:9025558003", data: { id: "ph:9025558003", name: "Nobody Special", phone: "9025558003", stage: "delivered", purchaseDate: "2026-01-01" }, status: "new", deleted: false },
+  );
   const repPrefs = db.records.find((r) => r.user_id === U1 && r.collection === "prefs");
   repPrefs.data = { tzOffsetMinutes: 0, hoursFrom: 0, hoursTo: 24, hoursDays: [0, 1, 2, 3, 4, 5, 6], quietFrom: 0, quietTo: 0 };
   twilio.sent.length = 0;
@@ -320,7 +334,10 @@ try {
   if (!ns || ns.To !== "9025555555" || agentRep.noShows !== 1) fail("yesterday's no-show wasn't chased: " + JSON.stringify(twilio.sent));
   if (!tasks(U1).some((t) => t.kind === "rebook" && t.leadId === "c5" && /Rebook Nick Noshow/.test(t.title))) fail("no rebook to-do on the rep's list: " + JSON.stringify(tasks(U1)));
   const hand = tasks(U1).filter((t) => t.kind === "reach");
-  if (agentRep.handouts !== 2 || hand.length !== 2 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
+  const dealt = tasks(U1).filter((t) => t.kind === "reach" && /Pat Pool|Lia Lease/.test(t.title));
+  const poolLeads = db.records.filter((r) => r.user_id === U1 && r.collection === "leads" && r.data.storeCustomerId).map((r) => r.data);
+  if (agentRep.pool !== 2 || dealt.length !== 2 || poolLeads.length !== 2 || !poolLeads.every((l) => l.importedAt && l.handedBy === "agent") || !db.pool.filter((c) => /8001|8002/.test(c.id)).every((c) => c.status === "assigned" && c.assigned_to === U1) || db.pool.find((c) => /6002/.test(c.id)).status !== "new") fail("the dispatcher didn't deal from the store's book, or dealt the wrong ones: " + JSON.stringify([agentRep.pool, dealt.map((t) => t.title), poolLeads.map((l) => l.name), db.pool.map((c) => [c.id, c.status])]));
+  if (agentRep.handouts !== 4 || hand.length !== 4 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
   if (!tasks(U1).some((t) => t.kind === "service" && t.leadId === "o4" && /In service today: Sue Service/.test(t.title))) fail("the customer in the service drive wasn't handed over: " + JSON.stringify(tasks(U1)));
   if (!(agentRep.huddles || []).some((k) => /^agent:huddle:/.test(k))) fail("the huddle wasn't sent: " + JSON.stringify(agentRep));
   // The planner wrote the month to Parm from the allocation; the dispatcher sized the hand-outs to the plan (capped at twelve).

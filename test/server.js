@@ -37,6 +37,7 @@ const stores = new Map();
 const admins = new Set(["00000000-0000-4000-8000-000000000003"]);
 // The store's shared lot: key store|id.
 const storeVehicles = new Map();
+const storeCustomers = new Map(); // store_customers rows: key store|id
 // Per-store config (the manager's welcome text), and the welcomes "sent".
 const storeConfig = new Map();
 const welcomes = [];
@@ -241,6 +242,42 @@ const server = http.createServer((req, res) => {
         for (const r of args.rows || []) { if (!r.id) continue; ids.add(r.id); storeVehicles.set(st.id + "|" + r.id, { store_id: st.id, id: r.id, data: r, updated_at: nowiso, deleted: false }); n++; }
         if (args.complete) for (const v of storeVehicles.values()) if (v.store_id === st.id && !ids.has(v.id) && (v.data.status || "available") !== "sold") { v.data = { ...v.data, status: "sold" }; v.updated_at = nowiso; }
         return json(res, 200, { written: n });
+      }
+      // The store's owner book: load, read, hand out, set aside.
+      if (fn === "store_book") {
+        const st = stores.get(args.store); const mine = myStore(uid);
+        if (!st || !(isAdmin || (mine && mine.id === st.id && mine.role === "manager"))) return json(res, 200, []);
+        return json(res, 200, [...storeCustomers.values()].filter((c) => c.store_id === st.id && (!args.since || c.updated_at > args.since)).map((c) => ({ id: c.id, data: c.data, status: c.status, assigned_to: c.assigned_to, assigned_at: c.assigned_at, updated_at: c.updated_at, deleted: c.deleted })));
+      }
+      if (fn === "store_book_upsert") {
+        const st = stores.get(args.store); const mine = myStore(uid);
+        if (!st || !(isAdmin || (mine && mine.id === st.id && mine.role === "manager"))) return fail("only a manager of the store can do that");
+        const nowiso = new Date().toISOString(); let n = 0;
+        for (const r of args.rows || []) { if (!r.id) continue; const k = st.id + "|" + r.id; const was = storeCustomers.get(k); storeCustomers.set(k, was ? { ...was, data: { ...was.data, ...r }, deleted: false, updated_at: nowiso } : { store_id: st.id, id: r.id, data: r, status: "new", assigned_to: null, assigned_at: null, updated_at: nowiso, deleted: false }); n++; }
+        return json(res, 200, { written: n, unassigned: [...storeCustomers.values()].filter((c) => c.store_id === st.id && c.status === "new" && !c.deleted).length });
+      }
+      if (fn === "store_book_assign") {
+        const st = stores.get(args.store); const mine = myStore(uid);
+        if (!st || !(isAdmin || (mine && mine.id === st.id && mine.role === "manager"))) return fail("only a manager of the store can do that");
+        if (!st.members.some((m) => m.user_id === args.member)) return fail("they are not in this store");
+        const c = storeCustomers.get(st.id + "|" + args.customer_id);
+        if (!c || c.deleted) return fail("no such customer in the book");
+        if (c.status === "assigned") return fail("already handed out");
+        const nowiso = new Date().toISOString(), lid = "sb_" + Math.random().toString(16).slice(2, 10), tid = "tsk_" + Math.random().toString(16).slice(2, 10);
+        const by = (st.members.find((m) => m.user_id === uid) || {}).name || "your manager";
+        const { id: _id, ...rest } = c.data;
+        const lead = { ...rest, id: lid, storeCustomerId: c.id, source: c.data.source || "Owner book", stage: c.data.stage || "delivered", importedAt: nowiso, handedAt: nowiso, handedBy: uid, createdAt: c.data.createdAt || nowiso, updatedAt: nowiso };
+        records.set(args.member + "|" + lid, { id: lid, user_id: args.member, collection: "leads", data: lead, deleted: false, updated_at: nowiso });
+        records.set(args.member + "|" + tid, { id: tid, user_id: args.member, collection: "tasks", data: { id: tid, leadId: lid, title: `Reach out to ${c.data.name || "customer"}${args.why ? " — " + args.why : ""} (from ${by})`, due: nowiso.slice(0, 10), channel: "call", kind: "reach", priority: "high", source: "manager", fromManager: true, setBy: uid, done: false, createdAt: nowiso, updatedAt: nowiso }, deleted: false, updated_at: nowiso });
+        Object.assign(c, { status: "assigned", assigned_to: args.member, assigned_at: nowiso, updated_at: nowiso });
+        return json(res, 200, { leadId: lid, taskId: tid });
+      }
+      if (fn === "store_book_status") {
+        const st = stores.get(args.store); const mine = myStore(uid);
+        if (!st || !(isAdmin || (mine && mine.id === st.id && mine.role === "manager"))) return fail("only a manager of the store can do that");
+        const c = storeCustomers.get(st.id + "|" + args.customer_id); if (!c) return fail("no such customer in the book");
+        Object.assign(c, { status: args.new_status, assigned_to: null, assigned_at: null, updated_at: new Date().toISOString() });
+        return json(res, 200, { ok: true });
       }
       if (fn === "manager_add_task") {
         if (!isAdmin && !manages(uid, args.member)) return fail("only a manager of their store can do that");
@@ -581,7 +618,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; dealreads.length = 0; storeVehicles.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; dealreads.length = 0; storeVehicles.clear(); storeCustomers.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null; objects.clear();
     return json(res, 200, { ok: true });
   }

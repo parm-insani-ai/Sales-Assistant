@@ -404,6 +404,7 @@ export function renderFloor(view, { param } = {}) {
         const ranked = book ? rankBook(book.rows, rankOpts(lot)) : null;
         const r = ranked && ranked.rows.find((x) => x.lead.id === b.dataset.hand && x.rep.user_id === b.dataset.hrep);
         if (!r) return;
+        if (r.pool) { try { sessionStorage.setItem("customers-query", JSON.stringify({ q: r.lead.name || "", rep: "all", mode: "pool" })); } catch { /* fine */ } navigate("/customers"); return; }
         b.disabled = true;
         try {
           await addRepTask(r.rep.user_id, taskFor(r, { by: store.getSettings().salesperson || "your manager" }));
@@ -554,6 +555,7 @@ export async function openManagerQuickAdd() {
       { icon: "message", label: "Welcome text", fn: withTeam(() => import("./welcome.js").then((m) => m.openWelcomeSheet(team))) },
       { icon: "bell", label: "Nudge a rep", fn: withTeam(() => openNudgeSheet(team)) },
       { icon: "send", label: "Hand out reach-outs", fn: withTeam(() => navigate("/customers")) },
+      { icon: "file", label: "Load the owner book", fn: withTeam(() => import("./storebook.js").then((m) => m.openStoreBookUpload(team, () => navigate("/customers")))) },
       { icon: "target", label: "Set targets", fn: withTeam(() => navigate("/reps")) },
       { icon: "users", label: "Invite a rep", fn: withTeam(async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied — send it to the rep", "success"); } catch { navigate("/team"); } }) },
     ]);

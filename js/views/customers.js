@@ -10,7 +10,7 @@
 import { icon } from "../icons.js";
 import { toast, confirmDialog } from "../components.js";
 import { esc, formatDateTime, formatDate } from "../utils.js";
-import { cachedStore, myStore, isManager, memberName, cachedBook, loadBook, addRepTask, nudgeRep, cachedInventory, loadInventory } from "../team.js";
+import { cachedStore, myStore, isManager, memberName, cachedBook, loadBook, addRepTask, nudgeRep, cachedInventory, loadInventory, assignStoreCustomer, setStoreCustomerStatus, cachedPool } from "../team.js";
 import { makeMatcher } from "../match.js";
 import { rankBook, reachOuts, taskFor } from "../reach.js";
 import { horizonBook, contractsEnding, horizonTaskFor, monthLabel, ymd } from "../horizon.js";
@@ -29,7 +29,7 @@ export function renderCustomers(view) {
   let team = cachedStore();
   let book = cachedBook();
   let lot = cachedInventory();
-  let mode = "reach"; // reach | all | timing | leases
+  let mode = "reach"; // reach | all | timing | leases | pool
   let rep = "all";
   let search = "";
   // The assistant hands over a search: "find the Rogue owners" opens this
@@ -72,12 +72,14 @@ export function renderCustomers(view) {
     // each window opens, or every lease in order of ending.
     if (R && mode === "timing" && !R.timing) { const s = store.getSettings(); R.timing = horizonBook(R.rows, { now, defaultApr: s.defaultApr, dealMatchBand: s.dealMatchBand, match: lot && lot.rows.length ? makeMatcher(lot.rows, s) : null }); }
     if (R && mode === "leases" && !R.leases) R.leases = contractsEnding(R.rows, { now, type: "lease" });
-    let rows = R ? (mode === "reach" ? reachOuts(R, { limit: 500 }) : mode === "timing" ? R.timing.filter((r) => r.hz.m != null) : mode === "leases" ? R.leases : R.rows) : [];
-    if (rep !== "all") rows = rows.filter((r) => r.rep.user_id === rep);
+    let rows = R ? (mode === "reach" ? reachOuts(R, { limit: 500 }) : mode === "timing" ? R.timing.filter((r) => r.hz.m != null) : mode === "leases" ? R.leases : mode === "pool" ? R.rows.filter((r) => r.pool).sort((a, b) => b.read.score - a.read.score) : R.rows) : [];
+    if (rep !== "all") rows = rows.filter((r) => (rep === "pool" ? r.pool : r.rep.user_id === rep));
     if (aud) rows = rows.filter((r) => inAudience(aud, r.lead));
     if (q) rows = rows.filter((r) => [r.lead.name, r.lead.phone, r.lead.vehicleInterest, r.lead.source].join(" ").toLowerCase().includes(q));
     const shown = rows.slice(0, 150);
-    const counts = R ? { all: R.rows.length, reach: reachOuts(R, { limit: 100000 }).length, hot: R.rows.filter((r) => r.tier && r.tier.key === "hot").length } : null;
+    const pool = cachedPool();
+    const poolN = pool ? pool.rows.filter((c) => c.status === "new").length : 0, poolAll = pool ? pool.rows.length : 0;
+    const counts = R ? { all: R.rows.length, reach: reachOuts(R, { limit: 100000 }).length, hot: R.rows.filter((r) => r.tier && r.tier.key === "hot").length, pool: R.rows.filter((r) => r.pool).length } : null;
     el.innerHTML = `
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
       <div class="row" style="margin:4px 2px 8px"><span class="small muted">${book ? `${counts.all.toLocaleString()} customers · ${counts.reach.toLocaleString()} worth a call · ${counts.hot} hot · ${lot && lot.rows.length ? `priced against ${lot.rows.filter((v) => (v.status || "available") === "available").length} units` : "no shared lot yet"} · as of ${esc(formatDateTime(new Date(book.at).toISOString()))}${loading ? " · reading…" : " · pull down to refresh"}` : loading ? "Reading every rep's book…" : "Not read yet"}</span></div>
@@ -87,10 +89,12 @@ export function renderCustomers(view) {
         <button class="btn btn-sm ${mode === "all" ? "btn-primary" : "btn-ghost"}" data-mode="all">All${counts ? " " + counts.all.toLocaleString() : ""}</button>
         <button class="btn btn-sm ${mode === "timing" ? "btn-primary" : "btn-ghost"}" data-mode="timing">${icon("calendar")} Timing</button>
         <button class="btn btn-sm ${mode === "leases" ? "btn-primary" : "btn-ghost"}" data-mode="leases">Lease ends</button>
+        ${poolAll ? `<button class="btn btn-sm ${mode === "pool" ? "btn-primary" : "btn-ghost"}" data-mode="pool">${icon("file")} Store book${counts ? " " + counts.pool.toLocaleString() : ""}</button>` : ""}
         <button class="btn btn-sm ${aud ? "btn-primary" : "btn-ghost"}" data-act="filter">${icon("search")} ${aud ? "Filter on" : "Filter"}</button>
         <button class="btn btn-sm ${rep === "all" ? "btn-ghost" : "btn-primary"}" data-act="rep">${rep === "all" ? "Every rep" : esc(memberName((team.members || []).find((m) => m.user_id === rep)))}</button>
       </div>
       ${aud ? `<div class="card lead-audience" style="padding:10px 12px;margin-bottom:10px"><div class="row" style="align-items:center"><span class="small"><span class="strong">${rows.length.toLocaleString()}</span> match · ${esc(audienceLabel(aud))}</span><button class="modal-close" data-act="aud-clear" aria-label="Clear filter">&times;</button></div></div>` : ""}
+      ${mode === "pool" ? `<div class="card mg-plan" style="margin-bottom:12px"><div class="strong">${poolN.toLocaleString()} in the store's book not yet handed out${poolAll > poolN ? ` · ${(poolAll - poolN).toLocaleString()} handed out or set aside` : ""}.</div><div class="small muted" style="margin-top:4px">Loaded by a manager, ranked best first with the reasons. Hand one to a rep and it lands in their book with a to-do; the dispatcher deals the top of this list out each morning to whoever is behind.</div>${rows.length ? `<div class="btn-row" style="margin-top:8px"><button class="btn btn-primary btn-sm btn-block" data-act="deal-top">${icon("send")} Deal the top ${Math.min(10, rows.length)} across the reps</button></div>` : ""}</div>` : ""}
       ${mode === "reach" && rows.length ? `<div class="card mg-plan" style="margin-bottom:12px"><div class="strong">${rows.length.toLocaleString()} customer${rows.length === 1 ? "" : "s"} a rep should reach out to${rep !== "all" || aud || q ? " in this view" : ""}.</div><div class="small muted" style="margin-top:4px">Best first, each with the reasons. Send one to its rep as a to-do, or the top ten at once.</div><div class="btn-row" style="margin-top:8px"><button class="btn btn-primary btn-sm btn-block" data-act="send-top">${icon("send")} Send the top ${Math.min(10, rows.length)} to their reps</button></div></div>` : ""}
       ${mode === "timing" && R ? `<div class="card mg-plan" style="margin-bottom:12px"><div class="strong">${rows.filter((r) => r.hz.m === 0).length} ready now · ${rows.filter((r) => r.hz.m > 0 && r.hz.m <= 6).length} open up in the next six months${rep !== "all" || aud || q ? " in this view" : ""}.</div><div class="small muted" style="margin-top:4px">Every owner across the store in the month it starts to make sense — equity clears the line, a like-for-like lands at their payment, the contract runs out, or a lease is six months from its end. Send one to its rep as a to-do due in that month.</div></div>` : ""}
       ${mode === "leases" && R ? `<div class="card mg-plan" style="margin-bottom:12px"><div class="strong">${rows.length} lease${rows.length === 1 ? "" : "s"} out${rep !== "all" || aud || q ? " in this view" : ""} · ${rows.filter((r) => r.end && !r.past && r.end - now < 365 * 86400000).length} end in the next year${rows.filter((r) => r.past).length ? ` · ${rows.filter((r) => r.past).length} past the end` : ""}.</div><div class="small muted" style="margin-top:4px">Every lease the store has out, in order of ending. Send one to its rep as a to-do six months before the end.</div></div>` : ""}
@@ -109,12 +113,12 @@ export function renderCustomers(view) {
           <div class="row cu-row" data-lead="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="padding:9px 16px;border-bottom:1px solid var(--border);align-items:center">
             <div class="row-main" style="cursor:pointer">
               <div class="row-title" style="font-size:0.96rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div>
-              <div class="row-sub">${esc(r.lead.vehicleInterest || "No vehicle noted")} · ${esc(memberName(r.rep))}${mode === "all" ? ` · <span class="badge ${stageBadge(r.lead.stage)}" style="font-size:0.66rem">${esc(stageLabel(r.lead.stage))}</span>` : ""}</div>
+              <div class="row-sub">${esc(r.lead.vehicleInterest || "No vehicle noted")} · ${r.pool ? `<span class="badge badge-new" style="font-size:0.66rem">Store book</span> not handed out` : esc(memberName(r.rep))}${mode === "all" && !r.pool ? ` · <span class="badge ${stageBadge(r.lead.stage)}" style="font-size:0.66rem">${esc(stageLabel(r.lead.stage))}</span>` : ""}</div>
               ${r.read.reasons.length ? `<div class="row-reasons">${r.read.reasons.map(esc).join(" · ")}</div>` : ""}
               ${r.read.deal ? `<div class="small cu-deal" style="margin-top:3px">${esc(r.read.deal.name)} ≈ <b>$${Math.round(r.read.deal.monthly).toLocaleString("en-CA")}/mo</b>${r.read.deal.delta != null ? ` <span class="${r.read.deal.delta <= 0 ? "" : "muted"}" style="${r.read.deal.delta <= 0 ? "color:var(--success)" : ""}">(${r.read.deal.delta <= 0 ? "−" : "+"}$${Math.abs(Math.round(r.read.deal.delta)).toLocaleString("en-CA")}/mo)</span>` : ` <span class="muted">with their trade</span>`}</div>` : ""}
               ${mode === "reach" && r.read.next ? `<div class="small" style="margin-top:3px;color:var(--brand)">${esc(r.read.next.label)}</div>` : ""}
             </div>
-            ${!r.read.excluded && !r.read.inPlay && r.read.contactable ? `<button class="btn ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-send="${esc(r.lead.id)}" data-srep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "disabled" : ""}>${sent.has(r.rep.user_id + "|" + r.lead.id) ? "Sent" : "Send to " + esc(memberName(r.rep).split(" ")[0])}</button>` : ""}
+            ${r.pool ? `<button class="btn ${sent.has("pool|" + r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" style="flex:0 0 auto;margin-left:8px" ${sent.has("pool|" + r.lead.id) ? "disabled" : ""}>${sent.has("pool|" + r.lead.id) ? "Handed" : "Hand to…"}</button>` : !r.read.excluded && !r.read.inPlay && r.read.contactable ? `<button class="btn ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-send="${esc(r.lead.id)}" data-srep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${sent.has(r.rep.user_id + "|" + r.lead.id) ? "disabled" : ""}>${sent.has(r.rep.user_id + "|" + r.lead.id) ? "Sent" : "Send to " + esc(memberName(r.rep).split(" ")[0])}</button>` : ""}
           </div>`).join("") : `<div class="muted small" style="padding:10px 16px">${book ? (mode === "reach" ? "Nobody worth a call in this view." : "No customers match.") : loading ? "Reading…" : "Pull down to read the book."}</div>`}
         ${(mode === "timing" || mode === "leases") && !book ? `<div class="muted small" style="padding:10px 16px">${loading ? "Reading…" : "Pull down to read the book."}</div>` : ""}
         ${rows.length > shown.length ? `<div class="muted small" style="padding:10px 16px">Showing ${shown.length} of ${rows.length.toLocaleString()} — search or filter to narrow it.</div>` : ""}
@@ -134,7 +138,18 @@ export function renderCustomers(view) {
     const sb = el.querySelector('input[type="search"]');
     let t = null;
     sb.addEventListener("input", (e) => { search = e.target.value; clearTimeout(t); t = setTimeout(() => { const y = view.scrollTop; draw(); view.scrollTop = y; const s2 = el.querySelector('input[type="search"]'); s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); }, 120); });
-    el.querySelectorAll(".cu-row .row-main").forEach((n) => n.addEventListener("click", () => { const r = n.closest(".cu-row"); openCustomerSheet(r.dataset.rep, r.dataset.lead); }));
+    el.querySelectorAll(".cu-row .row-main").forEach((n) => n.addEventListener("click", () => { const r = n.closest(".cu-row"); if (!r.dataset.rep) { const row = rows.find((x) => x.lead.id === r.dataset.lead && x.pool); if (row) openPoolSheet(row); return; } openCustomerSheet(r.dataset.rep, r.dataset.lead); }));
+    el.querySelectorAll("[data-hand]").forEach((b) => b.addEventListener("click", () => { const r = rows.find((x) => x.pool && x.lead.id === b.dataset.hand); if (r) pickRep(r, b); }));
+    on('[data-act="deal-top"]', async () => {
+      const top = rows.filter((r) => r.pool && !sent.has("pool|" + r.lead.id)).slice(0, 10);
+      const reps = (team.members || []).filter((m) => m.role !== "manager");
+      if (!top.length || !reps.length) { toast(reps.length ? "Nothing to deal" : "No reps in the store yet", "warn"); return; }
+      if (!(await confirmDialog(`Deal ${top.length} customer${top.length === 1 ? "" : "s"} across ${reps.length} rep${reps.length === 1 ? "" : "s"}, best first, round robin?`, { confirmLabel: "Deal", danger: false }))) return;
+      let ok = 0; const fails = [];
+      for (let i = 0; i < top.length; i++) { const m = reps[i % reps.length]; try { await handOne(top[i], m); ok++; } catch (e) { fails.push(`${top[i].lead.name}: ${e.message}`); } }
+      toast(`${ok} handed out${fails.length ? " · " + fails.join(" · ") : ""}`, fails.length ? "warn" : "success");
+      refresh(true);
+    });
     el.querySelectorAll("[data-send]").forEach((b) => b.addEventListener("click", async () => {
       const r = rows.find((x) => x.lead.id === b.dataset.send && x.rep.user_id === b.dataset.srep);
       if (!r) return;
@@ -156,9 +171,45 @@ export function renderCustomers(view) {
     });
   }
 
+  // A customer from the store's book: who to hand them to.
+  function pickRep(r, btn) {
+    const reps = (team.members || []).filter((m) => m.role !== "manager");
+    import("../components.js").then(({ openModal: open }) => {
+      const close = open(`Hand ${r.lead.name || "them"} to…`, () => {
+        const el = document.createElement("div");
+        el.innerHTML = `<div class="small muted" style="margin-bottom:8px">${esc(r.read.reasons.join(" · ") || "From the store's book.")}</div>
+          ${reps.map((m) => `<button class="btn btn-ghost btn-block cu-pick" data-rep="${esc(m.user_id)}" style="margin-bottom:6px;justify-content:flex-start">${icon("users")} ${esc(memberName(m))}</button>`).join("") || `<div class="muted small">No reps in the store yet.</div>`}
+          <button class="btn btn-ghost btn-sm btn-block" data-act="skip" style="margin-top:8px">Set aside — don't hand out</button>`;
+        el.querySelectorAll(".cu-pick").forEach((b) => b.addEventListener("click", async () => { b.disabled = true; try { await handOne(r, reps.find((m) => m.user_id === b.dataset.rep)); close(); if (btn) { btn.textContent = "Handed"; btn.disabled = true; btn.classList.remove("btn-primary"); btn.classList.add("btn-ghost"); } } catch (e) { toast(e.message || "Couldn't hand them out", "danger"); b.disabled = false; } }));
+        el.querySelector('[data-act="skip"]').addEventListener("click", async () => { try { await setStoreCustomerStatus(team, r.lead.id, "skip"); close(); refresh(true); } catch (e) { toast(e.message || "Couldn't set aside", "danger"); } });
+        return el;
+      }, { focus: false });
+    });
+  }
+  function openPoolSheet(r) {
+    import("../components.js").then(({ openModal: open }) => {
+      open(r.lead.name || "Customer", () => {
+        const el = document.createElement("div"), l = r.lead;
+        const line = (k, v) => (v ? `<div class="row small" style="padding:3px 0"><span class="muted">${k}</span><span>${esc(String(v))}</span></div>` : "");
+        el.innerHTML = `<div class="small muted">In the store's book, not yet handed out.</div><div class="card" style="margin-top:8px">${line("Vehicle", l.vehicleInterest)}${line("Phone", l.phone)}${line("Email", l.email)}${line("Bought", l.purchaseDate)}${line("Lease ends", l.leaseEnd)}${line("Payment", l.currentPayment != null ? "$" + Math.round(l.currentPayment) + "/mo" : "")}${line("Payoff", l.payoff != null ? "$" + Math.round(l.payoff) : "")}${line("Value", l.currentValue != null ? "$" + Math.round(l.currentValue) : "")}${line("Rate", l.currentApr != null ? l.currentApr + "%" : "")}${line("Service", l.serviceAppt || l.lastService)}${line("Source", l.source)}</div>
+          <div class="section-title">Why they're worth a call</div><div class="card small">${r.read.why && r.read.why.length ? r.read.why.map(esc).join("<br>") : esc(r.read.reasons.join(" · ") || "Nothing on file says so yet.")}</div>`;
+        return el;
+      }, { focus: false });
+    });
+  }
+  async function handOne(r, m) {
+    if (!m) throw new Error("pick a rep");
+    const why = (r.read && r.read.reasons.filter((x) => !/^No |^Texts withdrawn|upside down/.test(x)).slice(0, 2).join(", ")) || "";
+    const out = await assignStoreCustomer(team, r.lead.id, m.user_id, why);
+    sent.add("pool|" + r.lead.id);
+    try { await nudgeRep(m.user_id, { title: `Reach out to ${r.lead.name || "a customer"}`, body: why || "From the store's book — the reason is on the to-do.", url: `./#/leads/${out && out.leadId ? out.leadId : ""}`, tag: "reach-" + r.lead.id, leadId: out && out.leadId }); } catch { /* the to-do is there */ }
+    return out;
+  }
+
   // Hand one customer to their rep: a to-do in the rep's book, and a tap on
   // their phone naming the customer and the reason.
   async function sendOne(r, { quiet = false } = {}) {
+    if (r.pool) throw new Error("pick a rep for a store-book customer");
     const by = store.getSettings().salesperson || memberName((team.members || []).find((m) => m.role === "manager")) || "your manager";
     // A timing row's to-do is due in its month; a lease's six months before
     // the end; a reach-out's today.

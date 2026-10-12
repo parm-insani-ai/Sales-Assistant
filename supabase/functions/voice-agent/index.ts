@@ -1704,6 +1704,28 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
         for (const x of picks) {
           try { await storeTask(uid, { leadId: x.l.id, title: `Reach out to ${x.l.name || "customer"} — ${x.r.reasons.slice(0, 2).join(", ")} (from ${manager})`, due: L.day, channel: "call", kind: "reach", why: x.r.reasons, by: manager }); out.handouts++; } catch (e) { out.errors.push(`handout: ${String(e)}`); }
         }
+        // The rep's own book ran short: deal the rest from the store's book,
+        // best read first, skipping anyone the rep already has. Each one
+        // becomes a lead in the rep's book (marked the store's) with the
+        // to-do, and the row is marked assigned so nobody else gets them.
+        if (picks.length < n && m.role !== "manager") {
+          try {
+            const have = new Set(leads.flatMap((l: any) => [l.storeCustomerId, l.phone ? "ph:" + String(l.phone).replace(/\D/g, "").slice(-10) : "", l.vin ? "vin:" + String(l.vin).toUpperCase() : ""]).filter(Boolean));
+            const pool = await fetch(sbUrl(`/store_customers?select=id,data&store_id=eq.${encodeURIComponent(st.id)}&status=eq.new&deleted=eq.false&limit=600`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+            const dealt = (pool as any[]).filter((c) => !have.has(c.id) && !(c.data && c.data.phone && have.has("ph:" + String(c.data.phone).replace(/\D/g, "").slice(-10))) && !(c.data && c.data.vin && have.has("vin:" + String(c.data.vin).toUpperCase())) && (c.data.phone || c.data.email) && !c.data.doNotContact)
+              .map((c) => ({ c, r: reachLite({ ...c.data, stage: c.data.stage || "delivered" }, L.day) })).filter((x) => x.r.score >= 30).sort((a, b) => b.r.score - a.r.score).slice(0, n - picks.length);
+            for (const x of dealt) {
+              const nowiso = new Date().toISOString();
+              const lid = "sb_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+              const { id: _id, ...rest } = x.c.data || {};
+              await saveRecord(uid, "leads", lid, { ...rest, id: lid, storeCustomerId: x.c.id, source: x.c.data.source || "Owner book", stage: x.c.data.stage || "delivered", importedAt: nowiso, handedAt: nowiso, handedBy: "agent", createdAt: x.c.data.createdAt || nowiso, updatedAt: nowiso });
+              await storeTask(uid, { leadId: lid, title: `Reach out to ${x.c.data.name || "customer"} — ${x.r.reasons.slice(0, 2).join(", ")} (from ${manager})`, due: L.day, channel: "call", kind: "reach", why: x.r.reasons, by: manager });
+              await fetch(sbUrl(`/store_customers?store_id=eq.${encodeURIComponent(st.id)}&id=eq.${encodeURIComponent(x.c.id)}`), { method: "PATCH", headers: { ...sbHeaders(), "content-type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ status: "assigned", assigned_to: uid, assigned_at: nowiso, updated_at: nowiso }) }).catch(() => null);
+              out.handouts++; out.pool = (out.pool || 0) + 1;
+              picks.push({ l: { ...x.c.data, id: lid }, r: x.r } as any);
+            }
+          } catch (e) { out.errors.push(`pool: ${String(e)}`); }
+        }
         let service = 0;
         if (cfg.serviceOn) {
           for (const l of leads) {

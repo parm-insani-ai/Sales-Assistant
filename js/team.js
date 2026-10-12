@@ -521,7 +521,7 @@ export async function boardStats(members, opts = {}) {
 // ---- The store's whole book ----
 // Every rep's customers, slimmed to what the manager's read and the list
 // need, kept in memory for the session and refreshed on demand.
-const KEEP = ["id", "name", "phone", "email", "stage", "vehicleInterest", "source", "purchaseDate", "leaseEnd", "dealType", "currentPayment", "payoff", "currentValue", "currentApr", "paymentsLeft", "paymentsLeftAsOf", "currentTerm", "odometer", "alertType", "priority", "serviceAppt", "lastContacted", "firstContacted", "lastCampaignAt", "createdAt", "importedAt", "updatedAt", "followUp", "smsOptOut", "consent", "doNotContact"];
+const KEEP = ["id", "name", "phone", "email", "vin", "stage", "vehicleInterest", "source", "purchaseDate", "leaseEnd", "dealType", "currentPayment", "payoff", "currentValue", "currentApr", "paymentsLeft", "paymentsLeftAsOf", "currentTerm", "odometer", "alertType", "priority", "serviceAppt", "lastContacted", "firstContacted", "lastCampaignAt", "createdAt", "importedAt", "updatedAt", "followUp", "smsOptOut", "consent", "doNotContact"];
 let bookCache = { storeId: null, at: 0, rows: [] };
 export function cachedBook() { return bookCache.storeId ? bookCache : null; }
 export async function loadBook(team, { force = false } = {}) {
@@ -534,8 +534,54 @@ export async function loadBook(team, { force = false } = {}) {
     if (/AutoAlert:|Priority:|Service appt|Deal type:/i.test(notes)) slim.notes = notes.slice(0, 300);
     return { lead: slim, rep: m };
   }), () => [])));
-  bookCache = { storeId: team.id, at: Date.now(), rows: per.flat() };
+  const reps = per.flat();
+  // The store's own book rides along: unassigned, and not already in a rep's book.
+  try { await loadPool(team, { force }); } catch { /* no book loaded yet, or not a manager */ }
+  bookCache = { storeId: team.id, at: Date.now(), rows: reps.concat(poolCache.storeId === team.id ? poolRows(reps) : []) };
   return bookCache;
+}
+
+// ---- The store's owner book ----
+// Customers the manager loaded for the store, not yet in any rep's book.
+// They ride along in loadBook as rows with the POOL rep, so the reach
+// ranking, the Floor's card and the Customers page read them like anyone
+// else's; handing one out moves them into a rep's book through the
+// function-free RPC (store_book_assign) and marks the row assigned.
+export const POOL = { user_id: "", name: "Store book", role: "pool" };
+let poolCache = { storeId: null, at: 0, rows: [] };
+export function cachedPool() { return poolCache.storeId ? poolCache : null; }
+export async function loadPool(team, { force = false } = {}) {
+  if (!force && poolCache.storeId === team.id && Date.now() - poolCache.at < 10 * 60000) return poolCache;
+  const rows = (await backend.rpc("store_book", { store: team.id })) || [];
+  poolCache = { storeId: team.id, at: Date.now(), rows: rows.filter((r) => !r.deleted) };
+  return poolCache;
+}
+export async function uploadStoreBook(team, rows) {
+  const r = await backend.rpc("store_book_upsert", { store: team.id, rows });
+  poolCache = { storeId: null, at: 0, rows: [] };
+  return r || {};
+}
+export async function assignStoreCustomer(team, customerId, memberId, why = "") {
+  const r = await backend.rpc("store_book_assign", { store: team.id, customer_id: customerId, member: memberId, why });
+  const row = poolCache.rows.find((x) => x.id === customerId);
+  if (row) { row.status = "assigned"; row.assigned_to = memberId; }
+  bookCache = { storeId: null, at: 0, rows: [] };
+  recordAction("handoff", { rep: memberId, leadId: r && r.leadId, title: why });
+  return r;
+}
+export async function setStoreCustomerStatus(team, customerId, status) {
+  const r = await backend.rpc("store_book_status", { store: team.id, customer_id: customerId, new_status: status });
+  const row = poolCache.rows.find((x) => x.id === customerId);
+  if (row) { row.status = status; row.assigned_to = null; }
+  return r;
+}
+// The pool's unassigned rows as book rows, less anyone a rep already has
+// (same phone or VIN): the rep's record is the truth once they're in a book.
+function poolRows(reps) {
+  const have = new Set();
+  reps.forEach((r) => { const l = r.lead; const ph = String(l.phone || "").replace(/\D/g, "").slice(-10); if (ph.length >= 7) have.add("ph:" + ph); if (l.vin) have.add("vin:" + String(l.vin).toUpperCase()); if (l.storeCustomerId) have.add(l.storeCustomerId); });
+  return poolCache.rows.filter((c) => c.status === "new").filter((c) => { const d = c.data || {}; const ph = String(d.phone || "").replace(/\D/g, "").slice(-10); return !have.has(c.id) && !(ph.length >= 7 && have.has("ph:" + ph)) && !(d.vin && have.has("vin:" + String(d.vin).toUpperCase())); })
+    .map((c) => { const d = c.data || {}, slim = { id: c.id, storeCustomerId: c.id }; for (const k of KEEP) if (d[k] != null && d[k] !== "") slim[k] = d[k]; if (!slim.stage) slim.stage = d.purchaseDate || d.currentPayment != null ? "delivered" : "new"; slim.importedAt = slim.importedAt || c.updated_at; return { lead: slim, rep: POOL, pool: true }; });
 }
 
 // ---- Store config: the manager's welcome text ----
