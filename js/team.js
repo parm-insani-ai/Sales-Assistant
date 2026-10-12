@@ -154,6 +154,26 @@ export function storeTotals(stats) {
     loop: loopStats(ok, (() => { try { return store.all("mgractions"); } catch { return []; } })()),
     // Rows that read empty, with the reason.
     notes: ok.filter((r) => r.note).map((r) => ({ rep: r.member, note: r.note })),
+    // The store's rates, for the coach to compare each rep against.
+    rates: (() => {
+      const lg = ok.flatMap((r) => r.logged || []), ids = new Set(lg.map((l) => l.id));
+      const setN = new Set(ok.flatMap((r) => (r.raw ? r.raw.appts : []).filter((a) => a.status !== "canceled" && a.leadId && ids.has(a.leadId)).map((a) => a.leadId))).size;
+      const shown = sum((r) => r.appts.shown), past = sum((r) => r.appts.past), soldShow = sum((r) => r.appts.sold);
+      const spoke = sum((r) => (r.sheet ? r.sheet.spoke : 0)), soldAll = sum((r) => (r.sheet ? r.sheet.sold : 0));
+      return { setRate: lg.length ? Math.round((setN / lg.length) * 100) : null, showRate: past ? Math.round((shown / past) * 100) : null, closeOnShow: shown ? Math.round((soldShow / shown) * 100) : null, closing: spoke ? Math.round((soldAll / spoke) * 100) : null };
+    })(),
+    // The be-backs: unsold ups across the store, still in play, nothing
+    // booked, nobody in touch for two days — the quietest first.
+    bebacks: (() => {
+      const now = Date.now(), two = now - 2 * DAY, sixty = now - 60 * DAY;
+      return ok.flatMap((r) => (r.logged || []).filter((l) => ["new", "working", "appointment", "negotiating"].includes(l.stage || "new")).map((l) => {
+        const at = new Date(l.loggedAt || 0).getTime(), last = l.lastContacted ? new Date(l.lastContacted).getTime() : 0;
+        if (!at || at > two || at < sixty) return null;
+        if ((r.raw ? r.raw.appts : []).some((a) => a.leadId === l.id && a.status !== "canceled" && !a.outcome && String(a.when || "") >= new Date().toISOString().slice(0, 10))) return null;
+        if (last && last > two) return null;
+        return { ...l, rep: r.member, days: Math.round((now - at) / DAY), quiet: Math.round((now - (last || at)) / DAY), plan: l.plan };
+      }).filter(Boolean)).sort((a, b) => b.quiet - a.quiet).slice(0, 15);
+    })(),
   };
 }
 export function inviteLink(code) {
@@ -448,7 +468,18 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     pending: loggedTodayList.filter((l) => !touchedToday.has(l.id)).map((l) => ({ ...l, email: (byId.get(l.id) || {}).email || "", optOut: !!((byId.get(l.id) || {}).smsOptOut || (byId.get(l.id) || {}).doNotContact) })),
   };
 
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, note: readNote, at: now.toISOString() };
+  // The rates a coach reads: appointments set per customer logged this
+  // month, show rate, closing on a show, speed to lead (median minutes).
+  const loggedIds = new Set(logged.map((l) => l.id));
+  const setFromLogged = appts.filter((a) => a.status !== "canceled" && a.leadId && loggedIds.has(a.leadId)).map((a) => a.leadId);
+  const rates = {
+    setRate: logged.length >= 3 ? Math.round((new Set(setFromLogged).size / logged.length) * 100) : null,
+    showRate: apptStats.showRate,
+    closeOnShow: apptStats.shown >= 3 ? Math.round((apptStats.sold / apptStats.shown) * 100) : null,
+    speedMin: insight.speed && insight.speed.medianMinutes != null ? insight.speed.medianMinutes : null,
+    closing: sheet && sheet.spoke >= 3 && sheet.closing != null ? Math.round(sheet.closing * 100) : null,
+  };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, note: readNote, at: now.toISOString() };
 }
 
 // The board's self-check: for each member, what the server holds against

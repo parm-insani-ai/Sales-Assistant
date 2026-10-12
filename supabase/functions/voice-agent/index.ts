@@ -1258,6 +1258,22 @@ async function handleSweep(body: any): Promise<Response> {
       });
     }
 
+    // 1c. An internet up answered without a time-ask, and nothing booked:
+    //     the reply went, the appointment didn't. Once, from two hours.
+    {
+      const outTexts = (await rows("texts")).filter((t: any) => t.dir === "out");
+      const booked = new Set((await rows("appointments")).filter((a: any) => a.status !== "canceled" && !a.outcome).map((a: any) => String(a.leadId)));
+      for (const l of leads) {
+        if (!["new", "working"].includes(l.stage || "new") || l.importedAt || !l.createdAt || booked.has(String(l.id))) continue;
+        if (!/site|web|internet|facebook|lead|trader|activ|manufacturer|oem|online|email/i.test(String(l.source || ""))) continue;
+        const age = (now - new Date(l.createdAt).getTime()) / 3600000;
+        if (!isFinite(age) || age < 2 || age > 48) continue;
+        const sent = outTexts.filter((t: any) => t.leadId === l.id);
+        if (!sent.length || sent.some((t: any) => /\b(come in|come by|stop by|swing by|drop in|visit|test drive|what day|what time|which day|works for you|work for you|appointment|tomorrow|today at|this week|weekend|morning|afternoon|evening)\b/i.test(String(t.body || "")))) continue;
+        found.push({ key: `ask:${l.id}`, urgency: 86, title: `Ask ${String(l.name || "them").split(" ")[0]} for a time`, body: "Your reply went out without an ask. A lead that books before coming in closes at three times the rate — offer two times.", url: `./#/inbox/${l.id}` });
+      }
+    }
+
     // 2. An appointment about to start that nobody has confirmed.
     for (const a of await rows("appointments")) {
       if (a.status !== "scheduled" || a.confirmed || a.outcome) continue;
@@ -1303,7 +1319,7 @@ async function handleSweep(body: any): Promise<Response> {
       already[n.key] = new Date().toISOString();
     }
     if (fresh.length) await rememberNudges(uid, already);
-    report.push({ uid: uid.slice(0, 8), candidates: found.length, sent: fresh.length, pushed });
+    report.push({ uid: uid.slice(0, 8), candidates: found.length, sent: fresh.length, pushed, keys: fresh.map((n) => n.key) });
   }
   // The managers' sweep: the floor's problems, to the managers' phones.
   const managers: any[] = [];
@@ -1322,6 +1338,7 @@ async function handleSweep(body: any): Promise<Response> {
 // touched, an appointment two hours out that isn't confirmed — pushed to
 // each manager with notifications on, each once, a few per sweep, in their
 // business hours. Tapping one opens the Floor.
+const ASK_TEXT = "Hi {first}, it's {manager}, the sales manager at {store} — {rep} mentioned you were looking at {vehicle}. Would tomorrow after 10 or the weekend suit for a quick look? I'll have it out front for you.";
 const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 15, MGR_CONFIRM_MIN = 120, MGR_CAP = 4, MGR_TEXTS_MIN = 60;
 // A rep hears about their own untouched lead at five minutes; the manager at fifteen.
 const REP_LEAD_MIN = 5;
@@ -1336,7 +1353,7 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
     const rows = async (uid: string, coll: string, extra = "") => fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.${coll}&deleted=eq.false&select=data${extra}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((xs: any[]) => xs.map((x) => x.data || {})).catch(() => []);
     // What's on the floor, across every member's book. Times are judged
     // per manager below, since wall-clock appointments need their zone.
-    const found: { key: string; urgency: number; title: string; body: string; whenLocal?: string; url?: string; reply?: { rep: string; repName: string; lead: any; text: any; waited: number } }[] = [];
+    const found: { key: string; urgency: number; title: string; body: string; whenLocal?: string; url?: string; reply?: { rep: string; repName: string; lead: any; text: any; waited: number }; ask?: { rep: string; repName: string; lead: any } }[] = [];
     const cfgRow = await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(st.id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}));
     const agentCfg = { ...AGENT_DEFAULTS, ...(cfgRow.agent || {}) };
     const managerName = String((cfgRow.welcome && cfgRow.welcome.manager) || nameOf(managers[0]));
@@ -1368,7 +1385,20 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
         if (!isFinite(age) || age < MGR_LEAD_MIN || age > 24 * 60) continue;
         found.push({ key: `mgr:lead:${l.id}`, urgency: Math.min(95, 60 + Math.floor(age / 15)), title: `${l.name || "A new lead"} hasn't been touched — ${nameOf(m)}'s`, body: `Waiting ${age < 60 ? `${age} min` : `${Math.round(age / 60)}h`}. Leads book in the first hour and rarely after the first day.` });
       }
-      for (const a of await rows(uid, "appointments")) {
+      // The converter: an internet up a day old with nothing booked — the
+      // store's biggest lever, since an up that arrives as an appointment
+      // closes at three times the rate. A time-ask in the manager's voice
+      // is held for their tap; no model, no figure.
+      const liveAppts = await rows(uid, "appointments");
+      for (const l of leads) {
+        if (!["new", "working"].includes(l.stage || "new") || l.importedAt || !l.phone || l.doNotContact || l.smsOptOut || !l.createdAt) continue;
+        if (!/site|web|internet|facebook|lead|trader|activ|manufacturer|oem|online|email/i.test(String(l.source || ""))) continue;
+        const age = (now - new Date(l.createdAt).getTime()) / 3600000;
+        if (!isFinite(age) || age < 24 || age > 72) continue;
+        if (liveAppts.some((a: any) => a.leadId === l.id && a.status !== "canceled" && !a.outcome)) continue;
+        found.push({ key: `mgr:unbooked:${l.id}`, urgency: 85, title: `${l.name || "An internet lead"} came in ${Math.round(age)}h ago and isn't booked — ${nameOf(m)}'s`, body: "An up that arrives as an appointment closes at three times the rate. Ask for a time.", url: `./#/floor/reply-${l.id}`, ask: { rep: uid, repName: nameOf(m), lead: l } });
+      }
+      for (const a of liveAppts) {
         if (a.status !== "scheduled" || a.confirmed || a.outcome || !a.when) continue;
         found.push({ key: `mgr:confirm:${a.id}`, urgency: 90, title: `${a.customerName || "An appointment"} at ${String(a.when).slice(11, 16)} with ${nameOf(m)} isn't confirmed`, body: "A confirmation now is the difference between a show and a no-show.", whenLocal: String(a.when) });
       }
@@ -1401,6 +1431,12 @@ async function managerPass(now: number, pushUsers: string[], report: any[]): Pro
             n.url = `./#/floor/reply-${n.reply.lead.id}`;
             drafted.push(n.key);
           }
+        }
+        if (n.ask) {
+          const d = ASK_TEXT.replace("{first}", firstName(n.ask.lead.name)).replace("{manager}", managerName).replace("{store}", String(st.name || "the store")).replace("{rep}", firstName(n.ask.repName)).replace("{vehicle}", n.ask.lead.vehicleInterest ? `the ${n.ask.lead.vehicleInterest}` : "a car");
+          await saveRecord(uid, "agentdrafts", `reply:${n.ask.lead.id}`, { id: `reply:${n.ask.lead.id}`, rep: n.ask.rep, repName: n.ask.repName, leadId: n.ask.lead.id, name: n.ask.lead.name || "", body: d, theirs: "", kind: "ask", at: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).catch(() => null);
+          n.body = d.slice(0, 160);
+          drafted.push(n.key);
         }
         pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: n.url || "./#/floor" });
         already[n.key] = new Date().toISOString();
@@ -1527,6 +1563,64 @@ function reachLite(l: any, today: string): { score: number; reasons: string[] } 
   return { score, reasons };
 }
 
+// ---- The operating model, server side ----
+// The same arithmetic as js/opmodel.js, for the agents: the month's targets
+// at the store's ratios back to customers and appointments, each rep's
+// share, and where each number should be today.
+const PLAN_DEFAULTS = { targetNew: 50, targetUsed: 30, closingNew: 41.5, closingUsed: 41.5, apptShare: 60, showRate: 60, closeOnShow: 72, sellingDays: [1, 2, 3, 4, 5, 6], alloc: {} as Record<string, number>, outreachAppts: 50, outreachSetRate: 4, autoRatios: true, handoutMax: 12, reviewDow: 1 };
+const REP_DAYS_PER_WEEK = 5;
+function planMath(cfgPlan: any, members: any[], L: any) {
+  const p = { ...PLAN_DEFAULTS, ...(cfgPlan || {}) };
+  const days: number[] = Array.isArray(p.sellingDays) && p.sellingDays.length ? p.sellingDays : PLAN_DEFAULTS.sellingDays;
+  const [y, m, d] = L.day.split("-").map(Number);
+  const total = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  let all = 0, gone = 0;
+  for (let i = 1; i <= total; i++) { const dow = new Date(Date.UTC(y, m - 1, i)).getUTCDay(); if (!days.includes(dow)) continue; all++; if (i <= d) gone++; }
+  const repDays = Math.round((all * REP_DAYS_PER_WEEK) / Math.max(1, days.length));
+  const repLeft = Math.max(1, Math.round(((all - gone + 1) * REP_DAYS_PER_WEEK) / Math.max(1, days.length)));
+  const pct = (n: any) => (isFinite(Number(n)) && Number(n) > 0 ? Number(n) / 100 : 0);
+  const tNew = Math.max(0, Number(p.targetNew) || 0), tUsed = Math.max(0, Number(p.targetUsed) || 0), units = tNew + tUsed;
+  const cNew = pct(p.closingNew) || 0.415, cUsed = pct(p.closingUsed) || 0.415;
+  const custNew = Math.ceil(tNew / cNew - 1e-9), custUsed = Math.ceil(tUsed / cUsed - 1e-9), customers = custNew + custUsed;
+  const closing = units && customers ? units / customers : 0;
+  const viaAppt = Math.round(units * (pct(p.apptShare) || 0.6));
+  const shows = Math.ceil(viaAppt / (pct(p.closeOnShow) || 0.72) - 1e-9);
+  const set = Math.ceil(shows / (pct(p.showRate) || 0.6) - 1e-9);
+  const reps = (members || []).filter((x) => x && x.user_id);
+  const alloc = p.alloc || {};
+  const fixed = reps.filter((x) => alloc[x.user_id] != null).reduce((a, x) => a + (Number(alloc[x.user_id]) || 0), 0);
+  const free = reps.filter((x) => alloc[x.user_id] == null);
+  const each = free.length ? Math.max(0, units - fixed) / free.length : 0;
+  const frac = all ? gone / all : 0;
+  const contactsMonth = Math.ceil((Number(p.outreachAppts) || 0) / (pct(p.outreachSetRate) || 0.04));
+  const perRep = reps.map((x) => {
+    const u = alloc[x.user_id] != null ? Number(alloc[x.user_id]) || 0 : Math.round(each * 10) / 10;
+    const share = units ? u / units : 0;
+    const c = closing ? Math.ceil(u / closing - 1e-9) : 0, a = Math.ceil(set * share - 1e-9);
+    return { uid: String(x.user_id), units: u, customers: c, appts: a, dayCustomers: repDays ? c / repDays : 0, dayAppts: repDays ? a / repDays : 0, contactsDay: repDays ? Math.ceil((contactsMonth * share) / repDays) : 0, pace: { units: u * frac, customers: c * frac, appts: a * frac } };
+  });
+  return { p, targets: { new: tNew, used: tUsed, units }, closing, customers, set, shows, days: { all, gone, left: all - gone, rep: repDays, repLeft }, pace: { frac, units: units * frac, customers: customers * frac, appts: set * frac }, perRep, contactsMonth };
+}
+// One rep's month so far, and last month's, from their records.
+async function repMonth(uid: string, monthKey: string) {
+  const [sales, appts, leads] = await Promise.all([rowsOf(uid, "sales"), rowsOf(uid, "appointments"), rowsOf(uid, "leads")]);
+  const inMonth = (v: any) => String(v || "").slice(0, 7) === monthKey;
+  const sold = sales.filter((x: any) => inMonth(x.saleDate || x.createdAt));
+  const live = appts.filter((a: any) => a.status !== "canceled");
+  const setM = live.filter((a: any) => inMonth(a.createdAt || a.when));
+  const past = live.filter((a: any) => inMonth(a.when) && a.outcome);
+  const shown = past.filter((a: any) => a.outcome === "showed" || a.outcome === "sold");
+  const logged = leads.filter((l: any) => inMonth(l.loggedAt) || (!l.loggedAt && !l.importedAt && !["delivered", "lost"].includes(l.stage || "new") && inMonth(l.createdAt)));
+  const shop = (l: any) => String(l.shopping || "").toLowerCase();
+  const cat = (x: any) => { const nu = String(x.newUsed || "").toLowerCase(); if (nu) return nu; const l = leads.find((q: any) => q.id === x.leadId); return l ? shop(l) : ""; };
+  return {
+    units: sold.length, unitsNew: sold.filter((x: any) => cat(x) === "new").length, unitsUsed: sold.filter((x: any) => cat(x) === "used").length,
+    logged: logged.length, loggedNew: logged.filter((l: any) => shop(l) === "new").length, loggedUsed: logged.filter((l: any) => shop(l) === "used").length,
+    set: setM.length, past: past.length, shown: shown.length, soldFromShow: shown.filter((a: any) => a.outcome === "sold").length,
+    leads, live, sales,
+  };
+}
+
 async function storeAgentPass(now: number, pushUsers: string[], report: any[]): Promise<void> {
   const stores = await fetch(sbUrl(`/stores?select=id,name`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
   const canPush = new Set(pushUsers);
@@ -1538,7 +1632,13 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
     const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "us";
     const manager = String((cfgRow.welcome && cfgRow.welcome.manager) || (managers[0] ? nameOf(managers[0]) : "the sales manager"));
     const names = { manager, store: String(st.name || "the store") };
-    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[] };
+    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[], plan: null as any, review: [] as string[] };
+    // The month's plan, when the store has set one: every rep's share and
+    // where each should be today. The dispatcher sizes hand-outs to it;
+    // the reviewer reads the week against it.
+    const planCfg = cfgRow.plan || null;
+    const monthOf: Record<string, any> = {};
+    const mon = async (uid: string, key: string) => { const k = `${uid}|${key}`; if (!monthOf[k]) monthOf[k] = await repMonth(uid, key); return monthOf[k]; };
 
     // --- Per rep: confirmations, no-shows, the morning's hand-outs.
     for (const m of members as any[]) {
@@ -1583,7 +1683,24 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
         const taken = new Set(open.filter((t: any) => !t.done && t.leadId).map((t: any) => String(t.leadId)));
         // Anyone in the service drive today is the service list's, not a hand-out.
         const inService = (l: any) => cfg.serviceOn && String(l.serviceAppt || "").slice(0, 10) === L.day;
-        const picks = leads.filter((l: any) => !inService(l)).map((l: any) => ({ l, r: reachLite(l, L.day) })).filter((x) => x.r.score >= 30 && !taken.has(String(x.l.id))).sort((a, b) => b.r.score - a.r.score).slice(0, Math.max(0, Number(cfg.handoutN) || 0));
+        // How many: the plan's outreach share for the day, plus a catch-up
+        // when the rep's appointments are behind pace — the gap over the
+        // set rate over the days left — within the store's cap. Without a
+        // plan, the fixed number from the agent card.
+        let n = Math.max(0, Number(cfg.handoutN) || 0);
+        if (planCfg) {
+          const pm = planMath(planCfg, members as any[], L);
+          const pr = pm.perRep.find((x) => x.uid === uid);
+          if (pr && pr.units > 0) {
+            const mo = await mon(uid, L.day.slice(0, 7));
+            const behind = Math.max(0, pr.pace.appts - mo.set);
+            const rate = (Number(pm.p.outreachSetRate) || 4) / 100;
+            const extra = behind > 0 ? Math.ceil(behind / rate / pm.days.repLeft) : 0;
+            n = Math.min(Number(pm.p.handoutMax) || 12, pr.contactsDay + extra);
+            out.plan = out.plan || { contactsDay: {} }; out.plan.contactsDay[uid] = { base: pr.contactsDay, extra, behind: Math.round(behind * 10) / 10, n };
+          } else n = 0;
+        }
+        const picks = leads.filter((l: any) => !inService(l)).map((l: any) => ({ l, r: reachLite(l, L.day) })).filter((x) => x.r.score >= 30 && !taken.has(String(x.l.id))).sort((a, b) => b.r.score - a.r.score).slice(0, n);
         for (const x of picks) {
           try { await storeTask(uid, { leadId: x.l.id, title: `Reach out to ${x.l.name || "customer"} — ${x.r.reasons.slice(0, 2).join(", ")} (from ${manager})`, due: L.day, channel: "call", kind: "reach", why: x.r.reasons, by: manager }); out.handouts++; } catch (e) { out.errors.push(`handout: ${String(e)}`); }
         }
@@ -1602,7 +1719,55 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
       if (changed) await rememberNudges(uid, already);
     }
 
-    // --- The managers: the huddle and the recap.
+    // --- The managers: the planner on the month's first morning, the
+    //     reviewer on Mondays, the be-back list, the huddle and the recap.
+    if (planCfg) {
+      for (const mg of managers) {
+        const uid = String(mg.user_id);
+        const prefs = (await rowsOf(uid, "prefs"))[0] || {};
+        const L = localOf(now, prefs);
+        if (!L.working || L.hour < Number(cfg.huddleHour)) continue;
+        const already = await sentNudges(uid);
+        const monthKey = L.day.slice(0, 7);
+        let changed = false;
+        // The planner, once a month: last month's close, the ratios rolled
+        // forward (when the month had enough in it to trust), every rep's
+        // month written to their phone from the allocation.
+        if (!already[`agent:plan:${monthKey}`]) {
+          try {
+            const r = await runPlanner(st, planCfg, members as any[], L, monthKey, manager);
+            out.review.push(`plan:${monthKey}`);
+            if (canPush.has(uid)) await sendPush(uid, { title: `${st.name}: the month is set`, body: r.summary.slice(0, 160), tag: `agent:plan:${monthKey}`, url: "./#/" });
+            if (mg.email) { try { await resendSend(String(mg.email), `The month is set · ${st.name}`, r.text); } catch { /* no email */ } }
+          } catch (e) { out.errors.push(`planner: ${String(e)}`); }
+          already[`agent:plan:${monthKey}`] = new Date().toISOString(); changed = true;
+        }
+        // The reviewer, Mondays: the week against the plan, the leak named.
+        if (L.dow === Number(planCfg.reviewDow ?? 1) && !already[`agent:review:${L.day}`]) {
+          try {
+            const text = await reviewText(st, planCfg, members as any[], L, mon);
+            out.review.push(`review:${L.day}`);
+            if (canPush.has(uid)) await sendPush(uid, { title: `Monday review · ${st.name}`, body: text.split("\n").slice(1, 3).join(" · ").slice(0, 160), tag: `agent:review:${L.day}`, url: "./#/" });
+            if (mg.email) { try { await resendSend(String(mg.email), `Monday review · ${st.name}`, text); } catch { /* no email */ } }
+          } catch (e) { out.errors.push(`review: ${String(e)}`); }
+          already[`agent:review:${L.day}`] = new Date().toISOString(); changed = true;
+        }
+        // The be-backs, Mondays: the unsold ups most worth a call this week.
+        if (L.dow === Number(planCfg.reviewDow ?? 1) && !already[`agent:bebacks:${L.day}`]) {
+          try {
+            const list = await bebackList(members as any[], L, mon);
+            if (list.length) {
+              out.review.push(`bebacks:${L.day}`);
+              const text = [`${st.name} · unsold ups worth a call this week`, ...list.map((b, i) => `${i + 1}. ${b.name} (${b.rep}) — ${b.why}`)].join("\n");
+              if (canPush.has(uid)) await sendPush(uid, { title: `${list.length} unsold ups worth a call this week`, body: list.slice(0, 2).map((b) => `${b.name}: ${b.why}`).join(" · ").slice(0, 160), tag: `agent:bebacks:${L.day}`, url: "./#/floor" });
+              if (mg.email) { try { await resendSend(String(mg.email), `Unsold ups this week · ${st.name}`, text); } catch { /* no email */ } }
+            }
+          } catch (e) { out.errors.push(`bebacks: ${String(e)}`); }
+          already[`agent:bebacks:${L.day}`] = new Date().toISOString(); changed = true;
+        }
+        if (changed) await rememberNudges(uid, already);
+      }
+    }
     if (cfg.huddleOn || cfg.recapOn) {
       for (const mg of managers) {
         const uid = String(mg.user_id);
@@ -1628,6 +1793,113 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
   }
 }
 
+// ---- The planner ----
+// The month's first morning: last month closed — units, customers, the
+// measured ratios — and, when the month had enough in it, the ratios rolled
+// into the plan; then every rep's month written from the allocation.
+async function runPlanner(st: any, planCfg: any, members: any[], L: any, monthKey: string, manager: string): Promise<{ summary: string; text: string }> {
+  const [y, m] = monthKey.split("-").map(Number);
+  const lastKey = `${m === 1 ? y - 1 : y}-${String(m === 1 ? 12 : m - 1).padStart(2, "0")}`;
+  const reps = members.filter((x) => x && x.user_id);
+  let units = 0, unitsNew = 0, unitsUsed = 0, logged = 0, loggedNew = 0, loggedUsed = 0, set = 0, past = 0, shown = 0, soldShow = 0;
+  for (const r of reps) {
+    const mo = await repMonth(String(r.user_id), lastKey);
+    units += mo.units; unitsNew += mo.unitsNew; unitsUsed += mo.unitsUsed; logged += mo.logged; loggedNew += mo.loggedNew; loggedUsed += mo.loggedUsed; set += mo.set; past += mo.past; shown += mo.shown; soldShow += mo.soldFromShow;
+  }
+  const pctOf = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
+  const measured = { closingNew: pctOf(unitsNew, loggedNew), closingUsed: pctOf(unitsUsed, loggedUsed), showRate: pctOf(shown, past), closeOnShow: pctOf(soldShow, shown), apptShare: units ? pctOf(soldShow, units) : null };
+  const rolled: string[] = [];
+  const next = { ...planCfg };
+  if (planCfg.autoRatios !== false) {
+    // Enough to trust: twenty customers in a category, twenty appointments past.
+    if (measured.closingNew != null && loggedNew >= 20) { next.closingNew = measured.closingNew; rolled.push(`new closing ${measured.closingNew}%`); }
+    if (measured.closingUsed != null && loggedUsed >= 20) { next.closingUsed = measured.closingUsed; rolled.push(`used closing ${measured.closingUsed}%`); }
+    if (measured.showRate != null && past >= 20) { next.showRate = measured.showRate; rolled.push(`show rate ${measured.showRate}%`); }
+    if (measured.closeOnShow != null && shown >= 20) { next.closeOnShow = measured.closeOnShow; rolled.push(`closing on a show ${measured.closeOnShow}%`); }
+  }
+  next.history = { ...(planCfg.history || {}), [lastKey]: { units, unitsNew, unitsUsed, logged, set, past, shown, ...measured } };
+  if (rolled.length || !planCfg.history || !planCfg.history[lastKey]) {
+    await fetch(sbUrl(`/store_config`), { method: "POST", headers: { ...sbHeaders(), "content-type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ store_id: st.id, data: { ...((await fetch(sbUrl(`/store_config?select=data&store_id=eq.${encodeURIComponent(st.id)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).then((x: any[]) => (x[0] && x[0].data) || {}).catch(() => ({}))) as any), plan: next } }) }).catch(() => null);
+  }
+  // Every rep's month, from the allocation at the rolled ratios.
+  const pm = planMath(next, reps, L);
+  const rows = pm.perRep.filter((x) => x.units > 0).map((x) => ({ store_id: st.id, user_id: x.uid, month: monthKey, goal_units: Math.round(x.units), goal_appts: x.appts }));
+  if (rows.length) await fetch(sbUrl(`/store_targets?on_conflict=store_id,user_id,month`), { method: "POST", headers: { ...sbHeaders(), "content-type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows) }).catch(() => null);
+  const nameOf = (uid: string) => { const mm = reps.find((x) => String(x.user_id) === uid); return (mm && (mm.name || String(mm.email || "").split("@")[0])) || "rep"; };
+  const lines = [
+    `${st.name} · ${monthKey} set by the plan`,
+    `Last month: ${units} units (${unitsNew} new, ${unitsUsed} used) from ${logged} customers · ${set} appointments set · ${past ? `${shown} of ${past} shown` : "no appointment outcomes"}.`,
+    rolled.length ? `Ratios rolled forward: ${rolled.join(", ")}.` : "Ratios kept: last month was too small to re-measure them.",
+    `This month: ${pm.targets.units} units (${pm.targets.new} new, ${pm.targets.used} used) → ${pm.customers} customers spoken with → ${pm.set} appointments set for ${pm.shows} shows, over ${pm.days.all} selling days.`,
+    "Each rep: " + pm.perRep.filter((x) => x.units > 0).map((x) => `${nameOf(x.uid)} ${Math.round(x.units)} units · ${x.customers} customers · ${x.appts} appointments (${Math.round(x.dayCustomers * 10) / 10}/${Math.round(x.dayAppts * 10) / 10} a day)`).join("; "),
+  ];
+  return { summary: lines[3], text: lines.join("\n") };
+}
+
+// ---- The reviewer ----
+// Monday: the month so far against the plan's pace, store and rep, and the
+// leak — the one conversion most below what the plan assumed.
+async function reviewText(st: any, planCfg: any, members: any[], L: any, mon: (uid: string, key: string) => Promise<any>): Promise<string> {
+  const reps = members.filter((x) => x && x.user_id);
+  const pm = planMath(planCfg, reps, L);
+  const key = L.day.slice(0, 7);
+  let units = 0, logged = 0, set = 0, past = 0, shown = 0, soldShow = 0;
+  const perRep: string[] = [];
+  const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "rep";
+  for (const r of reps) {
+    const mo = await mon(String(r.user_id), key);
+    units += mo.units; logged += mo.logged; set += mo.set; past += mo.past; shown += mo.shown; soldShow += mo.soldFromShow;
+    const pr = pm.perRep.find((x) => x.uid === String(r.user_id));
+    if (!pr || !pr.units) continue;
+    const d = (have: number, want: number) => { const diff = Math.round((have - want) * 10) / 10; return diff >= 0 ? (diff > 0 ? `${diff} ahead` : "on pace") : `${Math.abs(diff)} behind`; };
+    perRep.push(`${nameOf(r)}: units ${mo.units} (${d(mo.units, pr.pace.units)}), customers ${mo.logged} (${d(mo.logged, pr.pace.customers)}), appointments ${mo.set} (${d(mo.set, pr.pace.appts)})`);
+  }
+  const pct = (a: number, b: number) => (b > 0 ? a / b : null);
+  // Each conversion against what the plan assumed, as a share of plan.
+  const leaks: { name: string; have: number | null; plan: number; fix: string }[] = [
+    { name: "traffic (customers spoken with)", have: pm.pace.customers ? logged / pm.pace.customers : null, plan: 1, fix: "more ups: the owner-book hand-outs and the service drive, and every internet lead answered inside five minutes" },
+    { name: "appointments from customers", have: pct(set, logged) != null && pm.customers ? (set / logged) / (pm.set / pm.customers) : null, plan: 1, fix: "ask for a time in the first reply; the converter drafts it" },
+    { name: "show rate", have: pct(shown, past) != null ? (shown / past) / ((Number(pm.p.showRate) || 60) / 100) : null, plan: 1, fix: "confirm the night before, chase no-shows the next morning; both run on the agent" },
+    { name: "closing on a show", have: pct(soldShow, shown) != null ? (soldShow / shown) / ((Number(pm.p.closeOnShow) || 72) / 100) : null, plan: 1, fix: "the deal read before the visit, a manager in the T.O., the be-back list for everyone who didn't buy" },
+  ];
+  const worst = leaks.filter((x) => x.have != null && (past >= 5 || !/show/.test(x.name))).sort((a, b) => (a.have as number) - (b.have as number))[0];
+  const lines = [
+    `${st.name} · Monday review · ${L.day}`,
+    `Month so far: ${units} units against ${Math.round(pm.pace.units)} by today (${pm.targets.units} planned) · ${logged} customers against ${Math.round(pm.pace.customers)} · ${set} appointments set against ${Math.round(pm.pace.appts)}.`,
+    worst ? `The leak: ${worst.name} at ${Math.round((worst.have as number) * 100)}% of plan. Fix: ${worst.fix}.` : "Not enough in the month yet to name a leak.",
+    perRep.length ? "By rep: " + perRep.join("; ") : "",
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+// ---- The be-backs ----
+// Unsold ups worth a call this week: logged in the last sixty days, still
+// in play, nothing booked, nobody in touch for two days — the best read first.
+async function bebackList(members: any[], L: any, mon: (uid: string, key: string) => Promise<any>): Promise<{ name: string; rep: string; why: string; leadId: string; uid: string }[]> {
+  const out: { name: string; rep: string; why: string; leadId: string; uid: string; score: number }[] = [];
+  const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "rep";
+  const sixty = new Date(new Date(L.day + "T00:00:00Z").getTime() - 60 * 86400000).toISOString();
+  const twoDays = new Date(new Date(L.day + "T00:00:00Z").getTime() - 2 * 86400000).toISOString();
+  for (const m of members) {
+    const uid = String(m.user_id);
+    const [leads, appts] = await Promise.all([rowsOf(uid, "leads"), rowsOf(uid, "appointments")]);
+    const booked = new Set(appts.filter((a: any) => a.status !== "canceled" && !a.outcome && String(a.when || "") >= L.day).map((a: any) => String(a.leadId)));
+    for (const l of leads) {
+      if (!["new", "working", "appointment", "negotiating"].includes(l.stage || "new")) continue;
+      const at = String(l.loggedAt || (l.importedAt ? "" : l.createdAt) || "");
+      if (!at || at < sixty || at > twoDays) continue;
+      if (booked.has(String(l.id)) || !(l.phone || l.email) || l.doNotContact) continue;
+      const last = String(l.lastContacted || "");
+      if (last && last > twoDays) continue;
+      const days = Math.round((new Date(L.day + "T00:00:00Z").getTime() - new Date(at).getTime()) / 86400000);
+      const quiet = last ? Math.round((new Date(L.day + "T00:00:00Z").getTime() - new Date(last).getTime()) / 86400000) : days;
+      const score = (l.stage === "negotiating" ? 40 : l.stage === "appointment" ? 30 : l.stage === "working" ? 20 : 10) + Math.max(0, 30 - quiet) + (l.vehicleInterest ? 10 : 0);
+      out.push({ name: String(l.name || "A customer"), rep: nameOf(m), why: `${l.stage || "new"}${l.vehicleInterest ? ` · ${l.vehicleInterest}` : ""} · in ${days} day${days === 1 ? "" : "s"} ago · quiet ${quiet} day${quiet === 1 ? "" : "s"}`, leadId: String(l.id), uid, score });
+    }
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 10);
+}
+
 // The huddle or the recap, from every rep's book: where the store stands,
 // what each rep has today, what's waiting.
 async function storeDayText(st: any, members: any[], L: any, now: number, kind: "huddle" | "recap"): Promise<string> {
@@ -1635,7 +1907,7 @@ async function storeDayText(st: any, members: any[], L: any, now: number, kind: 
   const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "a rep";
   let units = 0, goal = 0, setMonth = 0, setToday = 0, loggedToday = 0, soldToday = 0, noShowsToday = 0, untouched = 0, waiting = 0;
   const today: string[] = [], tomorrow: { n: number; unconfirmed: number } = { n: 0, unconfirmed: 0 }, perRep: string[] = [];
-  const targets = await fetch(sbUrl(`/store_targets?select=user_id,goal_units&store_id=eq.${encodeURIComponent(st.id)}&target_month=eq.${L.day.slice(0, 7)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  const targets = await fetch(sbUrl(`/store_targets?select=user_id,goal_units&store_id=eq.${encodeURIComponent(st.id)}&month=eq.${L.day.slice(0, 7)}`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
   for (const m of members) {
     const uid = String(m.user_id);
     const [sales, appts, leads, texts, config] = await Promise.all([rowsOf(uid, "sales"), rowsOf(uid, "appointments"), rowsOf(uid, "leads"), rowsOf(uid, "texts", "&data->>dir=eq.in&data->>read=eq.false"), rowsOf(uid, "config")]);

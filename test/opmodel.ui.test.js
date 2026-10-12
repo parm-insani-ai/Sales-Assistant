@@ -75,7 +75,7 @@ if (!/^The month's math · 80 units: 50 new, 30 used · \d+ of \d+ selling days$
 if (!/At 41\.\d% closing that's 194 customers spoken with/.test(home.line) && !/At 4\d\.\d% closing that's 1\d\d customers spoken with/.test(home.line)) fail("the chain line is wrong: " + home.line);
 if (home.pace.length !== 3 || !/^2 \/ [\d.]+Units/.test(home.pace[0]) || !/^4 \/ [\d.]+Customers spoken with/.test(home.pace[1]) || !/^3 \/ [\d.]+Appointments set/.test(home.pace[2])) fail("the pace tiles don't carry the month so far: " + JSON.stringify(home.pace));
 if (!/closes at 72% against 42% for the mix/.test(home.lever || "")) fail("the lever line is wrong: " + home.lever);
-if (!home.src.some((s) => /^dealer_site: Dealer site · closes 26%3 \/ \d+of 57$/.test(s)) || !home.src.some((s) => /^lot: Lot · closes 23%1 \/ \d+of 6$/.test(s))) fail("ups by source aren't counted from the month's logged customers: " + JSON.stringify(home.src));
+if (!home.src.some((s) => /^dealer_site: Dealer site · closes 26%3 \/ \d+of 57/.test(s)) || !home.src.some((s) => /^lot: Lot · closes 23%1 \/ \d+of 6/.test(s))) fail("ups by source aren't counted from the month's logged customers: " + JSON.stringify(home.src));
 if (!/30 units this month · [\d.]+ customers and [\d.]+ appointments a day/.test(home.parm || "")) fail("Parm's row doesn't carry the plan's day: " + home.parm);
 if (!/mg-math/.test(home.first || "")) fail("the month's math isn't the first card: " + home.first);
 

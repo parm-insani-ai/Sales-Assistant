@@ -25,6 +25,7 @@ const SERVICE = "service-key-for-tests";
 const db = { records: [], usage: [], stores: [{ id: "s1", name: "O'Regan's Nissan Halifax" }], members: [{ user_id: U3, store_id: "s1", role: "manager", name: "Sam", email: "member@example.com" }, { user_id: U1, store_id: "s1", role: "rep", name: "Parm", email: "rep@example.com" }], noUsageTable: false };
 const twilio = { sent: [] }, push = { got: [] };
 db.config = []; // store_config rows: { store_id, data }
+db.targets = []; // store_targets rows
 // VAPID keys and a subscription key pair, so the function's pushes go to this mock.
 const crypto = require("crypto");
 const ecPair = () => { const kp = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" }); const pub = kp.publicKey.export({ format: "jwk" }), priv = kp.privateKey.export({ format: "jwk" }); return { pub: Buffer.concat([Buffer.from([4]), Buffer.from(pub.x, "base64url"), Buffer.from(pub.y, "base64url")]).toString("base64url"), priv: Buffer.from(priv.d, "base64url").toString("base64url") }; };
@@ -44,8 +45,15 @@ const mock = http.createServer((req, res) => {
     }
     if (u.pathname === "/rest/v1/store_members") return send(res, 200, db.members.filter((m) => match(m, eqs(u))));
     if (u.pathname === "/rest/v1/stores") return send(res, 200, db.stores.filter((m) => match(m, eqs(u))));
-    if (u.pathname === "/rest/v1/store_config") return send(res, 200, db.config.filter((m) => match(m, eqs(u))));
-    if (u.pathname === "/rest/v1/admins" || u.pathname === "/rest/v1/store_targets") return send(res, 200, []);
+    if (u.pathname === "/rest/v1/store_config") {
+      if (req.method === "POST") { const i = db.config.findIndex((c) => c.store_id === body.store_id); if (i >= 0) db.config[i].data = body.data; else db.config.push(body); return send(res, 201, {}); }
+      return send(res, 200, db.config.filter((m) => match(m, eqs(u))));
+    }
+    if (u.pathname === "/rest/v1/store_targets") {
+      if (req.method === "POST") { for (const t of (Array.isArray(body) ? body : [body])) { const i = db.targets.findIndex((x) => x.store_id === t.store_id && x.user_id === t.user_id && x.month === t.month); if (i >= 0) db.targets[i] = t; else db.targets.push(t); } return send(res, 201, {}); }
+      return send(res, 200, db.targets.filter((m) => match(m, eqs(u))));
+    }
+    if (u.pathname === "/rest/v1/admins") return send(res, 200, []);
     if (/^\/2010-04-01\/Accounts\/[^/]+\/Messages\.json$/.test(u.pathname)) { twilio.sent.push(Object.fromEntries(new URLSearchParams(b))); return send(res, 201, { sid: "SM" + twilio.sent.length }); }
     if (u.pathname.startsWith("/push/")) { push.got.push(u.pathname); res.writeHead(201); return res.end(); }
     if (u.pathname === "/rest/v1/agent_usage") {
@@ -260,8 +268,11 @@ try {
 
   // --- The store's agent. Hours set to 0 so everything is due now; the
   // rep's and the manager's clocks are UTC, open all week.
-  db.config.push({ store_id: "s1", data: { welcome: { manager: "Sam" }, agent: { confirmHour: 0, noShowHour: 0, huddleHour: 0, recapHour: 0, handoutN: 2 } } });
+  // The store's plan: 80 units, Parm carrying 20; the review day is today
+  // so the reviewer and the be-back list run in this pass.
+  db.config.push({ store_id: "s1", data: { welcome: { manager: "Sam" }, agent: { confirmHour: 0, noShowHour: 0, huddleHour: 0, recapHour: 0, handoutN: 2 }, plan: { targetNew: 50, targetUsed: 30, alloc: { [U1]: 20 }, reviewDow: new Date().getUTCDay() } } });
   const dayN = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
   db.records.push(
     // Tomorrow, unconfirmed: the agent confirms it. Yesterday's no-show: a text and a rebook.
     { id: "c4", user_id: U1, collection: "leads", data: { id: "c4", name: "Tam Tomorrow", phone: "9025554444", stage: "appointment" } },
@@ -276,6 +287,15 @@ try {
     // Waiting on a reply: the agent drafts one for the manager; a figure is refused.
     { id: "c6", user_id: U1, collection: "leads", data: { id: "c6", name: "Money Mike", phone: "9025556006", stage: "working" } },
     { id: "in3", user_id: U1, collection: "texts", data: { id: "in3", leadId: "c6", dir: "in", body: "What would my payment be?", at: new Date(Date.now() - 30 * 60000).toISOString(), read: false } },
+    // The converter: an internet up thirty hours old with nothing booked (the manager gets a time-ask to send);
+    // one answered five hours ago without an ask (the rep is told to ask).
+    { id: "c7", user_id: U1, collection: "leads", data: { id: "c7", name: "Ida Internet", phone: "9025557007", stage: "new", source: "Dealer Site", vehicleInterest: "2026 Rogue", createdAt: hoursAgo(30), lastContacted: hoursAgo(29), firstContacted: hoursAgo(29) } },
+    { id: "c8", user_id: U1, collection: "leads", data: { id: "c8", name: "Ivy Web", phone: "9025557008", stage: "new", source: "O'Regan's Website", createdAt: hoursAgo(5), lastContacted: hoursAgo(4), firstContacted: hoursAgo(4) } },
+    { id: "out8", user_id: U1, collection: "texts", data: { id: "out8", leadId: "c8", dir: "out", body: "Hi Ivy, thanks for reaching out about the Kicks — it's here.", at: hoursAgo(4), read: true } },
+    // The rep has notifications on, so their own sweep runs in this pass (the push itself can't complete against this plain mock).
+    { id: "push-rep", user_id: U1, collection: "push", data: { id: "push-rep", sub: { endpoint: `http://127.0.0.1:${MOCK}/push/u1`, keys: { p256dh: SUBKEY.pub, auth: "YXV0aHNlY3JldDE2Ynl0ZXM" } }, createdAt: new Date().toISOString() } },
+    // The be-backs: logged five days ago, still working, quiet for four.
+    { id: "c9", user_id: U1, collection: "leads", data: { id: "c9", name: "Una Unsold", phone: "9025557009", stage: "working", vehicleInterest: "Sentra", loggedAt: hoursAgo(120), lastContacted: hoursAgo(96) } },
   );
   const repPrefs = db.records.find((r) => r.user_id === U1 && r.collection === "prefs");
   repPrefs.data = { tzOffsetMinutes: 0, hoursFrom: 0, hoursTo: 24, hoursDays: [0, 1, 2, 3, 4, 5, 6], quietFrom: 0, quietTo: 0 };
@@ -303,10 +323,24 @@ try {
   if (agentRep.handouts !== 2 || hand.length !== 2 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
   if (!tasks(U1).some((t) => t.kind === "service" && t.leadId === "o4" && /In service today: Sue Service/.test(t.title))) fail("the customer in the service drive wasn't handed over: " + JSON.stringify(tasks(U1)));
   if (!(agentRep.huddles || []).some((k) => /^agent:huddle:/.test(k))) fail("the huddle wasn't sent: " + JSON.stringify(agentRep));
+  // The planner wrote the month to Parm from the allocation; the dispatcher sized the hand-outs to the plan (capped at twelve).
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const parmT = db.targets.find((t) => t.user_id === U1 && t.month === monthKey);
+  if (!(agentRep.review || []).includes("plan:" + monthKey) || !parmT || parmT.goal_units !== 20 || !(parmT.goal_appts > 0)) fail("the planner didn't set Parm's month: " + JSON.stringify([agentRep.review, db.targets]));
+  const sized = agentRep.plan && agentRep.plan.contactsDay && agentRep.plan.contactsDay[U1];
+  if (!sized || sized.n !== 12 || sized.base < 10) fail("the dispatcher didn't size Parm's hand-outs to the plan: " + JSON.stringify(agentRep.plan));
+  if (!(agentRep.review || []).some((k) => /^review:/.test(k)) || !(agentRep.review || []).some((k) => /^bebacks:/.test(k))) fail("the reviewer or the be-back list didn't run on the review day: " + JSON.stringify(agentRep.review));
+  // The converter: the manager holds a time-ask for Ida; the rep was told to ask Ivy.
+  const askDraft = db.records.find((r) => r.user_id === U3 && r.collection === "agentdrafts" && r.id === "reply:c7");
+  if (!(mgrRep.sent || []).includes("mgr:unbooked:c7") || !askDraft || askDraft.data.kind !== "ask" || !/Parm mentioned you were looking at the 2026 Rogue/.test(askDraft.data.body)) fail("the unbooked internet up didn't get the manager's time-ask: " + JSON.stringify([mgrRep.sent, askDraft && askDraft.data]));
+  // Every test account shares the same first eight characters, so the rep's
+  // report is the one carrying the key.
+  const repReports = Array.isArray(ag.body.report) ? ag.body.report : [];
+  if (!repReports.some((x) => (x.keys || []).includes("ask:c8"))) fail("the rep wasn't told to ask Ivy for a time: " + JSON.stringify(repReports));
   // The reply drafts: Dana's (from the earlier mtext section she's answered, so it's Money Mike waiting) — a figure, refused: plain push, no draft held.
   const drafts = db.records.filter((r) => r.user_id === U3 && r.collection === "agentdrafts" && !r.deleted).map((r) => r.data);
   if (drafts.some((d) => d.leadId === "c6")) fail("a draft with a figure in it was held for the manager: " + JSON.stringify(drafts));
-  if (!(mgrRep.sent || []).includes("mgr:reply:in3") || (mgrRep.drafted || []).length) fail("the waiting customer with the refused draft didn't get the plain push: " + JSON.stringify(mgrRep));
+  if (!(mgrRep.sent || []).includes("mgr:reply:in3") || (mgrRep.drafted || []).includes("mgr:reply:in3")) fail("the waiting customer with the refused draft didn't get the plain push: " + JSON.stringify(mgrRep));
   // A customer whose draft is clean: held under the manager, and the push carries it.
   db.records.push(
     { id: "c7", user_id: U1, collection: "leads", data: { id: "c7", name: "Dana Draft", phone: "9025556007", stage: "working", vehicleInterest: "Rogue SV" } },

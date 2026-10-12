@@ -210,6 +210,9 @@ export function renderTeam(view, { param } = {}) {
         <div class="row plan-row"><span>Closing, sold ÷ spoken with (%)</span><span class="row-meta">new ${num("pl-cnew", cfg.closingNew, 0.5, 64)} used ${num("pl-cused", cfg.closingUsed, 0.5, 64)}</span></div>
         <div class="row plan-row"><span>Units through an appointment (%)</span><span class="row-meta">${num("pl-share", cfg.apptShare, 1, 64)}</span></div>
         <div class="row plan-row"><span>Show rate · closing on a show (%)</span><span class="row-meta">${num("pl-show", cfg.showRate, 1, 64)} ${num("pl-cos", cfg.closeOnShow, 1, 64)}</span></div>
+        <div class="row plan-row"><span>Owner-book outreach: appointments a month · set rate (%)</span><span class="row-meta">${num("pl-oa", cfg.outreachAppts ?? 50, 1, 64)} ${num("pl-osr", cfg.outreachSetRate ?? 4, 0.5, 64)}</span></div>
+        <div class="row plan-row"><span>Hand-outs a day, at most · review day</span><span class="row-meta">${num("pl-hmax", cfg.handoutMax ?? 12, 1, 64)} <select id="pl-rdow">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<option value="${i}" ${i === Number(cfg.reviewDow ?? 1) ? "selected" : ""}>${d}</option>`).join("")}</select></span></div>
+        <div class="row plan-row"><span>Roll last month's measured ratios into the plan</span><span class="row-meta"><label class="switch"><input type="checkbox" id="pl-auto" ${cfg.autoRatios !== false ? "checked" : ""}><span></span></label></span></div>
         <div class="row plan-row"><span>Selling days</span><span class="row-meta"><label class="small"><input type="checkbox" id="pl-sat" ${cfg.sellingDays.includes(6) ? "checked" : ""}> Sat</label> <label class="small"><input type="checkbox" id="pl-sun" ${cfg.sellingDays.includes(0) ? "checked" : ""}> Sun</label></span></div>
         <div class="small muted" style="margin:8px 0 4px">${plan.targets.units} units → ${plan.customers.total} customers spoken with (${plan.customers.perDay} a selling day) → ${plan.appts.set} appointments set (${plan.appts.perDay} a day) for ${plan.appts.shows} shows → ${plan.upsNeeded} ups at the year's mix.</div>
         <div class="section-title" style="margin-top:10px">Each rep's share <span class="muted" style="font-weight:500;font-size:0.78rem">· units; blank splits what's left evenly</span></div>
@@ -218,7 +221,7 @@ export function renderTeam(view, { param } = {}) {
           <button class="btn btn-primary btn-sm" data-act="plan-save" style="flex:1">Save</button>
           <button class="btn btn-ghost btn-sm" data-act="plan-write" style="flex:1">Write to reps' phones</button>
         </div>
-        <div class="hint">Save keeps the targets and ratios for Home. Write sets each rep's month — units and appointments — so their Home shows the same numbers. Ratios start from the store's year to date and should be replaced by the measured month.</div>
+        <div class="hint">Save keeps the targets and ratios for Home. Write sets each rep's month — units and appointments — so their Home shows the same numbers. With a plan saved, the agents run on it: the planner writes each rep's month on the 1st and rolls the measured ratios forward; the dispatcher sizes each rep's morning hand-outs to their gap; the reviewer reports the week against the plan on the review day and names the leak; the be-back list goes out the same morning.</div>
       </div>`;
   }
   function readPlanForm() {
@@ -227,7 +230,8 @@ export function renderTeam(view, { param } = {}) {
     const alloc = {};
     el.querySelectorAll("[data-alloc]").forEach((i) => { if (i.value !== "" && isFinite(Number(i.value))) alloc[i.dataset.alloc] = Number(i.value); });
     const cur = (cachedConfig() || {}).plan || {};
-    return { ...cur, targetNew: v("pl-new") || 0, targetUsed: v("pl-used") || 0, closingNew: v("pl-cnew") || DEFAULT_PLAN.closingNew, closingUsed: v("pl-cused") || DEFAULT_PLAN.closingUsed, apptShare: v("pl-share") || DEFAULT_PLAN.apptShare, showRate: v("pl-show") || DEFAULT_PLAN.showRate, closeOnShow: v("pl-cos") || DEFAULT_PLAN.closeOnShow, sellingDays: days, alloc };
+    return { ...cur, targetNew: v("pl-new") || 0, targetUsed: v("pl-used") || 0, closingNew: v("pl-cnew") || DEFAULT_PLAN.closingNew, closingUsed: v("pl-cused") || DEFAULT_PLAN.closingUsed, apptShare: v("pl-share") || DEFAULT_PLAN.apptShare, showRate: v("pl-show") || DEFAULT_PLAN.showRate, closeOnShow: v("pl-cos") || DEFAULT_PLAN.closeOnShow, sellingDays: days, alloc,
+      outreachAppts: v("pl-oa") || 50, outreachSetRate: v("pl-osr") || 4, handoutMax: v("pl-hmax") || 12, reviewDow: Number(el.querySelector("#pl-rdow").value) || 0, autoRatios: el.querySelector("#pl-auto").checked };
   }
 
   // The store's agent: what the function does for the manager every day,
