@@ -64,7 +64,7 @@ end $$;
 -- never a fresh lead), a to-do with the reasons, and the row marked assigned.
 create or replace function public.store_book_assign(store uuid, customer_id text, member uuid, why text default '') returns json
 language plpgsql security definer set search_path = public as $$
-declare c public.store_customers; lid text; tid text; nowiso text; lead jsonb; by text;
+declare c public.store_customers; lid text; tid text; nowiso text; lead jsonb; handed_by text;
 begin
   if not public.is_admin() and not exists (select 1 from public.store_members where store_id = store and user_id = auth.uid() and role = 'manager')
   then raise exception 'only a manager of the store can do that'; end if;
@@ -74,13 +74,13 @@ begin
   if c.status = 'assigned' then raise exception 'already handed out'; end if;
   nowiso := to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
   lid := 'sb_' || lower(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16));
-  select coalesce(name, '') into by from public.store_members where store_id = store and user_id = auth.uid();
+  select coalesce(name, '') into handed_by from public.store_members where store_id = store and user_id = auth.uid();
   lead := (c.data - 'id') || jsonb_build_object('id', lid, 'storeCustomerId', c.id, 'source', coalesce(c.data->>'source', 'Owner book'), 'stage', coalesce(c.data->>'stage', 'delivered'),
     'importedAt', nowiso, 'handedAt', nowiso, 'handedBy', auth.uid(), 'createdAt', coalesce(c.data->>'createdAt', nowiso), 'updatedAt', nowiso);
   insert into public.records (id, user_id, collection, data) values (lid, member, 'leads', lead);
   tid := 'tsk_' || lower(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16));
   insert into public.records (id, user_id, collection, data) values (tid, member, 'tasks', jsonb_build_object(
-    'id', tid, 'leadId', lid, 'title', 'Reach out to ' || coalesce(c.data->>'name', 'customer') || case when coalesce(why, '') <> '' then ' — ' || why else '' end || ' (from ' || coalesce(nullif(by, ''), 'your manager') || ')',
+    'id', tid, 'leadId', lid, 'title', 'Reach out to ' || coalesce(c.data->>'name', 'customer') || case when coalesce(why, '') <> '' then ' — ' || why else '' end || ' (from ' || coalesce(nullif(handed_by, ''), 'your manager') || ')',
     'due', to_char(now() at time zone 'utc', 'YYYY-MM-DD'), 'channel', 'call', 'kind', 'reach', 'priority', 'high', 'source', 'manager', 'fromManager', true, 'setBy', auth.uid(), 'done', false, 'createdAt', nowiso, 'updatedAt', nowiso));
   update public.store_customers set status = 'assigned', assigned_to = member, assigned_at = now(), updated_at = now() where store_id = store and id = customer_id;
   return json_build_object('leadId', lid, 'taskId', tid);
