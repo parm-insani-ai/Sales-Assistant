@@ -25,6 +25,11 @@ if (plan.mixClose !== 42 || plan.upsNeeded !== 193) fail("ups needed: " + plan.u
 const ds = plan.sources.find((s) => s.key === "dealer_site"), ap = plan.sources.find((s) => s.key === "appointment");
 if (!ds || ds.upsNeeded !== 57 || ds.close !== 26 || !ap || ap.upsNeeded !== 26 || ap.close !== 72) fail("sources: " + JSON.stringify([ds, ap]));
 if (plan.sources[0].key !== "dealer_site") fail("the biggest source isn't first");
+// Appointments by channel: the preset is the channel's share of the 112 by its share of ups — dealer site 29% → 33; the channels add up to about the whole.
+if (ds.apptsPreset !== 33 || ds.apptsTarget !== 33 || ds.apptsOwn || Math.abs(plan.apptsByChannel - 112) > 4) fail("the channel presets: " + JSON.stringify([ds.apptsPreset, ds.apptsTarget, plan.apptsByChannel]));
+const own = M.storePlan({ apptTargets: { dealer_site: 40, facebook: 0 } }, { members: reps, now: oct12 });
+const ds2 = own.sources.find((s) => s.key === "dealer_site"), fb2 = own.sources.find((s) => s.key === "facebook");
+if (ds2.apptsTarget !== 40 || !ds2.apptsOwn || ds2.apptsPreset !== 33 || fb2.apptsTarget !== 0 || !fb2.apptsOwn) fail("the store's own channel targets don't replace the preset: " + JSON.stringify([ds2, fb2]));
 if (Math.abs(plan.sources.reduce((a, s) => a + s.unitsExpected, 0) - 80) > 1.5) fail("the sources don't add up to the target: " + plan.sources.reduce((a, s) => a + s.unitsExpected, 0));
 if (!plan.lever || plan.lever.apptClose !== 72 || plan.lever.perUp !== 0.3) fail("the appointment lever: " + JSON.stringify(plan.lever));
 // Four reps, an even 20 each: 49 customers, 28 appointments; 4.5 weeks; a rep's 23 working days.

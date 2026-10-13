@@ -79,7 +79,7 @@ await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.querySelector(".mg-math"), null, { timeout: 30000 });
 const srcs = await mgr.evaluate(() => [...document.querySelectorAll(".mg-src")].map((n) => n.dataset.src + ": " + (n.querySelector(".mg-src-set")?.textContent.trim() || "")));
 console.log("sources:", JSON.stringify(srcs));
-if (!srcs.includes("dealer_site: 75% booked") || !srcs.includes("lot: 100% booked")) fail("booked by source is wrong: " + JSON.stringify(srcs));
+if (!srcs.some((x) => /^dealer_site: 3 of \d+ booked$/.test(x)) || !srcs.some((x) => /^lot: 5 of \d+ booked$/.test(x))) fail("booked by source is wrong: " + JSON.stringify(srcs));
 
 // --- Admin: the plan's agent settings save.
 await mgr.goto(APP + "/#/team");

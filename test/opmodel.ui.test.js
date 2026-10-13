@@ -49,6 +49,11 @@ if (defaults.rows.length !== 3 || !defaults.rows.some((r) => /^Parm/.test(r)) ||
 await mgr.fill('[data-alloc="' + U1 + '"]', "30");
 await mgr.fill('[data-alloc="00000000-0000-4000-8000-000000000003"]', "0");
 await mgr.fill("#pl-cnew", "40");
+// The dealer-site channel gets the store's own appointment target; the rest keep the preset.
+await mgr.evaluate(() => { document.querySelector(".plan-channels").open = true; });
+const preset = await mgr.evaluate(() => document.querySelector('[data-atgt="dealer_site"]').placeholder);
+if (preset !== "33") fail("the dealer-site preset isn't the model's: " + preset);
+await mgr.fill('[data-atgt="dealer_site"]', "40");
 await mgr.click('[data-act="plan-write"]');
 await mgr.waitForFunction(() => /set for the month/.test(document.body.textContent), null, { timeout: 10000 }).catch(() => fail("writing the month to the reps didn't report"));
 const targets = await rpc("tm", "targets_for_store", { store: st.id, target_month: month });
@@ -56,7 +61,7 @@ console.log("targets:", JSON.stringify(targets));
 const tp = targets.find((t) => t.user_id === U1), td = targets.find((t) => t.user_id === "00000000-0000-4000-8000-000000000002");
 if (!tp || tp.goal_units !== 30 || !td || td.goal_units !== 50 || targets.some((t) => t.user_id === "00000000-0000-4000-8000-000000000003")) fail("the reps' months weren't written from the allocation: " + JSON.stringify(targets));
 const saved = await rpc("tm", "store_config_get", { store: st.id });
-if (!saved.plan || saved.plan.closingNew !== 40 || saved.plan.alloc[U1] !== 30) fail("the plan wasn't saved to the store: " + JSON.stringify(saved.plan));
+if (!saved.plan || saved.plan.closingNew !== 40 || saved.plan.alloc[U1] !== 30 || !saved.plan.apptTargets || saved.plan.apptTargets.dealer_site !== 40 || "facebook" in saved.plan.apptTargets) fail("the plan wasn't saved to the store: " + JSON.stringify(saved.plan));
 
 // --- Home: the month's math.
 await mgr.goto(APP + "/#/");
@@ -77,7 +82,7 @@ if (!/At 4\d\.\d% closing, 80 units is 1\d\d customers spoken with/.test(home.li
 if (home.pace.length !== 3 || !/^Units: 2 \/ [\d.]+ · \d+ (behind pace|ahead)|^Units: 2 \/ [\d.]+ · on pace/.test(home.pace[0]) || !/^Customers spoken with: 4 \/ [\d.]+ · /.test(home.pace[1]) || !/^Appointments set: 3 \/ [\d.]+ · /.test(home.pace[2])) fail("the pace rows don't carry the month so far: " + JSON.stringify(home.pace));
 if (!/^From here: 78 more units needs \d+ customers and \d+ appointments a day across the floor, \d+ selling days? left\.$/.test(home.need)) fail("the from-here read is wrong: " + home.need);
 if (!/closes at 72% against 42% for the mix/.test(home.lever || "")) fail("the lever line is wrong: " + home.lever);
-if (!home.src.some((s) => /^dealer_site: Dealer site 3 of \d+ \d+% booked$/.test(s)) || !home.src.some((s) => /^lot: Lot 1 of \d+ \d+% booked$/.test(s))) fail("ups by source aren't counted from the month's logged customers: " + JSON.stringify(home.src));
+if (!home.src.some((s) => /^dealer_site: Dealer site 3 of \d+ 2 of 40 booked\*$/.test(s)) || !home.src.some((s) => /^lot: Lot 1 of \d+ 1 of \d+ booked$/.test(s))) fail("ups by source don't carry booked against the channel's target: " + JSON.stringify(home.src));
 if (!/30 units this month · [\d.]+ customers and [\d.]+ appointments a day/.test(home.parm || "")) fail("Parm's row doesn't carry the plan's day: " + home.parm);
 if (!/mg-math/.test(home.first || "")) fail("the month's math isn't the first card: " + home.first);
 

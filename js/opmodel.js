@@ -45,6 +45,9 @@ export const DEFAULT_PLAN = {
   // Each rep's units this month, by user id; anyone not listed gets an
   // even share of what's left.
   alloc: {},
+  // The store's own appointment target per channel, by source key; a
+  // channel not listed uses the preset.
+  apptTargets: {},
   sources: DEFAULT_SOURCES,
 };
 
@@ -101,11 +104,19 @@ export function storePlan(cfg = {}, { members = [], now = new Date() } = {}) {
   const upsAll = srcs.reduce((a, s) => a + s.ups, 0), unitsAll = srcs.reduce((a, s) => a + s.units, 0);
   const mixClose = upsAll ? unitsAll / upsAll : 0;
   const upsNeeded = mixClose ? ceil(units / mixClose) : 0;
+  // Appointments by channel: the preset is each channel's share of the
+  // month's appointments by its share of ups, so the channels add up to the
+  // whole; the store's own number for a channel (cfg.apptTargets[key])
+  // replaces it.
+  const over = p.apptTargets || {};
   const sources = srcs.filter((s) => s.ups > 0).map((s) => {
     const close = s.ups ? s.units / s.ups : 0, shareOfUps = upsAll ? s.ups / upsAll : 0;
     const need = Math.round(upsNeeded * shareOfUps);
-    return { key: s.key, label: s.label, share: r1(shareOfUps * 100), close: Math.round(close * 100), upsNeeded: need, unitsExpected: r1(need * close), perDay: days.all ? r1(need / days.all) : 0 };
+    const apptsPreset = Math.round(set * shareOfUps);
+    const hasOwn = over[s.key] != null && over[s.key] !== "" && isFinite(Number(over[s.key]));
+    return { key: s.key, label: s.label, share: r1(shareOfUps * 100), close: Math.round(close * 100), upsNeeded: need, unitsExpected: r1(need * close), perDay: days.all ? r1(need / days.all) : 0, apptsPreset, apptsTarget: hasOwn ? Math.max(0, Number(over[s.key])) : apptsPreset, apptsOwn: hasOwn };
   }).sort((a, b) => b.upsNeeded - a.upsNeeded);
+  const apptsByChannel = sources.reduce((a, s) => a + s.apptsTarget, 0);
   const apptSrc = sources.find((s) => s.key === "appointment");
   const lever = apptSrc ? { apptClose: apptSrc.close, mixClose: Math.round(mixClose * 100), perUp: r1((apptSrc.close - Math.round(mixClose * 100)) / 100) } : null;
 
@@ -130,7 +141,7 @@ export function storePlan(cfg = {}, { members = [], now = new Date() } = {}) {
   const frac = days.all ? days.gone / days.all : 0;
   const pace = { frac: r1(frac * 100), units: r1(units * frac), unitsNew: r1(tNew * frac), unitsUsed: r1(tUsed * frac), customers: r1(customers.total * frac), appts: r1(set * frac), ups: r1(upsNeeded * frac) };
 
-  return { targets: { new: tNew, used: tUsed, units }, closing: { new: r1(cNew * 100), used: r1(cUsed * 100), store: closing }, customers, appts, walkins, upsNeeded, mixClose: Math.round(mixClose * 100), sources, lever, perRep, days, pace };
+  return { targets: { new: tNew, used: tUsed, units }, closing: { new: r1(cNew * 100), used: r1(cUsed * 100), store: closing }, customers, appts, walkins, upsNeeded, mixClose: Math.round(mixClose * 100), sources, apptsByChannel, lever, perRep, days, pace };
 }
 
 // Actuals against the plan's pace, in one read each: ahead, on pace, or
