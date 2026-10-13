@@ -64,7 +64,7 @@ const home = await mgr.evaluate(() => ({
   first: document.querySelector("#view .card")?.className,
 }));
 console.log("home:", JSON.stringify(home, null, 1));
-if (!/To hit 12 units: \d+ more appointments set by month end — [\d.]+ a day/.test(home.today)) fail("Home doesn't lead with the plan: " + home.today);
+if (!/^Today, by rep ?\d+ more to set this month/.test(home.today)) fail("the today card doesn't lead with the rep rows: " + home.today);
 if (!home.reps.some((r) => /^Parm 1 of \d+ set today ?1 fresh lead/.test(r))) fail("Parm's row doesn't show today's need, what's set, and the fresh lead: " + JSON.stringify(home.reps));
 if (!home.reps.some((r) => /^Dana /.test(r))) fail("Dana's row is missing: " + JSON.stringify(home.reps));
 if (!/2 of 3 actions had an appointment set within a day \(67%\)/.test(home.loop) || !/Nudges 1 of 1 · Texts from the store 1 of 1 · Hand-offs 0 of 1/.test(home.loop)) fail("the loop is wrong: " + home.loop);
