@@ -62,20 +62,22 @@ if (!saved.plan || saved.plan.closingNew !== 40 || saved.plan.alloc[U1] !== 30) 
 await mgr.goto(APP + "/#/");
 await mgr.waitForFunction(() => document.querySelector(".mg-math") && document.querySelector(".mg-today"), null, { timeout: 30000 });
 const home = await mgr.evaluate(() => ({
-  head: document.querySelector(".mg-math .strong").textContent.replace(/\s+/g, " ").trim(),
-  line: document.querySelector(".mg-math .row-main > .small.muted").textContent.replace(/\s+/g, " ").trim(),
-  pace: [...document.querySelectorAll(".mg-pace")].map((n) => n.textContent.replace(/\s+/g, " ").trim()),
-  lever: [...document.querySelectorAll(".mg-math .small")].map((n) => n.textContent).find((t) => /The lever/.test(t))?.replace(/\s+/g, " ").trim(),
-  src: [...document.querySelectorAll(".mg-src")].map((n) => n.dataset.src + ": " + n.textContent.replace(/\s+/g, " ").trim()),
+  head: document.querySelector(".mg-math .strong").textContent.replace(/\s+/g, " ").trim() + " · " + document.querySelector(".mg-math-head .small.muted").textContent.replace(/\s+/g, " ").trim(),
+  line: document.querySelector(".mg-math-how .small.muted").textContent.replace(/\s+/g, " ").trim(),
+  pace: [...document.querySelectorAll(".mg-pace")].map((n) => `${n.dataset.k}: ${n.dataset.have} / ${n.dataset.want} · ${n.querySelector(".mg-pace-read").textContent.trim()}`),
+  need: document.querySelector(".mg-math-need").textContent.replace(/\s+/g, " ").trim(),
+  lever: [...document.querySelectorAll(".mg-math-how .small")].map((n) => n.textContent).find((t) => /The lever/.test(t))?.replace(/\s+/g, " ").trim(),
+  src: [...document.querySelectorAll(".mg-src")].map((n) => n.dataset.src + ": " + n.querySelector(".mg-src-name").textContent.trim() + " " + n.querySelector(".mg-src-n").textContent.replace(/\s+/g, " ").trim() + " " + (n.querySelector(".mg-src-set")?.textContent.trim() || "")),
   parm: [...document.querySelectorAll(".mg-today-rep")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).find((t) => /^Parm/.test(t)),
   first: document.querySelector("#view .card")?.className,
 }));
 console.log("home:", JSON.stringify(home, null, 1));
-if (!/^The month's math · 80 units: 50 new, 30 used · \d+ of \d+ selling days$/.test(home.head)) fail("the head is wrong: " + home.head);
-if (!/At 41\.\d% closing that's 194 customers spoken with/.test(home.line) && !/At 4\d\.\d% closing that's 1\d\d customers spoken with/.test(home.line)) fail("the chain line is wrong: " + home.line);
-if (home.pace.length !== 3 || !/^2 \/ [\d.]+Units/.test(home.pace[0]) || !/^4 \/ [\d.]+Customers spoken with/.test(home.pace[1]) || !/^3 \/ [\d.]+Appointments set/.test(home.pace[2])) fail("the pace tiles don't carry the month so far: " + JSON.stringify(home.pace));
+if (!/^[A-Z][a-z]+ · 80 units · 50 new · 30 used · selling day \d+ of \d+ · /.test(home.head)) fail("the head is wrong: " + home.head);
+if (!/At 4\d\.\d% closing, 80 units is 1\d\d customers spoken with/.test(home.line)) fail("the chain line is wrong: " + home.line);
+if (home.pace.length !== 3 || !/^Units: 2 \/ [\d.]+ · \d+ (behind pace|ahead)|^Units: 2 \/ [\d.]+ · on pace/.test(home.pace[0]) || !/^Customers spoken with: 4 \/ [\d.]+ · /.test(home.pace[1]) || !/^Appointments set: 3 \/ [\d.]+ · /.test(home.pace[2])) fail("the pace rows don't carry the month so far: " + JSON.stringify(home.pace));
+if (!/^From here: 78 more units needs \d+ customers and \d+ appointments a day across the floor, \d+ selling days? left\.$/.test(home.need)) fail("the from-here read is wrong: " + home.need);
 if (!/closes at 72% against 42% for the mix/.test(home.lever || "")) fail("the lever line is wrong: " + home.lever);
-if (!home.src.some((s) => /^dealer_site: Dealer site · closes 26%3 \/ \d+of 57/.test(s)) || !home.src.some((s) => /^lot: Lot · closes 23%1 \/ \d+of 6/.test(s))) fail("ups by source aren't counted from the month's logged customers: " + JSON.stringify(home.src));
+if (!home.src.some((s) => /^dealer_site: Dealer site 3 of \d+ \d+% booked$/.test(s)) || !home.src.some((s) => /^lot: Lot 1 of \d+ \d+% booked$/.test(s))) fail("ups by source aren't counted from the month's logged customers: " + JSON.stringify(home.src));
 if (!/30 units this month · [\d.]+ customers and [\d.]+ appointments a day/.test(home.parm || "")) fail("Parm's row doesn't carry the plan's day: " + home.parm);
 if (!/mg-math/.test(home.first || "")) fail("the month's math isn't the first card: " + home.first);
 

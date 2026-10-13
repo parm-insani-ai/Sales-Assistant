@@ -129,15 +129,40 @@ export function renderManageHome(view) {
       // Appointments set this month per source, from the same logged customers: the converter's number.
       const setBySrc = t ? (() => { const out = {}; rows.forEach((r) => { if (!r.raw) return; const byLead = new Map((r.logged || []).map((l) => [l.id, sourceKey(l.source)])); const seen = new Set(); r.raw.appts.forEach((a) => { if (a.status === "canceled" || !byLead.has(a.leadId) || seen.has(a.leadId)) return; seen.add(a.leadId); const k = byLead.get(a.leadId); out[k] = (out[k] || 0) + 1; }); }); return out; })() : {};
       const stateCls = (st) => (st === "ahead" ? "color:var(--success)" : st === "behind" ? "color:var(--danger)" : "color:var(--muted)");
+      // Three bars, one read, the rest folded: where each number stands
+      // against the month's pace, what it takes a day from here, and the
+      // sources as a ranked list. The arithmetic is there for whoever wants it.
+      const whole = (n) => Math.round(Number(n) || 0).toLocaleString();
+      const paceRow = (x, target) => {
+        const have = Number(x.have) || 0, want = Number(x.want) || 0, tgt = Number(target) || 0;
+        const pct = tgt ? Math.min(100, Math.round((have / tgt) * 100)) : 0, tick = tgt ? Math.min(100, Math.round((want / tgt) * 100)) : 0;
+        const diff = Math.round(have - want);
+        const read = diff >= 0 ? (diff > 0 ? `${diff} ahead` : "on pace") : `${Math.abs(diff)} behind pace`;
+        return `<div class="mg-pace" data-k="${esc(x.label)}" data-have="${have}" data-want="${want}">
+          <div class="row" style="align-items:baseline"><div class="row-main"><span class="mg-pace-label">${esc(x.label)}</span></div><span class="mg-pace-n"><b>${whole(have)}</b><span class="muted"> of ${whole(tgt)}</span></span></div>
+          <div class="progress mg-pace-bar"><span style="width:${pct}%"></span><i class="mg-pace-tick" style="left:${tick}%" title="where it should be today"></i></div>
+          <div class="small mg-pace-read" style="${x.state === "ahead" ? "color:var(--success)" : x.state === "behind" ? "color:var(--danger)" : "color:var(--muted)"}">${esc(read)}</div>
+        </div>`;
+      };
+      const left = plan ? Math.max(1, plan.days.left || 1) : 1;
+      const need = plan ? { customers: Math.max(0, plan.customers.total - (t.loggedMonth || 0)), appts: Math.max(0, plan.appts.set - (ins.setThisMonth || 0)), units: Math.max(0, plan.targets.units - (t.units || 0)) } : null;
+      const srcRows = plan ? plan.sources.map((sr) => { const have = upsBySrc[sr.key] || 0, want = Math.round(sr.upsNeeded * plan.pace.frac / 100), booked = have ? Math.round(((setBySrc[sr.key] || 0) / have) * 100) : null; return { ...sr, have, want, booked }; }) : [];
       const mathCard = plan ? `<div class="card mg-math" style="margin-bottom:12px">
-        <div class="row"><div class="row-main"><div class="strong">The month's math <span class="muted small" style="font-weight:500">· ${plan.targets.units} units: ${plan.targets.new} new, ${plan.targets.used} used · ${plan.days.gone} of ${plan.days.all} selling days</span></div>
-          <div class="small muted" style="margin-top:2px">At ${plan.closing.store}% closing that's ${plan.customers.total} customers spoken with (${plan.customers.perDay} a day) and, with ${plan.appts.unitsVia} units through an appointment, ${plan.appts.set} appointments set (${plan.appts.perDay} a day) for ${plan.appts.shows} shows.</div></div></div>
-        <div class="mg-math-pace" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">${planRead.map((x) => `<div class="mg-pace" data-k="${esc(x.label)}" style="background:var(--surface-2);border-radius:10px;padding:8px 10px"><div class="strong" style="font-size:1.1rem;font-variant-numeric:tabular-nums">${x.have}<span class="muted" style="font-size:0.8rem;font-weight:500"> / ${x.want}</span></div><div class="small muted">${esc(x.label)}</div><div class="small" style="font-weight:600;${stateCls(x.state)}">${esc(x.text)}</div></div>`).join("")}</div>
-        ${plan.lever ? `<div class="small" style="margin-top:8px"><b>The lever:</b> an up that arrives as an appointment closes at ${plan.lever.apptClose}% against ${plan.lever.mixClose}% for the mix — every internet up turned into an appointment before it arrives is worth ${plan.lever.perUp} of a unit.</div>` : ""}
-        <details class="mg-math-src" style="margin-top:8px"><summary class="small" style="cursor:pointer;color:var(--brand)">Ups by source · ${plan.upsNeeded} needed this month, ${(t.logged || []).length} logged so far</summary>
-          <div class="small" style="margin-top:6px">${plan.sources.map((sr) => { const have = upsBySrc[sr.key] || 0, want = Math.round(sr.upsNeeded * plan.pace.frac / 100); return `<div class="row mg-src" data-src="${esc(sr.key)}" style="padding:3px 0"><div class="row-main">${esc(sr.label)} <span class="muted">· closes ${sr.close}%</span></div><span style="font-variant-numeric:tabular-nums;${have >= want ? "color:var(--success)" : "color:var(--danger)"}">${have} / ${want}</span><span class="muted" style="margin-left:6px;font-variant-numeric:tabular-nums">of ${sr.upsNeeded}</span><span class="muted mg-src-set" style="margin-left:8px;font-variant-numeric:tabular-nums" title="of this month's logged, booked an appointment">${have ? `${Math.round(((setBySrc[sr.key] || 0) / have) * 100)}% booked` : ""}</span></div>`; }).join("")}</div>
-          <div class="hint">Needed is this month's share of the year's mix; the second number is where each source should be by today. Logged counts customers logged this month by their source; booked is how many of them have an appointment — the converter's number.</div></details>
-        <div class="hint" style="margin:8px 0 0">Targets, ratios and each rep's share are set under Admin → Store targets.</div>
+        <div class="mg-math-head"><div class="strong" style="font-size:1.1rem">${esc(monthName)} · ${plan.targets.units} units</div><div class="small muted">${plan.targets.new} new · ${plan.targets.used} used · selling day ${plan.days.gone} of ${plan.days.all} · the mark on each bar is where it should be today</div></div>
+        <div class="mg-math-rows">${planRead.map((x, i) => paceRow(x, [plan.targets.units, plan.customers.total, plan.appts.set][i])).join("")}</div>
+        <div class="mg-math-need"><b>From here:</b> ${need.units} more units needs <b>${Math.ceil(need.customers / left)}</b> customers and <b>${Math.ceil(need.appts / left)}</b> appointments a day across the floor, ${left} selling day${left === 1 ? "" : "s"} left.</div>
+        <details class="mg-math-src"><summary>Ups by source <span class="muted">· ${(t.logged || []).length} of ${Math.round(plan.upsNeeded * plan.pace.frac / 100)} by today, ${plan.upsNeeded} this month</span></summary>
+          <div class="mg-src-list">${srcRows.map((sr) => `<div class="mg-src" data-src="${esc(sr.key)}">
+            <div class="row" style="align-items:baseline"><div class="row-main"><span class="mg-src-name">${esc(sr.label)}</span><span class="small muted"> · closes ${sr.close}%</span></div><span class="mg-src-n" style="${sr.have >= sr.want ? "color:var(--success)" : "color:var(--danger)"}"><b>${sr.have}</b><span class="muted"> of ${sr.want}</span></span>${sr.booked != null ? `<span class="small muted mg-src-set" title="of this month's logged, booked an appointment">${sr.booked}% booked</span>` : `<span class="mg-src-set"></span>`}</div>
+            <div class="progress mg-src-bar"><span style="width:${sr.upsNeeded ? Math.min(100, Math.round((sr.have / sr.upsNeeded) * 100)) : 0}%"></span><i class="mg-pace-tick" style="left:${sr.upsNeeded ? Math.min(100, Math.round((sr.want / sr.upsNeeded) * 100)) : 0}%"></i></div>
+          </div>`).join("")}</div>
+          <div class="hint">Each bar is the month's share at the year's mix; the tick is where it should be today. Booked: how many of this month's logged from that source have an appointment.</div>
+        </details>
+        <details class="mg-math-how"><summary>How it's worked out</summary>
+          <div class="small muted" style="margin-top:6px">At ${plan.closing.store}% closing, ${plan.targets.units} units is ${plan.customers.total} customers spoken with (${plan.customers.perDay} a selling day). With ${plan.appts.unitsVia} units through an appointment at ${plan.closing.store ? "" : ""}${Math.round((plan.appts.unitsVia / Math.max(1, plan.appts.shows)) * 100)}% closing on a show and a ${Math.round((plan.appts.shows / Math.max(1, plan.appts.set)) * 100)}% show rate, that's ${plan.appts.set} appointments set (${plan.appts.perDay} a day) for ${plan.appts.shows} shows. ${plan.upsNeeded} ups at the year's mix.</div>
+          ${plan.lever ? `<div class="small" style="margin-top:6px"><b>The lever:</b> an up that arrives as an appointment closes at ${plan.lever.apptClose}% against ${plan.lever.mixClose}% for the mix. Every internet up booked before it arrives is worth ${plan.lever.perUp} of a unit.</div>` : ""}
+          <div class="hint">Targets, ratios and each rep's share are under Admin → Store targets.</div>
+        </details>
       </div>` : "";
       // Today's plan: what each rep needs to set today, what they've set, and
       // the three things on their plate that produce appointments — fresh

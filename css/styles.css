@@ -2241,3 +2241,24 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .agent-card .ag-row .ag-switch { flex: 1; min-width: 0; }
 .agent-card .ag-hour { flex: none; width: 92px; font-size: 0.84rem; padding: 6px 8px; }
 .lead-why-less { border: none; background: none; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--brand); padding: 4px 0; cursor: pointer; flex: none; }
+
+/* The month's math: three pace bars, one read, the rest folded. */
+.mg-math-rows { display: grid; gap: 10px; margin-top: 12px; }
+.mg-pace-label { font-weight: 600; }
+.mg-pace-n { font-variant-numeric: tabular-nums; font-size: 1.05rem; }
+.mg-pace-bar, .mg-src-bar { position: relative; margin-top: 6px; overflow: visible; }
+.mg-pace-bar > span, .mg-src-bar > span { display: block; height: 100%; background: var(--brand); border-radius: var(--radius-pill); }
+.mg-src-bar { height: 5px; margin-top: 4px; background: var(--border); }
+.mg-pace-tick { position: absolute; display: block; top: -3px; bottom: -3px; width: 2px; background: var(--fg); opacity: 0.6; border-radius: 1px; transform: translateX(-1px); z-index: 1; }
+.mg-math-head { display: flex; flex-direction: column; gap: 2px; }
+.mg-pace-read { margin-top: 3px; font-weight: 600; }
+.mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
+.mg-math-src, .mg-math-how { margin-top: 10px; }
+.mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }
+.mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker { display: none; }
+.mg-math-src > summary::before, .mg-math-how > summary::before { content: "▸ "; font-size: 0.8rem; }
+.mg-math-src[open] > summary::before, .mg-math-how[open] > summary::before { content: "▾ "; }
+.mg-src-list { display: grid; gap: 8px; margin-top: 8px; }
+.mg-src-name { font-size: 0.9rem; }
+.mg-src-n { font-variant-numeric: tabular-nums; font-size: 0.95rem; margin-left: 8px; white-space: nowrap; }
+.mg-src-set { margin-left: 8px; white-space: nowrap; min-width: 0; }
