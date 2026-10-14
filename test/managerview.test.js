@@ -55,8 +55,8 @@ const loggedTodayWant = [ago(60), earlier, ago(30)].filter((d) => ymdLocal(d) ==
 // --- The manager's Home: the numbers. Floor: the feed. Reps: the rows.
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
-const home = { stats: await mgr.evaluate(() => [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim())) };
+await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".mg-math .mg-pace") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
+const home = { pace: await mgr.evaluate(() => Object.fromEntries([...document.querySelectorAll(".mg-math .mg-pace")].map((n) => [n.dataset.k, n.dataset.have]))) };
 await mgr.click('.tabbar [data-route="/floor"]');
 await mgr.waitForFunction(() => document.querySelector(".mg-feed .mg-event"), null, { timeout: 20000 });
 home.feed = await mgr.evaluate(() => [...document.querySelectorAll(".mg-feed .mg-event")].map((r) => r.dataset.kind + ": " + r.textContent.replace(/\s+/g, " ").trim()));
@@ -64,8 +64,7 @@ const toReps = async () => { await mgr.click('.tabbar [data-route="/reps"]'); aw
 await toReps();
 home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
 console.log("manager home:", JSON.stringify(home, null, 1));
-if (!home.stats.some((s) => new RegExp(`^3 ?Customers logged in \\w+ · ${loggedTodayWant} today`).test(s))) fail("the store's logged-customers count is wrong: " + JSON.stringify(home.stats));
-if (!home.stats.some((s) => /^33% ?Closing/.test(s))) fail("the store's closing ratio isn't 1 sold of 3 logged: " + JSON.stringify(home.stats));
+if (home.pace["Customers spoken with"] !== "3" || home.pace["Units"] !== "1") fail("the store's month (3 logged, 1 sold) isn't on the pace bars: " + JSON.stringify(home.pace));
 const kinds = home.feed.map((f) => f.split(":")[0]);
 if (kinds[0] !== "sold" || !/Sold Moe Hassan a 2026 Nissan Frontier.*Parm/.test(home.feed[0])) fail("the newest thing on the floor isn't Parm's sale: " + JSON.stringify(home.feed));
 if (!home.feed.some((f) => /^appt: Set an appointment with Dana Muise for .*Parm.*test drive/.test(f))) fail("the appointment Parm set isn't in the feed: " + JSON.stringify(home.feed));

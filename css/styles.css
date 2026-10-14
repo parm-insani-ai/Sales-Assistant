@@ -2252,6 +2252,7 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-pace-tick { position: absolute; display: block; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: 0.6; border-radius: 1px; transform: translateX(-1px); z-index: 1; }
 .mg-math-head { display: flex; flex-direction: column; gap: 2px; }
 .mg-pace-read { margin-top: 3px; font-weight: 600; }
+.mg-show { margin-top: 2px; }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
 .mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }

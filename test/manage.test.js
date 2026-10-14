@@ -58,11 +58,13 @@ await seed(U2, [
 const plusTap = async (p, label) => { await p.click("#quick-add"); await p.waitForFunction((l) => [...document.querySelectorAll(".modal .qa-label")].some((n) => n.textContent.trim() === l), label, { timeout: 10000 }); await p.evaluate((l) => [...document.querySelectorAll(".modal .qa-tile")].find((t) => t.querySelector(".qa-label").textContent.trim() === l).click(), label); };
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
+await mgr.waitForFunction(() => document.body.classList.contains("management") && document.querySelector(".mg-math .mg-pace") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
 const home = await mgr.evaluate(() => ({
   title: document.querySelector("#page-title")?.textContent.trim(),
   tabs: [...document.querySelectorAll(".tabbar .tab-label")].map((n) => n.textContent.trim()),
-  stats: [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()),
+  pace: Object.fromEntries([...document.querySelectorAll(".mg-math .mg-pace")].map((n) => [n.dataset.k, n.dataset.have])),
+  show: document.querySelector(".mg-show")?.textContent.replace(/\s+/g, " ").trim(),
+  stats: document.querySelectorAll("#view .stat").length,
   heroes: document.querySelectorAll("#view .hero").length,
   sections: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.trim()),
   tiles: [...document.querySelectorAll("#view .qa-label")].map((n) => n.textContent.trim()),
@@ -88,8 +90,10 @@ if ((await mgr.evaluate(() => document.querySelector("#page-title")?.textContent
 await mgr.click('.tabbar [data-route="/"]');
 await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector(".mg-plan"), null, { timeout: 10000 });
 if (home.title !== "O'Regan's Nissan Halifax" || home.tabs.join() !== "Home,Floor,Voice,Reps,Admin") fail("not the store's app: " + JSON.stringify([home.title, home.tabs]));
-// Appointment-first: set this month (2, one of them today), what's still needed for 22 units, shown, units, touches, untouched.
-if (!home.stats.some((s) => new RegExp(`^${SET} ?Appointments set in \\w+ · 1 today`).test(s)) || !home.stats.some((s) => /more to set for 22 units · \d+(\.\d)? a day/.test(s)) || !home.stats.some((s) => new RegExp(`^1 · ${RATE} ?Shown`).test(s)) || !home.stats.some((s) => /^2 \/ 22 ?Units · \$2,500 gross/.test(s)) || !home.stats.some((s) => /^2 ?Untouched new leads · 1 overdue/.test(s))) fail("the store totals are wrong: " + JSON.stringify(home.stats));
+// The month's math carries the store's numbers: units sold, appointments set this month, and the show rate the store is getting against the plan's.
+if (home.pace["Units"] !== "2" || home.pace["Appointments set"] !== String(SET)) fail("the pace bars don't carry the store's month: " + JSON.stringify(home.pace));
+if (!/^Shown 1 of \d · the plan assumes \d+%, too few yet to read the store's own$/.test(home.show || "")) fail("the show-rate line under the appointments bar is wrong: " + home.show);
+if (home.stats) fail("the old tile grid is still on the manager's Home");
 const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
 console.log("plan:", plan);
 if (!/^Today, by rep ?\d+ more to set this month/.test(plan || "") || !/Parm/.test(plan) || !/Dana/.test(plan)) fail("the plan card is wrong: " + plan);
@@ -179,7 +183,7 @@ if (!savedAgent || savedAgent.handoutOn !== false || savedAgent.confirmHour !== 
 await plusTap(mgr, "Customers");
 await mgr.waitForFunction(() => location.hash === "#/customers", null, { timeout: 5000 });
 await mgr.click('.tabbar [data-route="/"]');
-await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector(".stat"), null, { timeout: 10000 });
+await mgr.waitForFunction(() => location.hash === "#/" && document.querySelector(".mg-math"), null, { timeout: 10000 });
 
 // --- A rep keeps the salesperson's app.
 const rep = await pageAs("t", "p@e.com", [{ id: "x", name: "Someone", phone: "9025550000", stage: "working", vehicleInterest: "Rogue", createdAt: "x", updatedAt: "x" }]);

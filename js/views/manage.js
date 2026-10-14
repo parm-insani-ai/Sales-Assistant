@@ -23,12 +23,12 @@ import * as backend from "../backend.js";
 import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast, openModal } from "../components.js";
-import { esc, formatDateTime, currency } from "../utils.js";
+import { esc, formatDateTime } from "../utils.js";
 import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft, LOOP_DAYS, loadConfig, cachedConfig } from "../team.js";
 import { storePlan, paceRead, sourceKey } from "../opmodel.js";
 import { looksLikeMoney } from "../replies.js";
 import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./team.js";
-import { findings } from "../insight.js";
+import { findings, ASSUMED } from "../insight.js";
 import { cachedBook, loadBook, addRepTask, cachedInventory, loadInventory } from "../team.js";
 import { makeMatcher } from "../match.js";
 import { rankBook, reachOuts, taskFor } from "../reach.js";
@@ -116,9 +116,7 @@ export function renderManageHome(view) {
   boardScreen(view, {
     paint: (c) => {
       const { team, now, manager, t, ins, rows, error } = c;
-      const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const monthName = now.toLocaleDateString("en-CA", { month: "long" });
-      const pace = t && t.goal ? Math.round((t.goal * now.getDate()) / daysIn) : 0;
       const today = localDay(now);
       // The month's math: the targets at the store's ratios back to customers
       // and appointments, where each should be today against where it is,
@@ -133,7 +131,7 @@ export function renderManageHome(view) {
       // against the month's pace, what it takes a day from here, and the
       // sources as a ranked list. The arithmetic is there for whoever wants it.
       const whole = (n) => Math.round(Number(n) || 0).toLocaleString();
-      const paceRow = (x, target) => {
+      const paceRow = (x, target, sub = "") => {
         const have = Number(x.have) || 0, want = Number(x.want) || 0, tgt = Number(target) || 0;
         const pct = tgt ? Math.min(100, Math.round((have / tgt) * 100)) : 0, tick = tgt ? Math.min(100, Math.round((want / tgt) * 100)) : 0;
         const diff = Math.round(have - want);
@@ -141,15 +139,26 @@ export function renderManageHome(view) {
         return `<div class="mg-pace" data-k="${esc(x.label)}" data-have="${have}" data-want="${want}">
           <div class="row" style="align-items:baseline"><div class="row-main"><span class="mg-pace-label">${esc(x.label)}</span></div><span class="mg-pace-n"><b>${whole(have)}</b><span class="muted"> of ${whole(tgt)}</span></span></div>
           <div class="progress mg-pace-bar"><span style="width:${pct}%"></span><i class="mg-pace-tick" style="left:${tick}%" title="where it should be today"></i></div>
-          <div class="small mg-pace-read" style="${x.state === "ahead" ? "color:var(--success)" : x.state === "behind" ? "color:var(--danger)" : "color:var(--muted)"}">${esc(read)}</div>
+          <div class="small mg-pace-read" style="${x.state === "ahead" ? "color:var(--success)" : x.state === "behind" ? "color:var(--danger)" : "color:var(--muted)"}">${esc(read)}</div>${sub}
         </div>`;
       };
+      // Under the appointments bar: the show rate the store is actually
+      // getting against the one the plan assumes. Set, show, close is the
+      // chain; this is the link the plan can't see from the count alone.
+      const showLine = plan ? (() => {
+        const h = ins.history || {}, past = h.past || 0, shown = h.shown || 0;
+        const assumed = plan.appts.set ? Math.round((plan.appts.shows / plan.appts.set) * 100) : 0;
+        const enough = past >= ASSUMED.minPast && h.showRate != null;
+        const colour = !enough ? "color:var(--muted)" : h.showRate >= assumed ? "color:var(--success)" : h.showRate < assumed - 5 ? "color:var(--danger)" : "color:var(--muted)";
+        const text = enough ? `Shown ${shown} of ${past} · ${h.showRate}% show rate, the plan assumes ${assumed}%` : `Shown ${shown} of ${past} · the plan assumes ${assumed}%${past ? ", too few yet to read the store's own" : ""}`;
+        return `<div class="small mg-show" data-rate="${enough ? h.showRate : ""}" data-assumed="${assumed}" style="${colour}">${esc(text)}</div>`;
+      })() : "";
       const left = plan ? Math.max(1, plan.days.left || 1) : 1;
       const need = plan ? { customers: Math.max(0, plan.customers.total - (t.loggedMonth || 0)), appts: Math.max(0, plan.appts.set - (ins.setThisMonth || 0)), units: Math.max(0, plan.targets.units - (t.units || 0)) } : null;
       const srcRows = plan ? plan.sources.map((sr) => { const have = upsBySrc[sr.key] || 0, want = Math.round(sr.upsNeeded * plan.pace.frac / 100), booked = setBySrc[sr.key] || 0; return { ...sr, have, want, booked }; }) : [];
       const mathCard = plan ? `<div class="card mg-math" style="margin-bottom:12px">
         <div class="mg-math-head"><div class="strong" style="font-size:1.1rem">${esc(monthName)} · ${plan.targets.units} units</div><div class="small muted">${plan.targets.new} new · ${plan.targets.used} used · selling day ${plan.days.gone} of ${plan.days.all} · the mark on each bar is where it should be today</div></div>
-        <div class="mg-math-rows">${planRead.map((x, i) => paceRow(x, [plan.targets.units, plan.customers.total, plan.appts.set][i])).join("")}</div>
+        <div class="mg-math-rows">${planRead.map((x, i) => paceRow(x, [plan.targets.units, plan.customers.total, plan.appts.set][i], i === 2 ? showLine : "")).join("")}</div>
         <div class="mg-math-need"><b>From here:</b> ${need.units} more units needs <b>${Math.ceil(need.customers / left)}</b> customers and <b>${Math.ceil(need.appts / left)}</b> appointments a day across the floor, ${left} selling day${left === 1 ? "" : "s"} left.</div>
         <details class="mg-math-src"><summary>Ups by source <span class="muted">· ${(t.logged || []).length} of ${Math.round(plan.upsNeeded * plan.pace.frac / 100)} by today, ${plan.upsNeeded} this month</span></summary>
           <div class="mg-src-list">${srcRows.map((sr) => `<div class="mg-src" data-src="${esc(sr.key)}">
@@ -207,18 +216,7 @@ export function renderManageHome(view) {
       ${mathCard}
       ${todayCard}
       ${loopCard}
-      ${t ? `
-      <div class="stat-grid" style="margin-bottom:12px">
-        <div class="stat"><div class="stat-value" style="${paceCls(t.units, t.goal, pace)}">${t.units}<span class="muted" style="font-size:0.9rem;font-weight:500"> / ${t.goal || "—"}</span></div><div class="stat-label">Units · ${currency(t.gross)} gross${t.goal ? ` · pace ${pace}` : ""}</div></div>
-        <div class="stat"><div class="stat-value" style="color:var(--brand)">${ins.setThisMonth}</div><div class="stat-label">Appointments set in ${esc(monthName)} · ${rows.reduce((a, r) => a + setToday(r, today), 0)} today</div></div>
-        <div class="stat"><div class="stat-value" style="${ins.needs.goal ? (ins.needs.onTrack ? "color:var(--success)" : "color:var(--danger)") : ""}">${ins.needs.goal ? ins.needs.apptsNeeded : "—"}</div><div class="stat-label">${ins.needs.goal ? `more to set for ${ins.needs.goal} units · ${ins.needs.perDay} a day` : "No unit goals set"}</div></div>
-        <div class="stat"><div class="stat-value">${ins.funnel.shown}<span class="muted" style="font-size:0.9rem;font-weight:500"> · ${ins.history.showRate != null ? ins.history.showRate + "%" : "—"}</span></div><div class="stat-label">Shown · show rate over 8 weeks</div></div>
-        <div class="stat"><div class="stat-value">${t.loggedMonth}</div><div class="stat-label">Customers logged in ${esc(monthName)} · ${t.loggedToday} today</div></div>
-        <div class="stat"><div class="stat-value">${t.closing != null ? t.closing + "%" : "—"}</div><div class="stat-label">Closing · sold of customers logged</div></div>
-        <div class="stat"><div class="stat-value">${t.touchesToday}</div><div class="stat-label">Touches today${ins.touchesPerAppt ? ` · ${ins.touchesPerAppt} per appointment` : ""}</div></div>
-        <div class="stat"><div class="stat-value" style="${t.untouched ? "color:var(--danger)" : ""}">${t.untouched}</div><div class="stat-label">Untouched new leads · ${t.overdue} overdue</div></div>
-      </div>
-      <div class="hint" style="margin:0 2px">The day as it happens is on Floor; each rep is under Reps; everything else is under the "+".</div>` : notRead(c)}`}`;
+      ${t ? `<div class="hint" style="margin:0 2px">The day as it happens is on Floor; each rep is under Reps; everything else is under the "+".</div>` : notRead(c)}`}`;
     },
   });
 }
