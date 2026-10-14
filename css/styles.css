@@ -2258,7 +2258,20 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker { display: none; }
 .mg-math-src > summary::before, .mg-math-how > summary::before { content: "▸ "; font-size: 0.8rem; }
 .mg-math-src[open] > summary::before, .mg-math-how[open] > summary::before { content: "▾ "; }
-.mg-src-list { display: grid; gap: 8px; margin-top: 8px; }
-.mg-src-name { font-size: 0.9rem; }
-.mg-src-n { font-variant-numeric: tabular-nums; font-size: 0.95rem; margin-left: 8px; white-space: nowrap; }
-.mg-src-set { margin-left: 8px; white-space: nowrap; min-width: 0; }
+.mg-src-list { display: grid; gap: 10px; margin-top: 10px; }
+/* One channel: name | ups | booked on the first line, the bar under the
+   first two with the close rate under booked. Three fixed-width right
+   columns keep every row's numbers on the same lines; the name truncates
+   rather than push them past the card. */
+.mg-src { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; align-items: baseline; }
+/* Where the browser can, every row shares the list's columns so the ups
+   and booked figures line up down the card. */
+@supports (grid-template-columns: subgrid) {
+  .mg-src-list { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .mg-src { grid-column: 1 / -1; grid-template-columns: subgrid; }
+}
+.mg-src-name { font-size: 0.9rem; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-src-n { font-variant-numeric: tabular-nums; font-size: 0.95rem; white-space: nowrap; text-align: right; }
+.mg-src-set { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; justify-self: end; }
+.mg-src-bar { grid-column: 1 / 3; align-self: center; }
+.mg-src-close { grid-column: 3; text-align: right; white-space: nowrap; font-size: 0.78rem; line-height: 1; }
