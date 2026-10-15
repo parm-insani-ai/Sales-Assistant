@@ -204,6 +204,9 @@ Claude what to do, and returns the actions; the app runs them on-device.
    supabase functions deploy voice-agent --no-verify-jwt
    ```
    The function is in [`functions/voice-agent/index.ts`](./functions/voice-agent/index.ts).
+   Once a `SUPABASE_ACCESS_TOKEN` repository secret is set, the
+   `Deploy the function` GitHub workflow does this on every push that
+   changes the file (see the main README).
 3. Paste the printed URL into viniva → **Settings → Voice agent → Voice agent URL**.
 
 Notes: usage costs a small amount per request (billed by Anthropic). To change

@@ -1163,7 +1163,7 @@ async function handleSweep(body: any): Promise<Response> {
     const already = await sentNudges(uid);
     const leads = await rows("leads");
     const leadById = (id: string) => leads.find((l: any) => l.id === id) || null;
-    const found: { key: string; urgency: number; title: string; body: string; url: string }[] = [];
+    const found: { key: string; urgency: number; title: string; body: string; url: string; actions?: { action: string; title: string; url: string }[] }[] = [];
 
     // 0. Asking for an OK — business hours only.
     //    A welcome text whose five-minute hold is up (the app drafts it; the push
@@ -1290,6 +1290,30 @@ async function handleSweep(body: any): Promise<Response> {
       });
     }
 
+    // 2b. An appointment that has been and gone, an hour on, with no outcome:
+    //     one push, two buttons. Showed or no-show from the notification
+    //     itself where the phone allows buttons; the appointment's page
+    //     otherwise. The show rate the plan runs on is only as true as this.
+    for (const a of await rows("appointments")) {
+      if (a.status !== "scheduled" || a.outcome || !a.when) continue;
+      const t = wallClockMs(a.when, tzOffset);
+      if (!isFinite(t)) continue;
+      const since = Math.round((now - t) / 60000);
+      if (since < OUTCOME_AFTER_MIN || since > 36 * 60) continue;
+      const who = String(a.customerName || "they").split(" ")[0];
+      found.push({
+        key: `outcome:${a.id}`,
+        urgency: 70,
+        title: `Did ${who} show?`,
+        body: `${String(a.when).slice(11, 16)} ${a.type || "appointment"} — one tap. The show rate is only as true as this.`,
+        url: `./#/calendar/${a.id}`,
+        actions: [
+          { action: "showed", title: "Showed", url: `./#/calendar/${a.id}/showed` },
+          { action: "no_show", title: "No-show", url: `./#/calendar/${a.id}/no_show` },
+        ],
+      });
+    }
+
     // 3. Tomorrow's delivery with prep outstanding, flagged the evening before
     //    while there's still time to do something about it.
     if (localHour >= 15) {
@@ -1315,7 +1339,7 @@ async function handleSweep(body: any): Promise<Response> {
 
     let pushed = 0;
     for (const n of fresh) {
-      pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: n.url });
+      pushed += await sendPush(uid, { title: n.title, body: n.body, tag: n.key, url: n.url, ...(n.actions ? { actions: n.actions } : {}) });
       already[n.key] = new Date().toISOString();
     }
     if (fresh.length) await rememberNudges(uid, already);
@@ -1342,6 +1366,8 @@ const ASK_TEXT = "Hi {first}, it's {manager}, the sales manager at {store} — {
 const MGR_REPLY_MIN = 15, MGR_LEAD_MIN = 15, MGR_CONFIRM_MIN = 120, MGR_CAP = 4, MGR_TEXTS_MIN = 60;
 // A rep hears about their own untouched lead at five minutes; the manager at fifteen.
 const REP_LEAD_MIN = 5;
+// An appointment with no outcome is asked about an hour after its time.
+const OUTCOME_AFTER_MIN = 60;
 async function managerPass(now: number, pushUsers: string[], report: any[]): Promise<void> {
   const stores = await fetch(sbUrl(`/stores?select=id,name`), { headers: sbHeaders() }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
   const canPush = new Set(pushUsers);

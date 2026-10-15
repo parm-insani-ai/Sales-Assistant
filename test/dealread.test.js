@@ -19,7 +19,12 @@ await p.addInitScript(([today]) => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const x = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
-    leads: [{ id: "a", name: "Test Buyer", phone: "9025551111", stage: "sold", ...x }],
+    leads: [{ id: "a", name: "Test Buyer", phone: "9025551111", stage: "appointment", ...x }],
+    // The appointment that brought them in, never marked; one that was a no-show earlier.
+    appointments: [
+      { id: "ap-in", leadId: "a", customerName: "Test Buyer", type: "test drive", when: today + "T10:00", status: "scheduled", confirmed: true, ...x },
+      { id: "ap-ns", leadId: "a", customerName: "Test Buyer", type: "appointment", when: "2026-01-02T10:00", status: "scheduled", outcome: "no_show", ...x },
+    ],
     sales: [{ id: "s1", customerName: "Test Buyer", vehicle: "2026 Nissan Sentra SV", saleDate: today, leadId: "a", frontGross: 1200, backGross: 600, commission: 500, makeReady: {}, ...x }],
     settings: { salesperson: "Parm", cloudAutoSync: false, goalUnits: 10, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k", agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" },
   }));
@@ -60,9 +65,14 @@ const after = await p.evaluate(async () => {
     delivery: d ? { customer: d.customerName, vehicle: d.vehicle, leadId: d.leadId, status: d.status, items: d.checklist.map((i) => i.label), notes: d.notes } : null,
     tasks: s.all("tasks").filter((t) => t.source === "dealread").map((t) => ({ title: t.title, due: t.due, kind: t.kind, deliveryId: t.deliveryId })),
     docs: s.all("docs").filter((x) => x.saleId === "s1").length,
+    lead: s.get("leads", "a").stage,
+    appts: { in: s.get("appointments", "ap-in").outcome, ns: s.get("appointments", "ap-ns").outcome },
+    deliveries: s.all("deliveries").length,
   };
 });
 console.log("after:", JSON.stringify(after, null, 1));
+// The paperwork is the proof: the customer is sold and the appointment that brought them in is too; the no-show stays a no-show; still one delivery.
+if (after.lead !== "sold" || after.appts.in !== "sold" || after.appts.ns !== "no_show" || after.deliveries !== 1) fail("the read didn't mark the customer and their appointment sold: " + JSON.stringify([after.lead, after.appts, after.deliveries]));
 if (after.sale.stock !== "NH00001" || after.sale.vin !== "1N4TEST0000000001" || after.sale.newUsed !== "New" || after.sale.dealType !== "finance" || after.sale.dealNo !== "22299" || after.sale.products.length !== 3 || !after.sale.readAt) fail("the sale wasn't patched from the read: " + JSON.stringify(after.sale));
 if (!after.delivery || after.delivery.customer !== "Test Buyer" || after.delivery.leadId !== "a" || after.delivery.status !== "prep" || after.sale.deliveryId !== undefined && !after.sale.deliveryId) fail("no delivery in prep for the sale: " + JSON.stringify(after.delivery));
 if (after.delivery && (after.delivery.items.some((l) => /Walkaway/.test(l)) || !after.delivery.items.includes("Book rust protection with service") || !after.delivery.items.includes("Plates and registration"))) fail("the delivery's checklist isn't the confirmed list: " + JSON.stringify(after.delivery.items));

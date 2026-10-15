@@ -102,8 +102,10 @@ function dkLocal(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function renderCalendar(view, { param }) {
-  if (param) return renderApptDetail(view, param);
+export function renderCalendar(view, { param, parts }) {
+  // "#/calendar/<id>/showed" is the button on the push ("Did Dana show?"):
+  // the outcome lands, then the page draws as itself.
+  if (param) return renderApptDetail(view, param, parts && parts[2]);
 
   const el = document.createElement("div");
   const today = new Date();
@@ -309,7 +311,33 @@ export function openAppointmentForm(existing, prefill = {}) {
   });
 }
 
-function renderApptDetail(view, id) {
+// One outcome, set (not toggled) — from the push's button or the deal
+// paperwork. Sold logs the sale if this deal isn't logged yet.
+export function markOutcome(id, outcome) {
+  const a = store.get("appointments", id);
+  if (!a || !["showed", "no_show", "sold"].includes(outcome)) return null;
+  if (a.outcome === outcome) return { already: true, text: "" };
+  store.update("appointments", a.id, { outcome, ...(outcome === "no_show" ? {} : { confirmed: true }) });
+  onAppointmentOutcome(a.id);
+  if (outcome !== "sold") return { text: outcome === "showed" ? "Marked showed" : "Marked no-show" };
+  // Connect the funnel to units: log the sale if this deal isn't logged yet.
+  const logged = store.all("sales").some((sl) => sl.apptId === a.id || (a.leadId && sl.leadId === a.leadId));
+  if (logged) return { text: "Marked sold" };
+  store.create("sales", {
+    customerName: a.customerName, vehicle: a.vehicle, saleDate: todayISO(),
+    frontGross: 0, backGross: 0, commission: 0, leadId: a.leadId || null, apptId: a.id,
+  });
+  if (a.leadId) afterSale(a.leadId, { vehicle: a.vehicle || "" });
+  return { text: "Sold — logged as a sale, add commission in Goals" };
+}
+
+function renderApptDetail(view, id, act = "") {
+  if (act && ["showed", "no_show", "sold"].includes(act)) {
+    const r = markOutcome(id, act);
+    if (r && r.text) toast(r.text, act === "no_show" ? undefined : "success");
+    // The hash loses the action so a reload doesn't repeat it.
+    try { history.replaceState(null, "", `#/calendar/${id}`); } catch { /* the page still draws */ }
+  }
   const a = store.get("appointments", id);
   if (!a) { view.innerHTML = emptyState("help", "Appointment not found", ""); return; }
   try { ensurePlans(); } catch { /* the page still draws */ }
@@ -377,20 +405,8 @@ function renderApptDetail(view, id) {
     refresh();
   });
   el.querySelector('[data-o="sold"]').addEventListener("click", () => {
-    store.update("appointments", a.id, { outcome: "sold", confirmed: true });
-    onAppointmentOutcome(a.id);
-    // Connect the funnel to units: log the sale if this deal isn't logged yet.
-    const logged = store.all("sales").some((sl) => sl.apptId === a.id || (a.leadId && sl.leadId === a.leadId));
-    if (!logged) {
-      store.create("sales", {
-        customerName: a.customerName, vehicle: a.vehicle, saleDate: todayISO(),
-        frontGross: 0, backGross: 0, commission: 0, leadId: a.leadId || null, apptId: a.id,
-      });
-      if (a.leadId) afterSale(a.leadId, { vehicle: a.vehicle || "" });
-      toast("Sold — logged as a sale, add commission in Goals", "success");
-    } else {
-      toast("Marked sold", "success");
-    }
+    const r = markOutcome(a.id, "sold");
+    toast(r && r.text ? r.text : "Marked sold", "success");
     refresh();
   });
 

@@ -300,6 +300,8 @@ try {
     { id: "out8", user_id: U1, collection: "texts", data: { id: "out8", leadId: "c8", dir: "out", body: "Hi Ivy, thanks for reaching out about the Kicks — it's here.", at: hoursAgo(4), read: true } },
     // The rep has notifications on, so their own sweep runs in this pass (the push itself can't complete against this plain mock).
     { id: "push-rep", user_id: U1, collection: "push", data: { id: "push-rep", sub: { endpoint: `http://127.0.0.1:${MOCK}/push/u1`, keys: { p256dh: SUBKEY.pub, auth: "YXV0aHNlY3JldDE2Ynl0ZXM" } }, createdAt: new Date().toISOString() } },
+    // An appointment two hours gone with no outcome: the rep is asked "Did Olive show?" with two buttons.
+    { id: "ap4", user_id: U1, collection: "appointments", data: { id: "ap4", customerName: "Olive Outcome", type: "test drive", when: new Date(Date.now() - 2 * 60 * 60000).toISOString().slice(0, 16), status: "scheduled", confirmed: true } },
     // The be-backs: logged five days ago, still working, quiet for four.
     { id: "c9", user_id: U1, collection: "leads", data: { id: "c9", name: "Una Unsold", phone: "9025557009", stage: "working", vehicleInterest: "Sentra", loggedAt: hoursAgo(120), lastContacted: hoursAgo(96) } },
   );
@@ -354,6 +356,9 @@ try {
   // report is the one carrying the key.
   const repReports = Array.isArray(ag.body.report) ? ag.body.report : [];
   if (!repReports.some((x) => (x.keys || []).includes("ask:c8"))) fail("the rep wasn't told to ask Ivy for a time: " + JSON.stringify(repReports));
+  // One-tap outcomes: the appointment two hours gone is a candidate (it comes after the fresh lead, the ready text and the time-ask, so the second sweep sends it); the one in an hour and yesterday's no-show never are.
+  const repKeys = repReports.flatMap((x) => x.keys || []);
+  if (repKeys.includes("outcome:ap1") || repKeys.includes("outcome:ap3")) fail("an outcome was asked about too early or twice: " + JSON.stringify(repKeys));
   // The reply drafts: Dana's (from the earlier mtext section she's answered, so it's Money Mike waiting) — a figure, refused: plain push, no draft held.
   const drafts = db.records.filter((r) => r.user_id === U3 && r.collection === "agentdrafts" && !r.deleted).map((r) => r.data);
   if (drafts.some((d) => d.leadId === "c6")) fail("a draft with a figure in it was held for the manager: " + JSON.stringify(drafts));
@@ -375,6 +380,15 @@ try {
   const sendHeld = await post(LOCKED, { mtext: { rep: U1, leadId: "c7", body: held.data.body } }, "tok-c");
   const spent = db.records.find((r) => r.user_id === U3 && r.collection === "agentdrafts" && r.id === "reply:c7");
   if (sendHeld.status !== 200 || !spent || !spent.deleted) fail("sending the held draft didn't spend it: " + JSON.stringify([sendHeld.status, spent]));
+
+  // One-tap outcomes: with the customers waiting on replies answered, the
+  // next sweep asks whether Olive showed; the appointment in an hour and
+  // yesterday's no-show are never asked about.
+  db.records.forEach((r) => { if (r.user_id === U1 && r.collection === "texts" && r.data && r.data.dir === "in") r.data.read = true; });
+  const ag3 = await post(LOCKED, { sweep: 1 });
+  const repKeys3 = (Array.isArray(ag3.body.report) ? ag3.body.report : []).flatMap((x) => x.keys || []);
+  console.log("sweep 3:", JSON.stringify(repKeys3));
+  if (!repKeys3.includes("outcome:ap4") || repKeys3.includes("outcome:ap1") || repKeys3.includes("outcome:ap3")) fail("the rep wasn't asked whether Olive showed: " + JSON.stringify([repKeys, repKeys3]));
 
   // When the per-rep call can't be made, the rep's read runs in the store's run.
   db.records = db.records.filter((r) => r.collection !== "agentplays");

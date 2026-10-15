@@ -300,7 +300,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         kind: "outcome",
         title: `Did ${a.customerName || "they"} show?`,
         sub: `${String(a.when).slice(11, 16)} appointment — logging it keeps your show rate honest.`,
-        route: "/calendar",
+        route: `/calendar/${a.id}`,
         at: new Date(t).toISOString(),
       });
     });

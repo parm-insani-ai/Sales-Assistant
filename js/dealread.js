@@ -9,6 +9,7 @@ import * as store from "./store.js";
 import * as backend from "./backend.js";
 import { addDoc } from "./docs.js";
 import { prepFromDeal, headsUp, DEFAULT_PREP_RULES } from "./dealprep.js";
+import { afterSale } from "./connections.js";
 
 const MAX_EDGE = 1600;
 
@@ -74,8 +75,23 @@ export function applyDealRead(sale, read, items, { today = new Date() } = {}) {
   patch.dealReadAt = new Date().toISOString();
   if (read.dealNo && !sale.dealNo) patch.dealNo = String(read.dealNo);
   store.update("sales", sale.id, patch);
+  const pad = (n) => String(n).padStart(2, "0");
+  const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
   const vehicle = [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || sale.vehicle || "";
+  // The paperwork is the proof of a sale, so the customer's stage and the
+  // appointment that brought them in say so too: the funnel and the show
+  // rate carry it without anyone marking it by hand. The appointment is
+  // the latest of theirs that has happened and was not a no-show.
+  const marked = { lead: false, apptId: null };
+  if (sale.leadId) {
+    const lead = store.get("leads", sale.leadId);
+    if (lead && !["sold", "delivered"].includes(lead.stage)) { afterSale(lead.id, { vehicle, fromDelivery: true }); marked.lead = true; }
+    const theirs = store.all("appointments")
+      .filter((a) => a.leadId === sale.leadId && a.status !== "canceled" && (!a.outcome || a.outcome === "showed") && String(a.when || "").slice(0, 10) <= todayKey)
+      .sort((x, y) => String(y.when).localeCompare(String(x.when)));
+    if (theirs[0]) { store.update("appointments", theirs[0].id, { outcome: "sold", confirmed: true }); marked.apptId = theirs[0].id; }
+  }
   let d = deliveryForSale(sale);
   const lines = items.map((i) => ({ label: i.label, done: false, owner: i.owner, lead: i.lead, startBy: i.startBy || "", from: i.from || "" }));
   if (d) {
@@ -93,8 +109,6 @@ export function applyDealRead(sale, read, items, { today = new Date() } = {}) {
 
   // The heads-up: a to-do per lead-time item, dated so the day's list and
   // Right now carry it. Day of: the delivery date, else today.
-  const pad = (n) => String(n).padStart(2, "0");
-  const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
   const made = [];
   items.filter((i) => i.lead >= 2).forEach((i) => {
     const due = i.startBy && i.startBy > todayKey ? i.startBy : todayKey;
@@ -102,5 +116,5 @@ export function applyDealRead(sale, read, items, { today = new Date() } = {}) {
     if (exists) return;
     made.push(store.create("tasks", { title: i.label, due, readyAt: new Date(`${due}T09:00:00`).toISOString(), channel: "todo", kind: "prep", priority: "high", done: false, leadId: sale.leadId || null, deliveryId: d.id, saleId: sale.id, why: [`${i.from ? i.from + " on the deal" : "On the deal"} — ${i.lead} days' lead time${d.deliveryDate ? `, delivery ${d.deliveryDate}` : ""}`], source: "dealread" }));
   });
-  return { delivery: d, tasks: made };
+  return { delivery: d, tasks: made, marked };
 }

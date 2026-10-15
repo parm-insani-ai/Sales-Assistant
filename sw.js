@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "viniva-v376";
+const CACHE = "viniva-v377";
 const ASSETS = [
   "./",
   "./index.html",
@@ -129,23 +129,29 @@ const ASSETS = [
 ];
 
 // ---- Push: the agent's heartbeat. The Supabase function sends
-// {title, body, url?, tag?}; tapping the notification opens (or focuses)
-// the app at the given hash.
+// {title, body, url?, tag?, actions?}; tapping the notification opens (or
+// focuses) the app at the given hash. An action is a button on the
+// notification where the phone draws them ("Showed" / "No-show"), each with
+// its own hash; a phone that doesn't draw buttons gets the plain tap.
 self.addEventListener("push", (e) => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch { data = { body: e.data && e.data.text() }; }
+  const actions = Array.isArray(data.actions) ? data.actions.filter((a) => a && a.action && a.title).slice(0, 2) : [];
   e.waitUntil(self.registration.showNotification(data.title || "viniva", {
     body: data.body || "",
     tag: data.tag || "viniva",
     icon: "./icons/icon-192.png",
     badge: "./icons/icon-192.png",
-    data: { url: data.url || "./#/" },
+    actions: actions.map((a) => ({ action: a.action, title: a.title })),
+    data: { url: data.url || "./#/", actions },
   }));
 });
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || "./#/";
+  const d = e.notification.data || {};
+  const hit = e.action && Array.isArray(d.actions) ? d.actions.find((a) => a.action === e.action) : null;
+  const url = (hit && hit.url) || d.url || "./#/";
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
       for (const c of list) {
