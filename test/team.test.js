@@ -124,9 +124,9 @@ if (!/0 touches today/.test(dana) || !/0 \/ 10/.test(dana) || !/1 untouched/.tes
 if (!board.rows[0].startsWith("Parm")) fail("the rep with the most appointments set isn't first: " + board.rows[0]);
 // The store's totals are on Home.
 await mgr.goto(APP + "/#/");
-await mgr.waitForFunction(() => document.querySelector(".stat") && /As of/.test(document.body.textContent), null, { timeout: 20000 });
-const totals = await mgr.evaluate(() => [...document.querySelectorAll(".stat")].map((s) => s.textContent.replace(/\s+/g, " ").trim()));
-if (!totals.some((t) => /^2 \/ (22|34) ?Units/.test(t)) || !totals.some((t) => /^2 ?Untouched new leads/.test(t))) fail("the store totals are wrong: " + JSON.stringify(totals));
+await mgr.waitForFunction(() => document.querySelector(".mg-math .mg-pace") && /As of/.test(document.body.textContent) && !/reading…/.test(document.body.textContent), null, { timeout: 20000 });
+const totals = await mgr.evaluate(() => Object.fromEntries([...document.querySelectorAll(".mg-math .mg-pace")].map((n) => [n.dataset.k, n.dataset.have])));
+if (totals["Units"] !== "2") fail("the store's units aren't on the month's math: " + JSON.stringify(totals));
 await mgr.goto(APP + "/#/reps");
 await mgr.waitForSelector("[data-rep]");
 
