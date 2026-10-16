@@ -11,7 +11,7 @@
 import { icon } from "../icons.js";
 import { toast, openModal } from "../components.js";
 import { esc, formatDateTime } from "../utils.js";
-import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, updateRepAppointment, nudgeRep } from "../team.js";
+import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, restoreBoard, updateRepAppointment, nudgeRep } from "../team.js";
 import { apptState, openCustomerSheet } from "./team.js";
 import { onPull } from "../pulltorefresh.js";
 
@@ -160,7 +160,8 @@ export function renderAppointments(view) {
     });
   }
 
-  draw();
-  refresh(false);
+  // The last read paints first on a cold open; the re-read runs behind it.
+  loading = true; draw();
+  restoreBoard().then((b) => { if (b && !board) board = b; }).catch(() => {}).then(() => { loading = false; refresh(false); });
   onPull(() => refresh(true));
 }

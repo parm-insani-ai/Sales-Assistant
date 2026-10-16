@@ -13,6 +13,7 @@ import * as store from "./store.js";
 import { repInsight, storeInsight } from "./insight.js";
 import { targetSheet, targetPlan, shoppingOf } from "./target.js";
 import { loggedInMonth, loggedAtOf } from "./logbook.js";
+import { cacheGet, cacheSet } from "./cachedb.js";
 
 const KEY = "viniva:store";
 
@@ -103,18 +104,54 @@ export function canManage() {
   return isAdmin() || isManager();
 }
 
-// ---- The board, cached for the session ----
+// ---- The board, kept on the device ----
+// The last read is held in memory for the session and on the device
+// (IndexedDB, through cachedb) across launches: a home-screen app on a
+// phone starts cold every time it's opened, and reading every rep's book
+// before painting anything made each open a wait. The page paints the
+// last read at once and re-reads behind it; the "as of" line says which it
+// is. Session storage is kept as a second copy for the tests that clear it
+// to force a re-read. Sign-out clears all of it (account.js).
 const BOARD_KEY = "viniva:team-board";
+let boardMem = null, boardFp = "", boardFromSession = false;
+const fpOf = (s) => `${s.length}:${s.slice(0, 60)}`;
 export function cachedBoard() {
-  try { return JSON.parse(sessionStorage.getItem(BOARD_KEY) || "null"); } catch { return null; }
+  let raw = null;
+  try { raw = sessionStorage.getItem(BOARD_KEY); } catch { /* no session storage */ }
+  if (raw == null) {
+    // The session copy is gone (cleared to force a re-read): a copy that
+    // came from it goes too. One restored from the device stays.
+    if (boardFromSession) { boardMem = null; boardFromSession = false; boardFp = ""; }
+    return boardMem;
+  }
+  const fp = fpOf(raw);
+  if (boardMem && boardFp === fp) return boardMem;
+  try { boardMem = JSON.parse(raw); boardFp = fp; boardFromSession = true; } catch { boardMem = null; }
+  return boardMem;
+}
+function keepBoard(board) {
+  boardMem = board;
+  try { const s = JSON.stringify(board); sessionStorage.setItem(BOARD_KEY, s); boardFp = fpOf(s); boardFromSession = true; }
+  catch { boardFromSession = false; boardFp = ""; }
+  cacheSet(BOARD_KEY, board).catch(() => {});
+}
+// The last read from the device, once per session, for the first paint. A
+// restored copy is for painting only: the loaders always re-read behind it.
+let boardRestore = null;
+export function restoreBoard() {
+  if (!boardRestore) boardRestore = cacheGet(BOARD_KEY).then((b) => {
+    if (b && Array.isArray(b.stats) && !cachedBoard()) { boardMem = { ...b, restored: true }; boardFromSession = false; boardFp = ""; }
+    return cachedBoard();
+  }).catch(() => cachedBoard());
+  return boardRestore;
 }
 export async function loadBoard(team, { force = false } = {}) {
   const have = cachedBoard();
   // Two minutes: the board is the floor as it is, and reps sync as they go.
-  if (have && !force && have.storeId === team.id && Date.now() - new Date(have.at) < 2 * 60000) return have;
+  if (have && !have.restored && !force && have.storeId === team.id && Date.now() - new Date(have.at) < 2 * 60000) return have;
   const stats = await boardStats(team.members || [], { storeId: team.id });
   const board = { at: new Date().toISOString(), storeId: team.id, stats };
-  try { sessionStorage.setItem(BOARD_KEY, JSON.stringify(board)); } catch { /* fine */ }
+  keepBoard(board);
   return board;
 }
 
@@ -524,8 +561,22 @@ export async function boardStats(members, opts = {}) {
 const KEEP = ["id", "name", "phone", "email", "vin", "stage", "vehicleInterest", "source", "purchaseDate", "leaseEnd", "dealType", "currentPayment", "payoff", "currentValue", "currentApr", "paymentsLeft", "paymentsLeftAsOf", "currentTerm", "odometer", "alertType", "priority", "serviceAppt", "lastContacted", "firstContacted", "lastCampaignAt", "createdAt", "importedAt", "updatedAt", "followUp", "smsOptOut", "consent", "doNotContact"];
 let bookCache = { storeId: null, at: 0, rows: [] };
 export function cachedBook() { return bookCache.storeId ? bookCache : null; }
+// The book and the lot are kept on the device like the board, so the
+// reach-out card and the matcher have something to show at once on a
+// cold open.
+const BOOK_KEY = "viniva:team-book", LOT_KEY = "viniva:team-lot";
+let bookRestore = null;
+export function restoreBook() {
+  if (!bookRestore) bookRestore = Promise.all([cacheGet(BOOK_KEY), cacheGet(LOT_KEY)]).then(([b, l]) => {
+    // Restored copies are for painting only; the loaders re-read behind them.
+    if (b && b.storeId && Array.isArray(b.rows) && !bookCache.storeId) bookCache = { ...b, restored: true };
+    if (l && l.storeId && Array.isArray(l.rows) && !lotCache.storeId) lotCache = { ...l, restored: true };
+    return { book: cachedBook(), lot: cachedInventory() };
+  }).catch(() => ({ book: cachedBook(), lot: cachedInventory() }));
+  return bookRestore;
+}
 export async function loadBook(team, { force = false } = {}) {
-  if (!force && bookCache.storeId === team.id && Date.now() - bookCache.at < 10 * 60000) return bookCache;
+  if (!force && !bookCache.restored && bookCache.storeId === team.id && Date.now() - bookCache.at < 10 * 60000) return bookCache;
   const members = team.members || [];
   const per = await Promise.all(members.map((m) => backend.readRecords(m.user_id, "leads", {}, { select: "data", limit: 20000 }).then((rs) => rs.map((r) => {
     const d = r.data || {}, slim = {};
@@ -538,6 +589,7 @@ export async function loadBook(team, { force = false } = {}) {
   // The store's own book rides along: unassigned, and not already in a rep's book.
   try { await loadPool(team, { force }); } catch { /* no book loaded yet, or not a manager */ }
   bookCache = { storeId: team.id, at: Date.now(), rows: reps.concat(poolCache.storeId === team.id ? poolRows(reps) : []) };
+  cacheSet(BOOK_KEY, bookCache).catch(() => {});
   return bookCache;
 }
 
@@ -640,9 +692,10 @@ export async function welcomeLog(team, days = 30) {
 let lotCache = { storeId: null, at: 0, rows: [] };
 export function cachedInventory() { return lotCache.storeId ? lotCache : null; }
 export async function loadInventory(team, { force = false } = {}) {
-  if (!force && lotCache.storeId === team.id && Date.now() - lotCache.at < 10 * 60000) return lotCache;
+  if (!force && !lotCache.restored && lotCache.storeId === team.id && Date.now() - lotCache.at < 10 * 60000) return lotCache;
   const rows = (await backend.rpc("store_inventory", { store: team.id, since: null })) || [];
   lotCache = { storeId: team.id, at: Date.now(), rows: rows.filter((r) => !r.deleted).map((r) => ({ ...(r.data || {}), id: r.id })) };
+  cacheSet(LOT_KEY, lotCache).catch(() => {});
   return lotCache;
 }
 // The signed-in rep's store lot, for their own app: rows changed since a cursor.

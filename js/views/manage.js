@@ -24,7 +24,7 @@ import { navigate } from "../router.js";
 import { icon } from "../icons.js";
 import { toast, openModal } from "../components.js";
 import { esc, formatDateTime } from "../utils.js";
-import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft, LOOP_DAYS, loadConfig, cachedConfig } from "../team.js";
+import { cachedStore, myStore, isAdmin, isManager, memberName, cachedBoard, loadBoard, restoreBoard, restoreBook, storeTotals, inviteLink, setViewMode, nudgeRep, syncedAgo, sendManagerText, sendWelcomeNow, heldDraft, LOOP_DAYS, loadConfig, cachedConfig } from "../team.js";
 import { storePlan, paceRead, sourceKey } from "../opmodel.js";
 import { looksLikeMoney } from "../replies.js";
 import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./team.js";
@@ -75,8 +75,13 @@ function boardScreen(view, { needBook = false, paint, wire = null }) {
     if (wire) wire(ctx);
   }
 
-  draw();
-  refresh(false);
+  // The last read, from the device, paints first; the re-read runs behind
+  // it. Without one the page says it's reading until the first read lands.
+  st.loading = true; draw();
+  Promise.all([restoreBoard(), needBook ? restoreBook() : null]).then(([b, bk]) => {
+    if (b && !st.board) st.board = b;
+    if (bk) { if (bk.book && !st.book) st.book = bk.book; if (bk.lot && !st.lot) st.lot = bk.lot; }
+  }).catch(() => {}).then(() => { st.loading = false; refresh(false); });
   onPull(() => refresh(true));
   const back = () => {
     if (!el.isConnected) { document.removeEventListener("visibilitychange", back); return; }

@@ -9,7 +9,7 @@
 
 import { icon } from "../icons.js";
 import { esc, formatDateTime } from "../utils.js";
-import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, storeTotals } from "../team.js";
+import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, restoreBoard, storeTotals } from "../team.js";
 import { findings, DAYS, hourLabel } from "../insight.js";
 import { onPull } from "../pulltorefresh.js";
 
@@ -133,8 +133,9 @@ export function renderInsights(view) {
     el.querySelectorAll("[data-who]").forEach((b) => b.addEventListener("click", () => { who = b.dataset.who; draw(); view.scrollTop = 0; }));
   }
 
-  draw();
-  refresh(false);
+  // The last read paints first on a cold open; the re-read runs behind it.
+  loading = true; draw();
+  restoreBoard().then((b) => { if (b && !board) board = b; }).catch(() => {}).then(() => { loading = false; refresh(false); });
   onPull(() => refresh(true));
 }
 

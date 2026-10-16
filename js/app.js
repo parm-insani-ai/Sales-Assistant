@@ -49,7 +49,7 @@ import { handleGmailRedirect, pullGmailIfStale, ensureMailWatch } from "./gmail.
 import { loadMailbox, startMailboxWatch } from "./mailbox.js";
 import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
-import { managementMode, myStore as readStore, myTarget, cachedStore } from "./team.js";
+import { managementMode, myStore as readStore, myTarget, cachedStore, restoreBoard, restoreBook } from "./team.js";
 import { claimDevice } from "./account.js";
 import { initSaveState } from "./savestate.js";
 import { needsInstall } from "./push.js";
@@ -416,6 +416,7 @@ handleGmailRedirect()
     // A rep's inbox files into their own book; the manager's (management
     // mode) files into the reps' books, from the manager's Home.
     if (!inManagement()) { pullMailIfStale(); pullGmailIfStale(); ensureMailWatch(); loadMailbox().then(() => startMailboxWatch()); } // the inbox is part of what the assistant knows, and keeps itself current
+    else { restoreBoard().catch(() => {}); restoreBook().catch(() => {}); } // the last read of the store, from the device, so the pages open on it
   });
 window.addEventListener("viniva-mail", (e) => {
   const n = e.detail && e.detail.linked;
