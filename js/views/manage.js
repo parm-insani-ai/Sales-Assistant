@@ -31,7 +31,7 @@ import { openRepSheet, openCustomerSheet, apptState, openTargetSheet } from "./t
 import { findings, ASSUMED } from "../insight.js";
 import { cachedBook, loadBook, addRepTask, cachedInventory, loadInventory } from "../team.js";
 import { makeMatcher } from "../match.js";
-import { rankBook, taskFor } from "../reach.js";
+import { rankBook, reachOuts, taskFor } from "../reach.js";
 import * as store from "../store.js";
 import { pullStoreMailIfStale } from "../msmail.js";
 import { onPull } from "../pulltorefresh.js";
@@ -115,6 +115,28 @@ const repNotice = (team) => `<div class="card">You're on ${esc(team.name)}'s tea
 const errLine = (error) => (error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : "");
 const setToday = (r, today) => (r.raw ? r.raw.appts.filter((a) => a.status !== "canceled" && String(a.createdAt || a.when).slice(0, 10) === today).length : 0);
 const paceCls = (units, goal, p) => (!goal ? "" : units >= p ? "color:var(--success)" : units < p * 0.6 ? "color:var(--danger)" : "color:var(--warning)");
+// The flags on a rep's day: what a manager would walk over about. A member
+// with no book and no goal (a manager who doesn't sell) has nothing to be
+// behind on.
+const repFlags = (r, now, today) => {
+  if (!r.insight || (!r.leads.open && !r.goal.units && !r.sales.units)) return [];
+  const why = [], i = r.insight;
+  if (r.leads.untouched.length) why.push(`${r.leads.untouched.length} untouched lead${r.leads.untouched.length === 1 ? "" : "s"}`);
+  if (i.needs.goal && !i.needs.onTrack && i.needs.perDay >= 1 && !setToday(r, today) && now.getHours() >= 12) why.push(`needs ${i.needs.perDay} appointment${i.needs.perDay === 1 ? "" : "s"} a day, none set today`);
+  const thisWeek = i.weekly[i.weekly.length - 1];
+  if (thisWeek && !thisWeek.set && now.getDay() >= 3) why.push("nothing set this week");
+  if (r.leads.overdue.length >= 3) why.push(`${r.leads.overdue.length} overdue follow-ups`);
+  if (!r.touches.today && now.getHours() >= 12) why.push("no touches yet today");
+  return why;
+};
+// When the rep last logged, set or sold anything today, from the day's record.
+const lastDidAt = (r, today) => {
+  const times = (r.events || []).map((e) => String(e.at || "")).filter((a) => a.slice(0, 10) === today || new Date(a).toDateString() === new Date(today + "T12:00:00").toDateString()).sort();
+  const last = times[times.length - 1];
+  if (!last) return "";
+  const d = new Date(last);
+  return isNaN(d) ? "" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+};
 
 // ---- Home: the numbers ----
 export function renderManageHome(view) {
@@ -195,13 +217,19 @@ export function renderManageHome(view) {
           r.atRisk && r.atRisk.length ? [`${r.atRisk.length} to confirm`, "/floor"] : null,
         ].filter(Boolean);
         const pr = plan && plan.perRep.find((x) => x.member.user_id === r.member.user_id);
-        return { r, set, need: pr && pr.day.appts ? Math.max(need, Math.ceil(pr.day.appts)) : need, acts, onTrack: !!(n.goal && n.onTrack), plan: pr };
+        // The micromanager's line: plays done, the flags, when they last did anything.
+        const plays = r.plays ? { done: r.plays.reached, of: r.plays.items.length } : null;
+        return { r, set, need: pr && pr.day.appts ? Math.max(need, Math.ceil(pr.day.appts)) : need, acts, onTrack: !!(n.goal && n.onTrack), plan: pr, plays, flags: repFlags(r, now, today), last: lastDidAt(r, today) };
       }) : [];
       const todayCard = t && ins ? `<div class="card mg-today mg-plan" style="margin-bottom:12px">
         <div class="row" style="align-items:baseline"><div class="row-main"><div class="strong" style="font-size:1.05rem">Today, by rep</div></div><span class="small muted">${ins.needs.goal ? (ins.needs.onTrack ? "on track" : `${ins.needs.apptsNeeded} more to set this month`) : plan ? "targets not written to phones yet" : "no targets set"}</span></div>
         ${!ins.needs.goal && plan ? `<div class="small muted" style="margin-top:2px">Each rep's share is set under Admin → Store targets; Write puts it on their phone.</div>` : ""}
-        <div class="mg-today-reps" style="margin-top:8px">${perRep.map(({ r, set, need, acts, onTrack }) => `<div class="row mg-today-rep mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;border-top:1px solid var(--border);align-items:flex-start;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))} <span class="mg-need small" style="font-weight:600;${need ? (set >= need ? "color:var(--success)" : "color:var(--warning)") : "color:var(--muted)"}">${need ? `${set} of ${need} set today` : onTrack ? `on track · ${set} set today` : `${set} set today`}</span></div><div class="row-sub mg-today-acts">${acts.length ? acts.map(([txt]) => `<span class="mg-act">${esc(txt)}</span>`).join(" · ") : "nothing waiting on them"}</div>${plan ? `<div class="small muted mg-today-plan">${(() => { const pr = plan.perRep.find((x) => x.member.user_id === r.member.user_id); return pr ? `${pr.units} units this month · ${pr.day.customers} customers and ${pr.day.appts} appointments a day · ${r.loggedToday || 0} logged today` : ""; })()}</div>` : ""}</div><span class="muted">›</span></div>`).join("")}</div>
-        <div class="hint" style="margin:8px 0 0">Tap a rep for their day. The work itself is on Floor.</div>
+        <div class="mg-today-reps" style="margin-top:8px">${perRep.map(({ r, set, need, acts, onTrack, plays, flags, last }) => `<div class="row mg-today-rep mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;border-top:1px solid var(--border);align-items:flex-start;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))} <span class="mg-need small" style="font-weight:600;${need ? (set >= need ? "color:var(--success)" : "color:var(--warning)") : "color:var(--muted)"}">${need ? `${set} of ${need} set today` : onTrack ? `on track · ${set} set today` : `${set} set today`}</span></div><div class="row-sub mg-today-acts">${acts.length ? acts.map(([txt]) => `<span class="mg-act">${esc(txt)}</span>`).join(" · ") : "nothing waiting on them"}</div><div class="small mg-today-watch">${[
+            plays ? `<span class="mg-plays-done" style="${plays.done >= plays.of ? "color:var(--success)" : "color:var(--warning)"};font-weight:600">${plays.done} of ${plays.of} plays done</span>` : "",
+            ...flags.map((f) => `<span class="mg-flag" style="color:var(--danger)">${esc(f)}</span>`),
+            `<span class="muted mg-last">${last ? `last did something ${esc(last)}` : "nothing logged, set or sold yet today"}</span>`,
+          ].filter(Boolean).join(" · ")}</div>${plan ? `<div class="small muted mg-today-plan">${(() => { const pr = plan.perRep.find((x) => x.member.user_id === r.member.user_id); return pr ? `${pr.units} units this month · ${pr.day.customers} customers and ${pr.day.appts} appointments a day · ${r.loggedToday || 0} logged today` : ""; })()}</div>` : ""}</div><span class="muted">›</span></div>`).join("")}</div>
+        <div class="hint" style="margin:8px 0 0">Tap a rep for their day. Plays are the night read's hand-outs; a flag is what you'd walk over about. The work itself is on Floor.</div>
       </div>` : "";
       // What the manager's taps came to: appointments set within a day of a
       // nudge, a text, a hand-off, a welcome — the proof the board earns its place.
@@ -228,7 +256,7 @@ export function renderManageHome(view) {
 
 // ---- Floor: the day as it happens ----
 export function renderFloor(view, { param } = {}) {
-  let feedAll = false;
+  let feedAll = false, backAll = false, bringAll = false;
   // Opened from the agent's push ("Dana has waited 20 min — send this?"):
   // the sheet opens on the held draft, once.
   let deepLink = /^reply-(.+)$/.test(String(param || "")) ? String(param).slice(6) : "";
@@ -315,29 +343,46 @@ export function renderFloor(view, { param } = {}) {
       const foundLines = rows.filter((r) => r.member.user_id !== myId || (r.planTexts && r.planTexts.onFile)).map((r) => `<div class="small mg-due-found" data-rep="${esc(r.member.user_id)}" style="padding:3px 0"><b>${esc(memberName(r.member))}</b> · ${found(r)}</div>`).join("");
       const foundFold = !dueCount && !heldCount && foundLines ? `<details class="mg-fold mg-found"><summary class="small muted">What the board read from each rep's phone</summary>${foundLines}</details>` : "";
 
-      // 4. Appointments at risk: unconfirmed inside 24 hours, and no-shows nobody has rebooked.
+      // 4. Appointments in the next day nobody has confirmed.
       const risk = t.atRisk || [], noShows = t.noShows || [];
-      const riskRows = risk.map((a) => `<div class="row mg-risk-row mg-k-risk" data-kind="unconfirmed" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${a.leadId ? `data-fcust="${esc(a.leadId)}" data-frep="${esc(a.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")} <span class="small muted">${whenWords(a.when)}</span></div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""} · not confirmed</div></div><button class="btn btn-ghost btn-sm" data-anudge="${esc(a.rep.user_id)}" data-lead="${esc(a.leadId || "")}" data-title="${esc((a.customerName || "An appointment") + " at " + String(a.when).slice(11, 16) + " isn't confirmed")}" data-body="A confirmation now is the difference between a show and a no-show.">${icon("bell")}</button>${a.leadId ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(a.leadId)}" data-rep="${esc(a.rep.user_id)}" data-name="${esc(a.customerName || "")}" data-draft="${esc(`Hi ${first(a.customerName)}, it's ${me} at ${team.name}. Just confirming your ${a.type || "appointment"} ${whenWords(a.when).replace(/<[^>]+>/g, "")} with ${first(memberName(a.rep))} — reply YES to confirm, or let me know if another time works better.`)}">Text</button>` : ""}</div>`).join("")
-        + noShows.map((a) => `<div class="row mg-risk-row mg-k-risk" data-kind="noshow" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${a.leadId ? `data-fcust="${esc(a.leadId)}" data-frep="${esc(a.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")} <span class="small" style="color:var(--warning);font-weight:600">no-show</span></div><div class="row-sub">${esc(memberName(a.rep))} · ${esc(formatDateTime(a.when))} · not rebooked</div></div><button class="btn btn-ghost btn-sm" data-anudge="${esc(a.rep.user_id)}" data-lead="${esc(a.leadId || "")}" data-title="${esc("Rebook " + (a.customerName || "the no-show"))}" data-body="${esc("They no-showed " + formatDateTime(a.when) + " — a call today gets them back on the calendar.")}">${icon("bell")}</button>${a.leadId ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(a.leadId)}" data-rep="${esc(a.rep.user_id)}" data-name="${esc(a.customerName || "")}" data-draft="${esc(`Hi ${first(a.customerName)}, it's ${me} at ${team.name}. Sorry we missed you — ${first(memberName(a.rep))} would love to get you in. What day works this week?`)}">Text</button>` : ""}</div>`).join("");
+      const riskRows = risk.map((a) => `<div class="row mg-risk-row mg-k-risk" data-kind="unconfirmed" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${a.leadId ? `data-fcust="${esc(a.leadId)}" data-frep="${esc(a.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")} <span class="small muted">${whenWords(a.when)}</span></div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""} · not confirmed</div></div><button class="btn btn-ghost btn-sm" data-anudge="${esc(a.rep.user_id)}" data-lead="${esc(a.leadId || "")}" data-title="${esc((a.customerName || "An appointment") + " at " + String(a.when).slice(11, 16) + " isn't confirmed")}" data-body="A confirmation now is the difference between a show and a no-show.">${icon("bell")}</button>${a.leadId ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(a.leadId)}" data-rep="${esc(a.rep.user_id)}" data-name="${esc(a.customerName || "")}" data-draft="${esc(`Hi ${first(a.customerName)}, it's ${me} at ${team.name}. Just confirming your ${a.type || "appointment"} ${whenWords(a.when).replace(/<[^>]+>/g, "")} with ${first(memberName(a.rep))} — reply YES to confirm, or let me know if another time works better.`)}">Text</button>` : ""}</div>`).join("");
 
       // 5. Logged today with no text yet.
       const wl = t.welcomes || { logged: 0, welcomed: 0, pending: [] };
       const welcomeRows = wl.pending.map((l) => `<div class="row mg-welcome-row mg-k-welcome" style="padding:7px 0;align-items:center;gap:8px"><div class="row-main" data-fcust="${esc(l.id)}" data-frep="${esc(l.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")}</div><div class="row-sub">${esc(memberName(l.rep))}${l.vehicleInterest ? " · " + esc(l.vehicleInterest) : ""} · logged today, no text yet</div></div>${l.optOut ? `<span class="small muted">opted out</span>` : l.phone || l.email ? `<button class="btn btn-primary btn-sm" data-welcome="${esc(l.id)}" data-rep="${esc(l.rep.user_id)}" data-name="${esc(l.name || "")}">Welcome now</button>` : `<span class="small muted">no number</span>`}</div>`).join("");
 
-      // 6. The service drive: customers on the books booked into service today or tomorrow, with the app's read.
-      const svc = book ? rankBook(book.rows, rankOpts(lot)).rows.filter((r) => { const d = String(r.lead.serviceAppt || "").slice(0, 10); return d === today || d === tmrw; }).sort((a, b) => String(a.lead.serviceAppt).localeCompare(String(b.lead.serviceAppt)) || b.read.score - a.read.score) : null;
-      const svcRows = svc ? svc.slice(0, 10).map((r) => `<div class="row mg-svc-row mg-k-svc" style="padding:8px 0;align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""} <span class="small muted">in service ${String(r.lead.serviceAppt).slice(0, 10) === today ? "today" : "tomorrow"}${/T\d\d:\d\d/.test(String(r.lead.serviceAppt)) ? " " + esc(String(r.lead.serviceAppt).slice(11, 16)) : ""}</span></div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.slice(0, 3).map(esc).join(" · ")}</div>${deal(r)}</div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : "";
-
-      // 7. The be-backs, on the review day: unsold ups still in play, nothing
-      //    booked, quiet two days or more. Repeat customers close at 74%.
-      const reviewDow = Number(((cachedConfig() || {}).plan || {}).reviewDow ?? 1);
-      const bb = now.getDay() === reviewDow ? (t.bebacks || []) : [];
-      const bbRows = bb.slice(0, 10).map((l) => `<div class="row mg-beback mg-k-beback" style="padding:7px 0;align-items:center;gap:8px"><div class="row-main" data-fcust="${esc(l.id)}" data-frep="${esc(l.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")} <span class="small" style="color:var(--warning);font-weight:600">quiet ${l.quiet} d</span></div><div class="row-sub">${esc(memberName(l.rep))} · ${esc(l.stage || "new")}${l.vehicleInterest ? " · " + esc(l.vehicleInterest) : ""} · in ${l.days} d ago${l.plan && l.plan.of ? ` · plan ${l.plan.done} of ${l.plan.of}` : " · no plan"}</div></div><button class="btn btn-ghost btn-sm" data-bnudge="${esc(l.rep.user_id)}" data-lead="${esc(l.id)}" data-name="${esc(l.name || "A customer")}" data-quiet="${l.quiet}">${icon("bell")}</button>${l.phone ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(l.id)}" data-rep="${esc(l.rep.user_id)}" data-name="${esc(l.name || "")}" data-draft="${esc(`Hi ${first(l.name)}, it's ${me} at ${team.name}. ${first(memberName(l.rep))} mentioned you were in${l.vehicleInterest ? ` about the ${l.vehicleInterest}` : ""} — is it still on your mind? Happy to have it ready for a look this week, just say when.`)}">Text</button>` : ""}</div>`).join("") + (bb.length > 10 ? `<div class="hint">and ${bb.length - 10} more quiet.</div>` : "");
-
-      const count = waiting.length + Math.min(unanswered.length, 10) + due.length + risk.length + noShows.length + wl.pending.length + (svc ? Math.min(svc.length, 10) : 0) + Math.min(bb.length, 10);
+      const count = waiting.length + Math.min(unanswered.length, 10) + due.length + risk.length + wl.pending.length;
       const sub = [count ? `${count} · costliest first` : "nothing waiting on you", heldCount ? `${heldCount} held` : "", !book ? "reading…" : ""].filter(Boolean).join(" · ");
       const nowCard = `<div class="section-title" style="margin-top:0">Act now <span class="muted" style="font-weight:500;font-size:0.78rem">· ${sub}</span></div>
-        <div class="card mg-now">${count ? freshRows + waitRows + dueRows + riskRows + welcomeRows + svcRows + bbRows : `<div class="muted small mg-now-empty">Every lead touched, every customer answered, every text sent, the next day confirmed. What you send from here is counted on Home.</div>`}${heldRows}${foundFold}</div>`;
+        <div class="card mg-list mg-now">${count ? freshRows + waitRows + dueRows + riskRows + welcomeRows : `<div class="muted small mg-now-empty">Every lead touched, every customer answered, every text sent, the next day confirmed. What you send from here is counted on Home.</div>`}${heldRows}${foundFold}</div>`;
+
+      // Get them back: everyone who's been in and isn't sold — the no-shows
+      // nobody has rebooked, and the unsold ups gone quiet two days or more,
+      // the quietest first. A be-back closes at nearly three times the rate
+      // of a fresh up; these are the cheapest appointments in the store.
+      const noShowRows = noShows.map((a) => `<div class="row mg-risk-row mg-k-risk" data-kind="noshow" style="padding:8px 0;align-items:center;gap:8px"><div class="row-main" ${a.leadId ? `data-fcust="${esc(a.leadId)}" data-frep="${esc(a.rep.user_id)}" style="cursor:pointer"` : ""}><div class="row-title" style="font-size:0.95rem">${esc(a.customerName || "Appointment")} <span class="small" style="color:var(--warning);font-weight:600">no-show</span></div><div class="row-sub">${esc(memberName(a.rep))} · ${esc(formatDateTime(a.when))} · not rebooked</div></div><button class="btn btn-ghost btn-sm" data-anudge="${esc(a.rep.user_id)}" data-lead="${esc(a.leadId || "")}" data-title="${esc("Rebook " + (a.customerName || "the no-show"))}" data-body="${esc("They no-showed " + formatDateTime(a.when) + " — a call today gets them back on the calendar.")}">${icon("bell")}</button>${a.leadId ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(a.leadId)}" data-rep="${esc(a.rep.user_id)}" data-name="${esc(a.customerName || "")}" data-draft="${esc(`Hi ${first(a.customerName)}, it's ${me} at ${team.name}. Sorry we missed you — ${first(memberName(a.rep))} would love to get you in. What day works this week?`)}">Text</button>` : ""}</div>`).join("");
+      const bb = t.bebacks || [];
+      const backN = noShows.length + bb.length;
+      const bbShown = backAll ? bb : bb.slice(0, Math.max(0, 10 - noShows.length));
+      const bbRows = bbShown.map((l) => `<div class="row mg-beback mg-k-beback" style="padding:7px 0;align-items:center;gap:8px"><div class="row-main" data-fcust="${esc(l.id)}" data-frep="${esc(l.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(l.name || "Customer")} <span class="small" style="color:var(--warning);font-weight:600">quiet ${l.quiet} d</span></div><div class="row-sub">${esc(memberName(l.rep))} · ${esc(l.stage || "new")}${l.vehicleInterest ? " · " + esc(l.vehicleInterest) : ""} · in ${l.days} d ago${l.plan && l.plan.of ? ` · plan ${l.plan.done} of ${l.plan.of}` : " · no plan"}</div></div><button class="btn btn-ghost btn-sm" data-bnudge="${esc(l.rep.user_id)}" data-lead="${esc(l.id)}" data-name="${esc(l.name || "A customer")}" data-quiet="${l.quiet}">${icon("bell")}</button>${l.phone ? `<button class="btn btn-primary btn-sm" data-mtext="${esc(l.id)}" data-rep="${esc(l.rep.user_id)}" data-name="${esc(l.name || "")}" data-draft="${esc(`Hi ${first(l.name)}, it's ${me} at ${team.name}. ${first(memberName(l.rep))} mentioned you were in${l.vehicleInterest ? ` about the ${l.vehicleInterest}` : ""} — is it still on your mind? Happy to have it ready for a look this week, just say when.`)}">Text</button>` : ""}</div>`).join("") + (bb.length > bbShown.length || backAll && bb.length > 10 ? `<button class="btn btn-ghost btn-sm btn-block" data-act="back-all" style="margin-top:6px">${backAll ? "Show fewer" : `Show all ${backN}`}</button>` : "");
+      const backCard = `<div class="section-title">Get them back <span class="muted" style="font-weight:500;font-size:0.78rem">· ${backN ? `${backN} · ${[noShows.length ? `${noShows.length} no-show${noShows.length === 1 ? "" : "s"}` : "", bb.length ? `${bb.length} quiet` : ""].filter(Boolean).join(", ")} · be-backs close at 74%` : "nobody waiting to come back"}</span></div>
+        <div class="card mg-list mg-back">${backN ? noShowRows + bbRows : `<div class="muted small">Every no-show is rebooked and everyone still in play has been in touch inside two days or has a time booked.</div>`}</div>`;
+
+      // Bring them in: the ranked owner book across every rep — equity, a
+      // lease ending, paid off — with whoever's in the service drive today
+      // or tomorrow first. Send hands one to their rep with a to-do and the
+      // reasons; the dispatcher does the same each morning on its own, this
+      // is for pushing harder on a slow day.
+      const svc = book ? rankBook(book.rows, rankOpts(lot)).rows.filter((r) => { const d = String(r.lead.serviceAppt || "").slice(0, 10); return d === today || d === tmrw; }).sort((a, b) => String(a.lead.serviceAppt).localeCompare(String(b.lead.serviceAppt)) || b.read.score - a.read.score) : null;
+      const svcRows = svc ? svc.slice(0, 10).map((r) => `<div class="row mg-svc-row mg-k-svc" style="padding:8px 0;align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""} <span class="small muted">in service ${String(r.lead.serviceAppt).slice(0, 10) === today ? "today" : "tomorrow"}${/T\d\d:\d\d/.test(String(r.lead.serviceAppt)) ? " " + esc(String(r.lead.serviceAppt).slice(11, 16)) : ""}</span></div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.slice(0, 3).map(esc).join(" · ")}</div>${deal(r)}</div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("") : "";
+      const ranked = book ? rankBook(book.rows, rankOpts(lot)) : null;
+      const svcIds = new Set((svc || []).map((r) => r.lead.id));
+      const reach = ranked ? reachOuts(ranked, { limit: 100000 }).filter((r) => !svcIds.has(r.lead.id)) : [];
+      const reachShown = reach.slice(0, Math.max(0, (bringAll ? 50 : 10) - (svc ? Math.min(svc.length, 10) : 0)));
+      const reachRows = reachShown.map((r) => `<div class="row mg-reach-row mg-k-reach" style="padding:8px 0;align-items:center"><div class="row-main" data-cust="${esc(r.lead.id)}" data-rep="${esc(r.rep.user_id)}" style="cursor:pointer"><div class="row-title" style="font-size:0.95rem">${esc(r.lead.name || "Customer")}${r.tier ? ` <span class="badge ${r.tier.badge}" style="margin-left:4px">${r.tier.label}</span>` : ""}</div><div class="row-sub">${esc(r.lead.vehicleInterest || "")} · ${esc(memberName(r.rep))}</div><div class="row-reasons">${r.read.reasons.slice(0, 3).map(esc).join(" · ")}</div>${deal(r)}</div><button class="btn ${handed.has(r.lead.id) ? "btn-ghost" : "btn-primary"} btn-sm" data-hand="${esc(r.lead.id)}" data-hrep="${esc(r.rep.user_id)}" style="flex:0 0 auto;margin-left:8px" ${handed.has(r.lead.id) ? "disabled" : ""}>${handed.has(r.lead.id) ? "Sent" : "Send"}</button></div>`).join("");
+      const bringN = (svc ? svc.length : 0) + reach.length;
+      const bringCard = `<div class="section-title">Bring them in <span class="muted" style="font-weight:500;font-size:0.78rem">· ${!book ? "reading…" : bringN ? `${bringN} worth a call${svc && svc.length ? ` · ${svc.length} in service` : ""} · <a href="#/customers" style="color:var(--brand)">see them all</a>` : "nobody worth a call right now"}</span></div>
+        <div class="card mg-list mg-bring">${!book ? `<div class="muted small">Reading every rep's book…</div>` : bringN ? svcRows + reachRows + (reach.length > reachShown.length ? `<button class="btn btn-ghost btn-sm btn-block" data-act="bring-all" style="margin-top:6px">${bringAll ? "Show fewer" : `Show more`}</button>` : "") : `<div class="muted small">Nobody on the book is worth a call right now — or the reps' books haven't synced.</div>`}</div>`;
       const notesLine = (t.notes || []).filter((n) => n.rep.user_id !== myId).map((n) => `<div class="fab-note mg-note" style="text-align:left;color:var(--warning);margin:0 2px 10px"><b>${esc(memberName(n.rep))}:</b> ${esc(n.note)}</div>`).join("");
       const feed = t.feed || [];
       return `
@@ -345,6 +390,8 @@ export function renderFloor(view, { param } = {}) {
       ${asOf(c)}
       ${notesLine}
       ${nowCard}
+      ${backCard}
+      ${bringCard}
 
       <div class="section-title">Today's appointments <span class="muted" style="font-weight:500;font-size:0.78rem">· ${t.apptsToday.length}</span></div>
       <div class="card mg-appts">${t.apptsToday.length ? t.apptsToday.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(String(a.when).slice(11, 16))} · ${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("") : `<div class="muted small">Nothing on the store's calendar today.</div>`}</div>
@@ -356,6 +403,8 @@ export function renderFloor(view, { param } = {}) {
     wire: ({ el, book, lot, draw, refresh, t }) => {
       const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
       on('[data-act="feed-all"]', () => { feedAll = !feedAll; draw(); });
+      on('[data-act="back-all"]', () => { backAll = !backAll; draw(); });
+      on('[data-act="bring-all"]', () => { bringAll = !bringAll; draw(); });
       // The fresh leads' clocks run while the screen is up.
       const tick = setInterval(() => {
         if (!el.isConnected) { clearInterval(tick); return; }

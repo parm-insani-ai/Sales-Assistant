@@ -2256,12 +2256,13 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 
 /* The Floor: one list of what costs business by the hour, a thin edge
    per kind; the day's record and the huddle folded under it. */
-.mg-now > .row, .mg-now > .mg-due-rep, .mg-now > .mg-held-rep { border-left: 3px solid var(--border); padding-left: 10px; margin-left: -2px; }
-.mg-now > .mg-k-fresh, .mg-now > .mg-k-wait { border-left-color: var(--danger); }
-.mg-now > .mg-k-due, .mg-now > .mg-k-risk, .mg-now > .mg-k-beback { border-left-color: var(--warning); }
-.mg-now > .mg-k-welcome, .mg-now > .mg-k-svc { border-left-color: var(--brand); }
-.mg-now > .mg-k-held { border-left-color: var(--border); }
-.mg-now > .row + .row, .mg-now > .mg-due-rep + .row, .mg-now > .row + .mg-due-rep, .mg-now > .mg-due-rep + .mg-due-rep, .mg-now > * + .mg-held-rep { border-top: 1px solid var(--border); }
+.mg-list > .row, .mg-list > .mg-due-rep, .mg-list > .mg-held-rep { border-left: 3px solid var(--border); padding-left: 10px; margin-left: -2px; }
+.mg-list > .mg-k-fresh, .mg-list > .mg-k-wait { border-left-color: var(--danger); }
+.mg-list > .mg-k-due, .mg-list > .mg-k-risk, .mg-list > .mg-k-beback { border-left-color: var(--warning); }
+.mg-list > .mg-k-welcome, .mg-list > .mg-k-svc, .mg-list > .mg-k-reach { border-left-color: var(--brand); }
+.mg-list > .mg-k-held { border-left-color: var(--border); }
+.mg-list > .row + .row, .mg-list > .mg-due-rep + .row, .mg-list > .row + .mg-due-rep, .mg-list > .mg-due-rep + .mg-due-rep, .mg-list > * + .mg-held-rep { border-top: 1px solid var(--border); }
+.mg-today-watch { margin-top: 2px; line-height: 1.4; }
 .mg-found { margin-top: 8px; }
 .mg-found > summary { cursor: pointer; list-style: none; }
 .mg-found > summary::-webkit-details-marker { display: none; }

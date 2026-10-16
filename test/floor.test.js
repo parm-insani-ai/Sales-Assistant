@@ -73,14 +73,21 @@ const read = () => mgr.evaluate(() => {
     svc: [...document.querySelectorAll(".mg-svc-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
     welcome: [...document.querySelectorAll(".mg-welcome-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
     kinds: [...document.querySelectorAll(".mg-now > [class*='mg-k-']")].map((n) => (n.className.match(/mg-k-(\w+)/) || [])[1]),
+    backTitle: title("Get them back"), backKinds: [...document.querySelectorAll(".mg-back > [class*='mg-k-']")].map((n) => (n.className.match(/mg-k-(\w+)/) || [])[1] + (n.dataset.kind ? ":" + n.dataset.kind : "")),
+    bringTitle: title("Bring them in"), bringKinds: [...document.querySelectorAll(".mg-bring > [class*='mg-k-']")].map((n) => (n.className.match(/mg-k-(\w+)/) || [])[1]),
   };
 });
+const document_order_ok = (f) => f.backKinds.join() === "risk:noshow" && f.bringKinds.join() === "svc,reach,reach";
 let f = await read();
 console.log("floor:", JSON.stringify(f, null, 1));
 // Four sections, and the one list in cost order: fresh lead, waiting, texts not sent, at risk, no welcome, service drive.
-if (f.titles.join("|") !== "Act now|Today's appointments|Today on the floor|Today's huddle") fail("the Floor isn't the four sections: " + f.titles.join(" | "));
-if (!/^Act now · 7 · costliest first$/.test(f.nowTitle)) fail("the Act now count is wrong: " + f.nowTitle);
-if (f.kinds.join() !== "fresh,wait,due,risk,risk,welcome,svc") fail("the list isn't in cost order: " + f.kinds.join());
+if (f.titles.join("|") !== "Act now|Get them back|Bring them in|Today's appointments|Today on the floor|Today's huddle") fail("the Floor isn't the three lists plus the day: " + f.titles.join(" | "));
+if (!/^Act now · 5 · costliest first$/.test(f.nowTitle)) fail("the Act now count is wrong: " + f.nowTitle);
+if (f.kinds.join() !== "fresh,wait,due,risk,welcome") fail("Act now isn't in cost order: " + f.kinds.join());
+if (!/^Get them back · 1 · 1 no-show · be-backs close at 74%$/.test(f.backTitle)) fail("the no-show isn't counted under Get them back: " + f.backTitle);
+// Sue from the service drive first, then the two on the book worth a call (Dana and Ken, in play with a vehicle on file).
+if (!/^Bring them in · 3 worth a call · 1 in service · see them all$/.test(f.bringTitle)) fail("the Bring them in count is wrong: " + f.bringTitle);
+if (!document_order_ok(f)) fail("the no-show isn't in Get them back, or Sue isn't in Bring them in: " + JSON.stringify([f.backKinds, f.bringKinds]));
 if (!/Dana Muise 40 min.*Parm · texted: “Great, can I see it Saturday\?”.*Reply/.test(f.waiting)) fail("Dana isn't shown waiting on a reply: " + f.waiting);
 if (!f.risk.some((r) => /^unconfirmed: Ken Boudreau (today|tomorrow) \d\d:\d\d.*Parm · test drive · not confirmed.*Text/.test(r))) fail("Ken's unconfirmed test drive isn't at risk: " + JSON.stringify(f.risk));
 if (!f.risk.some((r) => /^noshow: Nick Noshow no-show.*Parm · .* · not rebooked.*Text/.test(r))) fail("Nick's no-show isn't listed to rebook: " + JSON.stringify(f.risk));

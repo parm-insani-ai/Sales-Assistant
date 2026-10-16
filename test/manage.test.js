@@ -82,7 +82,7 @@ Object.assign(home, await mgr.evaluate(() => ({
 })));
 console.log("floor:", JSON.stringify({ floor: home.floor, sections: home.floorSections }));
 if (home.floor !== "The floor") fail("the Floor page's name isn't in the top bar: " + home.floor);
-for (const s of ["Act now", "Today's appointments", "Today on the floor", "Today's huddle"]) if (!home.floorSections.includes(s)) fail("Floor is missing: " + s);
+for (const s of ["Act now", "Get them back", "Bring them in", "Today's appointments", "Today on the floor", "Today's huddle"]) if (!home.floorSections.includes(s)) fail("Floor is missing: " + s);
 await mgr.click('.tabbar [data-route="/reps"]');
 await mgr.waitForFunction(() => location.hash === "#/reps" && document.querySelector(".team-row"), null, { timeout: 20000 });
 home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
