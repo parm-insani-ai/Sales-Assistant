@@ -73,16 +73,16 @@ console.log("management home:", JSON.stringify(home, null, 1));
 if (home.heroes) fail("Home still has a heading in the page — it belongs in the top bar, in line with the +");
 if (home.sections.length || home.tiles.length) fail("Home should be the numbers only — no sections or tiles: " + JSON.stringify([home.sections, home.tiles]));
 await mgr.click('.tabbar [data-route="/floor"]');
-await mgr.waitForFunction(() => location.hash === "#/floor" && document.querySelectorAll(".mg-rep").length > 0, null, { timeout: 20000 });
+await mgr.waitForFunction(() => location.hash === "#/floor" && document.querySelector(".mg-now") && !/reading…/.test(document.querySelector("#view").textContent), null, { timeout: 20000 });
 Object.assign(home, await mgr.evaluate(() => ({
   floor: document.querySelector("#page-title")?.textContent.trim(),
-  word: [...document.querySelectorAll(".card .mg-rep.row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
+  fresh: [...document.querySelectorAll(".mg-fresh-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   today: [...document.querySelectorAll(".card .row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).filter((t) => /15:30/.test(t)),
   floorSections: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim().split(" ·")[0]),
 })));
 console.log("floor:", JSON.stringify({ floor: home.floor, sections: home.floorSections }));
 if (home.floor !== "The floor") fail("the Floor page's name isn't in the top bar: " + home.floor);
-for (const s of ["Today on the floor", "Fresh leads waiting", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"]) if (!home.floorSections.includes(s)) fail("Floor is missing: " + s);
+for (const s of ["Act now", "Today's appointments", "Today on the floor", "Today's huddle"]) if (!home.floorSections.includes(s)) fail("Floor is missing: " + s);
 await mgr.click('.tabbar [data-route="/reps"]');
 await mgr.waitForFunction(() => location.hash === "#/reps" && document.querySelector(".team-row"), null, { timeout: 20000 });
 home.reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()));
@@ -97,7 +97,8 @@ if (home.stats) fail("the old tile grid is still on the manager's Home");
 const plan = await mgr.evaluate(() => document.querySelector(".mg-plan")?.textContent.replace(/\s+/g, " ").trim());
 console.log("plan:", plan);
 if (!/^Today, by rep ?\d+ more to set this month/.test(plan || "") || !/Parm/.test(plan) || !/Dana/.test(plan)) fail("the plan card is wrong: " + plan);
-if (!home.word.some((w) => /^Parm.*1 untouched lead/.test(w)) || !home.word.some((w) => /^Dana.*1 untouched lead/.test(w)) || home.word.some((w) => /^Sam/.test(w))) fail("'needs a word' misses a rep, or nags the manager: " + JSON.stringify(home.word));
+// Each rep's untouched lead is in the Act now list with the rep's name; the manager's own book isn't nagged about.
+if (!home.fresh.some((w) => /fresh lead · Parm/.test(w)) || !home.fresh.some((w) => /fresh lead · Dana/.test(w)) || home.fresh.some((w) => /fresh lead · Sam/.test(w))) fail("the untouched leads aren't in the Act now list by rep: " + JSON.stringify(home.fresh));
 if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.test(t))) fail("today's appointment isn't on the store's list with the rep: " + JSON.stringify(home.today));
 if (!home.reps[0].startsWith("Parm") || !new RegExp(`${SET} set · 1 today · 1 shown`).test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
 // Everything else is under the "+".

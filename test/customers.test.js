@@ -102,16 +102,6 @@ const sheet = await mgr.evaluate(() => document.querySelector(".modal")?.textCon
 if (!sheet) fail("the customer sheet didn't open read-only");
 await mgr.keyboard.press("Escape");
 
-// --- Floor: the assistant's card with the top five, and Send.
-await mgr.click('.tabbar [data-route="/floor"]');
-await mgr.waitForFunction(() => document.querySelector("[data-hand]"), null, { timeout: 20000 });
-const home = await mgr.evaluate(() => ({ title: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => /Who to reach out to/.test(t)), names: [...document.querySelectorAll("[data-hand]")].map((b) => b.closest(".row").querySelector(".row-title").textContent.trim()) }));
-console.log("home card:", JSON.stringify(home));
-if (!/4 worth a call/.test(home.title || "") || home.names.length !== 4) fail("the assistant's card on Home is wrong: " + JSON.stringify(home));
-await mgr.click('[data-hand="d1"]');
-await mgr.waitForFunction(() => document.querySelector('[data-hand="d1"]')?.textContent.trim() === "Sent", null, { timeout: 10000 });
-const recs2 = await (await fetch(APP + "/__records")).json();
-if (!recs2.some((r) => r.user_id === U2 && r.collection === "tasks" && /Fresh Untouched/.test(r.data.title) && r.data.channel === "call")) fail("the untouched lead wasn't handed to Dana as a call");
 
 // --- A rep can't hand a task to another rep through the database.
 const forged = await rpc("t2", "manager_add_task", { member: U1, task: { title: "hi" } });

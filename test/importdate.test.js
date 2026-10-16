@@ -92,8 +92,8 @@ const cells = await mgr.evaluate(() => [...document.querySelectorAll(".team-row"
 console.log("reps:", JSON.stringify(cells));
 if (!cells.some((c) => /^Parm .*2 untouched0 overdue/.test(c))) fail("the board should count the two real untouched leads (the web lead and the typed one) and none of the imported book: " + JSON.stringify(cells));
 await mgr.goto(APP + "/#/floor");
-await mgr.waitForFunction(() => document.querySelector(".mg-due") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
-const fresh = await mgr.evaluate(() => { const t = [...document.querySelectorAll("#view .section-title")].find((n) => /^Fresh leads waiting/.test(n.textContent)); const card = t && t.nextElementSibling; return card ? card.textContent.replace(/\s+/g, " ").trim() : ""; });
+await mgr.waitForFunction(() => document.querySelector(".mg-now") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
+const fresh = await mgr.evaluate(() => { const card = document.querySelector(".mg-now"); const rows = [...document.querySelectorAll(".mg-fresh-row")]; return rows.length ? rows.map((r) => r.textContent).join(" ") : card ? card.textContent.replace(/\s+/g, " ").trim() : ""; });
 console.log("fresh:", fresh);
 if (!/Real Fresh/.test(fresh) || /Fresh Import|Owner \d/.test(fresh)) fail("the fresh-leads card shows imported rows: " + fresh);
 

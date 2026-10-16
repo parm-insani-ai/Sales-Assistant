@@ -82,16 +82,16 @@ if (!dana || !/Nothing in their cloud copy yet/.test(dana.note || "")) fail("Dan
 
 // --- The Floor: fresh leads first, with the clock; a nudge is recorded against the lead.
 await mgr.goto(APP + "/#/floor");
-await mgr.waitForFunction(() => document.querySelector(".mg-fresh") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
+await mgr.waitForFunction(() => document.querySelector(".mg-now") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
 const floor = await mgr.evaluate(() => ({
   firstTitle: document.querySelector("#view .section-title")?.textContent.replace(/\s+/g, " ").trim(),
-  fresh: document.querySelector(".mg-fresh").textContent.replace(/\s+/g, " ").trim(),
-  clock: document.querySelector(".mg-fresh .mg-clock")?.dataset.at,
+  fresh: [...document.querySelectorAll(".mg-fresh-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
+  clock: document.querySelector(".mg-fresh-row .mg-clock")?.dataset.at,
 }));
 console.log("floor:", JSON.stringify(floor));
-if (!/^Fresh leads waiting · 1 untouched · the first hour books$/.test(floor.firstTitle || "")) fail("fresh leads aren't the first card: " + floor.firstTitle);
-if (!/Fay Fresh 10 min ?Parm · Web.*Nudge/.test(floor.fresh) || !floor.clock) fail("the fresh lead row or its clock is wrong: " + JSON.stringify(floor));
-await mgr.click(".mg-fresh [data-nudge]");
+if (!/^Act now · \d+ · costliest first$/.test(floor.firstTitle || "")) fail("Act now isn't the first section: " + floor.firstTitle);
+if (!/^Fay Fresh 10 min ?fresh lead · Parm · Web.*Nudge/.test(floor.fresh) || !floor.clock) fail("the fresh lead row or its clock is wrong: " + JSON.stringify(floor));
+await mgr.click(".mg-fresh-row [data-nudge]");
 await mgr.waitForFunction(async () => (await import("/js/store.js")).all("mgractions").some((a) => a.kind === "nudge" && a.leadId === "f1"), null, { timeout: 10000 }).catch(() => fail("the nudge about Fay wasn't recorded for the loop"));
 
 // --- The rep's Home: today's appointments to set, from the month.

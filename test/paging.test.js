@@ -49,8 +49,8 @@ console.log("check:", JSON.stringify(check));
 if (check.length !== 1 || !/^Parm · synced just now ?Customers: 1,250 on the server, 1,250 read ?Logged this month: 1,250 ?Plan steps: 2 · texts due now: 2 · held: 0$/.test(check[0])) fail("the board check is wrong: " + JSON.stringify(check));
 // And the Floor has the two texts, on customers past the thousandth.
 await page.goto(APP + "/#/floor");
-await page.waitForFunction(() => document.querySelector(".mg-due") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
-const due = await page.evaluate(() => document.querySelector(".mg-due").textContent.replace(/\s+/g, " ").trim());
+await page.waitForFunction(() => document.querySelector(".mg-now") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
+const due = await page.evaluate(() => document.querySelector(".mg-now").textContent.replace(/\s+/g, " ").trim());
 console.log("due:", due);
 if (!/Parm 2 texts ready ?oldest waiting 40 min · Customer, Customer/.test(due)) fail("the texts on the newest customers aren't on the Floor: " + due);
 

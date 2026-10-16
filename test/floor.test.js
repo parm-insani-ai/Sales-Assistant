@@ -58,38 +58,38 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
 
 const mgr = await pageAs("tm", "mgr@e.com");
 await mgr.goto(APP + "/#/floor");
-const settled = () => mgr.waitForFunction(() => document.querySelector(".mg-waiting") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 20000 });
+const settled = () => mgr.waitForFunction(() => document.querySelector(".mg-now") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 20000 });
 await settled();
 const read = () => mgr.evaluate(() => {
   const txt = (sel) => document.querySelector(sel)?.textContent.replace(/\s+/g, " ").trim() || "";
   const title = (name) => [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => t.startsWith(name)) || "";
   return {
     titles: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim().split(" ·")[0]),
-    waitingTitle: title("Waiting on a reply"), waiting: txt(".mg-waiting"),
-    dueTitle: title("Texts waiting to go"), due: txt(".mg-due"),
-    riskTitle: title("Appointments at risk"), risk: [...document.querySelectorAll(".mg-risk-row")].map((r) => r.dataset.kind + ": " + r.textContent.replace(/\s+/g, " ").trim()),
+    nowTitle: title("Act now"),
+    waiting: [...document.querySelectorAll(".mg-wait")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
+    due: [...document.querySelectorAll(".mg-due-rep")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
+    risk: [...document.querySelectorAll(".mg-risk-row")].map((r) => r.dataset.kind + ": " + r.textContent.replace(/\s+/g, " ").trim()),
     riskDraft: document.querySelector('.mg-risk-row[data-kind="unconfirmed"] [data-mtext]')?.dataset.draft,
-    svcTitle: title("In the service drive"), svc: txt(".mg-service"),
-    playsTitle: title("Today's plays"), plays: txt(".mg-plays"),
-    welcomeTitle: title("Welcomed today"), welcome: txt(".mg-welcome"),
+    svc: [...document.querySelectorAll(".mg-svc-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
+    welcome: [...document.querySelectorAll(".mg-welcome-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()).join(" | "),
+    kinds: [...document.querySelectorAll(".mg-now > [class*='mg-k-']")].map((n) => (n.className.match(/mg-k-(\w+)/) || [])[1]),
   };
 });
 let f = await read();
 console.log("floor:", JSON.stringify(f, null, 1));
-const order = ["Fresh leads waiting", "Waiting on a reply", "Texts waiting to go", "Appointments at risk", "Today on the floor", "In the service drive", "Today's plays", "Welcomed today", "Who to reach out to", "Today's huddle", "Needs a word", "Today's appointments"];
-const at = order.map((s) => f.titles.indexOf(s));
-if (at.some((i, k) => i < 0 || (k && i < at[k - 1]))) fail("the Floor's cards aren't in order: " + f.titles.join(" | "));
-if (!/1 · longest first/.test(f.waitingTitle) || !/Dana Muise 40 min.*Parm · texted: “Great, can I see it Saturday\?”.*Reply/.test(f.waiting)) fail("Dana isn't shown waiting on a reply: " + f.waiting);
-if (!/1 unconfirmed · 1 to rebook/.test(f.riskTitle)) fail("the at-risk count is wrong: " + f.riskTitle);
+// Four sections, and the one list in cost order: fresh lead, waiting, texts not sent, at risk, no welcome, service drive.
+if (f.titles.join("|") !== "Act now|Today's appointments|Today on the floor|Today's huddle") fail("the Floor isn't the four sections: " + f.titles.join(" | "));
+if (!/^Act now · 7 · costliest first$/.test(f.nowTitle)) fail("the Act now count is wrong: " + f.nowTitle);
+if (f.kinds.join() !== "fresh,wait,due,risk,risk,welcome,svc") fail("the list isn't in cost order: " + f.kinds.join());
+if (!/Dana Muise 40 min.*Parm · texted: “Great, can I see it Saturday\?”.*Reply/.test(f.waiting)) fail("Dana isn't shown waiting on a reply: " + f.waiting);
 if (!f.risk.some((r) => /^unconfirmed: Ken Boudreau (today|tomorrow) \d\d:\d\d.*Parm · test drive · not confirmed.*Text/.test(r))) fail("Ken's unconfirmed test drive isn't at risk: " + JSON.stringify(f.risk));
 if (!f.risk.some((r) => /^noshow: Nick Noshow no-show.*Parm · .* · not rebooked.*Text/.test(r))) fail("Nick's no-show isn't listed to rebook: " + JSON.stringify(f.risk));
 if (!/^Hi Ken, it's Sam at O'Regan's Nissan Halifax\. Just confirming your test drive (today|tomorrow) \d\d:\d\d with Parm — reply YES/.test(f.riskDraft || "")) fail("the confirmation draft is wrong: " + f.riskDraft);
-if (!/1 today and tomorrow/.test(f.svcTitle) || !/Sue Service.*today 10:30.*2021 Nissan Rogue SV · Parm/.test(f.svc) || !/Send/.test(f.svc)) fail("Sue isn't in the service drive card with a Send: " + f.svc);
-if (!/0 of 2 reached/.test(f.playsTitle) || !/Parm 0 of 2 reached.*Two to move today\..*Dana Muise: Answer Dana about Saturday.*Ken Boudreau: Confirm Ken's test drive/.test(f.plays)) fail("Parm's plays aren't shown: " + f.plays);
-if (!/1 logged · 0 welcomed/.test(f.welcomeTitle) || !/Wes Walkin.*Parm · Sentra · no text yet.*Welcome now/.test(f.welcome)) fail("Wes isn't waiting for a welcome: " + f.welcome);
+if (!/Sue Service.*in service today 10:30.*2021 Nissan Rogue SV · Parm/.test(f.svc) || !/Send/.test(f.svc)) fail("Sue isn't in the list from the service drive with a Send: " + f.svc);
+if (!/Wes Walkin.*Parm · Sentra · logged today, no text yet.*Welcome now/.test(f.welcome)) fail("Wes isn't waiting for a welcome: " + f.welcome);
 
-if (!/2 drafted, not sent/.test(f.dueTitle) || !/Parm 2 texts ready.*oldest waiting 2 h · Wes \(welcome\), Dana.*Nudge/.test(f.due)) fail("the texts Parm hasn't sent aren't on the Floor: " + f.due);
-await mgr.click(".mg-due [data-dnudge]");
+if (!/Parm 2 texts ready.*oldest waiting 2 h · Wes \(welcome\), Dana.*Nudge/.test(f.due)) fail("the texts Parm hasn't sent aren't on the Floor: " + f.due);
+await mgr.click(".mg-now [data-dnudge]");
 await mgr.waitForFunction(async () => (await (await fetch("/__nudges")).json()).length > 0, null, { timeout: 8000 });
 const dueNudge = (await (await fetch(APP + "/__nudges")).json())[0];
 if (!/2 texts are ready to send/.test(dueNudge.title) || !/2 h/.test(dueNudge.body)) fail("the nudge about unsent texts is wrong: " + JSON.stringify(dueNudge));
@@ -115,22 +115,20 @@ await mgr.click('.modal [data-act="send"]');
 await mgr.waitForFunction(async () => (await (await fetch("/__mtexts")).json()).length === 1, null, { timeout: 8000 });
 mtexts = await (await fetch(APP + "/__mtexts")).json();
 if (mtexts[0].rep !== U1 || mtexts[0].leadId !== "l1" || mtexts[0].to !== "9025551111") fail("the manager's text didn't go to Dana through Parm's book: " + JSON.stringify(mtexts[0]));
-await mgr.waitForFunction(() => /Every customer who wrote has been answered/.test(document.querySelector(".mg-waiting")?.textContent || ""), null, { timeout: 15000 }).catch(() => fail("after the reply, Dana is still shown waiting"));
-f = await read();
-if (!/1 of 2 reached/.test(f.playsTitle)) fail("answering Dana didn't count as reaching the play about her: " + f.playsTitle);
+await mgr.waitForFunction(() => document.querySelector(".mg-now") && !document.querySelector(".mg-wait"), null, { timeout: 15000 }).catch(() => fail("after the reply, Dana is still shown waiting"));
 
 // --- The service drive: hand Sue to Parm.
-await mgr.click(".mg-service [data-hand]");
-await mgr.waitForFunction(() => /Sent/.test(document.querySelector(".mg-service [data-hand]")?.textContent || ""), null, { timeout: 8000 });
+await mgr.click(".mg-svc-row [data-hand]");
+await mgr.waitForFunction(() => /Sent/.test(document.querySelector(".mg-svc-row [data-hand]")?.textContent || ""), null, { timeout: 8000 });
 const task = await mgr.evaluate(async (U1) => { const bk = await import("/js/backend.js"); return (await bk.readRecords(U1, "tasks")).map((r) => r.data).find((t) => t.leadId === "l4"); }, U1);
 if (!task || !/Sue Service/.test(task.title)) fail("handing Sue over didn't put a to-do in Parm's book: " + JSON.stringify(task));
 
 // --- Welcome Wes now.
-await mgr.click(".mg-welcome [data-welcome]");
+await mgr.click(".mg-welcome-row [data-welcome]");
 await mgr.waitForFunction(async () => (await (await fetch("/__welcomes")).json()).length === 1, null, { timeout: 8000 });
 const w = (await (await fetch(APP + "/__welcomes")).json())[0];
 if (w.rep !== U1 || w.leadId !== "l5") fail("the welcome didn't go to Wes: " + JSON.stringify(w));
-await mgr.waitForFunction(() => /1 logged · 1 welcomed/.test([...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ")).join(" ")), null, { timeout: 15000 }).catch(() => fail("after the welcome, Wes still counts as unwelcomed"));
+await mgr.waitForFunction(() => document.querySelector(".mg-now") && !document.querySelector(".mg-welcome-row"), null, { timeout: 15000 }).catch(() => fail("after the welcome, Wes is still listed as unwelcomed"));
 
 // --- A draft the agent held for a waiting customer: the Floor's button
 // sends it, and the push's link opens the sheet on it.
@@ -181,12 +179,12 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
 await mgr.evaluate(() => sessionStorage.removeItem("viniva:team-board"));
 await mgr.goto(APP + "/#/floor");
 await settled();
-const readDue = () => mgr.evaluate(() => ({ title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => t.startsWith("Texts waiting to go")), held: [...document.querySelectorAll(".mg-held-rep")].map((n) => n.textContent.replace(/\s+/g, " ").trim()), lines: [...document.querySelectorAll(".mg-due-found")].map((n) => n.textContent.replace(/\s+/g, " ").trim()) }));
+const readDue = () => mgr.evaluate(() => ({ title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => t.startsWith("Act now")), held: [...document.querySelectorAll(".mg-held-rep")].map((n) => n.textContent.replace(/\s+/g, " ").trim()), lines: [...document.querySelectorAll(".mg-due-found")].map((n) => n.textContent.replace(/\s+/g, " ").trim()) }));
 let found = await readDue();
 console.log("held:", JSON.stringify(found));
 const inTen = new Date(now.getTime() + 10 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "\\s");
 // The welcome in its hold is on the Floor as it is on Parm's Right now: held, with its minute.
-if (!/· 1 held$/.test(found.title || "")) fail("the held welcome isn't counted: " + found.title);
+if (!/· 1 held$/.test(found.title || "")) fail("the held welcome isn't counted in the Act now line: " + found.title);
 if (found.held.length !== 1 || !new RegExp("^Parm 1 text held ?sends " + inTen + " · Ira \\(welcome\\)$").test(found.held[0])) fail("the held welcome isn't on the card: " + JSON.stringify(found.held));
 if (found.lines.length) fail("the what-was-read lines show while a text is held: " + JSON.stringify(found.lines));
 // Nothing drafted at all: the card says what it read from each rep's phone.
@@ -199,7 +197,7 @@ await settled();
 found = await readDue();
 console.log("found:", JSON.stringify(found));
 const inHour = new Date(now.getTime() + 60 * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "\\s");
-if (!/· none$/.test(found.title || "")) fail("with every text sent the card still counts some: " + found.title);
+if (/held/.test(found.title || "")) fail("with every text sent the line still counts a held one: " + found.title);
 if (found.lines.length !== 1 || !new RegExp("^Parm · synced .* · 6 customers on file · 1 planned, next ready " + inHour + "$").test(found.lines[0])) fail("the empty card doesn't say what it read from Parm's phone: " + JSON.stringify(found.lines));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }

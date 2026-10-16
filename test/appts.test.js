@@ -92,7 +92,7 @@ if (!forged.message || !/only a manager/.test(forged.message)) fail("a rep could
 
 // --- Floor: fresh leads waiting, nudge, huddle.
 await mgr.click('.tabbar [data-route="/floor"]');
-await mgr.waitForFunction(() => /Fresh leads waiting/.test(document.body.textContent) && document.querySelector("[data-nudge]"), null, { timeout: 15000 });
+await mgr.waitForFunction(() => /Act now/.test(document.body.textContent) && document.querySelector("[data-nudge]"), null, { timeout: 15000 });
 const home = await mgr.evaluate(() => ({ waiting: [...document.querySelectorAll("[data-nudge]")].map((b) => b.closest(".row").textContent.replace(/\s+/g, " ").trim()), huddle: document.querySelector("#mg-huddle")?.textContent }));
 console.log("waiting:", JSON.stringify(home.waiting), "\nhuddle:", home.huddle);
 if (!home.waiting.some((w) => /Fresh Lead 3 h.*Parm.*Web/.test(w))) fail("the fresh lead isn't waiting with its age: " + JSON.stringify(home.waiting));

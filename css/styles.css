@@ -2253,6 +2253,24 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-math-head { display: flex; flex-direction: column; gap: 2px; }
 .mg-pace-read { margin-top: 3px; font-weight: 600; }
 .mg-show { margin-top: 2px; }
+
+/* The Floor: one list of what costs business by the hour, a thin edge
+   per kind; the day's record and the huddle folded under it. */
+.mg-now > .row, .mg-now > .mg-due-rep, .mg-now > .mg-held-rep { border-left: 3px solid var(--border); padding-left: 10px; margin-left: -2px; }
+.mg-now > .mg-k-fresh, .mg-now > .mg-k-wait { border-left-color: var(--danger); }
+.mg-now > .mg-k-due, .mg-now > .mg-k-risk, .mg-now > .mg-k-beback { border-left-color: var(--warning); }
+.mg-now > .mg-k-welcome, .mg-now > .mg-k-svc { border-left-color: var(--brand); }
+.mg-now > .mg-k-held { border-left-color: var(--border); }
+.mg-now > .row + .row, .mg-now > .mg-due-rep + .row, .mg-now > .row + .mg-due-rep, .mg-now > .mg-due-rep + .mg-due-rep, .mg-now > * + .mg-held-rep { border-top: 1px solid var(--border); }
+.mg-found { margin-top: 8px; }
+.mg-found > summary { cursor: pointer; list-style: none; }
+.mg-found > summary::-webkit-details-marker { display: none; }
+.mg-found > summary::before { content: "▸ "; font-size: 0.75rem; }
+.mg-found[open] > summary::before { content: "▾ "; }
+.mg-fold > summary { cursor: pointer; list-style: none; }
+.mg-fold > summary::-webkit-details-marker { display: none; }
+.mg-fold > summary.section-title::before { content: "▸ "; font-size: 0.8rem; color: var(--muted); }
+.mg-fold[open] > summary.section-title::before { content: "▾ "; }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
 .mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }

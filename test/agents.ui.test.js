@@ -50,16 +50,17 @@ await mgr.addInitScript(() => {
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [], settings: { salesperson: "Sam", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k", agentUrl: "http://127.0.0.1:8137/functions/v1/quick-api" } }));
 });
 
-// --- Floor: the unsold ups.
+// --- Floor: the unsold ups, on the review day (today, for this store).
+await rpc("tm", "store_config_set", { store: st.id, patch: { plan: { reviewDow: new Date().getDay() } } });
 await mgr.goto(APP + "/#/floor");
-await mgr.waitForFunction(() => document.querySelector(".mg-bebacks") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
+await mgr.waitForFunction(() => document.querySelector(".mg-beback") && !/reading…|Reading every rep/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
 const floor = await mgr.evaluate(() => ({
-  title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => /^Unsold ups/.test(t)),
+  title: [...document.querySelectorAll("#view .section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => /^Act now/.test(t)),
   rows: [...document.querySelectorAll(".mg-beback")].map((r) => r.textContent.replace(/\s+/g, " ").trim()),
   draft: document.querySelector(".mg-beback [data-mtext]")?.dataset.draft,
 }));
 console.log("floor:", JSON.stringify(floor));
-if (!/^Unsold ups · 1 quiet · be-backs close at 74%$/.test(floor.title || "")) fail("the unsold ups aren't counted: " + floor.title);
+if (!/^Act now · \d+ · costliest first/.test(floor.title || "")) fail("the unsold up isn't in the Act now list: " + floor.title);
 if (floor.rows.length !== 1 || !/^Una Unsold quiet 4 d ?Parm · working · Sentra · in 5 d ago · no plan/.test(floor.rows[0])) fail("Una isn't the one unsold up: " + JSON.stringify(floor.rows));
 if (!/^Hi Una, it's Sam at Store\. Parm mentioned you were in about the Sentra — is it still on your mind\?/.test(floor.draft || "")) fail("the be-back text isn't drafted: " + floor.draft);
 await mgr.click(".mg-beback [data-bnudge]");
