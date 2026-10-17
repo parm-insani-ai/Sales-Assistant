@@ -117,7 +117,7 @@ await rep.waitForFunction(async () => { const s = await import("/js/store.js"); 
 await rep.evaluate(() => { location.hash = "#/"; }); await rep.waitForTimeout(300);
 await rep.evaluate(() => { location.hash = "#/goals"; }); await rep.waitForTimeout(600);
 // The Goals page is the Sales target on Home now.
-const goals = await rep.evaluate(() => ({ hash: location.hash, said: (document.querySelector(".target-card")?.textContent || "").includes("set by your manager") }));
+const goals = await rep.evaluate(() => ({ hash: location.hash, said: (document.querySelector(".target-card")?.textContent || "").includes("Set by your manager") }));
 if (goals.hash !== "#/" || !goals.said) fail("the rep's target doesn't say it came from the manager: " + JSON.stringify(goals));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }

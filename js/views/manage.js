@@ -508,27 +508,45 @@ export function renderReps(view) {
               <div class="small mg-plan-line" style="margin-top:3px">${planLine(l, today)}${l.lastContacted ? ` <span class="muted">· last contact ${esc(formatDateTime(l.lastContacted).split(",")[0])}</span>` : ""}</div>
             </div>
             <span class="badge ${stageBadge(l.stage)}" style="flex:none">${esc(stageLabel(l.stage))}</span>
-          </div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody logged yet this month. Customers reps add, log a conversation with, book or sell land here.</div>`}</div>`;
+          </div>`).join("") : `<div class="muted small" style="padding:10px 16px">Nobody logged yet this month.</div>`}</div>`;
       }
+      // One rep per row: the month at the right, the day on the sub line,
+      // the four counts, then one line of when they synced and their target
+      // with the Targets button, and only when there's something to say, the
+      // call line, the coach line, the note.
+      const coachLine = (r) => {
+        if (!r.rates || !t || !t.rates) return "";
+        const sr = t.rates, rr = r.rates;
+        const gaps = [
+          rr.setRate != null && sr.setRate != null && rr.setRate < sr.setRate - 5 ? { k: "set rate", have: rr.setRate, store: sr.setRate, play: "ask for a time in the first reply — two options, not an open question" } : null,
+          rr.showRate != null && sr.showRate != null && rr.showRate < sr.showRate - 5 ? { k: "show rate", have: rr.showRate, store: sr.showRate, play: "confirm the night before with the car named, and text the morning of" } : null,
+          rr.closeOnShow != null && sr.closeOnShow != null && rr.closeOnShow < sr.closeOnShow - 5 ? { k: "closing on a show", have: rr.closeOnShow, store: sr.closeOnShow, play: "the deal read before the visit and a manager T.O. on every unsold show" } : null,
+          rr.closing != null && sr.closing != null && rr.closing < sr.closing - 5 ? { k: "closing", have: rr.closing, store: sr.closing, play: "fewer ups worked deeper: the follow-up plan on every customer logged, and the be-back list" } : null,
+        ].filter(Boolean).sort((x, y) => (x.have / x.store) - (y.have / y.store));
+        const g = gaps[0];
+        return g ? `<div class="small mg-coach" style="color:var(--warning);margin-top:4px"><b>Coach:</b> ${esc(g.k)} ${g.have}% against the store's ${g.store}% — ${esc(g.play)}.</div>` : "";
+      };
+      const callsLine = (r) => {
+        if (!r.calls || !r.calls.dials) return "";
+        const lp = t && t.loop && t.loop.byRep.find((x) => x.rep.user_id === r.member.user_id);
+        return `<div class="small muted mg-calls" style="margin-top:4px">${r.calls.days} days: ${r.calls.dials} call${r.calls.dials === 1 ? "" : "s"} · ${r.calls.connects} connected · <span style="${r.calls.booked ? "color:var(--success)" : ""}">${r.calls.booked} booked within a day</span>${lp && lp.tries ? ` · your taps: ${lp.set} of ${lp.tries} booked` : ""}</div>`;
+      };
+      const targetText = (r) => !r.goal ? "" : r.goal.fromStore ? `Target ${r.goal.units} units${r.goal.appts ? ` · ${r.goal.appts} appointments` : ""}, set by you` : r.goal.units ? `Their own target: ${r.goal.units} units` : "No target";
       return head + `
-        <div class="section-title" style="margin-top:0">By appointments set <span class="muted" style="font-weight:500;font-size:0.78rem">· tap for their day</span></div>
+        <div class="section-title" style="margin-top:0">By appointments set</div>
         <div class="card" style="padding:6px 0">
-          ${rows.map((r) => `
-            <div class="team-row mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer">
-              <div class="row" style="align-items:center">
-                <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
-                  ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today${r.textsDue && r.textsDue.length ? ` · <span style="color:var(--warning)">${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send</span>` : ""}</div><div class="small mg-synced" style="${syncedAgo(r.lastWrite).stale ? "color:var(--warning)" : "color:var(--muted)"}">${esc(syncedAgo(r.lastWrite).text)}</div>${r.note ? `<div class="small mg-row-note" style="color:var(--warning)">${esc(r.note)}</div>` : ""}${(() => { if (!r.rates || !t || !t.rates) return ""; const sr = t.rates, rr = r.rates; const gaps = [
-                    rr.setRate != null && sr.setRate != null && rr.setRate < sr.setRate - 5 ? { k: "set rate", have: rr.setRate, store: sr.setRate, play: "ask for a time in the first reply — two options, not an open question" } : null,
-                    rr.showRate != null && sr.showRate != null && rr.showRate < sr.showRate - 5 ? { k: "show rate", have: rr.showRate, store: sr.showRate, play: "confirm the night before with the car named, and text the morning of" } : null,
-                    rr.closeOnShow != null && sr.closeOnShow != null && rr.closeOnShow < sr.closeOnShow - 5 ? { k: "closing on a show", have: rr.closeOnShow, store: sr.closeOnShow, play: "the deal read before the visit and a manager T.O. on every unsold show" } : null,
-                    rr.closing != null && sr.closing != null && rr.closing < sr.closing - 5 ? { k: "closing", have: rr.closing, store: sr.closing, play: "fewer ups worked deeper: the follow-up plan on every customer logged, and the be-back list" } : null,
-                  ].filter(Boolean).sort((a, b) => (a.have / a.store) - (b.have / b.store)); const g = gaps[0]; return g ? `<div class="small mg-coach" style="color:var(--warning)"><b>Coach:</b> ${esc(g.k)} ${g.have}% against the store's ${g.store}% — ${esc(g.play)}.</div>` : ""; })()}${r.calls ? `<div class="small muted mg-calls">${r.calls.days} days: ${r.calls.dials} call${r.calls.dials === 1 ? "" : "s"} · ${r.calls.connects} connected · <span style="${r.calls.booked ? "color:var(--success)" : ""}">${r.calls.booked} booked within a day</span>${(() => { const lp = t && t.loop && t.loop.byRep.find((x) => x.rep.user_id === r.member.user_id); return lp && lp.tries ? ` · your taps: ${lp.set} of ${lp.tries} booked` : ""; })()}</div>` : ""}`}</div>
+          ${rows.map((r) => { const sy = syncedAgo(r.lastWrite); return `
+            <div class="team-row mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer">
+              <div class="row" style="align-items:flex-start">
+                <div class="row-main"><div class="row-title" style="font-size:1rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
+                  ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today${r.textsDue && r.textsDue.length ? ` · <span style="color:var(--warning)">${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send</span>` : ""}</div>`}</div>
                 ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r.sales.units, r.goal.units, r.goal.pace)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.insight && r.insight.needs.goal ? (r.insight.needs.onTrack ? "on track" : `needs ${r.insight.needs.apptsNeeded} · ${r.insight.needs.perDay}/day`) : "no goal set"}</div></div>` : ""}
               </div>
               ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span>${r.sheet ? `<span><b>${r.sheet.spoke}</b> logged this month</span>` : ""}</div>` : ""}
-              <div class="row" style="margin-top:6px;gap:8px"><span class="small muted" style="flex:1">${r.goal ? (r.goal.fromStore ? `Target ${r.goal.units} units${r.goal.appts ? ` · ${r.goal.appts} appointments` : ""}, set by you` : r.goal.units ? `Their own target: ${r.goal.units} units` : "No target this month") : ""}</span><button class="btn btn-ghost btn-sm" data-target="${esc(r.member.user_id)}">${icon("target")} Targets</button></div>
-            </div>`).join("")}
-          ${!rows.length ? `<div class="muted small" style="padding:10px 16px">No reps on the board yet. Invite one from the "+".</div>` : ""}
+              <div class="row" style="margin-top:6px;gap:8px;align-items:center"><span class="small muted" style="flex:1;min-width:0"><span class="mg-synced" style="${sy.stale ? "color:var(--warning)" : ""}">${esc(sy.text)}</span>${r.error ? "" : ` · ${esc(targetText(r))}`}</span><button class="btn btn-ghost btn-sm" data-target="${esc(r.member.user_id)}" style="flex:none">${icon("target")} Targets</button></div>
+              ${r.error ? "" : callsLine(r) + coachLine(r) + (r.note ? `<div class="small mg-row-note" style="color:var(--warning);margin-top:4px">${esc(r.note)}</div>` : "")}
+            </div>`; }).join("")}
+          ${!rows.length ? `<div class="muted small" style="padding:10px 16px">No reps yet. Invite one from the "+".</div>` : ""}
         </div>`;
     },
     wire: ({ el, team, draw, refresh }) => {

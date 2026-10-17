@@ -467,8 +467,8 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // agent's — for the loop.
   const storeTexts = texts.filter((t) => t.dir === "out" && /^(manager|agent)/.test(String(t.via || ""))).map((t) => ({ leadId: t.leadId || "", at: String(t.at || t.createdAt || ""), via: String(t.via || "") }));
   // Why a row reads empty, when it does.
-  const readNote = bookCount === 0 ? "Nothing in their cloud copy yet — a new account, a phone that hasn't synced, or a store you don't manage."
-    : bookCount > 0 && !byId.size && !rows(planTasks).length && !activity.length ? `${bookCount.toLocaleString()} customers on file but nothing recent came back — pull down to read again.` : "";
+  const readNote = bookCount === 0 ? "Nothing in their cloud copy yet"
+    : bookCount > 0 && !byId.size && !rows(planTasks).length && !activity.length ? `${bookCount.toLocaleString()} on file, nothing recent came back — pull down to read again` : "";
   // The last message with each customer, text or email. If it came from
   // them and nobody answered, they're waiting.
   const lastMsg = new Map();
