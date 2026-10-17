@@ -179,12 +179,15 @@ const danaForge = await rep2.evaluate(async (U1) => { const bk = await import("/
 if (!/only an admin/.test(danaForge)) fail("a manager could appoint a manager through the database: " + danaForge);
 
 // The admin adds a fourth account by email, straight in as a manager.
+await mgr.evaluate(() => { const d = document.querySelector(".admin-store .team-add"); if (d) d.open = true; });
 await mgr.fill(".admin-store .admin-email", "rep4@e.com");
 await mgr.click('.admin-store [data-add]');
 await mgr.waitForFunction(() => /rep4@e\.com/.test(document.querySelector(".admin-store")?.textContent || ""), null, { timeout: 10000 });
 const added = await (await fetch(APP + "/__stores")).json();
 if (!added[0].members.some((m) => m.email === "rep4@e.com" && m.role === "manager")) fail("adding a manager by email didn't take: " + JSON.stringify(added[0].members));
-await rep1.click('[data-act="leave"]');
+await rep1.click('[data-me]');
+await rep1.waitForSelector('.modal [data-act="leave"]');
+await rep1.click('.modal [data-act="leave"]');
 await rep1.waitForSelector('.modal [data-act="ok"]');
 await rep1.click('.modal [data-act="ok"]');
 await rep1.waitForSelector('#st-code', { timeout: 10000 });

@@ -67,7 +67,7 @@ await mgr.waitForFunction(async () => (await (await fetch("/__nudges")).json()).
 
 // --- Reps: the coach line on Dana (show rate 0 against the store's), none on Parm.
 await mgr.goto(APP + "/#/reps");
-await mgr.waitForFunction(() => document.querySelector(".mg-calls"), null, { timeout: 30000 });
+await mgr.waitForFunction(() => document.querySelector(".team-row") && !/reading…/.test(document.querySelector("#view").textContent), null, { timeout: 30000 });
 const reps = await mgr.evaluate(() => [...document.querySelectorAll(".team-row")].map((r) => ({ name: r.querySelector(".row-title").textContent.trim(), coach: r.querySelector(".mg-coach")?.textContent.replace(/\s+/g, " ").trim() || "" })));
 console.log("reps:", JSON.stringify(reps));
 const dana = reps.find((r) => /^Dana/.test(r.name)), parm = reps.find((r) => /^Parm/.test(r.name));

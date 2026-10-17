@@ -91,36 +91,48 @@ export function renderTeam(view, { param } = {}) {
   function storeHTML(mine, manager) {
     const own = admin && stores ? stores.find((x) => x.id === team.id) : null;
     const members = own ? own.members : (team.members || []);
-    const roleBtn = (m) => m.user_id === me.id ? "" : own ? `<button class="btn btn-ghost btn-sm" data-arole="${esc(m.user_id)}" data-astore="${esc(own.id)}" style="margin-left:6px">…</button>` : manager && m.role === "rep" ? `<button class="btn btn-ghost btn-sm" data-role="${esc(m.user_id)}" style="margin-left:6px">…</button>` : "";
+    const roleBtn = (m) => m.user_id === me.id ? `<button class="btn btn-ghost btn-sm" data-me style="margin-left:6px" aria-label="You">…</button>` : own ? `<button class="btn btn-ghost btn-sm" data-arole="${esc(m.user_id)}" data-astore="${esc(own.id)}" style="margin-left:6px">…</button>` : manager && m.role === "rep" ? `<button class="btn btn-ghost btn-sm" data-role="${esc(m.user_id)}" style="margin-left:6px">…</button>` : "";
     return `
-      <div class="section-title" style="display:flex;align-items:center;gap:8px"><span style="flex:1;min-width:0">${esc(team.name)} <span class="muted" style="font-weight:500;font-size:0.78rem">· ${members.length} member${members.length === 1 ? "" : "s"}</span></span>${own ? `<button class="btn btn-ghost btn-sm" data-store-menu="${esc(own.id)}" style="flex:none">…</button>` : ""}</div>
-      <div class="card${own ? " admin-store" : ""}"${own ? ` data-store="${esc(own.id)}"` : ""}>
+      <div class="card team-card${own ? " admin-store" : ""}"${own ? ` data-store="${esc(own.id)}"` : ""}>
+        <div class="row team-head" style="align-items:center;margin-bottom:4px"><div class="row-main"><div class="strong" style="font-size:1.12rem;letter-spacing:-0.012em">${esc(team.name)}</div><div class="small muted">${members.length} member${members.length === 1 ? "" : "s"}</div></div>${own ? `<button class="btn btn-ghost btn-sm" data-store-menu="${esc(own.id)}" style="flex:none" aria-label="Store">…</button>` : ""}</div>
         ${members.map((m) => `
-          <div class="row" style="padding:7px 0">
+          <div class="row team-member" style="padding:9px 0;border-top:1px solid var(--border)">
             <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(m))}${m.user_id === me.id ? ' <span class="muted small">(you)</span>' : ""}</div><div class="row-sub">${esc(m.email || "")}</div></div>
-            <div class="row-meta"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>${roleBtn(m)}</div>
+            <div class="row-meta" style="display:flex;align-items:center"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>${roleBtn(m)}</div>
           </div>`).join("")}
-        ${own ? `<div class="row" style="gap:6px;margin-top:10px;align-items:stretch">
-          <input class="admin-email" placeholder="Email" autocapitalize="off" autocomplete="off" style="flex:1;min-width:0">
-          <select class="admin-role" style="flex:0 0 auto"><option value="manager">Manager</option><option value="rep">Rep</option></select>
-          <button class="btn btn-primary btn-sm" data-add="${esc(own.id)}" style="flex:0 0 auto">Add</button>
-        </div>` : ""}
-        <div class="btn-row" style="margin-top:10px">
-          <button class="btn btn-ghost btn-sm" data-act="rename" style="flex:1">${mine && mine.name ? "Change my name" : "Set my name"}</button>
-          <button class="btn btn-ghost btn-sm" data-act="leave" style="flex:0 0 auto">Leave</button>
-        </div>
+        ${own ? `<details class="team-add"><summary class="small team-add-head">Add by email</summary>
+          <div class="row" style="gap:6px;margin:6px 0 2px;align-items:stretch">
+            <input class="admin-email" placeholder="Email" autocapitalize="off" autocomplete="off" style="flex:1;min-width:0">
+            <select class="admin-role" style="flex:0 0 auto"><option value="manager">Manager</option><option value="rep">Rep</option></select>
+            <button class="btn btn-primary btn-sm" data-add="${esc(own.id)}" style="flex:0 0 auto">Add</button>
+          </div></details>` : ""}
       </div>`;
+  }
+  // Your own row's menu: your name on the board, and leaving the store.
+  function openMeSheet(mine) {
+    openModal(mine && mine.name ? mine.name : "You", (close) => {
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <button class="btn btn-ghost btn-block" data-act="rename" style="margin-bottom:8px">${mine && mine.name ? "Change my name" : "Set my name"}</button>
+        <button class="btn btn-danger btn-block" data-act="leave">Leave the store</button>`;
+      root.querySelector('[data-act="rename"]').addEventListener("click", () => { close(); openNameSheet(mine); });
+      root.querySelector('[data-act="leave"]').addEventListener("click", async () => {
+        close();
+        if (!(await confirmDialog(`Leave ${team.name}? A manager can invite you back with the link.`, { confirmLabel: "Leave" }))) return;
+        try { await leaveStore(); team = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
+      });
+      return root;
+    });
   }
   function inviteHTML() {
     return `
-      <div class="section-title">Invite a rep</div>
+      <div class="section-title">Invite a rep <span class="muted" style="font-weight:500;font-size:0.78rem">· code <span class="mono">${esc(team.code)}</span></span></div>
       <div class="card">
-        <div class="mono small" style="word-break:break-all;background:var(--surface-2);border-radius:10px;padding:10px" id="invite-link">${esc(inviteLink(team.code))}</div>
-        <div class="btn-row" style="margin-top:8px">
-          <button class="btn btn-primary btn-sm btn-block" data-act="copy-invite">${icon("send")} Copy link</button>
-          ${navigator.share ? `<button class="btn btn-ghost btn-sm" data-act="share-invite" style="flex:0 0 auto">Share</button>` : ""}
+        <div class="row" style="gap:8px;align-items:center">
+          <div class="mono small" id="invite-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2)">${esc(inviteLink(team.code))}</div>
+          <button class="btn btn-primary btn-sm" data-act="copy-invite" style="flex:none">Copy</button>
+          ${navigator.share ? `<button class="btn btn-ghost btn-sm" data-act="share-invite" style="flex:none">Share</button>` : ""}
         </div>
-        <div class="small muted" style="margin-top:8px">Code <span class="mono">${esc(team.code)}</span></div>
       </div>`;
   }
   // Everything else, folded: the admin's other stores, the board check, the account line.
@@ -163,11 +175,7 @@ export function renderTeam(view, { param } = {}) {
     on('[data-act="recheck"]', refreshTeam);
     on('[data-act="copy-invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied", "success"); } catch { toast("Copy the link from the box", "warn"); } });
     on('[data-act="share-invite"]', () => navigator.share({ title: `Join ${team.name} on viniva`, text: `Tap to join ${team.name} on viniva`, url: inviteLink(team.code) }).catch(() => {}));
-    on('[data-act="rename"]', () => openNameSheet(mine));
-    on('[data-act="leave"]', async () => {
-      if (!(await confirmDialog(`Leave ${team.name}? A manager can invite you back with the link.`, { confirmLabel: "Leave" }))) return;
-      try { await leaveStore(); team = null; toast("You've left the store", "success"); draw(); } catch (e) { toast(e.message || "Couldn't leave", "danger"); }
-    });
+    on('[data-me]', () => openMeSheet(mine));
     el.querySelectorAll("[data-role]").forEach((b) => b.addEventListener("click", () => openRoleSheet((team.members || []).find((m) => m.user_id === b.dataset.role))));
     on('[data-act="plan-save"]', async (ev) => {
       const btn = ev.currentTarget; btn.disabled = true;

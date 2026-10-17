@@ -2267,6 +2267,9 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-list > .mg-k-held { border-left-color: var(--border); }
 .mg-list > .row + .row, .mg-list > .mg-due-rep + .row, .mg-list > .row + .mg-due-rep, .mg-list > .mg-due-rep + .mg-due-rep, .mg-list > * + .mg-held-rep { border-top: 1px solid var(--border); }
 .mg-today-watch { margin-top: 2px; line-height: 1.4; }
+.team-add > summary.team-add-head { list-style: none; cursor: pointer; color: var(--brand); font-weight: 600; padding: 10px 0 2px; border-top: 1px solid var(--border); margin-top: 2px; }
+.team-add > summary.team-add-head::-webkit-details-marker { display: none; }
+.team-add > summary.team-add-head::marker { content: ""; }
 .mg-found { margin-top: 8px; }
 /* The store's folds share one disclosure mark with the rep app's folds:
    a thin chevron at the right edge, pointing down while closed, turned
