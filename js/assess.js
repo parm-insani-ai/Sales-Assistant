@@ -500,8 +500,10 @@ export function assessAll() {
   // A read that would price the whole book again — nothing priced yet this
   // launch, or a lot, a special or a money setting that changed — is made in
   // the background, and the last read stands in until it lands (the pages
-  // redraw on warmBook's promise). Anything less is re-read here, in place.
-  if (cache.byId && !bookCheap()) { warmBook().catch(() => {}); return cache; }
+  // redraw on warmBook's promise). Anything less — a switch flipped, a
+  // contact logged — is re-read here, in place: a few hundred milliseconds
+  // at most, and the answer is right away.
+  if (cache.byId && !radarCheap()) { warmBook().catch(() => {}); return cache; }
   const r = readBook(cache.per ? cache : null);
   cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one, per: r.per, global: r.global };
   bookStats.syncRuns++;

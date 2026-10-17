@@ -37,42 +37,84 @@ export function renderSettings(view) {
   const s = store.getSettings();
   const sampleLoaded = hasSampleData();
   const el = document.createElement("div");
+  // Hours as a person says them, for the selects below.
+  const hourOpts = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === Number(sel) ? "selected" : ""}>${h % 12 || 12}${h < 12 ? "am" : "pm"}</option>`).join("");
+  const hourSay = (h) => `${h % 12 || 12}${h < 12 ? "am" : "pm"}`;
+  const n = (x) => (Array.isArray(x) ? x.length : 0);
+  // What each fold holds, on its one line, so nothing needs opening to be known.
+  const mailSay = outlookConnected() ? `Outlook${s.smsFrom ? " · texting" : ""}` : gmailConnected() ? `Gmail${s.smsFrom ? " · texting" : ""}` : s.smsFrom ? "Texting on" : "Not connected";
+  const fold = (key, title, say, body, open = false) => `
+    <details class="card set-fold" data-fold="${key}" ${open ? "open" : ""}>
+      <summary><span class="set-fold-t">${title}</span><span class="set-fold-s small muted">${esc(say || "")}</span></summary>
+      <div class="set-fold-b">${body}</div>
+    </details>`;
   el.innerHTML = `
+    <div class="hero"><div class="hero-title">Settings</div></div>
 
-    <div class="section-title">Your info</div>
+    <div class="section-title" style="margin-top:0">You</div>
     <div class="card">
-      <div class="field"><label>Your name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
+      <div class="field"><label>Name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
       <div class="field"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
-      <div class="field"><label>Contact phone (for listings)</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
-      <div class="field"><label>Dealer plate (the tracker sheet's "My Plate")</label><input id="s-myplate" value="${esc(s.myPlate || "")}" placeholder="D-23553"></div>
-      <div class="field"><label>Your email</label><input id="s-email" type="email" value="${esc(s.contactEmail || "")}" placeholder="you@email.com"></div>
-      <div class="field" style="margin-bottom:0"><label>Google review link</label><input id="s-review" type="url" value="${esc(s.reviewLink || "")}" placeholder="https://g.page/r/…/review"></div>
-      <div class="hint">Used to fill in {salesperson} / {dealership} in message templates, your contact info in Marketplace listings, and as the default address for email tests. The review link gets folded into the day-after-delivery thank-you text (Google Business Profile → Ask for reviews → copy the link).</div>
+      <div class="field-inline">
+        <div class="field"><label>Phone</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
+        <div class="field"><label>Email</label><input id="s-email" type="email" value="${esc(s.contactEmail || "")}" placeholder="you@email.com"></div>
+      </div>
+      <div class="field-inline">
+        <div class="field" style="margin-bottom:0"><label>Dealer plate</label><input id="s-myplate" value="${esc(s.myPlate || "")}" placeholder="D-23553"></div>
+        <div class="field" style="margin-bottom:0"><label>Google review link</label><input id="s-review" type="url" value="${esc(s.reviewLink || "")}" placeholder="https://g.page/r/…"></div>
+      </div>
+      <div class="hint">Your name and store go into every text; the review link into the delivery thank-you.</div>
     </div>
 
-    <div class="section-title">Cloud sync &amp; account</div>
+    <div class="section-title">Account</div>
     <div class="card" id="cloud-slot"></div>
 
     <div class="section-title">Notifications</div>
-    <div class="card" id="push-slot"></div>
+    <div class="card">
+      <div id="push-slot"></div>
+      <div class="set-sep"></div>
+      <label class="switch" style="margin-bottom:14px"><input id="s-proactive" type="checkbox" ${s.proactive !== false ? "checked" : ""}><span>Tell me when something needs me</span></label>
+      <div class="field-inline">
+        <div class="field"><label>Quiet from</label><select id="s-quietfrom">${hourOpts(s.quietFrom ?? 21)}</select></div>
+        <div class="field"><label>Quiet until</label><select id="s-quietto">${hourOpts(s.quietTo ?? 8)}</select></div>
+      </div>
+      <div class="field-inline">
+        <div class="field"><label>Hours from</label><select id="s-hoursfrom">${hourOpts(s.hoursFrom ?? 9)}</select></div>
+        <div class="field"><label>Until</label><select id="s-hoursto">${hourOpts(s.hoursTo ?? 18)}</select></div>
+      </div>
+      <div class="btn-row" style="margin-bottom:10px" id="s-hoursdays">
+        ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<button type="button" class="btn btn-sm ${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i) ? "btn-primary" : "btn-ghost"}" data-day="${i}" aria-pressed="${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i)}" style="flex:1;padding-left:0;padding-right:0">${d}</button>`).join("")}
+      </div>
+      <div class="hint" style="margin-bottom:12px">One notification each, nothing in the quiet hours. Texts waiting on your OK arrive in business hours.</div>
+      <button class="btn btn-ghost btn-block" data-act="save-proactive">Save</button>
+    </div>
 
-    <div class="section-title">Calendar feeds</div>
-    <div class="card" id="feeds-slot"></div>
-
-    <div class="section-title">Voice agent</div>
+    <div class="section-title">The agent</div>
     <div class="card" id="agent-slot"></div>
 
-    <div class="section-title">Email</div>
-    <div class="card" id="email-slot"></div>
-
-    <div class="section-title">Booking page</div>
-    <div class="card" id="booking-slot"></div>
-
-    <div class="section-title">Deal defaults</div>
-    <div class="card">
+    <div class="section-title">More</div>
+    ${fold("booking", "Booking page", backend.currentUser() && (s.agentUrl || "").trim() ? `${hourSay(s.bookStart ?? 9)}–${hourSay(s.bookEnd ?? 19)} · ${s.bookSlot || 30} min` : "", `<div id="booking-slot"></div>`)}
+    ${fold("mail", "Email & texting", mailSay, `<div id="email-slot"></div>`)}
+    ${fold("plan", "Follow-up plan", `${n(s.cadence)} touch${n(s.cadence) === 1 ? "" : "es"} · ${s.dailyProspects ?? 10} a day`, `
       <div class="field-inline">
-        <div class="field"><label>Sales tax % (HST)</label><input id="s-tax" type="number" step="0.01" inputmode="decimal" value="${esc(s.taxRate)}"></div>
-        <div class="field"><label>Doc fee (every car)</label><input id="s-doc" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
+        <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
+        <div class="field"><label>Prospects a day</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
+      </div>
+      <label class="switch" style="margin-bottom:14px"><input id="s-autocad" type="checkbox" ${s.autoCadence ? "checked" : ""}><span>Start a plan on every new lead</span></label>
+      <div class="small muted" style="margin:0 0 6px">The touches on each new lead</div>
+      <div class="cad-list"></div>
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-cad" style="margin-top:10px">+ Add a touch</button>`)}
+    ${fold("templates", "Message templates", `${n(s.messageTemplates)}`, `
+      <div class="small muted" style="margin-bottom:10px">Fill in by themselves: <span class="mono">{firstName}</span> <span class="mono">{name}</span> <span class="mono">{vehicle}</span> <span class="mono">{salesperson}</span> <span class="mono">{dealership}</span></div>
+      <div class="tpl-list"></div>
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-tpl" style="margin-top:10px">+ New template</button>`)}
+    ${fold("checklist", "Delivery checklist", `${n(s.deliveryChecklist)} item${n(s.deliveryChecklist) === 1 ? "" : "s"}`, `
+      <div class="tmpl-list"></div>
+      <button class="btn btn-ghost btn-sm btn-block" data-act="add-tmpl" style="margin-top:10px">+ Add item</button>`)}
+    ${fold("deals", "Deal defaults", `${s.taxRate}% · $${s.docFee} doc · ${s.defaultApr}%`, `
+      <div class="field-inline">
+        <div class="field"><label>Sales tax %</label><input id="s-tax" type="number" step="0.01" inputmode="decimal" value="${esc(s.taxRate)}"></div>
+        <div class="field"><label>Doc fee</label><input id="s-doc" type="number" inputmode="decimal" value="${esc(s.docFee)}"></div>
       </div>
       <div class="field-inline">
         <div class="field"><label>Default APR %</label><input id="s-apr" type="number" step="0.01" inputmode="decimal" value="${esc(s.defaultApr)}"></div>
@@ -89,117 +131,58 @@ export function renderSettings(view) {
       </div>
       <div class="field-inline">
         <div class="field"><label>AVP — Rogue</label><input id="s-avp-rogue" type="number" inputmode="decimal" value="${esc(s.avpRogue ?? 699)}"></div>
-        <div class="field"><label>AVP — all others</label><input id="s-avp-other" type="number" inputmode="decimal" value="${esc(s.avpOther ?? 599)}"></div>
+        <div class="field"><label>AVP — others</label><input id="s-avp-other" type="number" inputmode="decimal" value="${esc(s.avpOther ?? 599)}"></div>
       </div>
-      <div class="hint" style="margin-bottom:10px">The doc fee is charged on every car sold, new or used. New vehicles add these on top: AVP, freight, air tax and tire levy are all taxed; plate registration isn't.</div>
-      <div class="small strong" style="margin:4px 0 8px">Trade estimate (when no appraisal is on file)</div>
+      <div class="hint" style="margin-bottom:10px">The doc fee is on every car. New vehicles add these; all taxed except plate registration.</div>
+      <div class="small strong" style="margin:4px 0 8px">Trade estimate, with no appraisal on file</div>
       <div class="field-inline">
-        <div class="field"><label>Expected km / year</label><input id="s-tr-kmyr" type="number" inputmode="numeric" value="${esc(s.tradeKmPerYear ?? 20000)}"></div>
-        <div class="field"><label>$ per km over/under</label><input id="s-tr-kmrate" type="number" step="0.01" inputmode="decimal" value="${esc(s.tradeKmRate ?? 0.05)}"></div>
+        <div class="field"><label>Km a year</label><input id="s-tr-kmyr" type="number" inputmode="numeric" value="${esc(s.tradeKmPerYear ?? 20000)}"></div>
+        <div class="field"><label>$ per km over or under</label><input id="s-tr-kmrate" type="number" step="0.01" inputmode="decimal" value="${esc(s.tradeKmRate ?? 0.05)}"></div>
       </div>
       <div class="field-inline">
         <div class="field"><label>Recon budget $</label><input id="s-tr-recon" type="number" inputmode="decimal" value="${esc(s.tradeRecon ?? 1500)}"></div>
         <div class="field"><label>Wholesale margin %</label><input id="s-tr-margin" type="number" step="0.1" inputmode="decimal" value="${esc(s.tradeMarginPct ?? 9)}"></div>
       </div>
-      <div class="hint" style="margin-bottom:10px">The book estimate works like an appraisal: trim MSRP on an age curve, adjusted for km and condition, sanity-checked against comparable used units on your own lot (retail − margin − recon). Tune these to match how your desk actually appraises.</div>
-      <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>
-    </div>
-
-    <div class="section-title">Prospecting & follow-up</div>
-    <div class="card">
-      <div class="field-inline">
-        <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
-        <div class="field"><label>Prospects per day</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
-        <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end">
-          <label style="margin-bottom:8px">Auto follow-up plan</label>
-          <label class="switch"><input id="s-autocad" type="checkbox" ${s.autoCadence ? "checked" : ""}><span>Start a plan on every new lead</span></label>
-        </div>
-      </div>
-      <div class="small muted" style="margin:6px 0 8px">Your follow-up cadence — the touches auto-scheduled for each new lead:</div>
-      <div class="cad-list"></div>
-      <button class="btn btn-ghost btn-sm btn-block" data-act="add-cad" style="margin-top:10px">+ Add a touch</button>
-    </div>
-
-    <div class="section-title">Delivery checklist template</div>
-    <div class="card">
-      <div class="small muted" style="margin-bottom:10px">Used every time you start a new delivery. Existing deliveries keep their own copy.</div>
-      <div class="tmpl-list"></div>
-      <button class="btn btn-ghost btn-sm btn-block" data-act="add-tmpl" style="margin-top:10px">+ Add item</button>
-    </div>
-
-    <div class="section-title">Dealer inventory sites</div>
-    <div class="card">
-      <div class="small muted" style="margin-bottom:10px">Powers the “Find a car” search launcher. The network site is opened pre-filtered to used vehicles.</div>
-      <div class="field"><label>My store — name</label><input id="d-store-name" value="${esc(s.storeSiteName || "")}" placeholder="My store"></div>
-      <div class="field"><label>My store — inventory URL</label><input id="d-store-url" type="url" value="${esc(s.storeSiteUrl || "")}" placeholder="https://…/inventory/"></div>
-      <div class="field"><label>Network — name</label><input id="d-net-name" value="${esc(s.networkSiteName || "")}" placeholder="Dealer network"></div>
-      <div class="field"><label>Network — inventory URL</label><input id="d-net-url" type="url" value="${esc(s.networkSiteUrl || "")}" placeholder="https://…/inventory/"></div>
-      <div class="field" style="margin-bottom:0"><label>Network “used only” filter</label><input id="d-net-suffix" value="${esc(s.networkUsedSuffix || "")}" placeholder="&search.vehicle-inventory-type-ids.0=2"></div>
-      <div class="hint">Advanced: the query string appended to the network URL to show only used vehicles.</div>
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
-        <div class="strong small" style="margin-bottom:4px">The lot, in the app</div>
-        <div class="small muted" style="margin-bottom:10px">Every morning at 7 the store's inventory page is read into Inventory: new units added, prices and mileage updated, units gone marked sold. That's what the stock moves, the deal radar and the drafted texts match against.</div>
-        <button type="button" class="btn btn-primary btn-block" id="inv-import">${icon("car")} Import the lot now</button>
-        <div class="small muted" id="inv-status" style="margin-top:8px">${(() => {
-          const r = s.lastInventoryImport;
-          if (!r || !r.at) return "Not imported yet.";
-          return `Last import ${esc(timeAgo(r.at))}: ${r.found} on the site · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.onFile} on file`;
-        })()}</div>
-        <button type="button" class="btn btn-ghost btn-sm" id="inv-copy" style="margin-top:8px" hidden>Copy the import report</button>
-      </div>
-    </div>
-
-    <div class="section-title">Message templates</div>
-    <div class="card">
-      <div class="small muted" style="margin-bottom:10px">Quick messages for follow-ups. Use <span class="mono">{firstName}</span>, <span class="mono">{name}</span>, <span class="mono">{vehicle}</span>, <span class="mono">{salesperson}</span>, <span class="mono">{dealership}</span> — they fill in automatically per customer.</div>
-      <div class="tpl-list"></div>
-      <button class="btn btn-ghost btn-sm btn-block" data-act="add-tpl" style="margin-top:10px">+ New template</button>
-    </div>
-
-    <div class="section-title">Data & backup</div>
-    <div class="card">
-      <div class="small muted" style="margin-bottom:10px">Your data is stored only on this device. Export a backup regularly, or to move to a new phone.</div>
-      <button class="btn btn-ghost btn-block" data-act="csv" style="margin-bottom:10px">${icon("file")} Import inventory / leads from spreadsheet (Excel or CSV)</button>
+      <div class="hint" style="margin-bottom:10px">MSRP on an age curve, adjusted for km and condition, checked against the used units on your own lot.</div>
+      <button class="btn btn-primary btn-block" data-act="save-defaults">Save defaults</button>`)}
+    ${fold("consent", "Texting consent", s.enforceConsent ? "Held without consent" : "Not enforced", `
+      <label class="switch" style="margin-bottom:12px"><input id="s-enforce" type="checkbox" ${s.enforceConsent ? "checked" : ""}><span>Hold texts back with no consent on file</span></label>
+      <label class="switch" style="margin-bottom:12px"><input id="s-consent" type="checkbox" ${s.consentAtPurchase ? "checked" : ""}><span>We take texting consent on the credit application</span></label>
+      <div class="hint">Consent is read from what's on file: express if recorded, implied for two years from a purchase and six months from an enquiry, withdrawn on STOP. With the first switch on, nobody without consent gets an opener drafted; a call is offered instead.</div>`)}
+    ${fold("calendars", "Calendar feeds", n(s.calendarFeeds) ? `${n(s.calendarFeeds)}` : "None", `<div id="feeds-slot"></div>`)}
+    ${fold("data", "Your data", "", `
+      <button class="btn btn-ghost btn-block" data-act="csv" style="margin-bottom:10px">${icon("file")} Import from a spreadsheet</button>
       <div class="btn-row">
         <button class="btn btn-ghost btn-block" data-act="export">${icon("download")} Export backup</button>
         <button class="btn btn-ghost btn-block" data-act="import">${icon("upload")} Restore backup</button>
       </div>
-      <button class="btn ${sampleLoaded ? "btn-danger" : "btn-ghost"} btn-block" data-act="sample" style="margin-top:10px">${sampleLoaded ? "Remove sample data" : "Load sample data (try it out)"}</button>
-      <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>
-    </div>
-
-    <div class="section-title">App</div>
-    <div class="card">
-      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:10px">
-        <label class="switch"><input id="s-proactive" type="checkbox" ${s.proactive !== false ? "checked" : ""}><span>Tell me when something needs me</span></label>
-      </div>
-      <div class="field-inline">
-        <div class="field"><label>Quiet from</label><input id="s-quietfrom" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.quietFrom ?? 21)}"></div>
-        <div class="field"><label>Quiet until</label><input id="s-quietto" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.quietTo ?? 8)}"></div>
-      </div>
-      <div class="hint" style="margin-bottom:10px">A customer waiting on a reply, an appointment about to start unconfirmed, tomorrow's delivery with prep outstanding — you'll get one notification each, never a repeat, and nothing between these hours.</div>
-      <div class="field-inline">
-        <div class="field"><label>Business hours from</label><input id="s-hoursfrom" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.hoursFrom ?? 9)}"></div>
-        <div class="field"><label>until</label><input id="s-hoursto" type="number" min="0" max="23" inputmode="numeric" value="${esc(s.hoursTo ?? 18)}"></div>
-      </div>
-      <div class="btn-row" style="margin-bottom:8px" id="s-hoursdays">
-        ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<button type="button" class="btn btn-sm ${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i) ? "btn-primary" : "btn-ghost"}" data-day="${i}" aria-pressed="${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i)}" style="flex:1;padding-left:0;padding-right:0">${d}</button>`).join("")}
-      </div>
-      <div class="hint" style="margin-bottom:10px">Requests for your OK — the welcome text once its five-minute hold is up, the day's follow-up texts — only arrive inside business hours. Anything that comes due outside them waits for opening.</div>
-      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:6px">
-        <label class="switch"><input id="s-enforce" type="checkbox" ${s.enforceConsent ? "checked" : ""}><span>Hold texts back when there's no consent on file</span></label>
-      </div>
-      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;margin-bottom:6px">
-        <label class="switch"><input id="s-consent" type="checkbox" ${s.consentAtPurchase ? "checked" : ""}><span>We take texting consent on the credit application</span></label>
-      </div>
-      <div class="hint" style="margin-bottom:10px">Each customer's texting consent is worked out from what's on file — express if recorded, implied for two years from a purchase and six months from an enquiry, withdrawn on STOP — and shown on their page. A STOP always stops texts. With the first switch on, the app also won't draft an opener for anyone without consent and offers a call instead. The second switch says every purchase carries express consent that doesn't expire.</div>
-      <button class="btn btn-ghost btn-block" data-act="save-proactive" style="margin-bottom:8px">Save notification hours</button>
+      <button class="btn ${sampleLoaded ? "btn-danger" : "btn-ghost"} btn-block" data-act="sample" style="margin-top:10px">${sampleLoaded ? "Remove sample data" : "Load sample data"}</button>
+      <button class="btn btn-danger btn-block" data-act="reset" style="margin-top:10px">Reset all data</button>`)}
+    ${fold("advanced", "Advanced", "", `
+      <div class="small strong" style="margin-bottom:8px">The agent's function</div>
+      <div id="agent-link-slot"></div>
+      <div class="set-sep"></div>
+      <div class="small strong" style="margin-bottom:8px">Inventory sites</div>
+      <div class="field"><label>My store</label><input id="d-store-name" value="${esc(s.storeSiteName || "")}" placeholder="My store"></div>
+      <div class="field"><label>Inventory URL</label><input id="d-store-url" type="url" value="${esc(s.storeSiteUrl || "")}" placeholder="https://…/inventory/"></div>
+      <div class="field"><label>Network</label><input id="d-net-name" value="${esc(s.networkSiteName || "")}" placeholder="Dealer network"></div>
+      <div class="field"><label>Network inventory URL</label><input id="d-net-url" type="url" value="${esc(s.networkSiteUrl || "")}" placeholder="https://…/inventory/"></div>
+      <div class="field"><label>Network "used only" filter</label><input id="d-net-suffix" value="${esc(s.networkUsedSuffix || "")}" placeholder="&search.vehicle-inventory-type-ids.0=2"></div>
+      <button type="button" class="btn btn-ghost btn-block" id="inv-import">${icon("car")} Import the lot now</button>
+      <div class="small muted" id="inv-status" style="margin-top:8px">${(() => {
+        const r = s.lastInventoryImport;
+        if (!r || !r.at) return "Read every morning at 7. Not imported yet.";
+        return `Last import ${esc(timeAgo(r.at))}: ${r.found} on the site · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.onFile} on file`;
+      })()}</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="inv-copy" style="margin-top:8px" hidden>Copy the import report</button>
+      <div class="set-sep"></div>
+      <div class="small strong" style="margin-bottom:8px">The app</div>
       <button class="btn btn-ghost btn-block" data-act="update">${icon("download")} Check for updates</button>
-      <button class="btn btn-ghost btn-block" data-act="screencheck" style="margin-top:8px">${icon("help")} Screen check</button>
-      <button class="btn btn-ghost btn-block" data-act="storagecheck" style="margin-top:8px">${icon("help")} Storage check</button>
-      <div class="small muted" id="app-version" style="text-align:center;margin-top:10px">viniva</div>
-    </div>
-    <div class="fab-note">viniva · data lives on your device</div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-ghost btn-block" data-act="screencheck">Screen check</button>
+        <button class="btn btn-ghost btn-block" data-act="storagecheck">Storage check</button>
+      </div>
+      <div class="small muted" id="app-version" style="text-align:center;margin-top:12px">viniva</div>`)}
   `;
   view.appendChild(el);
 
@@ -221,7 +204,7 @@ export function renderSettings(view) {
   buildCloud(cloudSlot);
   buildPush(el.querySelector("#push-slot"));
   buildFeeds(el.querySelector("#feeds-slot"));
-  buildAgent(el.querySelector("#agent-slot"));
+  buildAgent(el.querySelector("#agent-slot"), el.querySelector("#agent-link-slot"));
   buildEmail(el.querySelector("#email-slot"));
   buildBooking(el.querySelector("#booking-slot"));
   const onSyncEvt = (e) => {
@@ -618,6 +601,8 @@ export function renderSettings(view) {
     store.publishPrefs();
     toast("Saved", "success");
   });
+  el.querySelector("#s-enforce").addEventListener("change", (e) => { store.updateSettings({ enforceConsent: e.target.checked }); store.publishPrefs(); });
+  el.querySelector("#s-consent").addEventListener("change", (e) => { store.updateSettings({ consentAtPurchase: e.target.checked }); store.publishPrefs(); });
   el.querySelectorAll("#s-hoursdays [data-day]").forEach((b) => b.addEventListener("click", () => {
     const on = b.getAttribute("aria-pressed") !== "true";
     b.setAttribute("aria-pressed", String(on));
@@ -713,7 +698,7 @@ function buildCloud(slot) {
       <button class="btn btn-ghost btn-sm" data-c="signout">Sign out</button>
     </div>
     ${inStore() ? `<label class="switch" style="margin-bottom:4px"><input id="c-auto" type="checkbox" checked disabled><span>Auto-sync in the background</span></label>
-    <div class="hint" style="margin:0 0 12px">Stays on while you're in a store: your manager's board is built from what your phone syncs.</div>`
+    <div class="hint" style="margin:0 0 12px">On while you're in a store — your manager's board reads from it.</div>`
     : `<label class="switch" style="margin-bottom:12px"><input id="c-auto" type="checkbox" ${s.cloudAutoSync ? "checked" : ""}><span>Auto-sync in the background</span></label>`}
     <div class="btn-row">
       <button class="btn btn-primary btn-block" data-c="sync">${icon("download")} Sync now</button>
@@ -774,42 +759,34 @@ function buildCloud(slot) {
   }
 }
 
-// Voice agent (Claude-backed) endpoint config.
-function buildAgent(slot) {
+// The agent: how it writes in your name (on the page), and the function it
+// runs on (under Advanced — filled in for a store, tested once).
+function buildAgent(slot, linkSlot) {
   const s = store.getSettings();
   slot.innerHTML = `
-    <div class="small muted" style="margin-bottom:10px">Turn the Voice button into a real assistant that understands plain language and runs tasks — "book Ken a test drive Thursday at 4", "mark Sara's appointment sold", "log a sale for Moe, commission 800". Powered by Claude through a function on your Supabase.</div>
-    <details class="cloud-setup" style="margin-bottom:12px">
-      <summary class="strong small">${icon("help")} How to set this up</summary>
-      <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-        <li>Get an API key at <span class="mono">console.anthropic.com</span>.</li>
-        <li>Set it as a secret: <span class="mono">supabase secrets set ANTHROPIC_API_KEY=sk-ant-…</span></li>
-        <li>Deploy: <span class="mono">supabase functions deploy voice-agent --no-verify-jwt</span></li>
-        <li>Paste the function URL below.</li>
-      </ol>
-    </details>
-    <div class="field"><label>Voice agent URL</label><input id="ag-url" type="url" value="${esc(s.agentUrl || BACKEND_DEFAULTS.agentUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/quick-api"></div>
-    ${!s.agentUrl || s.agentUrl === BACKEND_DEFAULTS.agentUrl ? `<div class="hint" style="margin-top:-8px;margin-bottom:12px">${icon("checkline")} Filled in for you — this is your project's function. Tap Test connection to confirm.</div>` : ""}
-    <div class="hint">Leave blank to use the built-in on-device commands. When set, the mic understands natural language and carries out tasks.</div>
-    <button class="btn btn-sm" id="ag-test" type="button" style="margin-top:10px">Test connection</button>
-    <div class="hint" id="ag-test-out"></div>
-    <div class="section-title" style="margin-top:18px">How it works for you</div>
-    <div class="small muted" style="margin-bottom:10px">Read by the assistant and by every text and email it drafts in your name. Appointments follow the business hours under Notifications.</div>
     <div class="field"><label>Tone of texts and emails</label>
       <select id="ag-tone">${Object.entries(TONES).map(([k, t]) => `<option value="${k}" ${(s.agentTone || "warm") === k ? "selected" : ""}>${t.label} — ${esc(t.say)}</option>`).join("")}</select>
     </div>
-    <div class="field"><label>Sign-off (blank: none, or the name when it reads naturally)</label><input id="ag-signoff" value="${esc(s.agentSignoff || "")}" placeholder="— ${esc((s.salesperson || "Parm").split(" ")[0])} at ${esc(s.dealership || "the dealership")}"></div>
-    <div class="field" style="margin-bottom:0"><label>Standing instructions — anything it should always know</label><textarea id="ag-notes" rows="3" placeholder="Never book Saturdays after 3. I always offer a test drive first. Call me PJ in texts.">${esc(s.agentNotes || "")}</textarea></div>
+    <div class="field"><label>Sign-off</label><input id="ag-signoff" value="${esc(s.agentSignoff || "")}" placeholder="— ${esc((s.salesperson || "Parm").split(" ")[0])} at ${esc(s.dealership || "the dealership")}"></div>
+    <div class="field" style="margin-bottom:0"><label>Standing instructions</label><textarea id="ag-notes" rows="3" placeholder="Never book Saturdays after 3. I always offer a test drive first. Call me PJ in texts.">${esc(s.agentNotes || "")}</textarea></div>
+    <div class="hint">Read by the assistant and by every text and email it drafts for you. Appointments keep to your business hours.</div>
   `;
-  slot.querySelector("#ag-tone").addEventListener("change", (e) => store.updateSettings({ agentTone: e.target.value }));
-  slot.querySelector("#ag-signoff").addEventListener("change", (e) => store.updateSettings({ agentSignoff: e.target.value.trim() }));
-  slot.querySelector("#ag-notes").addEventListener("change", (e) => store.updateSettings({ agentNotes: e.target.value.trim().slice(0, 1200) }));
-  slot.querySelector("#ag-url").addEventListener("change", (e) => store.updateSettings({ agentUrl: e.target.value.trim() }));
-  const testBtn = slot.querySelector("#ag-test");
-  const testOut = slot.querySelector("#ag-test-out");
+  linkSlot.innerHTML = `
+    <div class="field"><label>Function URL</label><input id="ag-url" type="url" value="${esc(s.agentUrl || BACKEND_DEFAULTS.agentUrl || "")}" placeholder="https://xxxx.supabase.co/functions/v1/quick-api"></div>
+    <button class="btn btn-sm" id="ag-test" type="button">Test connection</button>
+    <div class="hint" id="ag-test-out"></div>
+  `;
+  // The handlers reach into either half.
+  const q = (sel) => slot.querySelector(sel) || linkSlot.querySelector(sel);
+  q("#ag-tone").addEventListener("change", (e) => store.updateSettings({ agentTone: e.target.value }));
+  q("#ag-signoff").addEventListener("change", (e) => store.updateSettings({ agentSignoff: e.target.value.trim() }));
+  q("#ag-notes").addEventListener("change", (e) => store.updateSettings({ agentNotes: e.target.value.trim().slice(0, 1200) }));
+  q("#ag-url").addEventListener("change", (e) => store.updateSettings({ agentUrl: e.target.value.trim() }));
+  const testBtn = q("#ag-test");
+  const testOut = q("#ag-test-out");
   testBtn.addEventListener("click", async () => {
     // Pick up an un-blurred edit before testing.
-    const typed = slot.querySelector("#ag-url").value.trim();
+    const typed = q("#ag-url").value.trim();
     if (typed !== (store.getSettings().agentUrl || "")) store.updateSettings({ agentUrl: typed });
     testBtn.disabled = true;
     testOut.textContent = "Testing…";
@@ -827,7 +804,7 @@ function buildAgent(slot) {
           const found = await findAgentFunction();
           if (found) {
             store.updateSettings({ agentUrl: found });
-            slot.querySelector("#ag-url").value = found;
+            q("#ag-url").value = found;
             const name = found.split("/").pop();
             await testAgent();
             testOut.textContent = `✓ Found your function ("${name}") — URL fixed and connected.`;
@@ -861,7 +838,7 @@ function buildEmail(slot) {
   const via = emailSendVia();
   slot.innerHTML = `
     <div class="strong" style="margin-bottom:6px">${icon("mail")} Your Outlook</div>
-    <div class="small muted" style="margin-bottom:10px">Connect your Outlook once and email works both ways: what you send from viniva goes out <b>from your own address</b> and lands in your Sent Items, and customers' replies are filed into their history here. Only mail from your customers is kept — everything else is ignored, and nothing leaves your phone.</div>
+    <div class="small muted" style="margin-bottom:10px">Send from your own address; customers' replies are filed to their page. Only your customers' mail is kept.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} One-time setup (~5 min, once for the whole store)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
@@ -888,7 +865,7 @@ function buildEmail(slot) {
 
     <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("mail")} Gmail</div>
-    <div class="small muted" style="margin-bottom:10px">The same, for a Google account: send from your Gmail address, and customers' replies filed into their history. Reading and sending happen on this phone; the sign-in finishes through your function.</div>
+    <div class="small muted" style="margin-bottom:10px">The same, for a Google account.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
@@ -918,11 +895,10 @@ function buildEmail(slot) {
       ? `Emails go out from <b>${esc((gmailAccount() || {}).email || "your Gmail")}</b>.`
       : via === "function"
       ? "Emails go out through your function's Resend account. Connect your Outlook above to send from your own address instead."
-      : "Nothing can send yet — connect your Outlook or Gmail above. (Without either, the function can send through Resend: see below.)"}
-      Tap-to-email from a customer's page always opens your mail app with the message filled in.</div>
+      : "Nothing can send yet — connect your Outlook or Gmail above."}</div>
     <label class="switch" style="margin-bottom:12px">
       <input type="checkbox" id="em-auto" ${s.emailAutoSend ? "checked" : ""}>
-      Send due follow-up emails and appointment reminders automatically when the app opens
+      Send due follow-up emails and reminders by themselves
     </label>
     <div class="field"><label>Send a test to</label><input id="em-test-to" type="email" placeholder="you@email.com" value="${esc(s.contactEmail || "")}"></div>
     <button class="btn btn-sm" id="em-test" type="button">Send a test email</button>
@@ -938,7 +914,7 @@ function buildEmail(slot) {
 
     <hr class="divider" />
     <div class="strong" style="margin-bottom:6px">${icon("message")} Texting number</div>
-    <div class="small muted" style="margin-bottom:10px">Without this, texts hand off to your phone's own SMS app and replies never reach viniva. With a dedicated number, the whole conversation lives in the <b>Inbox</b> — and the agent can draft your replies. Customers see this number instead of your personal one.</div>
+    <div class="small muted" style="margin-bottom:10px">A dedicated number keeps the whole conversation in the Inbox, and the agent can draft your replies.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
@@ -1263,8 +1239,8 @@ function buildBooking(slot) {
     .map((h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${h > 12 ? h - 12 : h}${h >= 12 ? "pm" : "am"}</option>`).join("");
 
   slot.innerHTML = `
-    <div class="small muted" style="margin-bottom:10px">Your personal booking link. Text it to a customer and they pick their own time slot — the appointment lands on your calendar, confirmed, and they become a customer automatically. No back-and-forth.</div>
-    ${!ready ? `<div class="hint" style="margin-bottom:6px">Needs two things you may already have: sign in to <b>Cloud sync</b> (bookings travel through it) and set up the <b>Voice agent</b> function (it hosts the booking API — make sure it's on the latest code).</div>` : `
+    <div class="small muted" style="margin-bottom:10px">Text the link; the customer picks a time and it lands on your calendar, confirmed.</div>
+    ${!ready ? `<div class="hint" style="margin-bottom:6px">Needs the account signed in and the agent's function (under Advanced).</div>` : `
     <div class="field-inline">
       <div class="field"><label>Open from</label><select id="bk-start">${hourOpts(s.bookStart ?? 9)}</select></div>
       <div class="field"><label>Until</label><select id="bk-end">${hourOpts(s.bookEnd ?? 19)}</select></div>
@@ -1336,20 +1312,9 @@ function buildPush(slot) {
       new Promise((res) => setTimeout(() => res(false), 2500)),
     ]);
     slot.innerHTML = `
-      <div class="small muted" style="margin-bottom:10px">Turns viniva from an assistant into an agent: a morning "your plays today" push, an instant heads-up when a customer opens a link you sent, and a ping the moment someone books on your calendar — even with the app closed.</div>
-      ${needsInstall() ? `<div class="hint" style="margin-bottom:10px">On iPhone, first add viniva to your Home Screen (Share → Add to Home Screen) — Apple only allows notifications for installed apps.</div>` : ""}
-      <details class="cloud-setup" style="margin-bottom:12px">
-        <summary class="strong small">${icon("help")} One-time server setup</summary>
-        <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
-          <li>Make sure your function (<span class="mono">quick-api</span>) is on the latest code from the repo and deployed.</li>
-          <li>In Supabase → Edge Functions → Secrets, add <span class="mono">VAPID_PUBLIC_KEY</span> and <span class="mono">VAPID_PRIVATE_KEY</span> (ask Claude for your generated pair, or run <span class="mono">npx web-push generate-vapid-keys</span>).</li>
-          <li>For the pushes while the app is closed: Supabase → SQL Editor → paste <span class="mono">supabase/cron.sql</span> from the repo → Run. It creates the two jobs (a sweep every 30 minutes, the morning sheet at 8am) pointed at your function.</li>
-          <li>Come back here and tap <b>Turn on notifications</b>.</li>
-        </ol>
-      </details>
-      <button class="btn ${on ? "btn-ghost" : "btn-primary"} btn-block" id="push-toggle">${on ? "Turn off on this device" : `${icon("bell")} Turn on notifications`}</button>
-      ${on ? `<button class="btn btn-ghost btn-block" id="push-test" style="margin-top:10px">Send a test push</button>
-      <div class="hint" style="margin-top:10px">${icon("checkline")} This device is registered.</div>` : ""}
+      ${needsInstall() ? `<div class="hint" style="margin-bottom:10px">On iPhone, add viniva to your Home Screen first (Share → Add to Home Screen).</div>` : ""}
+      ${on ? `<div class="row" style="align-items:center"><div class="row-main"><div class="row-title">${icon("checkline")} On for this phone</div></div><button class="btn btn-ghost btn-sm" id="push-test">Test</button><button class="btn btn-ghost btn-sm" id="push-toggle">Turn off</button></div>`
+        : `<button class="btn btn-primary btn-block" id="push-toggle">${icon("bell")} Turn on notifications</button>`}
     `;
     slot.querySelector("#push-toggle").addEventListener("click", async () => {
       try {
@@ -1380,7 +1345,7 @@ function buildFeeds(slot) {
   const rerender = () => buildFeeds(slot);
 
   slot.innerHTML = `
-    <div class="small muted" style="margin-bottom:10px">Show your Apple, Outlook and Google events on your calendar (read-only). Feeds come through the same Supabase function that powers voice — no extra setup beyond a one-time code update.</div>
+    <div class="small muted" style="margin-bottom:10px">Your Apple, Outlook or Google events on the calendar here, read-only.</div>
     <details class="cloud-setup" style="margin-bottom:12px">
       <summary class="strong small">${icon("help")} How to set this up</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
@@ -1394,7 +1359,7 @@ function buildFeeds(slot) {
     <div class="field"><label>Calendar proxy URL <span class="muted">(optional)</span></label><input id="cf-proxy" type="url" value="${esc(s.calendarProxyUrl || "")}" placeholder="Leave blank to use your voice agent function"></div>
     ${!s.calendarProxyUrl && s.agentUrl ? `<div class="hint" style="margin-top:-8px;margin-bottom:12px">${icon("checkline")} Using your voice agent function.</div>` : ""}
     <div class="feeds-list"></div>
-    <div class="section-title" style="margin-top:6px">Add a calendar</div>
+    <div class="small strong" style="margin:12px 0 8px">Add a calendar</div>
     <div class="field"><label>Name</label><input id="cf-name" placeholder="My Google / Work Outlook / iPhone"></div>
     <div class="field"><label>Feed URL (.ics or webcal)</label><input id="cf-url" type="url" placeholder="https://…  or  webcal://…"></div>
     <button class="btn btn-ghost btn-block" data-cf="add">${icon("plus")} Add calendar</button>

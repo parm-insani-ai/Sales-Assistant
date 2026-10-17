@@ -2286,15 +2286,25 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 /* The store's folds share one disclosure mark with the rep app's folds:
    a thin chevron at the right edge, pointing down while closed, turned
    up when open. No text glyphs. */
-.mg-found > summary, .mg-fold > summary, .mg-math-src > summary, .mg-math-how > summary, .plan-more > summary, .plan-channels > summary, .team-more > summary { position: relative; padding-right: 30px; list-style: none; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
-.mg-found > summary::-webkit-details-marker, .mg-fold > summary::-webkit-details-marker, .mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker, .plan-more > summary::-webkit-details-marker, .plan-channels > summary::-webkit-details-marker, .team-more > summary::-webkit-details-marker { display: none; }
-.mg-found > summary::marker, .mg-fold > summary::marker, .mg-math-src > summary::marker, .mg-math-how > summary::marker, .plan-more > summary::marker, .plan-channels > summary::marker, .team-more > summary::marker { content: ""; }
-.mg-found > summary::after, .mg-fold > summary::after, .mg-math-src > summary::after, .mg-math-how > summary::after, .plan-more > summary::after, .plan-channels > summary::after, .team-more > summary::after {
+.mg-found > summary, .mg-fold > summary, .mg-math-src > summary, .mg-math-how > summary, .plan-more > summary, .plan-channels > summary, .team-more > summary, .set-fold > summary { position: relative; padding-right: 30px; list-style: none; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.mg-found > summary::-webkit-details-marker, .mg-fold > summary::-webkit-details-marker, .mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker, .plan-more > summary::-webkit-details-marker, .plan-channels > summary::-webkit-details-marker, .team-more > summary::-webkit-details-marker, .set-fold > summary::-webkit-details-marker { display: none; }
+.mg-found > summary::marker, .mg-fold > summary::marker, .mg-math-src > summary::marker, .mg-math-how > summary::marker, .plan-more > summary::marker, .plan-channels > summary::marker, .team-more > summary::marker, .set-fold > summary::marker { content: ""; }
+.mg-found > summary::after, .mg-fold > summary::after, .mg-math-src > summary::after, .mg-math-how > summary::after, .plan-more > summary::after, .plan-channels > summary::after, .team-more > summary::after, .set-fold > summary::after {
   content: ""; position: absolute; right: 8px; top: 50%; width: 8px; height: 8px;
   border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
   transform: translateY(-65%) rotate(45deg); transition: transform 0.18s ease;
 }
-.mg-found[open] > summary::after, .mg-fold[open] > summary::after, .mg-math-src[open] > summary::after, .mg-math-how[open] > summary::after, .plan-more[open] > summary::after, .plan-channels[open] > summary::after, .team-more[open] > summary::after { transform: translateY(-35%) rotate(-135deg); }
+.mg-found[open] > summary::after, .mg-fold[open] > summary::after, .mg-math-src[open] > summary::after, .mg-math-how[open] > summary::after, .plan-more[open] > summary::after, .plan-channels[open] > summary::after, .team-more[open] > summary::after, .set-fold[open] > summary::after { transform: translateY(-35%) rotate(-135deg); }
+/* Settings: one row per fold under More — the name, what it holds, the
+   chevron — and the card opens in place. */
+.set-fold { padding: 0; margin-bottom: 10px; }
+.set-fold > summary { display: flex; align-items: center; gap: 10px; padding: 14px 40px 14px 16px; }
+.set-fold-t { font-weight: 600; font-size: 1.02rem; flex: 1; }
+.set-fold-s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.set-fold > summary::after { right: 18px; }
+.set-fold-b { padding: 2px 16px 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.set-sep { border-top: 1px solid var(--border); margin: 14px 0; }
+.btn[hidden] { display: none !important; }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
 .mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }

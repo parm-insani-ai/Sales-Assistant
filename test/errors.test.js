@@ -20,6 +20,7 @@ await p.addInitScript(() => {
 });
 await p.goto(APP + "/#/settings");
 await p.waitForTimeout(600);
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true))); // the checks live under Advanced
 
 // Three kinds of failure: a thrown error, a rejected promise, a script that
 // doesn't load.

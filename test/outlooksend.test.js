@@ -32,7 +32,8 @@ await p.addInitScript(() => {
 
 // --- Settings says the connection sends, and the test email goes out through Graph.
 await p.goto(APP + "/#/settings");
-await p.waitForSelector("#em-test", { timeout: 15000 });
+await p.waitForSelector("#em-test", { state: "attached", timeout: 15000 });
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true))); // Email & texting is a fold
 const card = await p.evaluate(() => ({ text: document.querySelector("#email-slot").textContent.replace(/\s+/g, " ").trim(), reconnect: !!document.querySelector("#email-slot #ms-connect") }));
 console.log("settings:", card.text.slice(0, 260));
 if (!/Connected as parm@store\.example/.test(card.text) || !/sends from this address/.test(card.text) || !/Emails go out from parm@store\.example/.test(card.text)) fail("Settings doesn't say the connected Outlook sends: " + card.text.slice(0, 300));
@@ -56,7 +57,8 @@ if (sent.length !== 2 || sent[1].message.toRecipients[0].emailAddress.address !=
 await p.evaluate(() => { const t = JSON.parse(localStorage.getItem("viniva:msmail:tokens")); t.scope = "openid profile offline_access Mail.Read"; localStorage.setItem("viniva:msmail:tokens", JSON.stringify(t)); location.hash = "#/"; });
 await p.waitForTimeout(200);
 await p.evaluate(() => { location.hash = "#/settings"; });
-await p.waitForSelector("#em-test", { timeout: 15000 });
+await p.waitForSelector("#em-test", { state: "attached", timeout: 15000 });
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true)));
 const ro = await p.evaluate(async () => { const e = await import("/js/email.js"); return { text: document.querySelector("#email-slot").textContent.replace(/\s+/g, " ").trim(), reconnect: !!document.querySelector("#email-slot #ms-connect"), via: e.emailSendVia() }; });
 if (!/read your mail but not send/.test(ro.text) || !ro.reconnect || ro.via === "outlook") fail("a read-only connection isn't asked to allow sending: " + JSON.stringify({ reconnect: ro.reconnect, via: ro.via }));
 

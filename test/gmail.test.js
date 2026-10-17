@@ -41,7 +41,8 @@ await p.addInitScript(() => {
 
 // --- Connect: paste the Client ID, tap Connect, allow at Google, land back connected.
 await p.goto(APP + "/#/settings");
-await p.waitForSelector("#gm-connect", { timeout: 15000 });
+await p.waitForSelector("#gm-connect", { state: "attached", timeout: 15000 });
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true))); // Email & texting is a fold
 await p.fill("#gm-client", "123-abc.apps.googleusercontent.com");
 await p.click("#gm-connect");
 await p.waitForFunction(() => !!localStorage.getItem("viniva:gmail:tokens"), null, { timeout: 15000 }).catch(() => fail("the Google sign-in never completed"));
@@ -55,7 +56,8 @@ if (exchanges.length !== 1 || exchanges[0].code !== "CODE123" || exchanges[0].cl
 // --- Settings says so, and the test email goes out from Gmail.
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(200);
 await p.evaluate(() => { location.hash = "#/settings"; });
-await p.waitForSelector("#em-test", { timeout: 15000 });
+await p.waitForSelector("#em-test", { state: "attached", timeout: 15000 });
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true)));
 const card = await p.evaluate(() => document.querySelector("#email-slot").textContent.replace(/\s+/g, " ").trim());
 if (!/Connected as parm\.test@gmail\.com/.test(card) || !/sends from this address/.test(card) || !/Emails go out from parm\.test@gmail\.com/.test(card)) fail("Settings doesn't say the connected Gmail sends: " + card.slice(0, 400));
 await p.click("#em-test");

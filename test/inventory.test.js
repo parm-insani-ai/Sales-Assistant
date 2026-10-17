@@ -22,6 +22,7 @@ await p.addInitScript((far) => {
 }, FAR);
 await p.goto(APP + "/#/settings");
 await p.waitForTimeout(1500);
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true))); // the lot import lives under Advanced
 
 // --- The card says what it does and where the lot comes from.
 const card = await p.evaluate(() => {
@@ -64,6 +65,7 @@ if (!move.some((x) => /^stock: 1 Rogue SV in stock/.test(x))) fail("the stock mo
 // --- Reopened: the last import is still shown.
 await p.evaluate(() => { location.hash = "#/settings"; });
 await p.waitForTimeout(500);
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true)));
 const again = await p.evaluate(() => document.querySelector("#inv-status")?.textContent.trim());
 console.log("Settings again:", JSON.stringify(again));
 if (!/Last import .*3 on the site/.test(again || "")) fail("the last import isn't remembered on the card");
