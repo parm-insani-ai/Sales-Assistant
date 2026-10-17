@@ -16,6 +16,7 @@ import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.
 import { getNudges, missingWelcomes, dismissNudge, restoreNudge } from "../nudges.js";
 import { reviewTouch } from "../touches.js";
 import { ensurePlans } from "../apptplan.js";
+import { canManage, viewModeOverride, setViewMode } from "../team.js";
 
 export function renderDashboard(view) {
   const leads = store.all("leads");
@@ -71,7 +72,11 @@ export function renderDashboard(view) {
   }
 
   const el = document.createElement("div");
+  // A manager or admin looking at the sales view chose it from the store's
+  // "+", and the choice sticks to the phone: say so, with the way back.
+  const peeking = canManage() && viewModeOverride() === "sales";
   el.innerHTML = `
+    ${peeking ? `<div class="row small muted view-peek" style="margin:-6px 2px 10px;gap:8px"><span style="flex:1">Sales view</span><a href="#" data-act="back-to-store" style="color:var(--brand);font-weight:600">Back to the store ›</a></div>` : ""}
     <div class="appt-list"></div>
 
     <div class="target-slot"></div>
@@ -88,6 +93,8 @@ export function renderDashboard(view) {
     ${activeDeliveries.length ? `<div class="section-title">Deliveries in prep</div><div class="deliv-list"></div>` : ""}
   `;
   view.appendChild(el);
+  const backLink = el.querySelector('[data-act="back-to-store"]');
+  if (backLink) backLink.addEventListener("click", (e) => { e.preventDefault(); setViewMode("manage"); location.hash = "#/"; location.reload(); });
 
   // Above everything: the handful of things that stop being true if you
   // wait. The queue (on Today) is what to work today; this is what is

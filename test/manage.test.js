@@ -216,6 +216,10 @@ await plusTap(both, "Sales view");
 await both.waitForSelector("#view .nudge-slot", { state: "attached", timeout: 20000 });
 const back = await both.evaluate(() => ({ mg: document.body.classList.contains("management"), tabs: document.querySelectorAll(".tabbar .tab").length }));
 if (back.mg || back.tabs !== 5) fail("the switch back to the sales view didn't take: " + JSON.stringify(back));
+// The sales view says so and offers the way back; a tap returns to the store's app.
+if (!(await both.$(".view-peek [data-act=\"back-to-store\"]"))) fail("the sales view doesn't offer the way back to the store");
+await both.click('.view-peek [data-act="back-to-store"]');
+await both.waitForFunction(() => document.body.classList.contains("management"), null, { timeout: 20000 }).catch(() => fail("Back to the store didn't return to the management view"));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
