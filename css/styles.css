@@ -2256,7 +2256,7 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 
 /* The Floor: one list of what costs business by the hour, a thin edge
    per kind; the day's record and the huddle folded under it. */
-.mg-list > .row, .mg-list > .mg-due-rep, .mg-list > .mg-held-rep { border-left: 3px solid var(--border); padding-left: 10px; margin-left: -2px; }
+.mg-list > .row, .mg-list > .mg-due-rep, .mg-list > .mg-held-rep { border-left: 3px solid var(--border); padding-left: 14px !important; margin-left: -2px; }
 .mg-list > .mg-k-fresh, .mg-list > .mg-k-wait { border-left-color: var(--danger); }
 .mg-list > .mg-k-due, .mg-list > .mg-k-risk, .mg-list > .mg-k-beback { border-left-color: var(--warning); }
 .mg-list > .mg-k-welcome, .mg-list > .mg-k-svc, .mg-list > .mg-k-reach { border-left-color: var(--brand); }
