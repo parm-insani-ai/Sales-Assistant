@@ -9,7 +9,7 @@ import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
 import { addContext, profileLines } from "../context.js";
-import { assessAll, assessment, assessQuick, bookSummary, bookCheap, warmBook, WHY_CATEGORIES, categoryOf } from "../assess.js";
+import { assessAll, assessment, assessQuick, bookSummary, bookCheap, hasBook, restoreLastBook, restoreSettled, warmBook, WHY_CATEGORIES, categoryOf } from "../assess.js";
 import { contractSummary } from "../contract.js";
 import { dictate } from "../dictate.js";
 import { nextMoves, undoMove } from "../moves.js";
@@ -85,16 +85,27 @@ function warmTiming() {
 
 export function renderLeads(view, { param }) {
   if (param) return renderLeadDetail(view, param);
-  // The list is ordered by the radar's read of the book. When that read
-  // isn't current, warm it a slice at a time and draw once it is, rather
-  // than pricing three thousand customers inside the tap.
-  if (!bookCheap()) {
-    view.innerHTML = `<div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
-    const prog = view.querySelector(".radar-progress");
+  // The list is ordered by the read of the book. The last read paints at
+  // once — kept on the device between opens — and when it isn't current the
+  // book is read again in the background, a slice at a time, and the list
+  // redraws when that lands. Only a phone with no read at all (the first
+  // launch ever) waits for one, rather than pricing three thousand
+  // customers inside the tap.
+  if (!bookCheap() && !hasBook()) {
     const again = () => { if (!view.isConnected) return; view.innerHTML = ""; renderLeads(view, { param }); };
-    warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; }).then(again, again);
+    const read = () => {
+      if (!view.isConnected) return;
+      view.innerHTML = `<div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
+      const prog = view.querySelector(".radar-progress");
+      warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; }).then(again, again);
+    };
+    // The device hasn't answered yet: a blank beat, not a sentence, for the
+    // few milliseconds the last read takes to come back.
+    if (restoreSettled()) read();
+    else { view.innerHTML = ""; restoreLastBook().then((ok) => (ok ? again() : read()), read); }
     return;
   }
+  const staleBook = !bookCheap();
 
   // A stat card or the voice agent can preset the filter and the search
   // (one-shot each) so the list you land on is the set that was just described
@@ -178,6 +189,9 @@ export function renderLeads(view, { param }) {
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
+  // Drawn from the last read: the current one lands behind it and the list
+  // takes it up where it stands.
+  if (staleBook) warmBook().then(() => { if (wrap.isConnected) renderList({ keep: true }); }, () => {});
 
   const hzOf = (l) => (timingReady() ? hz.byId.get(l.id) || null : null);
   // The ranked list under the lens, when it's on: { redraw } from renderDeals.

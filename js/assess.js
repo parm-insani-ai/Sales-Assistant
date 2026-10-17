@@ -215,18 +215,58 @@ function rememberBook() {
     } catch { /* a convenience */ }
   }, 1500);
 }
-async function restoreBook() {
-  if (bookStats.restored || cache.per) return null;
-  bookStats.restored = 1;
-  try {
-    const saved = await cacheGet("book");
-    if (!saved || saved.v !== READ_VERSION || saved.key !== radarContentKey()) return null;
-    const byId = new Map(store.all("leads").map((l) => [l.id, l]));
-    const per = new Map();
-    saved.per.forEach(([id, sig, a]) => { if (byId.has(id)) per.set(id, { sig, a: rejoinLead(a, byId) }); });
-    return per;
-  } catch { return null; }
+// The saved read, once per launch: each customer's read rejoined to their
+// record, and whether it was made against this lot and these settings
+// (`fresh`). A stale one still paints; it just can't be reused customer by
+// customer when the book is read again.
+let savedBook = null;
+function loadSavedBook() {
+  if (savedBook) return savedBook;
+  savedBook = (async () => {
+    bookStats.restored = 1;
+    try {
+      const saved = await cacheGet("book");
+      if (!saved || saved.v !== READ_VERSION || !Array.isArray(saved.per)) return null;
+      const byId = new Map(store.all("leads").map((l) => [l.id, l]));
+      const per = new Map();
+      saved.per.forEach(([id, sig, a]) => { if (byId.has(id)) per.set(id, { sig, a: rejoinLead(a, byId) }); });
+      return per.size ? { per, fresh: saved.key === radarContentKey() } : null;
+    } catch { return null; }
+  })();
+  return savedBook;
 }
+const currentGlobal = () => ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|");
+
+// The last read stands in for the first paint. A phone opens cold every
+// time; reading three thousand customers against the lot before Outreach or
+// Home's queue can draw is the "Reading the book…" that greeted every open.
+// So the read kept on the device is put back as it was — ordered, tiered —
+// and the pages draw from it at once, while the current read is made in the
+// background (assessAll, warmBook) and replaces it when it lands.
+let restoring = null, restored = false;
+export function restoreLastBook() {
+  if (restoring) return restoring;
+  restoring = (async () => {
+    try {
+      if (cache.byId) return false;
+      const saved = await loadSavedBook();
+      if (!saved || cache.byId) return false;
+      const byId = new Map();
+      saved.per.forEach((v, id) => { if (v.a && v.a.lead) byId.set(id, v.a); });
+      if (!byId.size) return false;
+      const sorted = [...byId.values()].sort((a, b) => b.score - a.score || String(b.lead.createdAt || "").localeCompare(String(a.lead.createdAt || "")));
+      const cuts = cutsFor(sorted);
+      sorted.forEach((a) => { a.tier = tierOf(a.score, cuts); });
+      cache = { key: "", byId, sorted, cuts, one: null, per: saved.per, global: saved.fresh ? currentGlobal() : "" };
+      return true;
+    } finally { restored = true; }
+  })();
+  return restoring;
+}
+// Is there a read to draw from — current or the last one? And has the
+// device been asked for the last one yet (a few milliseconds at launch)?
+export function hasBook() { return !!cache.byId; }
+export function restoreSettled() { return restored; }
 
 // Is the read current, or a tick away from it? A read exists and the lot,
 // the specials and the settings are as they were: whoever changed since is
@@ -246,8 +286,10 @@ export function warmBook(onProgress) {
   warming = (async () => {
     bookStats.warming = true;
     await warmRadar(onProgress);
-    const restored = await restoreBook();
-    if (restored && !cache.per) cache = { ...cache, per: restored, global: ["vehicles", "specials", "settings"].map((n) => store.generation(n)).join("|") };
+    if (!cache.per) {
+      const saved = await loadSavedBook();
+      if (saved && !cache.per) cache = { ...cache, per: saved.per, global: saved.fresh ? currentGlobal() : "" };
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       const key = cacheKey();
       const r = await readBookAsync(cache.per ? cache : null, onProgress);
@@ -455,6 +497,11 @@ function assessOne(l, ctx) {
 export function assessAll() {
   const key = cacheKey();
   if (cache.byId && cache.key === key) return cache;
+  // A read that would price the whole book again — nothing priced yet this
+  // launch, or a lot, a special or a money setting that changed — is made in
+  // the background, and the last read stands in until it lands (the pages
+  // redraw on warmBook's promise). Anything less is re-read here, in place.
+  if (cache.byId && !bookCheap()) { warmBook().catch(() => {}); return cache; }
   const r = readBook(cache.per ? cache : null);
   cache = { key, byId: r.byId, sorted: r.sorted, cuts: r.cuts, one: r.one, per: r.per, global: r.global };
   bookStats.syncRuns++;

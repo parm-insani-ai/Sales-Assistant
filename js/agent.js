@@ -13,7 +13,7 @@ import { maybeStartCadence, startCadence, planSummary } from "./cadence.js";
 import { addContext, PROFILE_FIELDS } from "./context.js";
 import { openDealerSearch } from "./views/dealer.js";
 import { findSpec, queueCompare } from "./views/compare.js";
-import { topOpportunities, dealsForLead, equityDetail, warmRadar } from "./views/dealbuilder.js";
+import { topOpportunities, dealsForLead, equityDetail } from "./views/dealbuilder.js";
 import { salesTarget, inferShopping } from "./target.js";
 import { logCustomer } from "./logbook.js";
 import { apptFunnel, monthSummary } from "./views/goals.js";
@@ -26,7 +26,7 @@ import { bookingLink, cachedShortBookingLink } from "./bookinglink.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
 import { getProspects, prospectStats } from "./prospects.js";
-import { assessAll, assessment } from "./assess.js";
+import { assessAll, assessment, warmBook } from "./assess.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
 import { openText } from "./sms.js";
@@ -474,7 +474,7 @@ export async function execTool(name, p = {}) {
 async function runTool(t, p = {}) {
   // The tools that read the radar wait for it to be current — a slice at a
   // time, so the panel keeps answering — instead of computing it in one go.
-  if (/^(find_customers|get_customer|deal_radar|deal_options|get_prospects|work_the_book|get_plays)$/.test(t)) { try { await warmRadar(); } catch { /* priced on demand below */ } }
+  if (/^(find_customers|get_customer|deal_radar|deal_options|get_prospects|work_the_book|get_plays)$/.test(t)) { try { await warmBook(); } catch { /* priced on demand below */ } }
   switch (t) {
     // ---- READS ----
     //

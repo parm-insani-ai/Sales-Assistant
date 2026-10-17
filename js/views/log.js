@@ -18,7 +18,7 @@ import { openLeadForm } from "./leads.js";
 import { icon } from "../icons.js";
 import { swipeable, undoToast, toast } from "../components.js";
 import { getPlays, dismissPlay, undismissToday } from "../plays.js";
-import { bookCheap, warmBook } from "../assess.js";
+import { bookCheap, hasBook, restoreLastBook, restoreSettled, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
 import { pushEnabled } from "../push.js";
 import { loggedInMonth, loggedAtOf, monthKeyOf } from "../logbook.js";
@@ -158,7 +158,7 @@ function paintLog(slot, logged) {
 // How many are on the queue right now, or null while the book is still
 // being read (Home's card says so and fills in when it's ready).
 export function queueCount() {
-  return bookCheap() ? getPlays(40).length : null;
+  return hasBook() ? getPlays(40).length : null;
 }
 
 // The work queue — every reason to contact someone today, ranked, each with
@@ -175,14 +175,18 @@ export function mountQueue(playsSlot, { onCount = null, heading = true } = {}) {
   const say = (n) => { if (onCount) { try { onCount(n); } catch { /* optional */ } } };
   playsSlot.innerHTML = head();
   const readyPlays = () => { if (document.body.contains(playsSlot)) paintPlays(); };
-  if (bookCheap()) setTimeout(readyPlays, 0);
-  else {
+  // The last read paints the queue at once; the current one lands behind it.
+  const paintThenWarm = () => { setTimeout(readyPlays, 0); if (!bookCheap()) warmBook().then(readyPlays, () => {}); };
+  const read = () => {
+    if (!document.body.contains(playsSlot)) return;
     playsSlot.innerHTML = `${head()}
       <div class="card"><div class="muted small" style="text-align:center"><span class="radar-progress">Reading the book…</span></div></div>`;
     const prog = playsSlot.querySelector(".radar-progress");
-    warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; })
-      .then(readyPlays, readyPlays);
-  }
+    warmBook((done, total, phase) => { if (prog && prog.isConnected && total > 200) prog.textContent = `Reading the book… ${phase === "book" ? 50 + Math.round(done / total * 50) : Math.round(done / total * 50)}%`; }).then(readyPlays, readyPlays);
+  };
+  if (hasBook()) paintThenWarm();
+  else if (restoreSettled()) read();           // nothing kept on this phone: the first launch ever
+  else restoreLastBook().then((ok) => (ok ? paintThenWarm() : read()), read); // the heading alone for the few milliseconds the device takes
   function paintPlays() {
     const plays = getPlays(40);
     say(plays.length);

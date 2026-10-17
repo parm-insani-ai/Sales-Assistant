@@ -12,7 +12,7 @@ import { renderLeads, openLeadForm } from "./views/leads.js";
 import { renderInventory, openVehicleForm } from "./views/inventory.js";
 import { openTaskForm } from "./views/tasks.js";
 import { renderCalendar, openAppointmentForm } from "./views/calendar.js";
-import { warmBook } from "./assess.js";
+import { warmBook, restoreLastBook } from "./assess.js";
 import { startReminderWatch } from "./reminders.js";
 
 // Screens off Home's path — and the voice assistant with every tool it can
@@ -75,6 +75,10 @@ if (!backend.isSignedIn()) await showLogin();
 // account than last time starts with an empty one — their own comes down
 // from the cloud on the first sync.
 try { claimDevice(backend.currentUser()); } catch { }
+// The last read of the book, from the device, so Outreach and Home's queue
+// open on it rather than on "Reading the book…" (the current read follows
+// in the background).
+restoreLastBook().catch(() => {});
 
 const view = document.getElementById("view");
 const title = document.getElementById("page-title");
