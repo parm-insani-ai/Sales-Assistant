@@ -36,7 +36,7 @@ const lazyView = (mod, name) => (view, ctx) => { const token = mountToken; LOADE
 // An opener: the form or tool, once its module is here.
 const lazyFn = (mod, name) => (...args) => LOADERS[mod]().then((m) => m[name](...args));
 const openDeliveryForm = lazyFn("deliveries", "openDeliveryForm"), openSaleForm = lazyFn("goals", "openSaleForm"), openDealerSearch = lazyFn("dealer", "openDealerSearch");
-const openReferralCapture = lazyFn("referrals", "openReferralCapture"), openSpifForm = lazyFn("spiffs", "openSpifForm"), openDealForm = lazyFn("soldlog", "openDealForm");
+const openReferralCapture = lazyFn("referrals", "openReferralCapture"), openDealForm = lazyFn("soldlog", "openDealForm");
 const startVoiceAssistant = lazyFn("voice", "startVoiceAssistant");
 import * as sync from "./sync.js";
 import { initAutoUpdate } from "./updater.js";
@@ -328,11 +328,10 @@ document.getElementById("quick-add").addEventListener("click", () => {
     soldlog: { icon: "checkline", label: "Full deal", fn: () => openDealForm(null, () => navigate("/soldlog")) },
     vehicle: { icon: "car", label: "Vehicle", fn: () => openVehicleForm() },
     delivery: { icon: "box", label: "Delivery", fn: () => openDeliveryForm() },
-    spif: { icon: "award", label: "Spif", fn: () => openSpifForm() },
   };
   // The most relevant add-action for the current tab goes first.
-  const primaryFor = { "/leads": "lead", "/log": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/soldlog": "soldlog", "/spiffs": "spif" };
-  const order = ["lead", "referral", "task", "appt", "sale", "soldlog", "vehicle", "delivery", "spif"];
+  const primaryFor = { "/leads": "lead", "/log": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/soldlog": "soldlog" };
+  const order = ["lead", "referral", "task", "appt", "sale", "soldlog", "vehicle", "delivery"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
 
