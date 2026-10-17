@@ -2264,20 +2264,21 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-list > .row + .row, .mg-list > .mg-due-rep + .row, .mg-list > .row + .mg-due-rep, .mg-list > .mg-due-rep + .mg-due-rep, .mg-list > * + .mg-held-rep { border-top: 1px solid var(--border); }
 .mg-today-watch { margin-top: 2px; line-height: 1.4; }
 .mg-found { margin-top: 8px; }
-.mg-found > summary { cursor: pointer; list-style: none; }
-.mg-found > summary::-webkit-details-marker { display: none; }
-.mg-found > summary::before { content: "▸ "; font-size: 0.75rem; }
-.mg-found[open] > summary::before { content: "▾ "; }
-.mg-fold > summary { cursor: pointer; list-style: none; }
-.mg-fold > summary::-webkit-details-marker { display: none; }
-.mg-fold > summary.section-title::before { content: "▸ "; font-size: 0.8rem; color: var(--muted); }
-.mg-fold[open] > summary.section-title::before { content: "▾ "; }
+/* The store's folds share one disclosure mark with the rep app's folds:
+   a thin chevron at the right edge, pointing down while closed, turned
+   up when open. No text glyphs. */
+.mg-found > summary, .mg-fold > summary, .mg-math-src > summary, .mg-math-how > summary { position: relative; padding-right: 30px; list-style: none; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.mg-found > summary::-webkit-details-marker, .mg-fold > summary::-webkit-details-marker, .mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker { display: none; }
+.mg-found > summary::marker, .mg-fold > summary::marker, .mg-math-src > summary::marker, .mg-math-how > summary::marker { content: ""; }
+.mg-found > summary::after, .mg-fold > summary::after, .mg-math-src > summary::after, .mg-math-how > summary::after {
+  content: ""; position: absolute; right: 8px; top: 0.72em; width: 8px; height: 8px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg); transform-origin: 60% 60%; transition: transform 0.18s ease;
+}
+.mg-found[open] > summary::after, .mg-fold[open] > summary::after, .mg-math-src[open] > summary::after, .mg-math-how[open] > summary::after { transform: rotate(-135deg); }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
 .mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }
-.mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker { display: none; }
-.mg-math-src > summary::before, .mg-math-how > summary::before { content: "▸ "; font-size: 0.8rem; }
-.mg-math-src[open] > summary::before, .mg-math-how[open] > summary::before { content: "▾ "; }
 .mg-src-list { display: grid; gap: 10px; margin-top: 10px; }
 /* One channel: name | ups | booked on the first line, the bar under the
    first two with the close rate under booked. Three fixed-width right
