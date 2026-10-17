@@ -290,15 +290,15 @@ function targetSection(mtd, s, redraw) {
     ${daily ? `<div class="tg-today ${daily.need && daily.set >= daily.need ? "tg-good" : ""}" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface-2)">
       <div class="row" style="align-items:baseline"><div class="strong" style="font-size:1.05rem">${daily.need ? `Today: ${daily.set} of ${daily.need} appointment${daily.need === 1 ? "" : "s"} set` : daily.onTrack ? `On track · ${daily.set} set today` : `${daily.set} set today`}</div>${daily.need && daily.set >= daily.need ? `<span class="small" style="color:var(--success);font-weight:600">${icon("check")} done</span>` : ""}</div>
       ${daily.need ? `<div class="progress tg-bar" style="margin-top:6px"><span style="width:${Math.min(100, Math.round((daily.set / daily.need) * 100))}%"></span></div>` : ""}
-      <div class="small muted" style="margin-top:4px">${daily.need ? `${daily.left} more to set this month to hit ${p.target}${daily.assumed ? ", at typical show and close rates" : ""}. Set today's before lunch.` : daily.onTrack ? "The calendar covers the rest of the month — keep them showing." : ""}</div>
+      <div class="small muted" style="margin-top:4px">${daily.need ? `${daily.left} more to set this month to hit ${p.target}.` : daily.onTrack ? "The calendar covers the month." : ""}</div>
     </div>` : ""}
     ${p.target ? `
     <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "", "sold")}${tile("Spoken with", t.spoke, p.need, "", "spoken")}</div>
     ${p.split ? `<div class="tg-cats">${cat("New", t.soldNew, p.targetNew, t.spokeNew, p.needNew)}${cat("Used", t.soldUsed, p.targetUsed, t.spokeUsed, p.needUsed)}</div>` : ""}
     <div class="tg-chips">${read}</div>
     ${t.spokeUnsplit || t.soldUnsplit ? `<div class="small muted" style="margin-top:8px">${[t.spokeUnsplit ? `${t.spokeUnsplit} spoken with aren't marked new or used yet` : "", t.soldUnsplit ? `${t.soldUnsplit} sale${t.soldUnsplit === 1 ? "" : "s"} not marked new or used` : ""].filter(Boolean).join(" · ")} — say it when you add them, or set Shopping on their page.</div>` : ""}
-    ${s.targetSetBy === "manager" ? `<div class="small muted" style="margin-top:6px">${icon("check")} Target set by your manager for this month${s.goalUnits && s.goalUnits !== p.target ? ` — ${s.goalUnits} units` : ""}.</div>` : ""}
-    ` : `<div class="small muted" style="margin-top:10px">Set your new and used units and the closing ratio you expect, and this works out how many customers to speak with — then counts them as you add customers, log contacts and log sales.</div>`}
+    ${s.targetSetBy === "manager" ? `<div class="small muted" style="margin-top:6px">${icon("check")} Set by your manager${s.goalUnits && s.goalUnits !== p.target ? ` — ${s.goalUnits} units` : ""}.</div>` : ""}
+    ` : `<div class="small muted" style="margin-top:10px">Set new and used units and your closing ratio.</div>`}
     <div class="row small" style="margin-top:12px"><span class="muted">Commission</span><span class="mono">${currency(mtd.commission)} / ${currency(s.goalCommission || 0)}</span></div>
     <div class="progress" style="margin-top:6px"><span style="width:${commPct}%;background:var(--accent)"></span></div>`;
   // With a target set, the card's button is the way into every number

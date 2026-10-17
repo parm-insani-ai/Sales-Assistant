@@ -131,7 +131,7 @@ await p.evaluate(async () => { const s = await import("/js/store.js"); s.updateS
 await p.waitForTimeout(200);
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(500);
 const empty = await p.evaluate(() => ({ table: !!document.querySelector(".tgt"), btn: document.querySelector('.target-card [data-act="set-target"]')?.textContent.trim(), text: document.querySelector(".target-card")?.textContent.replace(/\s+/g, " ").trim() }));
-if (empty.table || empty.btn !== "Set your target" || !/how many customers to speak with/.test(empty.text || "")) fail("with no target the sheet should ask for one: " + JSON.stringify(empty));
+if (empty.table || empty.btn !== "Set your target" || !/Set new and used units and your closing ratio/.test(empty.text || "")) fail("with no target the sheet should ask for one: " + JSON.stringify(empty));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

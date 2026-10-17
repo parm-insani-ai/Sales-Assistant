@@ -121,7 +121,7 @@ export function renderLog(view) {
 function paintLog(slot, logged) {
   slot.innerHTML = "";
   if (!logged.length) {
-    slot.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nobody logged yet this month. Add a customer (or tell the assistant about one), log a conversation with someone in Outreach, and they land here.</div></div>`;
+    slot.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nobody logged yet this month.</div></div>`;
     return;
   }
   const card = document.createElement("div");

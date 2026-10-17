@@ -256,7 +256,7 @@ export function renderLeads(view, { param }) {
         <button class="btn btn-danger btn-sm" data-act="sel-del" style="flex:1">${icon("trash")} Delete (<span id="sel-count">${selected.size}</span>)</button>
         <button class="btn btn-ghost btn-sm" data-act="sel-done" style="flex:0 0 auto">Done</button>
       </div>
-      <div class="hint" style="margin-bottom:10px">Tap customers to select. The chips, search and filter narrow what "Select all shown" grabs — search "AutoAlert" to target one import batch.</div>` : ""}
+      <div class="hint" style="margin-bottom:10px">Tap to select. Search or filter first to narrow Select all.</div>` : ""}
       ${`<div class="lead-seg" role="tablist">
         ${chips.map((c) => `<button class="btn btn-sm lead-seg-btn ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" role="tab" aria-selected="${filter === c.id}"><span class="seg-name">${esc(c.name)}</span> <span class="seg-count">${esc(c.count)}</span></button>`).join("")}
       </div>
@@ -295,7 +295,7 @@ export function renderLeads(view, { param }) {
     // list, and the lit button is the way back to the plain one.
     lens = null;
     if (ranked) {
-      listEl.innerHTML = `<div class="lead-summary small muted">Ranked by how ready they are to trade, each with the deal. The chips, search and filter above narrow it. Tap <b>✓ By opportunity</b> for the plain list.</div>`;
+      listEl.innerHTML = `<div class="lead-summary small muted">Ranked by how ready they are to trade. <b>✓ By opportunity</b> switches to the plain list.</div>`;
       lens = renderDeals(listEl, { embedded: true, only: passes });
       const cnt0 = wrap.querySelector(".aud-count"); if (cnt0) cnt0.textContent = String(lens.redraw());
     } else if (!list.length) {
@@ -908,7 +908,7 @@ function movesCard(l) {
     if (!appts.length && !tasks.length) {
       const canPlan = !["sold", "delivered", "lost"].includes(l.stage) && !hasCadence(l.id);
       box.innerHTML = `
-        <div class="muted small" style="margin-bottom:10px">Nothing set up yet. Add context above and the app works out the moves — or start with one of these.</div>
+        <div class="muted small" style="margin-bottom:10px">Add context and the moves follow, or start with one of these.</div>
         <div class="btn-row">
           ${canPlan ? `<button type="button" class="btn btn-primary btn-sm" data-act="plan" style="flex:1">${icon("target")} Start the follow-up plan</button>` : ""}
           <button type="button" class="btn btn-ghost btn-sm" data-act="book" style="flex:1">${icon("calendar")} Book a visit</button>
@@ -1168,17 +1168,17 @@ function renderLeadDetail(view, id) {
 
   // --- Context: what we know about them. Every text in the plan is written from this.
   const lines = profileLines(l);
-  el.appendChild(fold({ key: "lead:context", title: "Context", sub: "every follow-up is written from this", open: true, body: `
+  el.appendChild(fold({ key: "lead:context", title: "Context", open: true, body: `
     <div class="card lead-context">
       ${lines.map((x) => `<div class="kv"><span class="k">${esc(x.label)}</span><span class="v">${esc(x.value)}</span></div>`).join("")}
       ${l.notes
         ? `<div data-edit="notes" style="white-space:pre-wrap;cursor:pointer;${lines.length ? "margin-top:10px;padding-top:10px;border-top:1px solid var(--border)" : ""}">${esc(l.notes)}</div>`
-        : `<div class="muted small">Nothing yet. Tell the voice agent about them, or add it here — what they want, what they love, budget, timeline, who else decides.</div>`}
+        : `<div class="muted small">Nothing yet. What they want, budget, timeline, who else decides.</div>`}
       <button class="btn btn-ghost btn-sm btn-block" data-act="add-context" style="margin-top:12px">${icon("mic")} Add context</button>
     </div>` }));
 
   // --- Next moves: the customer's own to-do list, from their context and the plan.
-  el.appendChild(fold({ key: "lead:moves", title: "Next moves", sub: "what the app set up from the context", open: true, body: `<div id="moves-slot"></div>` }));
+  el.appendChild(fold({ key: "lead:moves", title: "Next moves", open: true, body: `<div id="moves-slot"></div>` }));
 
   // --- Why now: the read of this customer in full, and the next move.
   const a = assessment(l.id);
@@ -1187,7 +1187,7 @@ function renderLeadDetail(view, id) {
     el.appendChild(fold({ key: "lead:why", title: "Why now", sub: `score ${a.score}`, open: false, body: `
     <div class="card why-card">
       <div class="row" style="margin-bottom:${a.why.length ? 10 : 0}px"><div class="row-main"><div class="strong">${tier} ${a.next ? esc(a.next.label) : ""}</div></div></div>
-      ${a.why.length ? `<ul class="why-list">${a.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : `<div class="muted small">Nothing on file points to a deal yet — add their payment, payoff and vehicle (Their numbers) and this fills in.</div>`}
+      ${a.why.length ? `<ul class="why-list">${a.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : `<div class="muted small">Add their payment, payoff and vehicle under Their numbers and this fills in.</div>`}
       ${a.next && a.next.kind === "opener" && l.phone ? `
       <div class="btn-row" style="margin-top:12px">
         <button class="btn btn-primary" data-act="opener" style="flex:1">${icon("message")} Review the opener</button>
@@ -1197,7 +1197,7 @@ function renderLeadDetail(view, id) {
   }
 
   // --- Replacement options: filled in below once priced; hidden when there's nothing to price.
-  const dealFold = fold({ key: "lead:deals", title: "Replacement options", sub: "tap one for the full breakdown", open: false, body: `<div id="deal-slot"></div>` });
+  const dealFold = fold({ key: "lead:deals", title: "Replacement options", open: false, body: `<div id="deal-slot"></div>` });
   dealFold.hidden = true;
   el.appendChild(dealFold);
 
@@ -1425,7 +1425,7 @@ function renderLeadDetail(view, id) {
     const cLabel = c.basis === "express" ? "Express" : c.basis === "implied" ? "Implied" : c.basis === "withdrawn" ? "Withdrawn" : "None";
     const root = info;
     root.innerHTML = "";
-    root.appendChild(fold({ key: "lead:details", title: "Details", sub: "tap a row to edit", open: false, body: `
+    root.appendChild(fold({ key: "lead:details", title: "Details", open: false, body: `
         <div class="card">
           <div class="kv" data-edit="phone" style="cursor:pointer"><span class="k">Phone</span><span class="v">${cur.phone ? esc(phoneDisplay(cur.phone)) : "Tap to add"}</span></div>
           <div class="kv" data-edit="email" style="cursor:pointer"><span class="k">Email</span><span class="v">${cur.email ? esc(cur.email) : "Tap to add"}</span></div>

@@ -470,7 +470,7 @@ export function renderAppts(view) {
   const past = all.filter((a) => a.outcome || String(a.when) < nowKey).sort((x, y) => String(y.when).localeCompare(String(x.when))).slice(0, 30);
 
   const upBody = document.createElement("div");
-  if (!upcoming.length) upBody.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nothing booked ahead. Book one here or tell the assistant — "Ken's coming in Thursday at 4".</div></div>`;
+  if (!upcoming.length) upBody.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nothing booked ahead.</div></div>`;
   else {
     let lastDay = "";
     upcoming.forEach((a) => {

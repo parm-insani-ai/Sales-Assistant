@@ -276,7 +276,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         urgency: Math.min(99, 100 - Math.floor(mins / 3)),
         kind: "confirm",
         title: `${a.customerName || "An appointment"} at ${String(a.when).slice(11, 16)} isn't confirmed`,
-        sub: `In ${human(mins)}. A confirmation now is the difference between a show and a no-show.`,
+        sub: `In ${human(mins)} · not confirmed`,
         route: lead ? `/inbox/${lead.id}` : "/calendar",
         href: !lead && phone ? telHref(phone) : null,
         at: new Date(t).toISOString(),
@@ -299,7 +299,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         urgency: 55,
         kind: "outcome",
         title: `Did ${a.customerName || "they"} show?`,
-        sub: `${String(a.when).slice(11, 16)} appointment — logging it keeps your show rate honest.`,
+        sub: `${String(a.when).slice(11, 16)} appointment · showed or no-show?`,
         route: `/calendar/${a.id}`,
         at: new Date(t).toISOString(),
       });
@@ -342,7 +342,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         urgency: 50,
         kind: "cold",
         title: `${l.name} has gone quiet`,
-        sub: `${days} days with no contact, and they're at ${l.stage === "negotiating" ? "the negotiating table" : "appointment stage"}.`,
+        sub: `${days} days quiet · ${l.stage === "negotiating" ? "negotiating" : "appointment stage"}`,
         route: l.phone ? `/inbox/${l.id}` : `/leads/${l.id}`,
         at: new Date(t).toISOString(),
       });

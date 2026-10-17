@@ -142,7 +142,7 @@ export function openTargetForm(onDone) {
         { name: "targetNew", label: "New units this month", value: num(s.targetNew) || "", type: "number", inputmode: "numeric", half: true, placeholder: "0" },
         { name: "targetUsed", label: "Used units this month", value: num(s.targetUsed) || "", type: "number", inputmode: "numeric", half: true, placeholder: "0" },
         { name: "closingNew", label: "Closing ratio, new (%)", value: Number(s.closingNew) > 0 ? s.closingNew : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true },
-        { name: "closingUsed", label: "Closing ratio, used (%)", value: Number(s.closingUsed) > 0 ? s.closingUsed : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true, hint: `The store benchmark is ${STORE_CLOSING_PCT}%. Units ÷ ratio = the customers you have to speak with.` },
+        { name: "closingUsed", label: "Closing ratio, used (%)", value: Number(s.closingUsed) > 0 ? s.closingUsed : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true, hint: `Store benchmark ${STORE_CLOSING_PCT}%.` },
         { name: "goalAppointments", label: "Appointments set this month", value: s.goalAppointments || "", type: "number", inputmode: "numeric", half: true, placeholder: "30" },
         { name: "goalCommission", label: "Commission goal ($)", value: s.goalCommission || "", type: "number", inputmode: "decimal", half: true, placeholder: "8000" },
       ],

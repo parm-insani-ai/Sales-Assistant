@@ -140,7 +140,7 @@ export function renderSold(view) {
         ${items.map((i, n) => `<label class="row deal-prep-item" style="padding:5px 0;align-items:flex-start;gap:8px"><input type="checkbox" data-item="${n}" checked style="margin-top:3px"><div class="row-main"><div class="small">${esc(i.label)}</div><div class="small muted">${esc(owner(i.owner))}${i.lead ? ` · ${i.lead} day${i.lead === 1 ? "" : "s"} lead` : " · day of"}${i.from && i.from !== "delivery" && i.from !== "vehicle" ? ` · ${esc(i.from)}` : ""}</div></div></label>`).join("")}
       </div>
       <button class="btn btn-primary btn-block" data-act="apply" style="margin-top:10px">Put it on the delivery</button>
-      <div class="hint">The photo is saved with the sale. The list goes on the delivery's prep checklist; anything with a lead time becomes a to-do for today. Nothing here is ever sent to the customer.</div>`;
+      <div class="hint">Saved with the sale. Prep goes on the delivery checklist; lead-time items become to-dos. Nothing is sent to the customer.</div>`;
     const close = openModal("Read from the paperwork", () => el, { focus: false });
     el.querySelector('[data-act="apply"]').addEventListener("click", () => {
       const keep = items.filter((_, n) => { const c = el.querySelector(`[data-item="${n}"]`); return !c || c.checked; });
