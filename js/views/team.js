@@ -16,7 +16,7 @@ import { icon } from "../icons.js";
 import { toast, confirmDialog, openModal, emptyState } from "../components.js";
 import { esc, phoneDisplay, telHref, formatDate, formatDateTime, relativeDay, currency } from "../utils.js";
 import { contractSummary } from "../contract.js";
-import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo, cachedConfig, loadConfig, saveConfig, boardCheck } from "../team.js";
+import { cachedStore, myStore, createStore, joinStore, setMemberRole, leaveStore, setMyName, isManager, isAdmin, inviteLink, memberName, repLead, adminStores, adminAddMember, adminSetStore, checkAdmin, cachedBoard, loadBoard, setTarget, monthKey, syncedAgo, cachedConfig, loadConfig, saveConfig, boardCheck, exportStore } from "../team.js";
 import { storePlan, DEFAULT_PLAN } from "../opmodel.js";
 import { runningVersion, getVersion } from "../updater.js";
 import { onPull } from "../pulltorefresh.js";
@@ -141,7 +141,12 @@ export function renderTeam(view, { param } = {}) {
     return `
       <details class="team-more" style="margin-top:14px"><summary class="section-title" style="margin:0 0 12px">More <span class="muted" style="font-weight:500;font-size:0.78rem">· ${[admin ? "stores" : "", manager ? "board check" : "", "account"].filter(Boolean).join(", ")}</span></summary>
         ${admin ? adminHTML(others) : ""}
-        ${manager ? `<div class="section-title">Check the board</div>
+        ${manager ? `<div class="section-title">Export</div>
+        <div class="card">
+          <button class="btn btn-ghost btn-sm btn-block" data-act="export">Export the month</button>
+          <div class="small muted" style="margin-top:6px">Every event across the store and each rep's month, as a spreadsheet.</div>
+        </div>
+        <div class="section-title">Check the board</div>
         <div class="card board-check">
           <button class="btn btn-ghost btn-sm btn-block" data-act="board-check">Check now</button>
           <div class="board-check-out"></div>
@@ -173,6 +178,16 @@ export function renderTeam(view, { param } = {}) {
     wireAdmin();
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="recheck"]', refreshTeam);
+    on('[data-act="export"]', async (ev) => {
+      const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "Building…";
+      try {
+        const sheets = await exportStore(team);
+        const { downloadXlsx } = await import("../xlsxwrite.js");
+        downloadXlsx(`viniva-${String(team.name || "store").replace(/[^\w]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`, sheets);
+        toast("Exported", "success");
+      } catch (e) { toast(e.message || "Couldn't export", "danger"); }
+      btn.disabled = false; btn.textContent = "Export the month";
+    });
     on('[data-act="copy-invite"]', async () => { try { await navigator.clipboard.writeText(inviteLink(team.code)); toast("Invite link copied", "success"); } catch { toast("Copy the link from the box", "warn"); } });
     on('[data-act="share-invite"]', () => navigator.share({ title: `Join ${team.name} on viniva`, text: `Tap to join ${team.name} on viniva`, url: inviteLink(team.code) }).catch(() => {}));
     on('[data-me]', () => openMeSheet(mine));

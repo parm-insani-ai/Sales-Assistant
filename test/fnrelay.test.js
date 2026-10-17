@@ -330,6 +330,9 @@ try {
   const texts = (uid) => db.records.filter((r) => r.user_id === uid && r.collection === "texts" && !r.deleted).map((r) => r.data);
   const tasks = (uid) => db.records.filter((r) => r.user_id === uid && r.collection === "tasks" && !r.deleted).map((r) => r.data);
   const conf = twilio.sent.find((t) => /Just confirming your test drive tomorrow at 2:30 pm with Parm/.test(t.Body));
+  // The event log carries the agent's text, in the app's shape: who, what, which customer, prompted by what.
+  const evConf = db.records.find((r) => r.user_id === U1 && r.collection === "events" && r.data && r.data.kind === "text_out" && r.data.prompt === "manager-confirm");
+  if (!evConf || evConf.data.by !== "agent" || evConf.data.leadId !== "c4" || !evConf.data.at) fail("the agent's confirmation text isn't in the event log: " + JSON.stringify(evConf));
   if (!conf || conf.To !== "9025554444" || agentRep.confirmed !== 1) fail("tomorrow's unconfirmed appointment wasn't confirmed: " + JSON.stringify([twilio.sent, agentRep]));
   if (!texts(U1).some((t) => t.via === "manager-confirm" && t.leadId === "c4")) fail("the confirmation isn't filed in the rep's thread");
   const ns = twilio.sent.find((t) => /Sorry we missed you yesterday — Parm would love to get you in/.test(t.Body));

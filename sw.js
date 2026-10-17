@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "viniva-v393";
+const CACHE = "viniva-v394";
 const ASSETS = [
   "./",
   "./index.html",
@@ -133,10 +133,31 @@ const ASSETS = [
 // focuses) the app at the given hash. An action is a button on the
 // notification where the phone draws them ("Showed" / "No-show"), each with
 // its own hash; a phone that doesn't draw buttons gets the plain tap.
+// The event log's side of a push: the worker can't write the app's records,
+// so a push received is queued in the app's on-device cache (the app drains
+// it on its next open), and a push opened is marked on the URL the worker
+// opens (?push=tag&act=button), which the app logs and strips.
+function queuePush(entry) {
+  try {
+    const req = indexedDB.open("viniva-cache", 1);
+    req.onupgradeneeded = () => { try { req.result.createObjectStore("kv"); } catch (_) { /* exists */ } };
+    req.onsuccess = () => {
+      try {
+        const tx = req.result.transaction("kv", "readwrite"), os = tx.objectStore("kv"), g = os.get("push:received");
+        g.onsuccess = () => { const arr = Array.isArray(g.result) ? g.result : []; arr.push(entry); os.put(arr.slice(-200), "push:received"); };
+      } catch (_) { /* best effort */ }
+    };
+  } catch (_) { /* best effort */ }
+}
+function withPushMark(url, tag, action) {
+  try { const u = new URL(url, self.location.href); if (tag) u.searchParams.set("push", tag); if (action) u.searchParams.set("act", action); return u.href; } catch (_) { return url; }
+}
+
 self.addEventListener("push", (e) => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch { data = { body: e.data && e.data.text() }; }
   const actions = Array.isArray(data.actions) ? data.actions.filter((a) => a && a.action && a.title).slice(0, 2) : [];
+  queuePush({ tag: data.tag || "", at: Date.now() });
   e.waitUntil(self.registration.showNotification(data.title || "viniva", {
     body: data.body || "",
     tag: data.tag || "viniva",
@@ -151,7 +172,7 @@ self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const d = e.notification.data || {};
   const hit = e.action && Array.isArray(d.actions) ? d.actions.find((a) => a.action === e.action) : null;
-  const url = (hit && hit.url) || d.url || "./#/";
+  const url = withPushMark((hit && hit.url) || d.url || "./#/", e.notification.tag || "", e.action || "");
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
       for (const c of list) {

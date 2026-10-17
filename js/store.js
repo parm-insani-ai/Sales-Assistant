@@ -965,6 +965,7 @@ export function create(name, data) {
   markOutbox(name, item.id, false);
   touch(name, item.id);
   persist();
+  eventOnCreate(name, item);
   return item;
 }
 
@@ -974,11 +975,60 @@ export function update(name, id, patch) {
   // The first time a customer is contacted is what speed-to-lead is measured
   // from, so it's kept once and never moved by later contacts.
   if (name === "leads" && patch && patch.lastContacted && !item.firstContacted) patch = { ...patch, firstContacted: patch.lastContacted };
+  const before = { ...item };
   Object.assign(item, patch, { updatedAt: new Date().toISOString() });
   markOutbox(name, id, false);
   touch(name, id);
   persist();
+  eventOnUpdate(name, before, patch);
   return item;
+}
+
+// ---- The event log ----
+// One record per act, beside the record it came from, so the store's
+// statistics come from one stream rather than five piles: what happened,
+// to which customer, when, by whom, prompted by what. Only acts on this
+// device log here (records arriving by sync don't); the function logs its
+// own. Never a dollar figure, never a message body.
+const EVENT_SKIP = new Set(["events", "config", "prefs", "push", "activity", "docs", "outbox", "mailwatch", "agentplays", "agentdrafts", "blasts", "paychecks", "spifs", "specials", "vehicles", "outreach", "emails"]);
+let eventsOn = true;
+export function logEvent(kind, { leadId = null, name = "", by = "rep", prompt = "", at = null, meta = null } = {}) {
+  if (!eventsOn || !kind) return null;
+  eventsOn = false;
+  try {
+    const l = leadId ? get("leads", leadId) : null;
+    const clean = meta && typeof meta === "object" ? Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== "" && v != null && v !== false)) : null;
+    return create("events", { kind, leadId: leadId || null, name: name || (l ? l.name || "" : ""), by, prompt: prompt || "", at: at || new Date().toISOString(), ...(clean && Object.keys(clean).length ? { meta: clean } : {}) });
+  } catch { return null; } finally { eventsOn = true; }
+}
+// Bulk loads (a demo, an import) aren't acts.
+export function withoutEvents(fn) { const was = eventsOn; eventsOn = false; try { return fn(); } finally { eventsOn = was; } }
+function eventOnCreate(name, item) {
+  if (!eventsOn || EVENT_SKIP.has(name)) return;
+  if (name === "leads") { if (item.importedAt || item.storeCustomerId) return; logEvent(item.loggedAt ? "logged" : "lead_new", { leadId: item.id, name: item.name, meta: { source: item.source || "", stage: item.stage || "" } }); return; }
+  if (name === "texts") { logEvent(item.dir === "in" ? "text_in" : "text_out", { leadId: item.leadId, by: item.dir === "in" ? "customer" : item.via === "manager" ? "manager" : "rep", prompt: item.intent || item.via || "" }); return; }
+  if (name === "calls") { logEvent("call", { leadId: item.leadId, meta: { outcome: item.outcome || "", dir: item.dir || "out" } }); return; }
+  if (name === "appointments") { logEvent("appt_set", { leadId: item.leadId, name: item.customerName, meta: { when: item.when || "", type: item.type || "", source: item.source || "" } }); return; }
+  if (name === "sales") { logEvent("sold", { leadId: item.leadId, name: item.customerName, meta: { newUsed: item.newUsed || "" } }); return; }
+  if (name === "deliveries") { logEvent("delivery_open", { leadId: item.leadId, name: item.customerName }); return; }
+  if (name === "mgractions") { logEvent("mgr_" + (item.kind || "action"), { leadId: item.leadId, by: "manager", meta: { rep: item.rep || "" } }); }
+}
+function eventOnUpdate(name, before, patch) {
+  if (!eventsOn || EVENT_SKIP.has(name) || !patch) return;
+  if (name === "leads") {
+    if (patch.loggedAt && !before.loggedAt && !before.importedAt) logEvent("logged", { leadId: before.id, name: before.name, meta: { source: before.source || "" } });
+    if (patch.stage && patch.stage !== before.stage) logEvent("stage", { leadId: before.id, name: before.name, meta: { from: before.stage || "", to: patch.stage } });
+    return;
+  }
+  if (name === "appointments") {
+    if (patch.confirmed === true && !before.confirmed) logEvent("appt_confirmed", { leadId: before.leadId, name: before.customerName });
+    if (patch.outcome && patch.outcome !== before.outcome) logEvent("appt_" + patch.outcome, { leadId: before.leadId, name: before.customerName, meta: { when: before.when || "" } });
+    if (patch.status === "canceled" && before.status !== "canceled") logEvent("appt_canceled", { leadId: before.leadId, name: before.customerName });
+    return;
+  }
+  if (name === "tasks") { if (patch.done === true && !before.done) logEvent("task_done", { leadId: before.leadId, meta: { kind: before.kind || "", channel: before.channel || "", source: before.source || "", cadence: !!before.cadence, intent: before.intent || "", doneBy: patch.doneBy || "" } }); return; }
+  if (name === "calls") { if (patch.outcome && patch.outcome !== before.outcome) logEvent("call_outcome", { leadId: before.leadId, meta: { outcome: patch.outcome } }); return; }
+  if (name === "deliveries") { if (patch.status === "delivered" && before.status !== "delivered") logEvent("delivered", { leadId: before.leadId, name: before.customerName }); }
 }
 
 export function remove(name, id) {
@@ -1009,7 +1059,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs", "agentdrafts", "mgractions"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs", "agentdrafts", "mgractions", "events"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather

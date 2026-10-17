@@ -78,7 +78,7 @@ function sheetXML(rows, widths) {
 // Build and download a workbook.
 //   sheets: [{ name, rows: [[cell,...],...], widths?: [chars,...] }]
 // Cells: numbers become numeric cells, everything else text; null/"" = empty.
-export function downloadXlsx(filename, sheets) {
+export function xlsxBlob(sheets) {
   const sheetEntries = sheets.map((s, i) => ({
     name: `xl/worksheets/sheet${i + 1}.xml`,
     text: sheetXML(s.rows, s.widths),
@@ -117,7 +117,10 @@ ${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.open
     ...sheetEntries,
   ];
 
-  const blob = zip(files);
+  return zip(files);
+}
+export function downloadXlsx(filename, sheets) {
+  const blob = xlsxBlob(sheets);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -1558,14 +1558,23 @@ async function storeText(repUid: string, lead: any, body: string, via: string, b
   try {
     await saveRecord(repUid, "texts", tid, { id: tid, leadId: lead.id, dir: "out", body, phone: lead.phone, at: now, read: true, sid: r.sid || "", via, by, createdAt: now, updatedAt: now });
     await saveRecord(repUid, "leads", lead.id, { ...lead, lastContacted: now, lastContactVia: "text", updatedAt: now });
+    await logEventFor(repUid, "text_out", { leadId: lead.id, name: lead.name || "", by: via === "manager" ? "manager" : "agent", prompt: via });
   } catch { /* sent; the log is best-effort */ }
   return { ok: true };
+}
+// The event log, from here: the function's own acts in a rep's book, in the
+// same shape the app writes (store.js logEvent). Never a figure, never a body.
+async function logEventFor(uid: string, kind: string, e: { leadId?: string | null; name?: string; by?: string; prompt?: string; meta?: Record<string, unknown> }) {
+  const now = new Date().toISOString();
+  const id = "ev_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  try { await saveRecord(uid, "events", id, { id, kind, leadId: e.leadId || null, name: e.name || "", by: e.by || "agent", prompt: e.prompt || "", at: now, ...(e.meta ? { meta: e.meta } : {}), createdAt: now, updatedAt: now }); } catch { /* best effort */ }
 }
 // A to-do on a rep's list, from the store.
 async function storeTask(repUid: string, t: { leadId?: string; title: string; due: string; channel?: string; kind?: string; why?: string[]; by: string; note?: string }) {
   const now = new Date().toISOString();
   const tid = "tsk_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   await saveRecord(repUid, "tasks", tid, { id: tid, leadId: t.leadId || null, title: t.title, due: t.due, channel: t.channel || "call", priority: "high", kind: t.kind || "", why: t.why || [], note: t.note || "", source: "manager", by: t.by, done: false, createdAt: now, updatedAt: now });
+  await logEventFor(repUid, "task_handed", { leadId: t.leadId || null, by: "agent", prompt: t.kind || "" });
   return tid;
 }
 
@@ -2791,6 +2800,7 @@ async function handleInboundSms(req: Request): Promise<Response> {
       at: now, read: false, sid: String(params.MessageSid || ""),
       createdAt: now, updatedAt: now,
     });
+    await logEventFor(uid, "text_in", { leadId: lead.id, name: lead.data?.name || "", by: "customer" });
 
     const who = lead.data?.name || prettyPhone(from);
     sendPush(uid, {

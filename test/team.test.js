@@ -185,6 +185,16 @@ await mgr.click('.admin-store [data-add]');
 await mgr.waitForFunction(() => /rep4@e\.com/.test(document.querySelector(".admin-store")?.textContent || ""), null, { timeout: 10000 });
 const added = await (await fetch(APP + "/__stores")).json();
 if (!added[0].members.some((m) => m.email === "rep4@e.com" && m.role === "manager")) fail("adding a manager by email didn't take: " + JSON.stringify(added[0].members));
+// --- The export: every event and each rep's month, as a workbook.
+await mgr.goto(APP + "/#/team");
+await mgr.waitForSelector('[data-act="export"]', { state: "attached", timeout: 15000 });
+await mgr.evaluate(() => { const d = document.querySelector(".team-more"); if (d) d.open = true; });
+const [dl] = await Promise.all([mgr.waitForEvent("download", { timeout: 30000 }), mgr.click('[data-act="export"]')]);
+const dlName = dl.suggestedFilename();
+const dlPath = await dl.path();
+const dlSize = dlPath ? require("fs").statSync(dlPath).size : 0;
+console.log("export:", dlName, dlSize);
+if (!/^viniva-.*\.xlsx$/.test(dlName) || dlSize < 1500) fail("the export didn't produce a workbook: " + JSON.stringify([dlName, dlSize]));
 await rep1.click('[data-me]');
 await rep1.waitForSelector('.modal [data-act="leave"]');
 await rep1.click('.modal [data-act="leave"]');

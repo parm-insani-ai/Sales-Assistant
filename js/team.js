@@ -688,6 +688,32 @@ export async function welcomeLog(team, days = 30) {
   return per.flat().sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
+// ---- The export ----
+// Every event across the store and each rep's month, as sheets for a
+// spreadsheet: the raw material for statistics outside the app.
+export async function exportStore(team, { since = null } = {}) {
+  const members = team.members || [];
+  const ev = [];
+  for (const m of members) {
+    const rows = await backend.readRecords(m.user_id, "events", {}, { select: "data", limit: 50000 }).catch(() => []);
+    rows.forEach((r) => {
+      const d = r.data || {};
+      if (since && String(d.at || "") < since) return;
+      ev.push([d.at || "", memberName(m), d.kind || "", d.name || "", d.leadId || "", d.by || "", d.prompt || "", d.meta ? JSON.stringify(d.meta) : ""]);
+    });
+  }
+  ev.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const board = await loadBoard(team);
+  const month = board.stats.filter((r) => !r.error && r.touches).map((r) => {
+    const rt = r.rates || {}, c = r.calls || {};
+    return [memberName(r.member), r.sheet ? r.sheet.spoke : 0, r.insight ? r.insight.setThisMonth : r.appts.set, r.appts.past, r.appts.shown, r.appts.sold, r.sales.units, rt.setRate ?? "", rt.showRate ?? "", rt.closeOnShow ?? "", rt.closing ?? "", c.dials ?? "", c.connects ?? "", c.booked ?? "", r.touches.month ?? ""];
+  });
+  return [
+    { name: "Events", rows: [["At", "Rep", "Event", "Customer", "Customer id", "By", "Prompt", "Details"], ...ev], widths: [24, 14, 16, 22, 18, 9, 18, 40] },
+    { name: "Month", rows: [["Rep", "Logged", "Appointments set", "Past", "Shown", "Sold from show", "Units", "Set rate %", "Show rate %", "Close on show %", "Closing %", "Calls 14d", "Connected", "Booked within a day", "Touches this month"], ...month], widths: [14, 9, 16, 8, 8, 14, 8, 11, 11, 15, 10, 10, 10, 18, 16] },
+  ];
+}
+
 // ---- The store's shared lot ----
 let lotCache = { storeId: null, at: 0, rows: [] };
 export function cachedInventory() { return lotCache.storeId ? lotCache : null; }

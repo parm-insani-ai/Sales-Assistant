@@ -51,6 +51,7 @@ import * as backend from "./backend.js";
 import { showLogin } from "./login.js";
 import { managementMode, myStore as readStore, myTarget, cachedStore, restoreBoard, restoreBook } from "./team.js";
 import { claimDevice } from "./account.js";
+import { cacheGet, cacheSet } from "./cachedb.js";
 import { initSaveState } from "./savestate.js";
 import { needsInstall } from "./push.js";
 
@@ -360,6 +361,27 @@ function signOutTile() {
 }
 
 startRouter();
+
+// The event log's push events: a push opened (the ?push= the service worker
+// puts on the URL it opens, logged and stripped) and pushes received while
+// the app was shut (queued by the worker, drained here).
+function drainPushEvents() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const tag = q.get("push");
+    if (tag) {
+      store.logEvent("push_open", { prompt: tag, meta: { action: q.get("act") || "" } });
+      history.replaceState(null, "", location.pathname + location.hash);
+    }
+  } catch { /* nothing to log */ }
+  cacheGet("push:received").then((arr) => {
+    if (!Array.isArray(arr) || !arr.length) return;
+    arr.forEach((e) => store.logEvent("push_received", { prompt: (e && e.tag) || "", at: new Date((e && e.at) || Date.now()).toISOString() }));
+    return cacheSet("push:received", []);
+  }).catch(() => {});
+}
+drainPushEvents();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) drainPushEvents(); });
 
 // Who this account is, from the cloud: an admin or a manager runs the
 // store and gets the store's app. Re-read each launch so an appointment or
