@@ -59,7 +59,7 @@ const floor = await mgr.evaluate(() => ({
   draft: document.querySelector(".mg-beback [data-mtext]")?.dataset.draft,
 }));
 console.log("floor:", JSON.stringify(floor));
-if (!/^Get them back · 1 quiet$/.test(floor.title || "")) fail("the unsold up isn't counted under Get them back: " + floor.title);
+if (!/^Get them back · 1 · 1 quiet · be-backs close at 74%$/.test(floor.title || "")) fail("the unsold up isn't counted under Get them back: " + floor.title);
 if (floor.rows.length !== 1 || !/^Una Unsold quiet 4 d ?Parm · working · Sentra · in 5 d ago · no plan/.test(floor.rows[0])) fail("Una isn't the one unsold up: " + JSON.stringify(floor.rows));
 if (!/^Hi Una, it's Sam at Store\. Parm mentioned you were in about the Sentra — is it still on your mind\?/.test(floor.draft || "")) fail("the be-back text isn't drafted: " + floor.draft);
 await mgr.click(".mg-beback [data-bnudge]");

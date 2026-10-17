@@ -23,12 +23,12 @@
   --safe-top: env(safe-area-inset-top, 0px);
 
   /* ---------- Light theme (default) ---------- */
-  --bg: #f7f7f8;
+  --bg: #f6f7f9;
   --surface: #ffffff;
-  --surface-2: #f0f0f2;
-  --surface-3: #e6e6ea;
-  --border: #e4e4e8;
-  --border-strong: #d6d6dc;
+  --surface-2: #f2f4f6;
+  --surface-3: #e9edf1;
+  --border: #ebedf0;
+  --border-strong: #dde1e6;
 
   --text: #0f1720;
   --text-2: #38434f;
@@ -577,23 +577,15 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
   .view { padding-bottom: 24px; }
 }
 
-/* ---------- Cards ----------
-   A card is a run of the page, not a box: no fill, no border, no shadow.
-   Runs are parted by a hairline and air, the rows inside by hairlines, and
-   the type carries the hierarchy. The one boxed thing is a fact that
-   matters (.mg-math-need and friends), drawn as a bordered panel. */
+/* ---------- Cards ---------- */
 .card {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0 0 20px;
-  margin-bottom: 20px;
-  box-shadow: none;
-  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
 }
-.card:last-child, .modal .card, .card.card-boxed { border-bottom: 0; }
-.card.card-boxed { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 16px 18px; }
-.card > .row:first-child, .card > .section-title:first-child { margin-top: 0; }
 .card-tap {
   cursor: pointer;
   transition: transform 0.08s ease, box-shadow 0.2s, border-color 0.2s;
@@ -608,15 +600,14 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
    below: cards and grids carry 14px underneath, the heading carries 14px
    underneath, and nothing on top. */
 .section-title {
-  font-size: 1.3rem;
-  letter-spacing: -0.015em;
+  font-size: 1.1rem;
+  letter-spacing: -0.012em;
   color: var(--text);
-  margin: 6px 0 12px;
+  margin: 0 2px 14px;
   font-weight: 600;
-  line-height: 1.25;
 }
 .section-title:first-child { margin-top: 0; }
-.section-title .muted { font-weight: 400; font-size: 0.95rem !important; letter-spacing: 0; }
+.section-title .muted { font-weight: 500; }
 
 /* ---------- Front door ---------- */
 /* One word, one box. Sized to the visible viewport so the box stays centred
@@ -756,12 +747,12 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 /* ---------- Rows / list items ---------- */
 .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .row-main { min-width: 0; }
-.row-title { font-weight: 600; font-size: 1.08rem; letter-spacing: -0.012em; line-height: 1.3; }
-.row-sub { color: var(--muted); font-size: 0.96rem; margin-top: 3px; line-height: 1.35; }
+.row-title { font-weight: 600; font-size: 1.06rem; letter-spacing: -0.012em; }
+.row-sub { color: var(--muted); font-size: 0.92rem; margin-top: 3px; }
 .row-meta { text-align: right; flex-shrink: 0; }
 
 .muted { color: var(--muted); }
-.small { font-size: 0.9rem; }
+.small { font-size: 0.88rem; }
 .strong { font-weight: 600; }
 .mono { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 
@@ -819,7 +810,7 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .btn-ghost { background: var(--surface-2); border-color: transparent; }
 .btn-ghost:active { background: var(--surface-3); }
 .btn-block { display: flex; width: 100%; }
-.btn-sm { padding: 9px 14px; font-size: 0.88rem; border-radius: 999px; }
+.btn-sm { padding: 9px 13px; font-size: 0.85rem; border-radius: 10px; }
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- Forms ---------- */
@@ -863,11 +854,7 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
   box-shadow: var(--ring);
 }
 .field-inline { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.hint { font-size: 0.82rem; color: var(--muted); margin-top: 7px; line-height: 1.45; }
-/* The store's app says less: no explanatory copy on its pages. A hint
-   under a form field, or in a sheet, still shows. */
-body.management #view .hint { display: none; }
-body.management #view .field .hint, body.management .modal .hint { display: block; }
+.hint { font-size: 0.77rem; color: var(--muted); margin-top: 7px; line-height: 1.45; }
 .switch { display: flex; align-items: center; gap: 9px; font-size: 0.84rem; color: var(--text-2); font-weight: 550; cursor: pointer; }
 .switch input { width: 22px; height: 22px; flex: none; accent-color: var(--brand); }
 
@@ -1851,7 +1838,7 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .irow.ihead { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .irow > span:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .mg-rep:active { opacity: 0.7; }
-.mg-plan { border-left: 0; }
+.mg-plan { border-left: 4px solid var(--brand); }
 .hz-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 /* The ranked list while the radar re-prices behind a moved slider. */
 .deals-list { transition: opacity 0.2s ease; }
@@ -2269,14 +2256,13 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 
 /* The Floor: one list of what costs business by the hour, a thin edge
    per kind; the day's record and the huddle folded under it. */
-.mg-list > .row, .mg-list > .mg-due-rep, .mg-list > .mg-held-rep { padding: 14px 0 !important; }
+.mg-list > .row, .mg-list > .mg-due-rep, .mg-list > .mg-held-rep { border-left: 3px solid var(--border); padding-left: 10px; margin-left: -2px; }
+.mg-list > .mg-k-fresh, .mg-list > .mg-k-wait { border-left-color: var(--danger); }
+.mg-list > .mg-k-due, .mg-list > .mg-k-risk, .mg-list > .mg-k-beback { border-left-color: var(--warning); }
+.mg-list > .mg-k-welcome, .mg-list > .mg-k-svc, .mg-list > .mg-k-reach { border-left-color: var(--brand); }
+.mg-list > .mg-k-held { border-left-color: var(--border); }
 .mg-list > .row + .row, .mg-list > .mg-due-rep + .row, .mg-list > .row + .mg-due-rep, .mg-list > .mg-due-rep + .mg-due-rep, .mg-list > * + .mg-held-rep { border-top: 1px solid var(--border); }
-.mg-list > :first-child { padding-top: 2px !important; }
-.mg-list .row-reasons { margin-top: 2px; }
-.mg-today-reps > .mg-today-rep { padding: 14px 0 !important; }
-.mg-today-watch { margin-top: 3px; line-height: 1.4; }
-.mg-math-head .strong { font-size: 1.3rem !important; font-weight: 600; }
-.mg-pace-label { font-size: 1.05rem; }
+.mg-today-watch { margin-top: 2px; line-height: 1.4; }
 .mg-found { margin-top: 8px; }
 .mg-found > summary { cursor: pointer; list-style: none; }
 .mg-found > summary::-webkit-details-marker { display: none; }
@@ -2286,12 +2272,9 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-fold > summary::-webkit-details-marker { display: none; }
 .mg-fold > summary.section-title::before { content: "▸ "; font-size: 0.8rem; color: var(--muted); }
 .mg-fold[open] > summary.section-title::before { content: "▾ "; }
-.mg-math-need { margin-top: 16px; padding: 16px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); text-align: center; line-height: 1.3; }
-.mg-need-label { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
-.mg-need-big { font-size: 1.35rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
-.mg-need-sub { color: var(--muted); margin-top: 4px; font-size: 0.95rem; }
+.mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
-.mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.95rem; font-weight: 600; color: var(--text); list-style: none; }
+.mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }
 .mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker { display: none; }
 .mg-math-src > summary::before, .mg-math-how > summary::before { content: "▸ "; font-size: 0.8rem; }
 .mg-math-src[open] > summary::before, .mg-math-how[open] > summary::before { content: "▾ "; }

@@ -77,13 +77,13 @@ const home = await mgr.evaluate(() => ({
   first: document.querySelector("#view .card")?.className,
 }));
 console.log("home:", JSON.stringify(home, null, 1));
-if (!/^[A-Z][a-z]+ · 80 units · 50 new · 30 used · day \d+ of \d+$/.test(home.head)) fail("the head is wrong: " + home.head);
+if (!/^[A-Z][a-z]+ · 80 units · 50 new · 30 used · selling day \d+ of \d+ · /.test(home.head)) fail("the head is wrong: " + home.head);
 if (!/At 4\d\.\d% closing, 80 units is 1\d\d customers spoken with/.test(home.line)) fail("the chain line is wrong: " + home.line);
 if (home.pace.length !== 3 || !/^Units: 2 \/ [\d.]+ · \d+ (behind pace|ahead)|^Units: 2 \/ [\d.]+ · on pace/.test(home.pace[0]) || !/^Customers spoken with: 4 \/ [\d.]+ · /.test(home.pace[1]) || !/^Appointments set: 3 \/ [\d.]+ · /.test(home.pace[2])) fail("the pace rows don't carry the month so far: " + JSON.stringify(home.pace));
-if (!/^From here ?\d+ customers · \d+ appointments ?a day for \d+ days? · 78 more units$/.test(home.need)) fail("the from-here read is wrong: " + home.need);
+if (!/^From here: 78 more units needs \d+ customers and \d+ appointments a day across the floor, \d+ selling days? left\.$/.test(home.need)) fail("the from-here read is wrong: " + home.need);
 if (!/closes at 72% against 42% for the mix/.test(home.lever || "")) fail("the lever line is wrong: " + home.lever);
 if (!home.src.some((s) => /^dealer_site: Dealer site 3 of \d+ 2 of 40 booked\*$/.test(s)) || !home.src.some((s) => /^lot: Lot 1 of \d+ 1 of \d+ booked$/.test(s))) fail("ups by source don't carry booked against the channel's target: " + JSON.stringify(home.src));
-if (!/30 units · [\d.]+ customers, [\d.]+ appointments a day/.test(home.parm || "")) fail("Parm's row doesn't carry the plan's day: " + home.parm);
+if (!/30 units this month · [\d.]+ customers and [\d.]+ appointments a day/.test(home.parm || "")) fail("Parm's row doesn't carry the plan's day: " + home.parm);
 if (!/mg-math/.test(home.first || "")) fail("the month's math isn't the first card: " + home.first);
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
