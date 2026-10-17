@@ -108,7 +108,7 @@ await mgr.click('.tabbar [data-route="/floor"]');
 await mgr.waitForFunction(() => document.querySelector(".mg-bring [data-hand]"), null, { timeout: 20000 });
 const home = await mgr.evaluate(() => ({ title: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).find((t) => /^Bring them in/.test(t)), names: [...document.querySelectorAll(".mg-bring [data-hand]")].map((b) => b.closest(".row").querySelector(".row-title").textContent.trim()) }));
 console.log("bring them in:", JSON.stringify(home));
-if (!/4 worth a call/.test(home.title || "") || home.names.length !== 4) fail("the Bring them in list is wrong: " + JSON.stringify(home));
+if (!/^Bring them in · 4 · see all$/.test(home.title || "") || home.names.length !== 4) fail("the Bring them in list is wrong: " + JSON.stringify(home));
 await mgr.click('.mg-bring [data-hand="d1"]');
 await mgr.waitForFunction(() => document.querySelector('.mg-bring [data-hand="d1"]')?.textContent.trim() === "Sent", null, { timeout: 10000 });
 const recs2 = await (await fetch(APP + "/__records")).json();

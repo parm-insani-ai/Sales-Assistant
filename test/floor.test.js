@@ -82,18 +82,18 @@ let f = await read();
 console.log("floor:", JSON.stringify(f, null, 1));
 // Four sections, and the one list in cost order: fresh lead, waiting, texts not sent, at risk, no welcome, service drive.
 if (f.titles.join("|") !== "Act now|Get them back|Bring them in|Today's appointments|Today on the floor|Today's huddle") fail("the Floor isn't the three lists plus the day: " + f.titles.join(" | "));
-if (!/^Act now · 5 · costliest first$/.test(f.nowTitle)) fail("the Act now count is wrong: " + f.nowTitle);
+if (!/^Act now · 5$/.test(f.nowTitle)) fail("the Act now count is wrong: " + f.nowTitle);
 if (f.kinds.join() !== "fresh,wait,due,risk,welcome") fail("Act now isn't in cost order: " + f.kinds.join());
-if (!/^Get them back · 1 · 1 no-show · be-backs close at 74%$/.test(f.backTitle)) fail("the no-show isn't counted under Get them back: " + f.backTitle);
+if (!/^Get them back · 1 no-show$/.test(f.backTitle)) fail("the no-show isn't counted under Get them back: " + f.backTitle);
 // Sue from the service drive first, then the two on the book worth a call (Dana and Ken, in play with a vehicle on file).
-if (!/^Bring them in · 3 worth a call · 1 in service · see them all$/.test(f.bringTitle)) fail("the Bring them in count is wrong: " + f.bringTitle);
+if (!/^Bring them in · 3 · see all$/.test(f.bringTitle)) fail("the Bring them in count is wrong: " + f.bringTitle);
 if (!document_order_ok(f)) fail("the no-show isn't in Get them back, or Sue isn't in Bring them in: " + JSON.stringify([f.backKinds, f.bringKinds]));
 if (!/Dana Muise 40 min.*Parm · texted: “Great, can I see it Saturday\?”.*Reply/.test(f.waiting)) fail("Dana isn't shown waiting on a reply: " + f.waiting);
-if (!f.risk.some((r) => /^unconfirmed: Ken Boudreau (today|tomorrow) \d\d:\d\d.*Parm · test drive · not confirmed.*Text/.test(r))) fail("Ken's unconfirmed test drive isn't at risk: " + JSON.stringify(f.risk));
+if (!f.risk.some((r) => /^unconfirmed: Ken Boudreau (today|tomorrow) \d\d:\d\d.*Parm · test drive · unconfirmed.*Text/.test(r))) fail("Ken's unconfirmed test drive isn't at risk: " + JSON.stringify(f.risk));
 if (!f.risk.some((r) => /^noshow: Nick Noshow no-show.*Parm · .* · not rebooked.*Text/.test(r))) fail("Nick's no-show isn't listed to rebook: " + JSON.stringify(f.risk));
 if (!/^Hi Ken, it's Sam at O'Regan's Nissan Halifax\. Just confirming your test drive (today|tomorrow) \d\d:\d\d with Parm — reply YES/.test(f.riskDraft || "")) fail("the confirmation draft is wrong: " + f.riskDraft);
 if (!/Sue Service.*in service today 10:30.*2021 Nissan Rogue SV · Parm/.test(f.svc) || !/Send/.test(f.svc)) fail("Sue isn't in the list from the service drive with a Send: " + f.svc);
-if (!/Wes Walkin.*Parm · Sentra · logged today, no text yet.*Welcome now/.test(f.welcome)) fail("Wes isn't waiting for a welcome: " + f.welcome);
+if (!/Wes Walkin.*Parm · Sentra · no welcome yet.*Welcome/.test(f.welcome)) fail("Wes isn't waiting for a welcome: " + f.welcome);
 
 if (!/Parm 2 texts ready.*oldest waiting 2 h · Wes \(welcome\), Dana.*Nudge/.test(f.due)) fail("the texts Parm hasn't sent aren't on the Floor: " + f.due);
 await mgr.click(".mg-now [data-dnudge]");

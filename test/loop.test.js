@@ -67,7 +67,7 @@ console.log("home:", JSON.stringify(home, null, 1));
 if (!/^Today, by rep ?\d+ more to set this month/.test(home.today)) fail("the today card doesn't lead with the rep rows: " + home.today);
 if (!home.reps.some((r) => /^Parm 1 of \d+ set today ?1 fresh lead/.test(r))) fail("Parm's row doesn't show today's need, what's set, and the fresh lead: " + JSON.stringify(home.reps));
 if (!home.reps.some((r) => /^Dana /.test(r))) fail("Dana's row is missing: " + JSON.stringify(home.reps));
-if (!/2 of 3 actions had an appointment set within a day \(67%\)/.test(home.loop) || !/Nudges 1 of 1 · Texts from the store 1 of 1 · Hand-offs 0 of 1/.test(home.loop)) fail("the loop is wrong: " + home.loop);
+if (!/2 of 3 booked within a day · 67%/.test(home.loop) || !/Nudges 1 of 1 · Texts from the store 1 of 1 · Hand-offs 0 of 1/.test(home.loop)) fail("the loop is wrong: " + home.loop);
 if (home.notes.length !== 1 || !/^Dana: Nothing in their cloud copy yet/.test(home.notes[0])) fail("the empty-book note should name Dana and only Dana: " + JSON.stringify(home.notes));
 if (!/mg-math/.test(home.first || "")) fail("the month's math isn't the first card: " + home.first);
 
@@ -89,7 +89,7 @@ const floor = await mgr.evaluate(() => ({
   clock: document.querySelector(".mg-fresh-row .mg-clock")?.dataset.at,
 }));
 console.log("floor:", JSON.stringify(floor));
-if (!/^Act now · \d+ · costliest first$/.test(floor.firstTitle || "")) fail("Act now isn't the first section: " + floor.firstTitle);
+if (!/^Act now · \d+$/.test(floor.firstTitle || "")) fail("Act now isn't the first section: " + floor.firstTitle);
 if (!/^Fay Fresh 10 min ?fresh lead · Parm · Web.*Nudge/.test(floor.fresh) || !floor.clock) fail("the fresh lead row or its clock is wrong: " + JSON.stringify(floor));
 await mgr.click(".mg-fresh-row [data-nudge]");
 await mgr.waitForFunction(async () => (await import("/js/store.js")).all("mgractions").some((a) => a.kind === "nudge" && a.leadId === "f1"), null, { timeout: 10000 }).catch(() => fail("the nudge about Fay wasn't recorded for the loop"));

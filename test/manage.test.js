@@ -120,7 +120,7 @@ await mgr.evaluate(() => {
 await mgr.waitForFunction(() => window.__refreshed > 0, null, { timeout: 15000 }).catch(() => fail("pulling down on the board didn't refresh"));
 const pulled = await mgr.evaluate(() => ({ ok: window.__refreshOk, line: document.querySelector(".row .small.muted")?.textContent.trim() }));
 console.log("pull:", JSON.stringify(pulled));
-if (pulled.ok === false || !/pull down to refresh/.test(pulled.line || "")) fail("the pull didn't re-read the board: " + JSON.stringify(pulled));
+if (pulled.ok === false || !/As of/.test(pulled.line || "") || /reading…/.test(pulled.line || "")) fail("the pull didn't re-read the board: " + JSON.stringify(pulled));
 
 // --- The "+" in the top right is the manager's: their actions, not a rep's add menu.
 await mgr.click("#quick-add");
