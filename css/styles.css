@@ -599,11 +599,13 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 /* A heading sits the same distance from what's above it as from what's
    below: cards and grids carry 14px underneath, the heading carries 14px
    underneath, and nothing on top. */
+/* A section title carries its own room above it, the same everywhere —
+   after a card, after a button, after a line — and none when it leads. */
 .section-title {
   font-size: 1.1rem;
   letter-spacing: -0.012em;
   color: var(--text);
-  margin: 0 2px 14px;
+  margin: 22px 2px 12px;
   font-weight: 600;
 }
 .section-title:first-child { margin-top: 0; }
