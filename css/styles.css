@@ -1991,8 +1991,10 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 
 /* Home's greeting in the top bar, one line, in line with "+". The sync pill
    gives way to it rather than the other way round. */
-.topbar h1.greeting { font-size: 1.05rem; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; flex: 0 0 auto; }
-.topbar h1.greeting ~ .save-state { flex: 0 5 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The title takes the room, so the save pill always sits against the "+". */
+.topbar h1.greeting { font-size: 1.05rem; font-weight: 720; letter-spacing: -0.02em; white-space: nowrap; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.topbar h1.greeting ~ .save-state { flex: 0 1 auto; max-width: 42%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.save-state { margin-left: auto; }
 /* Home: the date in the greeting's place and type; a tap opens the calendar. */
 .topbar h1.day-link { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .topbar h1.day-link:active { opacity: 0.6; }
