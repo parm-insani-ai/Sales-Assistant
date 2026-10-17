@@ -50,7 +50,7 @@ await mgr.fill('[data-alloc="' + U1 + '"]', "30");
 await mgr.fill('[data-alloc="00000000-0000-4000-8000-000000000003"]', "0");
 await mgr.fill("#pl-cnew", "40");
 // The dealer-site channel gets the store's own appointment target; the rest keep the preset.
-await mgr.evaluate(() => { document.querySelector(".plan-channels").open = true; });
+await mgr.evaluate(() => { document.querySelector(".plan-more").open = true; document.querySelector(".plan-channels").open = true; });
 const preset = await mgr.evaluate(() => document.querySelector('[data-atgt="dealer_site"]').placeholder);
 if (preset !== "33") fail("the dealer-site preset isn't the model's: " + preset);
 await mgr.fill('[data-atgt="dealer_site"]', "40");

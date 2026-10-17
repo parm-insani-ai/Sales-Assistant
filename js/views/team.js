@@ -79,12 +79,63 @@ export function renderTeam(view, { param } = {}) {
     draw();
   }
   function statusHTML() {
-    const verdict = check.admin === null ? "checking…" : check.error ? `failed — ${esc(check.error)}` : check.admin ? "yes" : "no — this email isn't in the admins table";
-    return `<div class="card small muted team-status" style="margin-top:14px">
-      <div>Signed in as <span class="mono">${esc(me.email || me.id)}</span> · <span class="team-build">${build ? "build " + esc(build.slice(0, 7)) : ""}</span></div>
-      <div style="margin-top:4px">Admin check: <span class="team-admin-check">${verdict}</span></div>
+    const verdict = check.admin === null ? "checking…" : check.error ? `failed — ${esc(check.error)}` : check.admin ? "yes" : "no";
+    return `<div class="card small muted team-status">
+      <div><span class="mono">${esc(me.email || me.id)}</span>${build ? ` · build ${esc(build.slice(0, 7))}` : ""} · admin <span class="team-admin-check">${verdict}</span></div>
       <button class="btn btn-ghost btn-sm" data-act="recheck" style="margin-top:8px">Check again</button>
     </div>`;
+  }
+  // The store: who's in it, with the role controls. For an admin the card
+  // is the admin's own (add by email, the store menu); for a manager, the
+  // reps' role menus.
+  function storeHTML(mine, manager) {
+    const own = admin && stores ? stores.find((x) => x.id === team.id) : null;
+    const members = own ? own.members : (team.members || []);
+    const roleBtn = (m) => m.user_id === me.id ? "" : own ? `<button class="btn btn-ghost btn-sm" data-arole="${esc(m.user_id)}" data-astore="${esc(own.id)}" style="margin-left:6px">…</button>` : manager && m.role === "rep" ? `<button class="btn btn-ghost btn-sm" data-role="${esc(m.user_id)}" style="margin-left:6px">…</button>` : "";
+    return `
+      <div class="section-title" style="display:flex;align-items:center;gap:8px"><span style="flex:1;min-width:0">${esc(team.name)} <span class="muted" style="font-weight:500;font-size:0.78rem">· ${members.length} member${members.length === 1 ? "" : "s"}</span></span>${own ? `<button class="btn btn-ghost btn-sm" data-store-menu="${esc(own.id)}" style="flex:none">…</button>` : ""}</div>
+      <div class="card${own ? " admin-store" : ""}"${own ? ` data-store="${esc(own.id)}"` : ""}>
+        ${members.map((m) => `
+          <div class="row" style="padding:7px 0">
+            <div class="row-main"><div class="row-title" style="font-size:0.98rem">${esc(memberName(m))}${m.user_id === me.id ? ' <span class="muted small">(you)</span>' : ""}</div><div class="row-sub">${esc(m.email || "")}</div></div>
+            <div class="row-meta"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>${roleBtn(m)}</div>
+          </div>`).join("")}
+        ${own ? `<div class="row" style="gap:6px;margin-top:10px;align-items:stretch">
+          <input class="admin-email" placeholder="Email" autocapitalize="off" autocomplete="off" style="flex:1;min-width:0">
+          <select class="admin-role" style="flex:0 0 auto"><option value="manager">Manager</option><option value="rep">Rep</option></select>
+          <button class="btn btn-primary btn-sm" data-add="${esc(own.id)}" style="flex:0 0 auto">Add</button>
+        </div>` : ""}
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn-ghost btn-sm" data-act="rename" style="flex:1">${mine && mine.name ? "Change my name" : "Set my name"}</button>
+          <button class="btn btn-ghost btn-sm" data-act="leave" style="flex:0 0 auto">Leave</button>
+        </div>
+      </div>`;
+  }
+  function inviteHTML() {
+    return `
+      <div class="section-title">Invite a rep</div>
+      <div class="card">
+        <div class="mono small" style="word-break:break-all;background:var(--surface-2);border-radius:10px;padding:10px" id="invite-link">${esc(inviteLink(team.code))}</div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-primary btn-sm btn-block" data-act="copy-invite">${icon("send")} Copy link</button>
+          ${navigator.share ? `<button class="btn btn-ghost btn-sm" data-act="share-invite" style="flex:0 0 auto">Share</button>` : ""}
+        </div>
+        <div class="small muted" style="margin-top:8px">Code <span class="mono">${esc(team.code)}</span></div>
+      </div>`;
+  }
+  // Everything else, folded: the admin's other stores, the board check, the account line.
+  function moreHTML(manager) {
+    const others = admin && stores ? stores.filter((x) => x.id !== team.id) : [];
+    return `
+      <details class="team-more" style="margin-top:14px"><summary class="section-title" style="margin:0 0 12px">More <span class="muted" style="font-weight:500;font-size:0.78rem">· ${[admin ? "stores" : "", manager ? "board check" : "", "account"].filter(Boolean).join(", ")}</span></summary>
+        ${admin ? adminHTML(others) : ""}
+        ${manager ? `<div class="section-title">Check the board</div>
+        <div class="card board-check">
+          <button class="btn btn-ghost btn-sm btn-block" data-act="board-check">Check now</button>
+          <div class="board-check-out"></div>
+        </div>` : ""}
+        ${statusHTML()}
+      </details>`;
   }
   async function refreshStores() {
     try { stores = await adminStores(); } catch (e) { toast(e.message || "Couldn't read the stores", "danger"); }
@@ -100,42 +151,12 @@ export function renderTeam(view, { param } = {}) {
     el.innerHTML = `
       ${document.body.classList.contains("management") ? "" : `<div class="hero"><div class="hero-title">${esc(team.name)}</div></div>`}
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      ${admin ? adminHTML() : ""}
+      ${storeHTML(mine, manager)}
       ${manager ? "" : repHTML(mine)}
-      ${statusHTML()}
-      <div class="section-title">Members <span class="muted" style="font-weight:500;font-size:0.78rem">· ${(team.members || []).length}</span></div>
-      <div class="card">
-        ${(team.members || []).map((m) => `
-          <div class="row" style="padding:6px 0">
-            <div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(m))}${m.user_id === me.id ? ' <span class="muted small">(you)</span>' : ""}</div><div class="row-sub">${esc(m.email || "")}</div></div>
-            <div class="row-meta"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>
-              ${m.user_id !== me.id && (admin || (manager && m.role === "rep")) ? `<button class="btn btn-ghost btn-sm" data-role="${esc(m.user_id)}" style="margin-left:6px">…</button>` : ""}</div>
-          </div>`).join("")}
-        <div class="btn-row" style="margin-top:10px">
-          <button class="btn btn-ghost btn-sm" data-act="rename" style="flex:1">${mine && mine.name ? "Change my name" : "Set my name"}</button>
-          <button class="btn btn-ghost btn-sm" data-act="leave" style="flex:0 0 auto">Leave store</button>
-        </div>
-      </div>
-      ${manager ? `
-      <div class="section-title">Invite a rep</div>
-      <div class="card">
-        <div class="small muted" style="margin-bottom:6px">Send this link. They sign in to their own cloud account, tap it, and they're on the board.</div>
-        <div class="mono small" style="word-break:break-all;background:var(--surface-2);border-radius:10px;padding:10px" id="invite-link">${esc(inviteLink(team.code))}</div>
-        <div class="btn-row" style="margin-top:8px">
-          <button class="btn btn-primary btn-sm btn-block" data-act="copy-invite">${icon("send")} Copy invite link</button>
-          ${navigator.share ? `<button class="btn btn-ghost btn-sm" data-act="share-invite" style="flex:0 0 auto">Share</button>` : ""}
-        </div>
-        <div class="hint">Invite code: <span class="mono">${esc(team.code)}</span> — a rep can also type it under Tools → Team. Reps join themselves; managers are appointed by the admin.</div>
-      </div>
-      ${planHTML()}
-      ${agentHTML()}
-      <div class="section-title">Check the board</div>
-      <div class="card board-check">
-        <div class="small muted">Reads each member's cloud copy the way the Floor does and shows the counts, so a phone that shows something the board doesn't is explained in numbers.</div>
-        <button class="btn btn-ghost btn-sm btn-block" data-act="board-check" style="margin-top:8px">Check now</button>
-        <div class="board-check-out"></div>
-      </div>
-      <div class="hint" style="margin:0 2px">Targets are set under Reps; the numbers are on Home and Floor.</div>` : ""}
+      ${manager ? inviteHTML() : ""}
+      ${manager ? planHTML() : ""}
+      ${manager ? agentHTML() : ""}
+      ${moreHTML(manager)}
     `;
     wireAdmin();
     const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
@@ -204,29 +225,29 @@ export function renderTeam(view, { param } = {}) {
     const plan = storePlan(cfg, { members: reps });
     const num = (id, val, step = 1, w = 72) => `<input id="${id}" type="number" inputmode="decimal" step="${step}" value="${esc(String(val))}" style="width:${w}px">`;
     return `
-      <div class="section-title">Store targets <span class="muted" style="font-weight:500;font-size:0.78rem">· the month's math</span></div>
+      <div class="section-title">Store targets <span class="muted" style="font-weight:500;font-size:0.78rem">· this month</span></div>
       <div class="card plan-card">
-        <div class="row plan-row"><span>Units this month</span><span class="row-meta">new ${num("pl-new", cfg.targetNew)} used ${num("pl-used", cfg.targetUsed)}</span></div>
-        <div class="row plan-row"><span>Closing, sold ÷ spoken with (%)</span><span class="row-meta">new ${num("pl-cnew", cfg.closingNew, 0.5, 64)} used ${num("pl-cused", cfg.closingUsed, 0.5, 64)}</span></div>
-        <div class="row plan-row"><span>Units through an appointment (%)</span><span class="row-meta">${num("pl-share", cfg.apptShare, 1, 64)}</span></div>
-        <div class="row plan-row"><span>Show rate · closing on a show (%)</span><span class="row-meta">${num("pl-show", cfg.showRate, 1, 64)} ${num("pl-cos", cfg.closeOnShow, 1, 64)}</span></div>
-        <div class="row plan-row"><span>Owner-book outreach: appointments a month · set rate (%)</span><span class="row-meta">${num("pl-oa", cfg.outreachAppts ?? 50, 1, 64)} ${num("pl-osr", cfg.outreachSetRate ?? 4, 0.5, 64)}</span></div>
-        <div class="row plan-row"><span>Hand-outs a day, at most · review day</span><span class="row-meta">${num("pl-hmax", cfg.handoutMax ?? 12, 1, 64)} <select id="pl-rdow">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<option value="${i}" ${i === Number(cfg.reviewDow ?? 1) ? "selected" : ""}>${d}</option>`).join("")}</select></span></div>
-        <div class="row plan-row"><span>Roll last month's measured ratios into the plan</span><span class="row-meta"><label class="switch"><input type="checkbox" id="pl-auto" ${cfg.autoRatios !== false ? "checked" : ""}><span></span></label></span></div>
-        <div class="row plan-row"><span>Selling days</span><span class="row-meta"><label class="small"><input type="checkbox" id="pl-sat" ${cfg.sellingDays.includes(6) ? "checked" : ""}> Sat</label> <label class="small"><input type="checkbox" id="pl-sun" ${cfg.sellingDays.includes(0) ? "checked" : ""}> Sun</label></span></div>
+        <div class="row plan-row"><span>Units</span><span class="row-meta">new ${num("pl-new", cfg.targetNew)} used ${num("pl-used", cfg.targetUsed)}</span></div>
+        <div class="row plan-row"><span>Closing %</span><span class="row-meta">new ${num("pl-cnew", cfg.closingNew, 0.5, 64)} used ${num("pl-cused", cfg.closingUsed, 0.5, 64)}</span></div>
+        <div class="row plan-row"><span>Selling days</span><span class="row-meta">Mon–Fri <label class="small"><input type="checkbox" id="pl-sat" ${cfg.sellingDays.includes(6) ? "checked" : ""}> Sat</label> <label class="small"><input type="checkbox" id="pl-sun" ${cfg.sellingDays.includes(0) ? "checked" : ""}> Sun</label></span></div>
         <div class="small muted" style="margin:8px 0 4px">${plan.targets.units} units → ${plan.customers.total} customers spoken with (${plan.customers.perDay} a selling day) → ${plan.appts.set} appointments set (${plan.appts.perDay} a day) for ${plan.appts.shows} shows → ${plan.upsNeeded} ups at the year's mix.</div>
-        <details class="plan-channels" style="margin-top:10px"><summary class="section-title" style="cursor:pointer;margin:0">Appointments by channel <span class="muted" style="font-weight:500;font-size:0.78rem">· ${plan.appts.set} this month; blank keeps the preset</span></summary>
-          <div class="small muted" style="margin:6px 0 4px">The preset is each channel's share of the month's appointments by its share of the year's ups. Type your own number for a channel to make it the target; Home shows booked against it.</div>
-          <div class="plan-channel-list">${plan.sources.map((sr) => `<div class="row plan-channel" data-src="${esc(sr.key)}" style="padding:4px 0;align-items:center"><div class="row-main"><div class="small"><b>${esc(sr.label)}</b> <span class="muted">· closes ${sr.close}% · preset ${sr.apptsPreset}</span></div></div><input type="number" inputmode="numeric" step="1" min="0" data-atgt="${esc(sr.key)}" value="${sr.apptsOwn ? esc(String(sr.apptsTarget)) : ""}" placeholder="${sr.apptsPreset}" style="width:64px"></div>`).join("")}</div>
-          <div class="small muted" style="margin-top:4px">Channels add up to ${plan.apptsByChannel}${plan.apptsByChannel !== plan.appts.set ? ` against ${plan.appts.set} the month needs` : ""}.</div>
-        </details>
-        <div class="section-title" style="margin-top:10px">Each rep's share <span class="muted" style="font-weight:500;font-size:0.78rem">· units; blank splits what's left evenly</span></div>
+        <div class="section-title" style="margin-top:12px">Each rep's share <span class="muted" style="font-weight:500;font-size:0.78rem">· units</span></div>
         <div class="plan-alloc">${reps.map((m) => { const pr = plan.perRep.find((x) => x.member.user_id === m.user_id); return `<div class="row plan-alloc-row" data-rep="${esc(m.user_id)}" style="padding:4px 0"><div class="row-main"><div class="small"><b>${esc(memberName(m))}</b>${m.role === "manager" ? ' <span class="muted">(manager)</span>' : ""}</div><div class="small muted">${pr ? `${pr.customers} customers · ${pr.appts} appointments · ${pr.day.customers}/${pr.day.appts} a day` : ""}</div></div><input type="number" inputmode="decimal" step="0.5" data-alloc="${esc(m.user_id)}" value="${cfg.alloc && cfg.alloc[m.user_id] != null ? esc(String(cfg.alloc[m.user_id])) : ""}" placeholder="${pr ? pr.units : ""}" style="width:64px"></div>`; }).join("")}</div>
         <div class="btn-row" style="margin-top:10px">
           <button class="btn btn-primary btn-sm" data-act="plan-save" style="flex:1">Save</button>
-          <button class="btn btn-ghost btn-sm" data-act="plan-write" style="flex:1">Write to reps' phones</button>
+          <button class="btn btn-ghost btn-sm" data-act="plan-write" style="flex:1">Write to phones</button>
         </div>
-        <div class="hint">Save keeps the targets and ratios for Home. Write sets each rep's month — units and appointments — so their Home shows the same numbers. With a plan saved, the agents run on it: the planner writes each rep's month on the 1st and rolls the measured ratios forward; the dispatcher sizes each rep's morning hand-outs to their gap; the reviewer reports the week against the plan on the review day and names the leak; the be-back list goes out the same morning.</div>
+        <details class="plan-more" style="margin-top:12px"><summary class="section-title" style="margin:0">Ratios and agents</summary>
+          <div class="row plan-row"><span>Units through an appointment %</span><span class="row-meta">${num("pl-share", cfg.apptShare, 1, 64)}</span></div>
+          <div class="row plan-row"><span>Show rate · close on a show %</span><span class="row-meta">${num("pl-show", cfg.showRate, 1, 64)} ${num("pl-cos", cfg.closeOnShow, 1, 64)}</span></div>
+          <div class="row plan-row"><span>Outreach: appointments a month · set rate %</span><span class="row-meta">${num("pl-oa", cfg.outreachAppts ?? 50, 1, 64)} ${num("pl-osr", cfg.outreachSetRate ?? 4, 0.5, 64)}</span></div>
+          <div class="row plan-row"><span>Hand-outs a day · review day</span><span class="row-meta">${num("pl-hmax", cfg.handoutMax ?? 12, 1, 64)} <select id="pl-rdow">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<option value="${i}" ${i === Number(cfg.reviewDow ?? 1) ? "selected" : ""}>${d}</option>`).join("")}</select></span></div>
+          <div class="row plan-row"><span>Roll measured ratios forward</span><span class="row-meta"><label class="switch"><input type="checkbox" id="pl-auto" ${cfg.autoRatios !== false ? "checked" : ""}><span></span></label></span></div>
+          <details class="plan-channels" style="margin-top:10px"><summary class="section-title" style="cursor:pointer;margin:0">Appointments by channel <span class="muted" style="font-weight:500;font-size:0.78rem">· ${plan.appts.set} this month</span></summary>
+            <div class="plan-channel-list">${plan.sources.map((sr) => `<div class="row plan-channel" data-src="${esc(sr.key)}" style="padding:4px 0;align-items:center"><div class="row-main"><div class="small"><b>${esc(sr.label)}</b> <span class="muted">· closes ${sr.close}% · preset ${sr.apptsPreset}</span></div></div><input type="number" inputmode="numeric" step="1" min="0" data-atgt="${esc(sr.key)}" value="${sr.apptsOwn ? esc(String(sr.apptsTarget)) : ""}" placeholder="${sr.apptsPreset}" style="width:64px"></div>`).join("")}</div>
+            <div class="small muted" style="margin-top:4px">Channels add up to ${plan.apptsByChannel}${plan.apptsByChannel !== plan.appts.set ? ` against ${plan.appts.set} the month needs` : ""}.</div>
+          </details>
+        </details>
       </div>`;
   }
   function readPlanForm() {
@@ -249,17 +270,16 @@ export function renderTeam(view, { param } = {}) {
     const hourSel = (id, val) => `<select id="${id}" class="ag-hour">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === Number(val) ? "selected" : ""}>${h % 12 || 12} ${h < 12 ? "am" : "pm"}</option>`).join("")}</select>`;
     const on = (id, checked, label) => `<label class="switch ag-switch"><input type="checkbox" id="${id}" ${checked ? "checked" : ""}><span>${label}</span></label>`;
     return `
-      <div class="section-title">The store's agent <span class="muted" style="font-weight:500;font-size:0.78rem">· runs every ten minutes</span></div>
+      <div class="section-title">The store's agent <span class="muted" style="font-weight:500;font-size:0.78rem">· every ten minutes</span></div>
       <div class="card agent-card">
-        ${on("ag-replies", a.replies, "<b>Draft replies</b> for customers waiting on a rep — held for your tap")}
-        <div class="row ag-row">${on("ag-confirm", a.confirmOn, "<b>Confirm tomorrow's appointments</b> nobody has confirmed, at")}${hourSel("ag-confirm-h", a.confirmHour)}</div>
-        ${on("ag-noshow", a.noShowOn, "<b>Chase no-shows</b> the morning after — a text, and a rebook on the rep's list")}
-        <div class="row ag-row">${on("ag-handout", a.handoutOn, "<b>Hand out reach-outs</b> each morning, per rep:")}<input id="ag-handout-n" type="number" inputmode="numeric" min="0" max="10" value="${a.handoutN}" style="width:64px"></div>
-        ${on("ag-service", a.serviceOn, "<b>Flag the service drive</b> — a rep's customers in for service that day go on their list")}
-        <div class="row ag-row">${on("ag-huddle", a.huddleOn, "<b>Send me the huddle</b> at")}${hourSel("ag-huddle-h", a.huddleHour)}</div>
-        <div class="row ag-row">${on("ag-recap", a.recapOn, "<b>Send me the day's recap</b> at")}${hourSel("ag-recap-h", a.recapHour)}</div>
+        ${on("ag-replies", a.replies, "Draft replies for waiting customers")}
+        <div class="row ag-row">${on("ag-confirm", a.confirmOn, "Confirm tomorrow's appointments at")}${hourSel("ag-confirm-h", a.confirmHour)}</div>
+        ${on("ag-noshow", a.noShowOn, "Chase no-shows the next morning")}
+        <div class="row ag-row">${on("ag-handout", a.handoutOn, "Hand out reach-outs each morning, per rep")}<input id="ag-handout-n" type="number" inputmode="numeric" min="0" max="10" value="${a.handoutN}" style="width:64px"></div>
+        ${on("ag-service", a.serviceOn, "Flag the service drive")}
+        <div class="row ag-row">${on("ag-huddle", a.huddleOn, "Huddle at")}${hourSel("ag-huddle-h", a.huddleHour)}</div>
+        <div class="row ag-row">${on("ag-recap", a.recapOn, "Recap at")}${hourSel("ag-recap-h", a.recapHour)}</div>
         <button class="btn btn-primary btn-block" data-act="agent-save" style="margin-top:10px">Save</button>
-        <div class="hint">Texts go from the store's number in your name (the name on the welcome text), filed in the rep's thread; never a figure. Hand-outs and the service drive need the owner book imported. The huddle and recap come as a push, and by email when the store has email set up.</div>
       </div>`;
   }
 
@@ -267,7 +287,7 @@ export function renderTeam(view, { param } = {}) {
     el.innerHTML = `
       <div class="hero"><div class="hero-greeting">${admin ? "Admin" : "Team"}</div><div class="hero-title">${admin ? "Set up the store" : "Join your store"}</div></div>
       ${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}
-      <div class="fab-note" style="margin:0 2px 14px;text-align:left">A store is your reps and managers on one board. Reps keep their own books; a manager sees every rep's numbers and can open any customer, read-only. No integration, no IT — a link does it.</div>
+      <div class="fab-note" style="margin:0 2px 14px;text-align:left">Your reps and managers on one board. Reps keep their own books.</div>
       ${admin ? `
       <div class="section-title">Admin · create a store</div>
       <div class="card">
@@ -345,27 +365,24 @@ export function renderTeam(view, { param } = {}) {
     });
   }
 
-  // ---- Admin: every store, its managers, and who's in it ----
-  function adminHTML() {
-    const list = stores || [];
+  // ---- Admin: the other stores, and a new one ----
+  function adminHTML(list) {
     return `
-      <div class="section-title">Admin <span class="muted" style="font-weight:500;font-size:0.78rem">· every store</span></div>
+      ${list.length ? `<div class="section-title">Other stores <span class="muted" style="font-weight:500;font-size:0.78rem">· ${list.length}</span></div>` : ""}
       ${list.map((st) => `
       <div class="card admin-store" data-store="${esc(st.id)}">
-        <div class="row"><div class="row-main"><div class="row-title">${esc(st.name)}</div><div class="row-sub">Invite code <span class="mono">${esc(st.code)}</span> · ${st.members.length} member${st.members.length === 1 ? "" : "s"}</div></div>
+        <div class="row"><div class="row-main"><div class="row-title">${esc(st.name)}</div><div class="row-sub">Code <span class="mono">${esc(st.code)}</span> · ${st.members.length} member${st.members.length === 1 ? "" : "s"}</div></div>
           <button class="btn btn-ghost btn-sm" data-store-menu="${esc(st.id)}">…</button></div>
         ${st.members.map((m) => `<div class="row" style="padding:5px 0"><div class="row-main"><div class="small strong">${esc(memberName(m))}</div><div class="small muted">${esc(m.email || "")}</div></div>
           <div class="row-meta"><span class="badge ${m.role === "manager" ? "badge-sold" : "badge-working"}">${m.role === "manager" ? "Manager" : "Rep"}</span>${m.user_id !== me.id ? `<button class="btn btn-ghost btn-sm" data-arole="${esc(m.user_id)}" data-astore="${esc(st.id)}" style="margin-left:6px">…</button>` : ""}</div></div>`).join("")}
         <div class="row" style="gap:6px;margin-top:8px;align-items:stretch">
-          <input class="admin-email" placeholder="their sign-in email" autocapitalize="off" autocomplete="off" style="flex:1;min-width:0">
+          <input class="admin-email" placeholder="Email" autocapitalize="off" autocomplete="off" style="flex:1;min-width:0">
           <select class="admin-role" style="flex:0 0 auto"><option value="manager">Manager</option><option value="rep">Rep</option></select>
           <button class="btn btn-primary btn-sm" data-add="${esc(st.id)}" style="flex:0 0 auto">Add</button>
         </div>
-        <div class="hint">Add by email to appoint a manager. The account has to exist already — they sign up in the app first.</div>
       </div>`).join("")}
       <div class="card">
-        <div class="row" style="gap:6px;align-items:stretch"><input id="admin-new-store" placeholder="Another store's name" style="flex:1;min-width:0"><button class="btn btn-ghost btn-sm" data-act="admin-create" style="flex:0 0 auto">Create</button></div>
-        <div class="hint">You're an admin because the project owner listed your account in the database. There's no button for that, on purpose.</div>
+        <div class="row" style="gap:6px;align-items:stretch"><input id="admin-new-store" placeholder="New store" style="flex:1;min-width:0"><button class="btn btn-ghost btn-sm" data-act="admin-create" style="flex:0 0 auto">Create</button></div>
       </div>`;
   }
   function wireAdmin() {

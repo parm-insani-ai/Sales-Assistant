@@ -169,7 +169,7 @@ await mgr.keyboard.press("Escape");
 // The Admin tab is the members and admin screen, and nothing else; Customers is under the "+".
 await mgr.click('.tabbar [data-route="/team"]');
 await mgr.waitForSelector(".admin-store");
-const adminPage = await mgr.evaluate(() => ({ greeting: document.querySelector("#page-title")?.textContent.trim(), board: document.querySelectorAll(".team-row, .stat").length, members: !!document.querySelector('[data-role]'), invite: !!document.querySelector("#invite-link") }));
+const adminPage = await mgr.evaluate(() => ({ greeting: document.querySelector("#page-title")?.textContent.trim(), board: document.querySelectorAll(".team-row, .stat").length, members: !!document.querySelector('[data-role], [data-arole]'), invite: !!document.querySelector("#invite-link") }));
 if (adminPage.greeting !== "Admin" || adminPage.board || !adminPage.members || !adminPage.invite) fail("the Admin page isn't just the store's admin information: " + JSON.stringify(adminPage));
 // The store's agent: its settings save to the store's config.
 await mgr.waitForSelector("#ag-handout-n", { timeout: 10000 });

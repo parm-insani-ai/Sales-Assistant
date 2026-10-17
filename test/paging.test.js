@@ -34,7 +34,7 @@ rows.push({ id: "T2", collection: "tasks", data: { id: "T2", leadId: "L01248", c
 for (let i = 0; i < rows.length; i += 500) await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U1, rows: rows.slice(i, i + 500) }) });
 
 await page.goto(APP + "/#/team");
-await page.waitForSelector('[data-act="board-check"]', { timeout: 20000 });
+await page.waitForSelector('[data-act="board-check"]', { state: "attached", timeout: 20000 });
 // The read itself, past the cap.
 const got = await page.evaluate(async (U1) => { const bk = await import("/js/backend.js"); return { all: (await bk.readRecords(U1, "leads", {}, { select: "id", limit: 20000 })).length, capped: (await bk.readRecords(U1, "leads", {}, { select: "id", limit: 300 })).length, count: await bk.countFor(U1, "leads") }; }, U1);
 console.log("read:", JSON.stringify(got));
@@ -42,6 +42,7 @@ if (got.all !== N) fail(`a book of ${N} came back as ${got.all}`);
 if (got.capped !== 300) fail("a read's own limit isn't honoured: " + got.capped);
 if (got.count !== N) fail("the server count is wrong: " + got.count);
 // The Admin page's check says it in numbers.
+await page.evaluate(() => { const d = document.querySelector(".team-more"); if (d) d.open = true; });
 await page.click('[data-act="board-check"]');
 await page.waitForFunction(() => document.querySelector(".board-check-row"), null, { timeout: 30000 });
 const check = await page.evaluate(() => [...document.querySelectorAll(".board-check-row")].map((n) => n.textContent.replace(/\s+/g, " ").trim()));

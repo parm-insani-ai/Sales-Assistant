@@ -83,9 +83,10 @@ if (!srcs.some((x) => /^dealer_site: 3 of \d+ booked$/.test(x)) || !srcs.some((x
 
 // --- Admin: the plan's agent settings save.
 await mgr.goto(APP + "/#/team");
-await mgr.waitForSelector("#pl-oa", { timeout: 20000 });
+await mgr.waitForSelector("#pl-oa", { state: "attached", timeout: 20000 });
 // The page redraws once its admin check and config read come back; fill after that.
 await mgr.waitForFunction(() => !/checking…/.test(document.querySelector(".team-admin-check")?.textContent || "checking…"), null, { timeout: 20000 });
+await mgr.evaluate(() => { document.querySelector(".plan-more").open = true; });
 await mgr.fill("#pl-oa", "60"); await mgr.fill("#pl-osr", "5"); await mgr.fill("#pl-hmax", "8"); await mgr.selectOption("#pl-rdow", "2");
 await mgr.click('[data-act="plan-save"]');
 await mgr.waitForFunction(() => /Saved — Home shows the month's math/.test(document.body.textContent), null, { timeout: 8000 }).catch(() => fail("the plan didn't save"));
