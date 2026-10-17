@@ -1922,9 +1922,13 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .fold > summary.fold-head::marker { content: ""; }
 .fold-title { min-width: 0; }
 .fold-right { display: inline-flex; align-items: center; gap: 8px; flex: none; }
-.fold-chev { width: 22px; height: 22px; color: var(--muted); display: inline-flex; transition: transform 0.18s ease; }
-.fold-chev svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.fold[open] > summary .fold-chev { transform: rotate(180deg); }
+/* The same mark as the store's folds: a thin chevron, centred on the line,
+   down while closed and turned up when open. The SVG stays in the markup
+   for anything that reads it; the drawing is the pseudo-element. */
+.fold-chev { width: 22px; height: 22px; color: var(--muted); display: inline-flex; position: relative; }
+.fold-chev svg { display: none; }
+.fold-chev::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translate(-50%, -65%) rotate(45deg); transition: transform 0.18s ease; }
+.fold[open] > summary .fold-chev::after { transform: translate(-50%, -35%) rotate(-135deg); }
 .fold:not([open]) > summary.fold-head { margin-bottom: 14px; }
 .fold-body > .section-title:first-child { margin-top: 0; }
 /* A reminder row: the time it fires, and red once it has. */
@@ -2271,11 +2275,11 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-found > summary::-webkit-details-marker, .mg-fold > summary::-webkit-details-marker, .mg-math-src > summary::-webkit-details-marker, .mg-math-how > summary::-webkit-details-marker { display: none; }
 .mg-found > summary::marker, .mg-fold > summary::marker, .mg-math-src > summary::marker, .mg-math-how > summary::marker { content: ""; }
 .mg-found > summary::after, .mg-fold > summary::after, .mg-math-src > summary::after, .mg-math-how > summary::after {
-  content: ""; position: absolute; right: 8px; top: 0.72em; width: 8px; height: 8px;
+  content: ""; position: absolute; right: 8px; top: 50%; width: 8px; height: 8px;
   border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
-  transform: rotate(45deg); transform-origin: 60% 60%; transition: transform 0.18s ease;
+  transform: translateY(-65%) rotate(45deg); transition: transform 0.18s ease;
 }
-.mg-found[open] > summary::after, .mg-fold[open] > summary::after, .mg-math-src[open] > summary::after, .mg-math-how[open] > summary::after { transform: rotate(-135deg); }
+.mg-found[open] > summary::after, .mg-fold[open] > summary::after, .mg-math-src[open] > summary::after, .mg-math-how[open] > summary::after { transform: translateY(-35%) rotate(-135deg); }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
 .mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }
