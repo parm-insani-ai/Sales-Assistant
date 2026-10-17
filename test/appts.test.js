@@ -93,10 +93,9 @@ if (!forged.message || !/only a manager/.test(forged.message)) fail("a rep could
 // --- Floor: fresh leads waiting, nudge, huddle.
 await mgr.click('.tabbar [data-route="/floor"]');
 await mgr.waitForFunction(() => /Act now/.test(document.body.textContent) && document.querySelector("[data-nudge]"), null, { timeout: 15000 });
-const home = await mgr.evaluate(() => ({ waiting: [...document.querySelectorAll("[data-nudge]")].map((b) => b.closest(".row").textContent.replace(/\s+/g, " ").trim()), huddle: document.querySelector("#mg-huddle")?.textContent }));
-console.log("waiting:", JSON.stringify(home.waiting), "\nhuddle:", home.huddle);
+const home = await mgr.evaluate(() => ({ waiting: [...document.querySelectorAll("[data-nudge]")].map((b) => b.closest(".row").textContent.replace(/\s+/g, " ").trim()) }));
+console.log("waiting:", JSON.stringify(home.waiting));
 if (!home.waiting.some((w) => /Fresh Lead 3 h.*Parm.*Web/.test(w))) fail("the fresh lead isn't waiting with its age: " + JSON.stringify(home.waiting));
-if (!/O'Regan's Nissan Halifax/.test(home.huddle || "") || !/Today: 23:45 Later Today \(Parm\)/.test(home.huddle) || !/Parm — /.test(home.huddle)) fail("the huddle is wrong: " + home.huddle);
 await mgr.click("[data-nudge]");
 await mgr.waitForTimeout(400);
 nudges = await (await fetch(APP + "/__nudges")).json();

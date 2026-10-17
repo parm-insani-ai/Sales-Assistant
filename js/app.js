@@ -145,7 +145,7 @@ const PAGES = {
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
   "/sold": { title: "Sold", render: lazyView("sold", "renderSold") },
-  "/floor": { title: "The floor", render: lazyView("manage", "renderFloor") },
+  "/floor": { title: "The Floor", render: lazyView("manage", "renderFloor") },
   "/reps": { title: "Reps", render: lazyView("manage", "renderReps") },
   "/team": { title: "Admin", render: lazyView("team", "renderTeam") },
   "/admin": { title: "Admin", render: () => navigate("/team") },
@@ -206,9 +206,9 @@ function mount(base, ctx) {
   // The tabs with no labels on the bar say their name here, in line with
   // the "+", in the same type as Home's date.
   // The store's app names its screens the same way: the store on Home,
-  // then The floor, Reps, Admin.
+  // then The Floor, Reps, Admin.
   const TAB_NAMES = inManagement()
-    ? { "/": (cachedStore() || {}).name || "", "/floor": "The floor", "/reps": "Reps", "/team": "Admin" }
+    ? { "/": (cachedStore() || {}).name || "", "/floor": "The Floor", "/reps": "Reps", "/team": "Admin" }
     : { "/leads": "Outreach", "/log": "Log", "/comms": "Comms" };
   if (!ctx.param && TAB_NAMES[base]) { title.textContent = TAB_NAMES[base]; title.classList.add("greeting"); }
   const back = document.getElementById("topbar-back");

@@ -397,8 +397,7 @@ export function renderFloor(view, { param } = {}) {
       <div class="card mg-appts">${t.apptsToday.length ? t.apptsToday.map((a) => `<div class="row" style="padding:6px 0"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(String(a.when).slice(11, 16))} · ${esc(a.customerName || a.title || "Appointment")}</div><div class="row-sub">${esc(memberName(a.rep))}${a.type ? " · " + esc(a.type) : ""}</div></div><span class="small muted">${apptState(a)}</span></div>`).join("") : `<div class="muted small">Nothing on the store's calendar today.</div>`}</div>
 
       <details class="mg-fold"><summary class="section-title">Today on the floor <span class="muted" style="font-weight:500;font-size:0.78rem">· ${feed.length ? `${feed.length} so far` : "nothing yet"}</span></summary>${feedCard(t)}</details>
-      <details class="mg-fold"><summary class="section-title">Today's huddle <span class="muted" style="font-weight:500;font-size:0.78rem">· <a href="#" data-act="copy-huddle" style="color:var(--brand)">copy for the group chat</a></span></summary>
-      <div class="card small" style="white-space:pre-wrap;line-height:1.5" id="mg-huddle">${esc(huddleText(team, t, ins, rows, fx, now))}</div></details>`;
+`;
     },
     wire: ({ el, book, lot, draw, refresh, t }) => {
       const on = (sel, fn) => { const n = el.querySelector(sel); if (n) n.addEventListener("click", fn); };
@@ -411,7 +410,6 @@ export function renderFloor(view, { param } = {}) {
         const n = new Date();
         el.querySelectorAll(".mg-clock[data-at]").forEach((x) => { x.textContent = age(x.dataset.at, n); if (n - new Date(x.dataset.at) > 3600000) x.style.color = "var(--danger)"; });
       }, 30000);
-      on('[data-act="copy-huddle"]', async (e) => { e.preventDefault(); const txt = el.querySelector("#mg-huddle")?.textContent || ""; try { await navigator.clipboard.writeText(txt); toast("Huddle copied", "success"); } catch { toast("Select the text to copy it", "warn"); } });
       const nudgeBtn = (b, payload) => async () => {
         b.disabled = true;
         try { await nudgeRep(b.dataset.wnudge || b.dataset.anudge, payload); toast("Nudged", "success"); }

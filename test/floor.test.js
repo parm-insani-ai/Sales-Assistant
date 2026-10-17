@@ -81,7 +81,7 @@ const document_order_ok = (f) => f.backKinds.join() === "risk:noshow" && f.bring
 let f = await read();
 console.log("floor:", JSON.stringify(f, null, 1));
 // Four sections, and the one list in cost order: fresh lead, waiting, texts not sent, at risk, no welcome, service drive.
-if (f.titles.join("|") !== "Act now|Get them back|Bring them in|Today's appointments|Today on the floor|Today's huddle") fail("the Floor isn't the three lists plus the day: " + f.titles.join(" | "));
+if (f.titles.join("|") !== "Act now|Get them back|Bring them in|Today's appointments|Today on the floor") fail("the Floor isn't the three lists plus the day: " + f.titles.join(" | "));
 if (!/^Act now · 5 · costliest first$/.test(f.nowTitle)) fail("the Act now count is wrong: " + f.nowTitle);
 if (f.kinds.join() !== "fresh,wait,due,risk,welcome") fail("Act now isn't in cost order: " + f.kinds.join());
 if (!/^Get them back · 1 · 1 no-show · be-backs close at 74%$/.test(f.backTitle)) fail("the no-show isn't counted under Get them back: " + f.backTitle);
