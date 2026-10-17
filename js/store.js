@@ -1008,7 +1008,7 @@ function eventOnCreate(name, item) {
   if (name === "leads") { if (item.importedAt || item.storeCustomerId) return; logEvent(item.loggedAt ? "logged" : "lead_new", { leadId: item.id, name: item.name, meta: { source: item.source || "", stage: item.stage || "" } }); return; }
   if (name === "texts") { logEvent(item.dir === "in" ? "text_in" : "text_out", { leadId: item.leadId, by: item.dir === "in" ? "customer" : item.via === "manager" ? "manager" : "rep", prompt: item.intent || item.via || "" }); return; }
   if (name === "calls") { logEvent("call", { leadId: item.leadId, meta: { outcome: item.outcome || "", dir: item.dir || "out" } }); return; }
-  if (name === "appointments") { logEvent("appt_set", { leadId: item.leadId, name: item.customerName, meta: { when: item.when || "", type: item.type || "", source: item.source || "" } }); return; }
+  if (name === "appointments") { logEvent("appt_set", { leadId: item.leadId, name: item.customerName, meta: { apptId: item.id, when: item.when || "", type: item.type || "", source: item.source || "" } }); return; }
   if (name === "sales") { logEvent("sold", { leadId: item.leadId, name: item.customerName, meta: { newUsed: item.newUsed || "" } }); return; }
   if (name === "deliveries") { logEvent("delivery_open", { leadId: item.leadId, name: item.customerName }); return; }
   if (name === "mgractions") { logEvent("mgr_" + (item.kind || "action"), { leadId: item.leadId, by: "manager", meta: { rep: item.rep || "" } }); }
@@ -1021,9 +1021,9 @@ function eventOnUpdate(name, before, patch) {
     return;
   }
   if (name === "appointments") {
-    if (patch.confirmed === true && !before.confirmed) logEvent("appt_confirmed", { leadId: before.leadId, name: before.customerName });
-    if (patch.outcome && patch.outcome !== before.outcome) logEvent("appt_" + patch.outcome, { leadId: before.leadId, name: before.customerName, meta: { when: before.when || "" } });
-    if (patch.status === "canceled" && before.status !== "canceled") logEvent("appt_canceled", { leadId: before.leadId, name: before.customerName });
+    if (patch.confirmed === true && !before.confirmed) logEvent("appt_confirmed", { leadId: before.leadId, name: before.customerName, meta: { apptId: before.id } });
+    if (patch.outcome && patch.outcome !== before.outcome) logEvent("appt_" + patch.outcome, { leadId: before.leadId, name: before.customerName, meta: { apptId: before.id, when: before.when || "" } });
+    if (patch.status === "canceled" && before.status !== "canceled") logEvent("appt_canceled", { leadId: before.leadId, name: before.customerName, meta: { apptId: before.id } });
     return;
   }
   if (name === "tasks") { if (patch.done === true && !before.done) logEvent("task_done", { leadId: before.leadId, meta: { kind: before.kind || "", channel: before.channel || "", source: before.source || "", cadence: !!before.cadence, intent: before.intent || "", doneBy: patch.doneBy || "" } }); return; }

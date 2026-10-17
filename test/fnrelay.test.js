@@ -300,6 +300,11 @@ try {
     { id: "out8", user_id: U1, collection: "texts", data: { id: "out8", leadId: "c8", dir: "out", body: "Hi Ivy, thanks for reaching out about the Kicks — it's here.", at: hoursAgo(4), read: true } },
     // The rep has notifications on, so their own sweep runs in this pass (the push itself can't complete against this plain mock).
     { id: "push-rep", user_id: U1, collection: "push", data: { id: "push-rep", sub: { endpoint: `http://127.0.0.1:${MOCK}/push/u1`, keys: { p256dh: SUBKEY.pub, auth: "YXV0aHNlY3JldDE2Ynl0ZXM" } }, createdAt: new Date().toISOString() } },
+    // The event log for the statistician: ten leads answered inside ten minutes over the last fortnight.
+    ...[...Array(10)].flatMap((_, i) => { const at = Date.now() - (i + 1) * 86400000; return [
+      { id: "sev" + i + "a", user_id: U1, collection: "events", data: { id: "sev" + i + "a", kind: "lead_new", leadId: "sl" + i, name: "Lead " + i, by: "rep", prompt: "", at: new Date(at).toISOString() } },
+      { id: "sev" + i + "b", user_id: U1, collection: "events", data: { id: "sev" + i + "b", kind: "text_out", leadId: "sl" + i, name: "Lead " + i, by: "rep", prompt: "intro", at: new Date(at + (3 + i % 4) * 60000).toISOString() } },
+    ]; }),
     // An appointment two hours gone with no outcome: the rep is asked "Did Olive show?" with two buttons.
     { id: "ap4", user_id: U1, collection: "appointments", data: { id: "ap4", customerName: "Olive Outcome", type: "test drive", when: new Date(Date.now() - 2 * 60 * 60000).toISOString().slice(0, 16), status: "scheduled", confirmed: true } },
     // The be-backs: logged five days ago, still working, quiet for four.
@@ -345,6 +350,9 @@ try {
   if (agentRep.handouts !== 4 || hand.length !== 4 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
   if (!tasks(U1).some((t) => t.kind === "service" && t.leadId === "o4" && /In service today: Sue Service/.test(t.title))) fail("the customer in the service drive wasn't handed over: " + JSON.stringify(tasks(U1)));
   if (!(agentRep.huddles || []).some((k) => /^agent:huddle:/.test(k))) fail("the huddle wasn't sent: " + JSON.stringify(agentRep));
+  // The statistician: on the review day the store's sentences go to the manager and Parm's own to Parm.
+  if (!(agentRep.stats || []).some((k) => /^stats:\d{4}-\d{2}-\d{2}$/.test(k)) || !(agentRep.stats || []).some((k) => new RegExp("^stats:.*:" + U1.slice(0, 8) + "$").test(k))) fail("the statistician didn't run for the store and for Parm: " + JSON.stringify(agentRep.stats));
+  if (!(agentRep.statsText || []).some((x) => /^First contact takes \d min at the median; 100% of leads hear from us inside ten minutes\./.test(x))) fail("the statistician's sentence is wrong: " + JSON.stringify(agentRep.statsText));
   // The planner wrote the month to Parm from the allocation; the dispatcher sized the hand-outs to the plan (capped at twelve).
   const monthKey = new Date().toISOString().slice(0, 7);
   const parmT = db.targets.find((t) => t.user_id === U1 && t.month === monthKey);

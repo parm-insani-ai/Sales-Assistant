@@ -2271,6 +2271,14 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .mg-list > .mg-k-held { border-left-color: var(--border); }
 .mg-list > .row + .row, .mg-list > .mg-due-rep + .row, .mg-list > .row + .mg-due-rep, .mg-list > .mg-due-rep + .mg-due-rep, .mg-list > * + .mg-held-rep { border-top: 1px solid var(--border); }
 .mg-today-watch { margin-top: 2px; line-height: 1.4; }
+/* Advanced statistics: small tables, one key/value line per read. */
+.st-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 8px; }
+.st-table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 0.76rem; letter-spacing: 0.02em; padding: 2px 0 4px; }
+.st-table td { padding: 5px 0; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.st-table th + th, .st-table td + td { text-align: right; padding-left: 8px; white-space: nowrap; width: 1%; }
+.st-kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 0.92rem; }
+.st-kv:first-child { border-top: 0; }
+.st-kv > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .team-add > summary.team-add-head { list-style: none; cursor: pointer; color: var(--brand); font-weight: 600; padding: 10px 0 2px; border-top: 1px solid var(--border); margin-top: 2px; }
 .team-add > summary.team-add-head::-webkit-details-marker { display: none; }
 .team-add > summary.team-add-head::marker { content: ""; }

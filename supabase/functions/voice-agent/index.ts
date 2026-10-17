@@ -1667,7 +1667,7 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
     const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "us";
     const manager = String((cfgRow.welcome && cfgRow.welcome.manager) || (managers[0] ? nameOf(managers[0]) : "the sales manager"));
     const names = { manager, store: String(st.name || "the store") };
-    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[], plan: null as any, review: [] as string[] };
+    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[], plan: null as any, review: [] as string[], stats: [] as string[], statsText: [] as string[] };
     // The month's plan, when the store has set one: every rep's share and
     // where each should be today. The dispatcher sizes hand-outs to it;
     // the reviewer reads the week against it.
@@ -1825,6 +1825,50 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
         if (changed) await rememberNudges(uid, already);
       }
     }
+    // The statistician, on the review day: the event log of the last four
+    // weeks read into sentences. The store's to each manager (and by email);
+    // each rep's own to the rep. Nothing is said below a read's threshold.
+    for (const mg of managers) {
+      const uid = String(mg.user_id);
+      const prefs = (await rowsOf(uid, "prefs"))[0] || {};
+      const L = localOf(now, prefs);
+      const reviewDow = Number((cfgRow.plan && cfgRow.plan.reviewDow) ?? 1);
+      if (L.dow !== reviewDow || L.hour < 7) continue;
+      const already = await sentNudges(uid);
+      if (already[`agent:stats:${L.day}`]) continue;
+      try {
+        const names: Record<string, string> = {};
+        const perRep: Record<string, Ev[]> = {};
+        const all: Ev[] = [];
+        for (const m of members as any[]) {
+          const ev = await eventsSince(String(m.user_id), 28, now);
+          names[String(m.user_id)] = String(nameOf(m)).split(" ")[0];
+          perRep[String(m.user_id)] = ev; all.push(...ev);
+        }
+        const lines = statsInsights(statsCore(all), "manager", names);
+        out.stats.push(`stats:${L.day}`);
+        out.statsText.push(...lines.map((l) => l.text));
+        if (lines.length) {
+          const text = [`${st.name} · what the numbers say, last 28 days`, ...lines.map((l) => `• ${l.text}`), "", "The full read is under + → Advanced statistics."].join("\n");
+          if (canPush.has(uid)) await sendPush(uid, { title: `What the numbers say · ${st.name}`, body: lines.slice(0, 2).map((l) => l.text).join(" ").slice(0, 180), tag: `agent:stats:${L.day}`, url: "./#/stats" });
+          if (mg.email) { try { await resendSend(String(mg.email), `What the numbers say · ${st.name}`, text); } catch { /* no email */ } }
+        }
+        for (const m of members as any[]) {
+          const ruid = String(m.user_id);
+          if (m.role === "manager" || !canPush.has(ruid)) continue;
+          const mine = statsInsights(statsCore(perRep[ruid] || []), "rep");
+          if (!mine.length) continue;
+          const theirs = await sentNudges(ruid);
+          if (theirs[`agent:stats:${L.day}`]) continue;
+          await sendPush(ruid, { title: "Your numbers this week", body: mine.slice(0, 2).map((l) => l.text).join(" ").slice(0, 180), tag: `agent:stats:${L.day}`, url: "./#/stats" });
+          theirs[`agent:stats:${L.day}`] = new Date().toISOString();
+          await rememberNudges(ruid, theirs);
+          out.stats.push(`stats:${L.day}:${ruid.slice(0, 8)}`);
+        }
+      } catch (e) { out.errors.push(`stats: ${String(e)}`); }
+      already[`agent:stats:${L.day}`] = new Date().toISOString();
+      await rememberNudges(uid, already);
+    }
     if (cfg.huddleOn || cfg.recapOn) {
       for (const mg of managers) {
         const uid = String(mg.user_id);
@@ -1896,6 +1940,113 @@ async function runPlanner(st: any, planCfg: any, members: any[], L: any, monthKe
 // ---- The reviewer ----
 // Monday: the month so far against the plan's pace, store and rep, and the
 // leak — the one conversion most below what the plan assumed.
+// ---- Advanced statistics, read from the event log ----
+// The same reads as the app's js/stats.js, kept in step by hand: speed to
+// lead, pushes, the follow-up steps, the welcome's timing, confirmations,
+// the manager's taps, the agent's own work. Each carries its sample; the
+// sentences (statsInsights) say nothing below their thresholds. The
+// statistician sends them weekly: the store's to the manager, each rep's
+// own to the rep.
+type Ev = { kind: string; leadId?: string | null; by?: string; prompt?: string; at: string; meta?: any; rep?: string };
+const S_MIN = 60000, S_DAY = 86400000;
+const sAt = (e: Ev) => new Date(e.at).getTime();
+const sPct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : null);
+function sMedian(xs: number[]): number | null { if (!xs.length) return null; const s = xs.slice().sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2); }
+const sContact = (e: Ev) => (e.kind === "text_out" || e.kind === "call" || e.kind === "email_out") && e.by !== "customer";
+const sAct = (e: Ev) => sContact(e) || e.kind === "appt_set" || e.kind === "task_done" || e.kind === "logged" || e.kind === "lead_new";
+function sByLead(events: Ev[]): Map<string, Ev[]> { const m = new Map<string, Ev[]>(); for (const e of events) { if (!e.leadId) continue; if (!m.has(e.leadId)) m.set(e.leadId, []); m.get(e.leadId)!.push(e); } for (const v of m.values()) v.sort((a, b) => sAt(a) - sAt(b)); return m; }
+const sFirstAfter = (list: Ev[], from: number, pred: (e: Ev) => boolean, within: number) => list.find((e) => sAt(e) >= from && sAt(e) - from <= within && pred(e)) || null;
+function statsCore(events: Ev[]) {
+  const leads = sByLead(events);
+  // speed
+  const sp: { rep: string; min: number }[] = [];
+  for (const list of leads.values()) {
+    const arrive = list.find((e) => e.kind === "lead_new") || list.find((e) => e.kind === "logged"); if (!arrive) continue;
+    const first = sFirstAfter(list, sAt(arrive), sContact, 7 * S_DAY); if (!first) continue;
+    sp.push({ rep: first.rep || arrive.rep || "", min: Math.round((sAt(first) - sAt(arrive)) / S_MIN) });
+  }
+  const reps = [...new Set(sp.map((r) => r.rep).filter(Boolean))].map((rep) => { const xs = sp.filter((r) => r.rep === rep); return { rep, n: xs.length, medianMin: sMedian(xs.map((r) => r.min)) as number, within10Pct: sPct(xs.filter((r) => r.min <= 10).length, xs.length) }; }).sort((a, b) => a.medianMin - b.medianMin);
+  const speed = { n: sp.length, medianMin: sMedian(sp.map((r) => r.min)), within10Pct: sPct(sp.filter((r) => r.min <= 10).length, sp.length), byRep: reps };
+  // pushes
+  const received = events.filter((e) => e.kind === "push_received").sort((a, b) => sAt(a) - sAt(b));
+  const opened = events.filter((e) => e.kind === "push_open").sort((a, b) => sAt(a) - sAt(b));
+  const acts = events.filter(sAct).sort((a, b) => sAt(a) - sAt(b));
+  const used = new Set<Ev>(); let openN = 0, actN = 0; const openMins: number[] = [];
+  for (const r of received) {
+    const o = opened.find((x) => !used.has(x) && x.prompt === r.prompt && sAt(x) >= sAt(r) && sAt(x) - sAt(r) <= S_DAY); if (!o) continue;
+    used.add(o); openN++; openMins.push(Math.round((sAt(o) - sAt(r)) / S_MIN));
+    if (acts.find((x) => sAt(x) >= sAt(o) && sAt(x) - sAt(o) <= 30 * S_MIN && (!o.rep || !x.rep || x.rep === o.rep))) actN++;
+  }
+  const pushes = { received: received.length, opened: openN, acted: actN, openPct: sPct(openN, received.length), actPct: sPct(actN, received.length), medianOpenMin: sMedian(openMins) };
+  // steps
+  const stepMap = new Map<string, { step: string; n: number; booked: number }>();
+  for (const list of leads.values()) for (const e of list) {
+    if (e.kind !== "text_out" || e.by !== "rep") continue;
+    const step = String(e.prompt || "other") || "other";
+    const row = stepMap.get(step) || { step, n: 0, booked: 0 }; row.n++; stepMap.set(step, row);
+    if (sFirstAfter(list, sAt(e), (x) => x.kind === "appt_set", S_DAY)) row.booked++;
+  }
+  const stepRows = [...stepMap.values()].map((r) => ({ ...r, bookPct: sPct(r.booked, r.n) as number })).filter((r) => r.n >= 8);
+  const steps = { best: stepRows.slice().sort((a, b) => b.bookPct - a.bookPct)[0] || null, worst: stepRows.slice().sort((a, b) => a.bookPct - b.bookPct)[0] || null };
+  // welcome
+  const buckets = [{ label: "inside an hour", lo: 0, hi: 60, n: 0, replied: 0, booked: 0 }, { label: "one to two hours", lo: 60, hi: 120, n: 0, replied: 0, booked: 0 }, { label: "after two hours", lo: 120, hi: Infinity, n: 0, replied: 0, booked: 0 }];
+  for (const list of leads.values()) {
+    const logged = list.find((e) => e.kind === "logged") || list.find((e) => e.kind === "lead_new");
+    const w = logged && list.find((e) => e.kind === "text_out" && /^(intro|welcome)$/.test(String(e.prompt || "")) && sAt(e) >= sAt(logged)); if (!logged || !w) continue;
+    const delay = Math.round((sAt(w) - sAt(logged)) / S_MIN); const b = buckets.find((x) => delay >= x.lo && delay < x.hi); if (!b) continue;
+    b.n++; if (sFirstAfter(list, sAt(w), (x) => x.kind === "text_in", S_DAY)) b.replied++; if (sFirstAfter(list, sAt(w), (x) => x.kind === "appt_set", 2 * S_DAY)) b.booked++;
+  }
+  const welcome = { buckets: buckets.map((b) => ({ label: b.label, n: b.n, replyPct: sPct(b.replied, b.n), bookPct: sPct(b.booked, b.n) })) };
+  // confirm
+  const apptMap = new Map<string, { set: boolean; confirmed: boolean; outcome: string }>();
+  for (const e of events) { const id = e.meta && e.meta.apptId; if (!id || !/^appt_/.test(e.kind)) continue; const a = apptMap.get(id) || { set: false, confirmed: false, outcome: "" }; apptMap.set(id, a); if (e.kind === "appt_set") a.set = true; if (e.kind === "appt_confirmed") a.confirmed = true; if (e.kind === "appt_showed" || e.kind === "appt_sold") a.outcome = "showed"; if (e.kind === "appt_no_show") a.outcome = a.outcome || "no_show"; }
+  const done = [...apptMap.values()].filter((a) => a.set && a.outcome); const c = done.filter((a) => a.confirmed), u = done.filter((a) => !a.confirmed);
+  const confirm = { confirmed: { n: c.length, showPct: sPct(c.filter((a) => a.outcome === "showed").length, c.length) }, unconfirmed: { n: u.length, showPct: sPct(u.filter((a) => a.outcome === "showed").length, u.length) } };
+  // taps
+  const TAPS: Record<string, string> = { mgr_nudge: "Nudges", mgr_text: "Texts from the store", mgr_handoff: "Hand-offs", mgr_welcome: "Welcomes", mgr_draft: "Drafts sent" };
+  const tapMap = new Map<string, { label: string; n: number; booked: number }>(); let tapN = 0, tapBooked = 0;
+  for (const list of leads.values()) for (const e of list) { if (!/^mgr_/.test(e.kind)) continue; const row = tapMap.get(e.kind) || { label: TAPS[e.kind] || e.kind.slice(4), n: 0, booked: 0 }; row.n++; tapN++; tapMap.set(e.kind, row); if (sFirstAfter(list, sAt(e), (x) => x.kind === "appt_set", S_DAY)) { row.booked++; tapBooked++; } }
+  const tapRows = [...tapMap.values()].map((r) => ({ ...r, pct: sPct(r.booked, r.n) as number }));
+  const taps = { n: tapN, pct: sPct(tapBooked, tapN), best: tapRows.filter((r) => r.n >= 5).sort((a, b) => b.pct - a.pct)[0] || null };
+  // agent
+  const ac = { n: 0, showed: 0 }, ah = { n: 0, worked: 0, booked: 0 };
+  for (const list of leads.values()) for (const e of list) {
+    if (e.kind === "text_out" && e.by === "agent" && e.prompt === "manager-confirm") { ac.n++; if (sFirstAfter(list, sAt(e), (x) => x.kind === "appt_showed" || x.kind === "appt_sold", 3 * S_DAY)) ac.showed++; }
+    else if (e.kind === "task_handed") { ah.n++; if (sFirstAfter(list, sAt(e), (x) => sContact(x) && x.by === "rep", 2 * S_DAY)) ah.worked++; if (sFirstAfter(list, sAt(e), (x) => x.kind === "appt_set", 7 * S_DAY)) ah.booked++; }
+  }
+  const agent = { confirm: { n: ac.n, showedPct: sPct(ac.showed, ac.n) }, handed: { n: ah.n, workedPct: sPct(ah.worked, ah.n), bookedPct: sPct(ah.booked, ah.n) } };
+  // discipline (leads touched)
+  let arrived = 0, touched = 0;
+  for (const list of leads.values()) { const arrive = list.find((e) => e.kind === "lead_new" || e.kind === "logged"); if (!arrive) continue; arrived++; if (sFirstAfter(list, sAt(arrive), sContact, 7 * S_DAY)) touched++; }
+  const discipline = { leadsN: arrived, touchedPct: sPct(touched, arrived) };
+  return { speed, pushes, steps, welcome, confirm, taps, agent, discipline };
+}
+function statsInsights(s: ReturnType<typeof statsCore>, who: "manager" | "rep", names: Record<string, string> = {}): { key: string; priority: number; text: string }[] {
+  const out: { key: string; priority: number; text: string }[] = [];
+  const you = who === "rep"; const nm = (id: string) => names[id] || "a rep";
+  if (s.speed.n >= 8 && s.speed.medianMin != null) {
+    out.push({ key: "speed", priority: 90, text: `${you ? "Your first contact" : "First contact"} takes ${s.speed.medianMin} min at the median; ${s.speed.within10Pct}% ${you ? "of your leads hear from you" : "of leads hear from us"} inside ten minutes.` });
+    if (!you && s.speed.byRep.length >= 2) { const f = s.speed.byRep[0], sl = s.speed.byRep[s.speed.byRep.length - 1]; if (f.n >= 5 && sl.n >= 5 && sl.medianMin >= 2 * Math.max(1, f.medianMin)) out.push({ key: "speed-gap", priority: 85, text: `${nm(f.rep)} answers a new lead in ${f.medianMin} min; ${nm(sl.rep)} in ${sl.medianMin}.` }); }
+  }
+  if (s.pushes.received >= 10) out.push({ key: "pushes", priority: 70, text: `${s.pushes.openPct}% of ${you ? "your" : "the"} pushes get opened and ${s.pushes.actPct}% lead to something done inside half an hour${s.pushes.medianOpenMin != null ? `, ${s.pushes.medianOpenMin} min after they land` : ""}.` });
+  if (s.steps.best && s.steps.worst && s.steps.best.step !== s.steps.worst.step) out.push({ key: "steps", priority: 80, text: `The "${s.steps.best.step}" text books ${s.steps.best.bookPct}% of the time; "${s.steps.worst.step}" ${s.steps.worst.bookPct}%.` });
+  const wb = s.welcome.buckets.filter((x) => x.n >= 6); if (wb.length >= 2) { const a = wb[0], z = wb[wb.length - 1]; out.push({ key: "welcome", priority: 75, text: `Welcomes sent ${a.label} get ${a.replyPct}% replies and book ${a.bookPct}%; ${z.label}, ${z.replyPct}% and ${z.bookPct}%.` }); }
+  if (s.confirm.confirmed.n >= 6 && s.confirm.unconfirmed.n >= 6) out.push({ key: "confirm", priority: 88, text: `Confirmed appointments show ${s.confirm.confirmed.showPct}% of the time; unconfirmed, ${s.confirm.unconfirmed.showPct}%.` });
+  if (!you && s.taps.n >= 6) out.push({ key: "taps", priority: 72, text: `${s.taps.pct}% of your taps had an appointment set within a day${s.taps.best ? `; ${s.taps.best.label.toLowerCase()} work best at ${s.taps.best.pct}%` : ""}.` });
+  if (s.agent.confirm.n >= 6) out.push({ key: "agent-confirm", priority: 60, text: `The agent's confirmation texts: ${s.agent.confirm.showedPct}% of those appointments showed.` });
+  if (s.agent.handed.n >= 8) out.push({ key: "agent-handed", priority: 62, text: `Of the agent's hand-outs, ${s.agent.handed.workedPct}% were worked inside two days and ${s.agent.handed.bookedPct}% booked inside a week.` });
+  if (s.discipline.leadsN >= 8 && s.discipline.touchedPct != null && s.discipline.touchedPct < 90) out.push({ key: "touched", priority: 92, text: `${100 - s.discipline.touchedPct}% of ${you ? "your" : ""} leads this period never got a first text or call.` });
+  return out.sort((a, b) => b.priority - a.priority);
+}
+// A member's events from the last `days`, newest rows first so a long log still yields the recent ones.
+async function eventsSince(uid: string, days: number, now: number): Promise<Ev[]> {
+  const since = new Date(now - days * S_DAY).toISOString();
+  const res = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.events&deleted=eq.false&select=data&order=updated_at.desc&limit=4000`), { headers: sbHeaders() }).catch(() => null);
+  if (!res || !res.ok) return [];
+  const rows = (await res.json().catch(() => [])) as any[];
+  return rows.map((r) => r.data as Ev).filter((e) => e && e.kind && typeof e.at === "string" && e.at >= since).map((e) => ({ ...e, rep: uid }));
+}
+
 async function reviewText(st: any, planCfg: any, members: any[], L: any, mon: (uid: string, key: string) => Promise<any>): Promise<string> {
   const reps = members.filter((x) => x && x.user_id);
   const pm = planMath(planCfg, reps, L);

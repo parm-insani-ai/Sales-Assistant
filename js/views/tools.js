@@ -17,6 +17,7 @@ export const TOOL_LINKS = [
   { icon: "tag", label: "Specials", fn: () => navigate("/specials") },
   { icon: "search", label: "Inventory", fn: () => openDealerSearch() },
   { icon: "sparkles", label: "Sales Coach", fn: () => navigate("/coach") },
+  { icon: "sparkles", label: "Advanced statistics", fn: () => navigate("/stats") },
   { icon: "checkline", label: "Sold Tracker", fn: () => navigate("/soldlog") },
   { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
   { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },

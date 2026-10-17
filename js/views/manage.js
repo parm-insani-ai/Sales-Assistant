@@ -629,6 +629,7 @@ export async function openManagerQuickAdd() {
       { icon: "calendar", label: "Timing", fn: customers("timing") },
       { icon: "calendar", label: "Lease ends", fn: customers("leases") },
       { icon: "sparkles", label: "Insights", fn: () => navigate("/insights") },
+      { icon: "sparkles", label: "Advanced statistics", fn: () => navigate("/stats") },
       { icon: "store", label: "Admin", fn: () => navigate("/team") },
       { icon: "settings", label: "Settings", fn: () => navigate("/settings") },
       { icon: "car", label: "Sales view", fn: () => { setViewMode("sales"); location.hash = "#/"; location.reload(); } },
