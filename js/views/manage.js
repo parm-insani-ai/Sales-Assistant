@@ -226,6 +226,7 @@ export function renderManageHome(view) {
         ${!ins.needs.goal && plan ? `<div class="small muted" style="margin-top:2px">Each rep's share is set under Admin → Store targets; Write puts it on their phone.</div>` : ""}
         <div class="mg-today-reps" style="margin-top:8px">${perRep.map(({ r, set, need, acts, onTrack, plays, flags, last }) => `<div class="row mg-today-rep mg-rep" data-rep="${esc(r.member.user_id)}" style="padding:7px 0;border-top:1px solid var(--border);align-items:flex-start;cursor:pointer"><div class="row-main"><div class="row-title" style="font-size:0.95rem">${esc(memberName(r.member))} <span class="mg-need small" style="font-weight:600;${need ? (set >= need ? "color:var(--success)" : "color:var(--warning)") : "color:var(--muted)"}">${need ? `${set} of ${need} set today` : onTrack ? `on track · ${set} set today` : `${set} set today`}</span></div><div class="row-sub mg-today-acts">${acts.length ? acts.map(([txt]) => `<span class="mg-act">${esc(txt)}</span>`).join(" · ") : "nothing waiting on them"}</div><div class="small mg-today-watch">${[
             plays ? `<span class="mg-plays-done" style="${plays.done >= plays.of ? "color:var(--success)" : "color:var(--warning)"};font-weight:600">${plays.done} of ${plays.of} plays done</span>` : "",
+            r.daylog ? `<span class="mg-daylog">log ${r.daylog.prospects} of 5 · ${r.daylog.posts} post${r.daylog.posts === 1 ? "" : "s"}</span>` : (now.getHours() >= 15 ? `<span class="mg-daylog" style="color:var(--danger)">no daily log</span>` : ""),
             ...flags.map((f) => `<span class="mg-flag" style="color:var(--danger)">${esc(f)}</span>`),
             `<span class="muted mg-last">${last ? `last did something ${esc(last)}` : "nothing logged, set or sold yet today"}</span>`,
           ].filter(Boolean).join(" · ")}</div>${plan ? `<div class="small muted mg-today-plan">${(() => { const pr = plan.perRep.find((x) => x.member.user_id === r.member.user_id); return pr ? `${pr.units} units this month · ${pr.day.customers} customers and ${pr.day.appts} appointments a day · ${r.loggedToday || 0} logged today` : ""; })()}</div>` : ""}</div><span class="muted">›</span></div>`).join("")}</div>
@@ -625,6 +626,7 @@ export async function openManagerQuickAdd() {
     ]);
     section("Go to", [
       { icon: "calendar", label: "Appointments", fn: () => navigate("/appointments") },
+      { icon: "file", label: "Daily logs", fn: () => navigate("/daylogs") },
       { icon: "users", label: "Customers", fn: customers("all") },
       { icon: "calendar", label: "Timing", fn: customers("timing") },
       { icon: "calendar", label: "Lease ends", fn: customers("leases") },

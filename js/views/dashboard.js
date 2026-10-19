@@ -80,6 +80,7 @@ export function renderDashboard(view) {
     <div class="appt-list"></div>
 
     <div class="target-slot"></div>
+    <div class="daylog-slot"></div>
 
     <div class="stat-grid">
       <div class="stat card-tap" data-goto="/leads" data-lead-filter="due"><div class="stat-value" style="color:${dueFollowUps.length ? "var(--danger)" : "var(--text)"}">${dueFollowUps.length}</div><div class="stat-label">Follow-ups due ›</div></div>
@@ -179,6 +180,8 @@ export function renderDashboard(view) {
     slot.replaceChildren(targetSection(mtd, store.getSettings(), mountTarget));
   };
   mountTarget();
+  // The daily customer prospect log, how far it is today, a tap away.
+  import("./daylog.js").then((d) => { const slot = el.querySelector(".daylog-slot"); if (slot && slot.isConnected) slot.replaceChildren(d.daylogRow()); }).catch(() => {});
 
   // Upcoming
   const up = el.querySelector(".upcoming-list");

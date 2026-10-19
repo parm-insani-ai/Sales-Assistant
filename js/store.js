@@ -152,6 +152,9 @@ const DEFAULT_STATE = {
   // Mass blasts, one row each: { channel, sentence, audience, message, offer,
   // recipients, sent, failed, startedAt, finishedAt }
   blasts: [],
+  // The daily customer prospect log, one record a day: five Auto Alert /
+  // service-list customers with outcomes, five Facebook posts (views/daylog.js).
+  daylogs: [],
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -990,7 +993,7 @@ export function update(name, id, patch) {
 // to which customer, when, by whom, prompted by what. Only acts on this
 // device log here (records arriving by sync don't); the function logs its
 // own. Never a dollar figure, never a message body.
-const EVENT_SKIP = new Set(["events", "config", "prefs", "push", "activity", "docs", "outbox", "mailwatch", "agentplays", "agentdrafts", "blasts", "paychecks", "spifs", "specials", "vehicles", "outreach", "emails"]);
+const EVENT_SKIP = new Set(["events", "daylogs", "config", "prefs", "push", "activity", "docs", "outbox", "mailwatch", "agentplays", "agentdrafts", "blasts", "paychecks", "spifs", "specials", "vehicles", "outreach", "emails"]);
 let eventsOn = true;
 export function logEvent(kind, { leadId = null, name = "", by = "rep", prompt = "", at = null, meta = null } = {}) {
   if (!eventsOn || !kind) return null;
@@ -1059,7 +1062,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs", "agentdrafts", "mgractions", "events"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs", "agentdrafts", "mgractions", "events", "daylogs"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather

@@ -26,7 +26,7 @@ const LOADERS = {
   tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
-  outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), stats: () => import("./views/stats.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
+  outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), stats: () => import("./views/stats.js"), daylog: () => import("./views/daylog.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
   dealbuilder: () => import("./views/dealbuilder.js"),
   log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"), sold: () => import("./views/sold.js"),
 };
@@ -156,6 +156,8 @@ const PAGES = {
   "/admin": { title: "Admin", render: () => navigate("/team") },
   "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") },
   "/stats": { title: "Advanced statistics", render: lazyView("stats", "renderStats") },
+  "/daylog": { title: "Daily log", render: lazyView("daylog", "renderDaylog") },
+  "/daylogs": { title: "Daily logs", render: lazyView("daylog", "renderDaylogs") },
   "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") },
   "/customers": { title: "Customers", render: lazyView("customers", "renderCustomers") },
   "/horizon": { title: "Timing", render: lazyView("horizon", "renderHorizon") },

@@ -8,6 +8,7 @@ import { openDealerSearch } from "./dealer.js";
 import { canManage, setViewMode } from "../team.js";
 
 export const TOOL_LINKS = [
+  { icon: "file", label: "Daily log", fn: () => navigate("/daylog") },
   { icon: "users", label: "Team", fn: () => navigate("/team") },
   { icon: "megaphone", label: "Mass outreach", fn: () => navigate("/outreach") },
   { icon: "target", label: "Campaign", fn: () => navigate("/campaign") },

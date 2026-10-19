@@ -323,7 +323,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount, daylogToday] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -348,6 +348,8 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     // How many customers their cloud copy holds at all — so an empty board
     // row can say why, instead of showing zeros that look like a quiet day.
     backend.countFor(userId, "leads").catch(() => null),
+    // Today's daily customer prospect log, for the line on Home.
+    backend.readRecords(userId, "daylogs", { id: `eq.daylog:${today}` }, { select: "data", limit: 1 }).catch(() => []),
   ]);
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
@@ -516,7 +518,9 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     speedMin: insight.speed && insight.speed.medianMinutes != null ? insight.speed.medianMinutes : null,
     closing: sheet && sheet.spoke >= 3 && sheet.closing != null ? Math.round(sheet.closing * 100) : null,
   };
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, note: readNote, at: now.toISOString() };
+  const dl = daylogToday[0] && daylogToday[0].data;
+  const daylog = dl ? { prospects: (dl.prospects || []).filter((p) => p && (p.name || p.phone || p.email || p.outcome)).length, outcomes: (dl.prospects || []).filter((p) => p && p.outcome).length, posts: (dl.posts || []).filter((p) => p && (p.vehicle || p.stock)).length } : null;
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, daylog, note: readNote, at: now.toISOString() };
 }
 
 // The board's self-check: for each member, what the server holds against

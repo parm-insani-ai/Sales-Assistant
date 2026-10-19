@@ -2305,6 +2305,24 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .set-fold-b { padding: 2px 16px 16px; border-top: 1px solid var(--border); padding-top: 14px; }
 .set-sep { border-top: 1px solid var(--border); margin: 14px 0; }
 .btn[hidden] { display: none !important; }
+/* The daily log: five numbered slots a card, matches under the name. */
+.dl-slot { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+.dl-slot:first-child { border-top: 0; padding-top: 2px; }
+.dl-slot:last-child { padding-bottom: 2px; }
+.dl-num { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2); color: var(--muted); font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-top: 9px; }
+.dl-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.dl-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dl-in { width: 100%; padding: 10px 12px; background: var(--surface); border: 1.5px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font-size: 16px; font-family: inherit; }
+.dl-in:focus { outline: none; border-color: var(--brand); box-shadow: var(--ring); }
+.dl-in::placeholder { color: var(--muted); }
+.dl-pickwrap { position: relative; }
+.dl-pick { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); overflow: hidden; margin-top: 4px; }
+.dl-match { display: block; width: 100%; text-align: left; padding: 10px 12px; background: none; border: 0; border-top: 1px solid var(--border); font: inherit; color: var(--text); }
+.dl-match:first-child { border-top: 0; }
+.dl-line { padding: 6px 0; border-top: 1px solid var(--border); }
+.dl-line:first-of-type { border-top: 0; }
+.dl-home { margin-bottom: 12px; }
+.dl-date { font: inherit; font-size: 0.86rem; padding: 6px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
 .mg-math-src > summary, .mg-math-how > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--brand); list-style: none; }
