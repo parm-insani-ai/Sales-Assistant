@@ -276,7 +276,7 @@ try {
   // rep's and the manager's clocks are UTC, open all week.
   // The store's plan: 80 units, Parm carrying 20; the review day is today
   // so the reviewer and the be-back list run in this pass.
-  db.config.push({ store_id: "s1", data: { welcome: { manager: "Sam" }, agent: { confirmHour: 0, noShowHour: 0, huddleHour: 0, recapHour: 0, handoutN: 2 }, plan: { targetNew: 50, targetUsed: 30, alloc: { [U1]: 20 }, reviewDow: new Date().getUTCDay() } } });
+  db.config.push({ store_id: "s1", data: { welcome: { manager: "Sam" }, agent: { confirmHour: 0, noShowHour: 0, huddleHour: 0, recapHour: 0, statsHour: 0, handoutN: 2 }, plan: { targetNew: 50, targetUsed: 30, alloc: { [U1]: 20 }, reviewDow: new Date(Date.now() - lateTz * 60000).getUTCDay() } } });
   const dayN = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
   db.records.push(
@@ -305,6 +305,11 @@ try {
       { id: "sev" + i + "a", user_id: U1, collection: "events", data: { id: "sev" + i + "a", kind: "lead_new", leadId: "sl" + i, name: "Lead " + i, by: "rep", prompt: "", at: new Date(at).toISOString() } },
       { id: "sev" + i + "b", user_id: U1, collection: "events", data: { id: "sev" + i + "b", kind: "text_out", leadId: "sl" + i, name: "Lead " + i, by: "rep", prompt: "intro", at: new Date(at + (3 + i % 4) * 60000).toISOString() } },
     ]; }),
+    // The daily log: one row Parm wrote, one AutoAlert customer their calls show reached today, one listing copied.
+    { id: "daylog:" + new Date().toISOString().slice(0, 10), user_id: U1, collection: "daylogs", data: { id: "daylog:" + new Date().toISOString().slice(0, 10), date: new Date().toISOString().slice(0, 10), prospects: [{ name: "Walk-in Bob", phone: "9025559999", outcome: "Coming Saturday" }], posts: [] } },
+    { id: "c10", user_id: U1, collection: "leads", data: { id: "c10", name: "Al Alert", phone: "9025557010", stage: "working", alertType: "Flex", importedAt: hoursAgo(400) } },
+    { id: "call10", user_id: U1, collection: "calls", data: { id: "call10", leadId: "c10", dir: "out", via: "call", outcome: "reached", logged: true, notes: "Wants numbers on a Rogue", at: new Date(Date.now() - 30 * 60000).toISOString() } },
+    { id: "fb1", user_id: U1, collection: "events", data: { id: "fb1", kind: "fb_post", by: "rep", prompt: "", at: new Date(Date.now() - 20 * 60000).toISOString(), meta: { vehicleId: "v9", vehicle: "2026 Nissan Rogue SV", stock: "N10001" } } },
     // An appointment two hours gone with no outcome: the rep is asked "Did Olive show?" with two buttons.
     { id: "ap4", user_id: U1, collection: "appointments", data: { id: "ap4", customerName: "Olive Outcome", type: "test drive", when: new Date(Date.now() - 2 * 60 * 60000).toISOString().slice(0, 16), status: "scheduled", confirmed: true } },
     // The be-backs: logged five days ago, still working, quiet for four.
@@ -327,7 +332,8 @@ try {
   { const ap = db.records.find((r) => r.user_id === U1 && r.id === "ap1"); if (ap) ap.data.confirmed = true; }
   // An earlier sweep in this run sends the day's huddle at the default hour
   // once the clock is past eight; this section tests the send itself.
-  db.records.filter((r) => r.user_id === U3 && r.collection === "nudgelog").forEach((r) => { const sent = (r.data && r.data.sent) || {}; Object.keys(sent).forEach((k) => { if (/^agent:(huddle|recap):/.test(k)) delete sent[k]; }); });
+  // The statistician too (the manager's and Parm's own marks), for the same reason.
+  db.records.filter((r) => (r.user_id === U3 || r.user_id === U1) && r.collection === "nudgelog").forEach((r) => { const sent = (r.data && r.data.sent) || {}; Object.keys(sent).forEach((k) => { if (/^agent:(huddle|recap|stats):/.test(k)) delete sent[k]; }); });
   const ag = await post(LOCKED, { sweep: 1 });
   const agentRep = (ag.body.agent || []).find((x) => x.store === "O'Regan's Nissan Halifax") || {};
   const mgrRep = (ag.body.managers || []).find((m) => m.manager === U3.slice(0, 8)) || {};
@@ -350,6 +356,8 @@ try {
   if (agentRep.handouts !== 4 || hand.length !== 4 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
   if (!tasks(U1).some((t) => t.kind === "service" && t.leadId === "o4" && /In service today: Sue Service/.test(t.title))) fail("the customer in the service drive wasn't handed over: " + JSON.stringify(tasks(U1)));
   if (!(agentRep.huddles || []).some((k) => /^agent:huddle:/.test(k))) fail("the huddle wasn't sent: " + JSON.stringify(agentRep));
+  // The daily logs, read with the day's message: Parm's row, the AutoAlert customer the calls show reached, the listing copied — 2 prospects, both with an outcome, 1 post.
+  if (!(agentRep.daylogs || []).some((k) => /^daylogs:\d{4}-\d{2}-\d{2}:1\/\d+:2\/2\/1$/.test(k))) fail("the daily logs weren't read with the day's message: " + JSON.stringify(agentRep.daylogs));
   // The statistician: on the review day the store's sentences go to the manager and Parm's own to Parm.
   if (!(agentRep.stats || []).some((k) => /^stats:\d{4}-\d{2}-\d{2}$/.test(k)) || !(agentRep.stats || []).some((k) => new RegExp("^stats:.*:" + U1.slice(0, 8) + "$").test(k))) fail("the statistician didn't run for the store and for Parm: " + JSON.stringify(agentRep.stats));
   if (!(agentRep.statsText || []).some((x) => /^First contact takes \d min at the median; 100% of leads hear from us inside ten minutes\./.test(x))) fail("the statistician's sentence is wrong: " + JSON.stringify(agentRep.statsText));

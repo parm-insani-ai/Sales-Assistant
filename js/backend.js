@@ -215,7 +215,7 @@ export async function rpc(name, args = {}) {
 const PAGE = 1000;
 export async function readRecords(userId, collection, filters = {}, { select = "id,data,updated_at", limit = 5000 } = {}) {
   const q = new URLSearchParams({ select, user_id: `eq.${userId}`, collection: `eq.${collection}`, deleted: "eq.false", order: "updated_at.asc,id.asc" });
-  for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") q.append(k, String(v));
+  for (const [k, v] of Object.entries(filters)) (Array.isArray(v) ? v : [v]).forEach((x) => { if (x != null && x !== "") q.append(k, String(x)); }); // a list is several bounds on one field
   const { url, anonKey } = cfg();
   const out = [];
   let total = null;
@@ -240,7 +240,7 @@ export async function readRecords(userId, collection, filters = {}, { select = "
 // compares this with what a read brought back.
 export async function countFor(userId, collection, filters = {}) {
   const q = new URLSearchParams({ select: "id", user_id: `eq.${userId}`, collection: `eq.${collection}`, deleted: "eq.false" });
-  for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") q.append(k, String(v));
+  for (const [k, v] of Object.entries(filters)) (Array.isArray(v) ? v : [v]).forEach((x) => { if (x != null && x !== "") q.append(k, String(x)); }); // a list is several bounds on one field
   const { url, anonKey } = cfg();
   const t = await token();
   const res = await fetch(`${url}/rest/v1/records?${q.toString()}`, { method: "HEAD", headers: { apikey: anonKey, Authorization: `Bearer ${t}`, Prefer: "count=exact", Range: "0-0", "Range-Unit": "items" } });

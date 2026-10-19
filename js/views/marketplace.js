@@ -125,8 +125,11 @@ export function openMarketplaceBuilder(v) {
       try { await navigator.clipboard.writeText(text); toast(label + " copied", "success"); }
       catch { descEl.select(); toast("Select and copy the text", ""); }
     };
-    wrap.querySelector('[data-act="copy-all"]').addEventListener("click", () => copy(fullText(), "Listing"));
-    wrap.querySelector('[data-act="copy-desc"]').addEventListener("click", () => copy(descEl.value, "Description"));
+    // A copied listing goes on the day's sheet as a Facebook post (views/daylog.js), once.
+    let posted = false;
+    const post = () => { if (posted) return; posted = true; try { store.logEvent("fb_post", { meta: { vehicleId: v.id, vehicle: vehicleTitle(v), stock: v.stock || "" } }); } catch { /* fine */ } };
+    wrap.querySelector('[data-act="copy-all"]').addEventListener("click", () => { post(); copy(fullText(), "Listing"); });
+    wrap.querySelector('[data-act="copy-desc"]').addEventListener("click", () => { post(); copy(descEl.value, "Description"); });
 
     return wrap;
   });

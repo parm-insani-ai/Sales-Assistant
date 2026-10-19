@@ -1528,7 +1528,7 @@ async function draftManagerReply(st: any, manager: string, r: { rep: string; rep
 //              the manager's tap.
 // Each thing once: keyed in the rep's or manager's nudgelog. Never a figure
 // in anything sent to a customer.
-const AGENT_DEFAULTS = { replies: true, confirmOn: true, confirmHour: 17, noShowOn: true, noShowHour: 9, handoutOn: true, handoutN: 3, serviceOn: true, huddleOn: true, huddleHour: 8, recapOn: true, recapHour: 18 };
+const AGENT_DEFAULTS = { replies: true, confirmOn: true, confirmHour: 17, noShowOn: true, noShowHour: 9, handoutOn: true, handoutN: 3, serviceOn: true, huddleOn: true, huddleHour: 8, recapOn: true, recapHour: 18, statsHour: 7 };
 const CONFIRM_TEXT = "Hi {first}, it's {manager} at {store}. Just confirming your {type} tomorrow at {time} with {rep} — reply YES to confirm, or let me know if another time works better.";
 const NOSHOW_TEXT = "Hi {first}, it's {manager} at {store}. Sorry we missed you yesterday — {rep} would love to get you in. What day works this week?";
 const fill = (t: string, v: Record<string, string>) => String(t).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
@@ -1667,7 +1667,7 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
     const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "us";
     const manager = String((cfgRow.welcome && cfgRow.welcome.manager) || (managers[0] ? nameOf(managers[0]) : "the sales manager"));
     const names = { manager, store: String(st.name || "the store") };
-    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[], plan: null as any, review: [] as string[], stats: [] as string[], statsText: [] as string[] };
+    const out: any = { store: st.name, confirmed: 0, noShows: 0, handouts: 0, service: 0, huddles: [] as string[], errors: [] as string[], plan: null as any, review: [] as string[], stats: [] as string[], statsText: [] as string[], daylogs: [] as string[] };
     // The month's plan, when the store has set one: every rep's share and
     // where each should be today. The dispatcher sizes hand-outs to it;
     // the reviewer reads the week against it.
@@ -1833,7 +1833,7 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
       const prefs = (await rowsOf(uid, "prefs"))[0] || {};
       const L = localOf(now, prefs);
       const reviewDow = Number((cfgRow.plan && cfgRow.plan.reviewDow) ?? 1);
-      if (L.dow !== reviewDow || L.hour < 7) continue;
+      if (L.dow !== reviewDow || L.hour < Number(cfg.statsHour ?? 7)) continue;
       const already = await sentNudges(uid);
       if (already[`agent:stats:${L.day}`]) continue;
       try {
@@ -1879,7 +1879,10 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
         const wantHuddle = cfg.huddleOn && L.hour >= Number(cfg.huddleHour) && !already[`agent:huddle:${L.day}`];
         const wantRecap = cfg.recapOn && L.hour >= Number(cfg.recapHour) && !already[`agent:recap:${L.day}`];
         if (!wantHuddle && !wantRecap) continue;
-        const text = await storeDayText(st, members as any[], L, now, wantRecap && !wantHuddle ? "recap" : "huddle");
+        const kind = wantRecap && !wantHuddle ? "recap" : "huddle";
+        const dl = await daylogSummary(members as any[], L);
+        out.daylogs.push(dl.key);
+        const text = await storeDayText(st, members as any[], L, now, kind) + (kind === "recap" && dl.lines.length ? "\n" + dl.lines.join("\n") : "");
         const key = wantHuddle ? `agent:huddle:${L.day}` : `agent:recap:${L.day}`;
         const title = `${wantHuddle ? "Morning huddle" : "Today's recap"} · ${st.name}`;
         if (canPush.has(uid)) await sendPush(uid, { title, body: text.split("\n").slice(1, 3).join(" · ").slice(0, 160), tag: key, url: "./#/floor" });
@@ -2106,6 +2109,47 @@ async function bebackList(members: any[], L: any, mon: (uid: string, key: string
     }
   }
   return out.sort((a, b) => b.score - a.score).slice(0, 10);
+}
+
+// The day's daily customer prospect logs, one line per rep: the rep's own
+// rows plus the list customers their records show reached that day (calls
+// and texts out to a customer flagged by AutoAlert, in service, or from the
+// owner book) and the listings they copied to post. The same reading as the
+// app's (js/daylog.js), reduced to the counts and names the recap carries.
+async function daylogSummary(members: any[], L: any): Promise<{ key: string; lines: string[]; filled: number; of: number }> {
+  const nameOf = (m: any) => (m && (m.name || String(m.email || "").split("@")[0])) || "a rep";
+  const onList = (l: any) => !!(l && (l.alertType || l.serviceAppt || l.importedAt || /auto ?alert|service/i.test(String(l.source || ""))));
+  const dayOf = (iso: string) => { const t = new Date(iso).getTime(); return isNaN(t) ? "" : new Date(t - L.tz * 60000).toISOString().slice(0, 10); };
+  const since = new Date(new Date(L.day + "T00:00:00Z").getTime() + (L.tz - 24 * 60) * 60000).toISOString();
+  const lines: string[] = []; let filled = 0, of = 0, P = 0, O = 0, F = 0;
+  for (const m of members) {
+    if (m.role === "manager") continue;
+    of++;
+    const uid = String(m.user_id);
+    const [saved, calls, texts, leads, posts] = await Promise.all([
+      rowsOf(uid, "daylogs", `&id=eq.daylog:${L.day}`), rowsOf(uid, "calls", `&data->>at=gte.${since}`), rowsOf(uid, "texts", `&data->>dir=eq.out&data->>at=gte.${since}`), rowsOf(uid, "leads"), rowsOf(uid, "events", `&data->>kind=eq.fb_post&data->>at=gte.${since}`),
+    ]);
+    const byId = new Map(leads.map((l: any) => [l.id, l]));
+    const rec = saved[0] || {};
+    const rows: any[] = (rec.prospects || []).filter((p: any) => p && (p.name || p.phone || p.email || p.outcome)).map((p: any) => ({ ...p }));
+    const reached = new Map<string, string>();
+    for (const c of calls) if (c.dir !== "in" && c.leadId && dayOf(c.at) === L.day) reached.set(c.leadId, c.outcome === "reached" || c.logged ? (c.notes ? `Reached — ${String(c.notes).replace(/^Daily log:\s*/i, "").slice(0, 40)}` : "Reached") : "Called");
+    for (const t of texts) if (t.leadId && dayOf(t.at || t.createdAt) === L.day && !reached.has(t.leadId)) reached.set(t.leadId, "Texted");
+    for (const [id, how] of reached) {
+      const l = byId.get(id); if (!onList(l)) continue;
+      const have = rows.find((p) => p.leadId === id || String(p.name || "").trim().toLowerCase() === String(l.name || "").trim().toLowerCase());
+      if (have) { if (!have.outcome) have.outcome = how; continue; }
+      rows.push({ leadId: id, name: l.name || "", outcome: how, auto: true });
+    }
+    const postRows: any[] = (rec.posts || []).filter((p: any) => p && (p.vehicle || p.stock)).map((p: any) => ({ ...p }));
+    for (const e of posts) { const mt = e.meta || {}; if (dayOf(e.at) !== L.day) continue; if (postRows.some((p) => (mt.vehicleId && p.vehicleId === mt.vehicleId) || (mt.vehicle && String(p.vehicle || "").toLowerCase() === String(mt.vehicle).toLowerCase()))) continue; postRows.push({ vehicleId: mt.vehicleId || "", vehicle: mt.vehicle || "", stock: mt.stock || "", auto: true }); }
+    const o = rows.filter((p) => p.outcome).length;
+    if (!rows.length && !postRows.length) { lines.push(`${nameOf(m)}: no daily log — nobody on the list reached, nothing posted`); continue; }
+    filled++; P += rows.length; O += o; F += postRows.length;
+    lines.push(`${nameOf(m)}: ${rows.length} prospect${rows.length === 1 ? "" : "s"} (${o} with an outcome) · ${postRows.length} post${postRows.length === 1 ? "" : "s"}${rows.length ? " — " + rows.slice(0, 5).map((p) => `${p.name}${p.outcome ? ` (${p.outcome})` : ""}`).join(", ") : ""}`);
+  }
+  if (lines.length) lines.unshift(`Daily logs: ${filled} of ${of} rep${of === 1 ? "" : "s"} · ${P} prospects · ${O} with an outcome · ${F} posts (full sheets under + → Daily logs)`);
+  return { key: `daylogs:${L.day}:${filled}/${of}:${P}/${O}/${F}`, lines, filled, of };
 }
 
 // The huddle or the recap, from every rep's book: where the store stands,

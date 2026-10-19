@@ -2322,6 +2322,8 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .dl-line { padding: 6px 0; border-top: 1px solid var(--border); }
 .dl-line:first-of-type { border-top: 0; }
 .dl-home { margin-bottom: 12px; }
+.dl-is-auto .dl-num { background: var(--brand); color: #fff; }
+.dl-why { margin: -2px 0 0 2px; }
 .dl-date { font: inherit; font-size: 0.86rem; padding: 6px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
 .mg-math-need { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 0.92rem; line-height: 1.4; }
 .mg-math-src, .mg-math-how { margin-top: 10px; }
