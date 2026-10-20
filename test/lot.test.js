@@ -97,7 +97,9 @@ if (lot.answerLot(V, "who should I call today", {}, { today })) fail("a who-to-c
 if (lot.answerLot(V, "add a lead named Rogue Smith", {}, { today })) fail("adding a lead is not a lot question");
 // "new" and "got" in a sentence about people or messages don't make it
 // about cars. These all go to the assistant.
-for (const q of ["have I got any new messages from my clients", "anything new from Dana", "any new leads today", "what's new", "did anyone reply", "any new appointments this week", "have I got any customers waiting", "anything in black from Ken"]) {
+for (const q of ["have I got any new messages from my clients", "anything new from Dana", "any new leads today", "what's new", "did anyone reply", "any new appointments this week", "have I got any customers waiting", "anything in black from Ken",
+  // A person with "new vehicle" in the sentence is still a person.
+  "why would Scott be a good candidate for a new vehicle right now", "is Dana ready for a new car", "should I put Ken in a new vehicle", "she wants a new car", "get him into a used truck", "Ken is due for a new vehicle"]) {
   if (lot.answerLot(V, q, {}, { today })) fail(`not a lot question, taken as one: "${q}"`);
 }
 // …while the lot's own words still are.

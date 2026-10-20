@@ -186,7 +186,10 @@ export function parseCommand(raw) {
   // 5a) A question about the lot — answered from the lot, on the device.
   {
     const lot = answerLot(store.all("vehicles"), raw);
-    if (lot && lot.filters.confidence >= 1) return { action: "lot", text: raw };
+    // `sure`: a model or a stock number was named. A looser match (a
+    // condition, a colour) is answered here only when there's no assistant
+    // to weigh the whole sentence.
+    if (lot && lot.filters.confidence >= 1) return { action: "lot", text: raw, sure: lot.filters.confidence >= 2 };
   }
 
   // 5) Dealer inventory search
@@ -799,7 +802,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     // network — the count and the website's price are exact, and instant.
     // (A rep's lot, from their phone; the manager's questions all go up.)
     const lotCmd = manager ? { action: "none" } : parseCommand(said);
-    if (lotCmd.action === "lot" || lotCmd.action === "outreach" || lotCmd.action === "owners") {
+    if ((lotCmd.action === "lot" && (lotCmd.sure || !agent)) || lotCmd.action === "outreach" || lotCmd.action === "owners") {
       turn.step(lotCmd.action === "lot" ? "Checking the lot" : lotCmd.action === "owners" ? "Looking through your customers" : "Building the outreach");
       reply = executeCommand(lotCmd) || "";
     }
@@ -818,9 +821,16 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         choices = Array.isArray(res.options) ? res.options : [];
         undoLabel = res.undo || null;
       } catch (e) {
-        ok = false;
-        reply = e && e.message ? e.message : "I couldn't reach the assistant";
-        toast(`Voice agent: ${reply}`, "danger");
+        // The assistant couldn't be reached. A lot question the phone can
+        // answer by itself is answered now, rather than reading out a
+        // network error for something that never needed the network.
+        const local = lotCmd.action === "lot" ? executeCommand(lotCmd) : null;
+        if (local) { turn.step("Checking the lot"); reply = local; }
+        else {
+          ok = false;
+          reply = e && e.message ? e.message : "I couldn't reach the assistant";
+          toast(`Voice agent: ${reply}`, "danger");
+        }
       }
     } else {
       reply = onParser(said);

@@ -156,7 +156,10 @@ export function parseLotQuestion(text, vehicles, hints = {}) {
   // messages from my clients" has "new" and "got" in it and is not about
   // cars; the lot is metal, and a sentence about messages, customers,
   // appointments or the day's work goes to the assistant.
-  if (/\b(messages?|texts?|emails?|inbox|mail|repl(y|ies|ied)|clients?|customers?|leads?|prospects?|people|anyone|anybody|someone|who|appointments?|calls?|voicemails?|follow-?ups?|tasks?|to-?dos?|plays?|plate|reminders?|deliver\w*|deals?|sales?|commission|target|goal|waiting|heard|said|told|wrote)\b/.test(t) && !/\b(on the lot|in stock|inventory)\b/.test(t)) return null;
+  // "Why would Scott be a good candidate for a new vehicle right now" has
+  // "new" and "vehicle" in it and is about Scott: a why, a should, a
+  // candidate, a pronoun — a person — never the lot.
+  if (/\b(messages?|texts?|emails?|inbox|mail|repl(y|ies|ied)|clients?|customers?|leads?|prospects?|people|anyone|anybody|someone|who|whose|appointments?|calls?|voicemails?|follow-?ups?|tasks?|to-?dos?|plays?|plate|reminders?|deliver\w*|deals?|sales?|commission|target|goal|waiting|heard|said|told|wrote|why|should|candidates?|good fit|ready for|due for|upgrade|trade[- ]in|him|his|her|hers|he|she|they|them|their)\b/.test(t) && !/\b(on the lot|in stock|inventory)\b/.test(t)) return null;
   const aboutLot = /\b(lot|stock|inventory|in stock|on hand|available|have|got|carry|sell|selling|units?|cars?|vehicles?|suvs?|trucks?|sedans?|listed|going for|priced?|kilomet\w*|kms?|mileage|cheapest|newest)\b/.test(t);
   // A vehicle, a stock number, a body, a fuel, a price or a kilometre
   // figure says "cars" on its own. A condition, a colour or a year does
@@ -167,6 +170,10 @@ export function parseLotQuestion(text, vehicles, hints = {}) {
   const lotNoun = /\b(lot|stock|inventory|in stock|on hand|units?|cars?|vehicles?|suvs?|trucks?|sedans?|hatch\w*|minivans?|demos?|trade-?ins?|kilomet\w*|kms?|mileage|cheapest|priciest|newest|listed|going for|priced?)\b/.test(t);
   const filtered = real || (weak && lotNoun);
   if (!aboutLot && !filtered) return null;
+  // A condition or a colour beside "vehicle" is only a lot question when the
+  // sentence asks what's there — "any new vehicles?", "what new cars have we
+  // got" — not when a vehicle is merely mentioned ("for a new vehicle").
+  if (!real && !/\b(do we|have we|we have|we've got|we got|how many|what|whats|what's|any|anything|show me|list|cheapest|newest|on the lot|the lot|in stock|inventory)\b/.test(t)) return null;
   if (!filtered && !/\b(on the lot|the lot|inventory|in stock|on hand|what (do we|have we|we) (have|got)|how many (cars|vehicles|units)|cheapest|newest|anything (in|on|available))\b/.test(t)) return null;
   f.confidence = filtered ? (f.models.length || f.stock ? 2 : 1) : 0;
   return f;
