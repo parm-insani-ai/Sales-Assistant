@@ -21,6 +21,7 @@ import * as store from "./store.js";
 import { telHref } from "./utils.js";
 import { readyTouches, heldTouches } from "./cadence.js";
 import { lateTasks, daysLate } from "./reminders.js";
+import { todayPlan } from "./plan.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -246,6 +247,27 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         sub: late.length === 1 ? `${days} day${days === 1 ? "" : "s"} past its day — tick it off, or move it.` : `Oldest: “${oldest.title}”, ${days} day${days === 1 ? "" : "s"} ago. Tap to see just these.`,
         route: "/log",
         prep: () => { try { sessionStorage.setItem("viniva:log:open", "todos"); sessionStorage.setItem("viniva:log:overdue", "1"); } catch { /* the list, then */ } },
+        at: new Date(now).toISOString(),
+      });
+    }
+  }
+
+  // --- 0d. The day's plan, when the afternoon gets away. Two hours after
+  // the plan was made, with calls still to make and the appointments not
+  // yet set, one line says what's left. Gone when it's done; a swipe hides
+  // it for the day.
+  {
+    const plan = todayPlan(new Date(now));
+    if (plan && plan.callsToday && !plan.done && now - new Date(plan.madeAt).getTime() >= 2 * HOUR) {
+      const callsLeft = Math.max(0, plan.callsToday - plan.callsMade);
+      out.push({
+        key: `plan:${plan.day}`,
+        urgency: 74,
+        kind: "plan",
+        title: `${callsLeft} call${callsLeft === 1 ? "" : "s"} left on today's plan`,
+        sub: `${plan.callsMade} made, ${plan.apptsSet} of ${plan.apptsToday} appointment${plan.apptsToday === 1 ? "" : "s"} set. ${plan.left.length ? `${plan.left.length} still to call — they're on Log.` : "Everyone on it has been called — log a few more."}`,
+        route: "/log",
+        prep: () => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* the list, then */ } },
         at: new Date(now).toISOString(),
       });
     }

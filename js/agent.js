@@ -26,6 +26,7 @@ import { bookingLink, cachedShortBookingLink } from "./bookinglink.js";
 import { weekStart, weekStats, coachInsights } from "./views/coach.js";
 import { getPlays } from "./plays.js";
 import { getProspects, prospectStats } from "./prospects.js";
+import { appointmentPlan, planPeople, sayPlan } from "./plan.js";
 import { assessAll, assessment, warmBook } from "./assess.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
@@ -102,6 +103,7 @@ const TOOLS = [
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
   { name: "get_nudges", description: "What needs attention RIGHT NOW — customers waiting on a reply, appointments about to start that aren't confirmed, appointments that have passed with no outcome, deliveries with prep outstanding, deals gone quiet. Use for 'what needs me now?', 'anything urgent?', 'am I missing anything?'. Different from get_plays: this is time-critical, that is the day's queue.", input_schema: { type: "object", properties: {} } },
+  { name: "appointment_plan", description: "The day's plan, reasoned from the month — for 'find me some people I can reach out to so I can set some appointments', 'I'm falling behind on appointments, I need more', 'what do I need to do today to hit my number', 'how many calls do I need to make today', 'help me catch up'. Works out how far behind the month is, how many appointments today has to produce to catch up, what a call is worth to this salesperson (their own calls-to-appointment ratio), how many calls that is, and WHO — today's prospects best first, topped up from the book — then keeps count on Home and nudges later if it slips. Read its `answer` back as is (it's one breath), then say the top two names. Use this, not get_prospects, whenever a goal or being behind is mentioned.", input_schema: { type: "object", properties: { rebuild: { type: "boolean", description: "start today's plan over" } } } },
   { name: "get_prospects", description: "Today's prospects: the customers on file (imported owners, past customers) the app has picked out today because a car can be sold to them now — equity, a payment-matched deal, a lease coming due, years in the same vehicle. Use for 'who should I reach out to today', 'who can I sell a car to', 'work the book', 'who's worth a call'. Each comes with the reasons and a drafted opener the salesperson approves. Puts the list on Log.", input_schema: { type: "object", properties: {} } },
   { name: "get_plays", description: "The ranked play sheet — 'what should I do right now?', 'what are my plays?'. Warm link opens, unconfirmed appointments, no-show recoveries, due follow-ups, occasions, radar opportunities — best first.", input_schema: { type: "object", properties: {} } },
   { name: "sales_target", description: "The monthly sales target sheet — 'how am I doing against my target?', 'how many customers do I need to talk to?', 'am I on pace?', 'what's my closing ratio?'. New and used unit targets, the closing ratio expected, customers to speak with, spoken with so far, sold, remaining, pace, and this week's share.", input_schema: { type: "object", properties: {} } },
@@ -152,7 +154,7 @@ function buildStanding() {
     `Strongly prefer ACTING on reasonable assumptions over asking. Resolve relative dates/times to YYYY-MM-DD or YYYY-MM-DDTHH:MM; if no time is given for an appointment, pick a sensible business-hours time; default appointment type to a general appointment unless a test drive, delivery, or call is implied.`,
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
     `WHAT CUSTOMERS HAVE SAID is on file — every text, email and call, both directions. get_customer includes the conversation so far; get_messages answers "what did Dana say?", "read me Ken's email", "did Sara get back to me?", "anything from my customers?", "what came in today?", "who's waiting on me?". Answer from what they actually wrote — quote or paraphrase the message, don't guess. When writing a text or email to a customer, continue from what they last said: answer what they asked, never ask something they've already answered, never repeat what was already sent.`,
-    `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call", "find me some people I can reach out to so I can set some appointments", "I'm falling behind on appointments, I need more" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen. That is NOT mass_outreach — a blast needs a group to text and something to tell them; "find me people to reach out to" is asking who.`,
+    `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call", → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen. With a GOAL in the sentence — "find me some people I can reach out to so I can set some appointments", "I'm falling behind on appointments, I need more", "what do I need to do today to hit my number", "how many calls today" → appointment_plan instead: it works out how far behind, how many appointments today, how many calls that is at their own ratio, and who; read its \`answer\` back as is. Neither is mass_outreach — a blast needs a group to text and something to tell them; "find me people to reach out to" is asking who.`,
     `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
     `WHO OWNS WHAT: "make me a list of everyone who owns a Nissan Rogue", "my Rogue owners", "who drives a Sentra?", "which customers have a paid-off Altima?", "Rogue owners from 2018 to 2021" → find_customers with the whole sentence as \`who\`, corrected for the mic ("payoff centre" is "paid-off Sentra", "rouge" is "Rogue"). Those are the CUSTOMERS on file, picked by what they drive and where they stand — not the lot (the lot is units for sale; "paid off", "with equity", "lease ending", "bought from me" can only mean customers). If it answers notUnderstood, call it once more with your own reading of the misheard words before asking anything. Say how many and that they're on screen.`,
@@ -806,6 +808,19 @@ async function runTool(t, p = {}) {
       if (list.length) navigate("/", ".nudge-slot");
       return { result: { urgent: list, note: list.length ? "most urgent first" : "nothing time-critical right now" }, note: "" };
     }
+    case "appointment_plan": case "plan_my_day": case "catch_up": {
+      const plan = appointmentPlan({ rebuild: !!p.rebuild });
+      const people = planPeople(plan);
+      if (people.length) { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* fine */ } navigate("/log", ".plays-slot"); }
+      const { pace } = plan;
+      return { result: {
+        answer: sayPlan(plan, people),
+        month: { target: pace.target, sold: pace.sold, appointmentsSet: pace.setThisMonth, expectedByNow: pace.expectedByNow, behind: pace.behind, stillNeeded: pace.apptsNeeded, daysLeft: pace.daysLeft, onTrack: pace.onTrack },
+        today: { appointmentsToSet: plan.apptsToday, callsToMake: plan.callsToday, callsPerAppointment: plan.calls.perAppt, ratioAssumed: plan.calls.assumed, setSoFar: pace.setToday },
+        people: people.map((x) => ({ name: x.name, drives: x.drives, reason: x.reason, canCall: !!x.phone })),
+        screen: people.length ? "the queue on Log — each with a Review button that drafts the opener" : "nothing to show",
+      }, note: people.length ? `${plan.callsToday} calls → ${plan.apptsToday} appointment${plan.apptsToday === 1 ? "" : "s"} · ${people.length} on screen` : "⚠ nobody to call yet" };
+    }
     case "get_prospects": case "work_the_book": {
       const rows = getProspects().map((c) => ({
         customer: c.lead.name, drives: c.lead.vehicleInterest || "", reasons: c.reasons,
@@ -1151,8 +1166,11 @@ async function runTool(t, p = {}) {
       // sent here is a question about who to contact, not a group to text:
       // no audience read, nothing to say. Today's prospects answer it.
       if (isProspecting(sentence) && !spec.message && (aud.unknown.length || spec.audience.everyone)) {
-        const out = await runTool("get_prospects", {});
-        return { ...out, result: { ...out.result, notABlast: "this asked WHO to reach out to, to set appointments — not a text to a group. Answered with today's prospects, on screen: name the top two and their reasons, and say the rest are on Log with a Review button each." } };
+        // With a goal in the sentence — appointments, behind, need more —
+        // the day's plan answers it; otherwise today's prospects do.
+        const goal = /\b(appointments?|appts?|behind|need more|catch up|my number|goal|target|pace)\b/i.test(sentence);
+        const out = await runTool(goal ? "appointment_plan" : "get_prospects", {});
+        return { ...out, result: { ...out.result, notABlast: `this asked WHO to reach out to${goal ? ", to set appointments" : ""} — not a text to a group. ${goal ? "Answered with the day's plan: read its answer back as is." : "Answered with today's prospects, on screen: name the top two and their reasons, and say the rest are on Log with a Review button each."}` } };
       }
       const m = await import("./views/outreach.js");
       m.queueOutreach(sentence);
@@ -1231,6 +1249,7 @@ async function runTool(t, p = {}) {
 // for them, not the tool's name.
 const STEP_LABELS = {
   find_customers: "Looking through your customers", get_customer: (i) => `Looking up ${i.name || i.customer || "the customer"}`,
+  appointment_plan: "Working out the day from the month",
   get_messages: (i) => i.customer ? `Reading the conversation with ${i.customer}` : "Reading what's come in",
   get_appointments: "Checking the calendar", deal_radar: "Running the deal radar", get_stats: "Pulling this month's numbers",
   get_tasks: "Checking your to-dos", get_deliveries: "Checking deliveries", get_occasions: "Looking for occasions",

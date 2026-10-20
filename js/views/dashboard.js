@@ -14,6 +14,7 @@ import { icon } from "../icons.js";
 import { swipeable, undoToast } from "../components.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getNudges, missingWelcomes, dismissNudge, restoreNudge } from "../nudges.js";
+import { todayPlan } from "../plan.js";
 import { reviewTouch } from "../touches.js";
 import { ensurePlans } from "../apptplan.js";
 import { canManage, viewModeOverride, setViewMode } from "../team.js";
@@ -113,6 +114,25 @@ export function renderDashboard(view) {
       note.style.margin = "0 2px 10px";
       note.innerHTML = missing.map((m) => `${icon("alert")} ${esc(m.name)} was added ${m.mins} min ago — no welcome text here: ${esc(m.why)}.`).join("<br>");
       nudgeSlot.appendChild(note);
+    }
+    // The day's plan, made with the assistant ("I'm falling behind, I need
+    // more appointments"): calls and appointments against what the day
+    // needs, with the people still to call a tap away.
+    const plan = todayPlan();
+    if (plan && plan.callsToday) {
+      const card = document.createElement("div");
+      card.className = `card plan-card${plan.done ? " plan-done" : ""}`;
+      const callsPct = Math.min(100, Math.round((plan.callsMade / plan.callsToday) * 100));
+      card.innerHTML = `
+        <div class="row" style="align-items:baseline">
+          <div class="strong">Today's plan \u00b7 ${plan.callsToday} call${plan.callsToday === 1 ? "" : "s"} \u2192 ${plan.apptsToday} appointment${plan.apptsToday === 1 ? "" : "s"}</div>
+          ${plan.done ? `<span class="small" style="color:var(--success);font-weight:600">${icon("check")} done</span>` : `<button type="button" class="btn btn-sm btn-ghost" data-act="plan-left" style="flex:none">Who's left \u203a</button>`}
+        </div>
+        <div class="progress tg-bar" style="margin-top:6px"><span style="width:${callsPct}%"></span></div>
+        <div class="small muted" style="margin-top:4px">${plan.callsMade} call${plan.callsMade === 1 ? "" : "s"} made \u00b7 ${plan.apptsSet} of ${plan.apptsToday} set${plan.left.length && !plan.done ? ` \u00b7 ${plan.left.length} still to call` : ""}</div>`;
+      const leftBtn = card.querySelector('[data-act="plan-left"]');
+      if (leftBtn) leftBtn.addEventListener("click", () => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* the queue, then */ } navigate("/log", ".plays-slot"); });
+      nudgeSlot.appendChild(card);
     }
     if (!list.length) return;
     nudgeSlot.insertAdjacentHTML("afterbegin", `<div class="section-title">Right now <span class="muted">\u00b7 ${list.length}</span></div>`);

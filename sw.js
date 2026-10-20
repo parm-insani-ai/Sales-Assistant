@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "viniva-v413";
+const CACHE = "viniva-v414";
 const ASSETS = [
   "./",
   "./index.html",
@@ -89,6 +89,7 @@ const ASSETS = [
   "./js/push.js",
   "./js/plays.js",
   "./js/prospects.js",
+  "./js/plan.js",
   "./js/assess.js",
   "./js/consent.js",
   "./js/outcomes.js",

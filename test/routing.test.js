@@ -96,7 +96,8 @@ const tools = await p.evaluate(async () => {
     blast: await m.execTool("mass_outreach", { sentence: "text everyone who owns a rogue that the new one is in" }),
   };
 });
-if (!tools.asking.result.notABlast || !Array.isArray(tools.asking.result.prospects)) fail("the blast tool should answer a who-to-contact question with today's prospects: " + JSON.stringify(tools.asking).slice(0, 200));
+// A goal in the sentence (appointments, behind) gets the day's plan; a plain who-to-contact gets today's prospects.
+if (!tools.asking.result.notABlast || !/behind|on pace|no monthly target/.test(tools.asking.result.answer || "")) fail("the blast tool should answer a goal sentence with the day's plan: " + JSON.stringify(tools.asking).slice(0, 200));
 if (tools.blast.result.notABlast || tools.blast.result.audience !== "Rogue owners") fail("a real blast stopped being a blast: " + JSON.stringify(tools.blast.result).slice(0, 200));
 console.log("lot tool on a comparison →", (tools.compare.note || "").slice(0, 80));
 if (!/comparing|not in the vehicle database/.test(tools.compare.note || "")) fail("the lot tool listed the lot for a comparison: " + JSON.stringify(tools.compare).slice(0, 200));
