@@ -13,7 +13,7 @@ import { toast, confirmDialog } from "../components.js";
 import { esc, smsHref, mailtoHref } from "../utils.js";
 import { sendText, smsReady } from "../sms.js";
 import { sendEmail, emailSendConfigured, logEmail } from "../email.js";
-import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience, messageFor, audienceGaps } from "../outreach.js";
+import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience, messageFor, audienceGaps, isProspecting } from "../outreach.js";
 import { writeBlastMessage, canWrite, rewordWithoutFigures } from "../outreachdraft.js";
 import { openAudienceFilter } from "./audience.js";
 import { reachForBlast as reach } from "../consent.js";
@@ -99,6 +99,7 @@ export function renderOutreach(view) {
           <button class="seg-btn ${channel === "text" ? "active" : ""}" data-channel="text">${icon("message")} Text</button>
           <button class="seg-btn ${channel === "email" ? "active" : ""}" data-channel="email">${icon("mail")} Email</button>
         </div>
+        ${aud.unknown && aud.unknown.length && isProspecting(live.raw || "") ? `<div class="fab-note mo-prospect" style="text-align:left;margin-bottom:8px">This sounds like you're asking <b>who to reach out to</b>, not for a text to a group. Today's prospects — each with the reason — are on Log. <button type="button" class="btn btn-sm btn-primary" data-act="prospects" style="margin-top:6px">Show me who to call ›</button></div>` : ""}
         ${aud.unknown && aud.unknown.length ? `<div class="fab-note mo-unknown" style="text-align:left;color:var(--danger);margin-bottom:8px">${esc(unknownNote(live))} Reword it above and build again — the audience is never widened to everyone.</div>` : ""}
         <div class="row" style="margin-bottom:6px"><span class="strong">${recipients.length} ${channel === "text" ? "will be texted" : "will be emailed"}</span><span class="small muted">${aud.excluded.length ? aud.excluded.length + " left out" : ""}</span></div>
         ${!aud.included.length && !(aud.unknown && aud.unknown.length) && !aud.excluded.length ? `<div class="fab-note mo-gaps" style="text-align:left;color:var(--danger);margin-bottom:8px">${esc(audienceGaps(live, leads))}</div>` : ""}
@@ -161,6 +162,8 @@ export function renderOutreach(view) {
     });
     const rewrite = el.querySelector('[data-act="rewrite"]');
     if (rewrite) rewrite.addEventListener("click", (e) => { e.preventDefault(); message = ""; writeMessage(); draw(); });
+    const toProspects = el.querySelector('[data-act="prospects"]');
+    if (toProspects) toProspects.addEventListener("click", () => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* the queue, then */ } navigate("/log"); });
     el.querySelector('[data-act="adjust"]').addEventListener("click", () => openAudienceFilter(spec.audience, (a) => {
       spec = { ...spec, audience: a || emptyAudience() }; skipped.clear(); draw();
     }, { title: "Who it goes to" }));

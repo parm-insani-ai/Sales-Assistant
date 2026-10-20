@@ -14,7 +14,7 @@ import { inferShopping } from "./target.js";
 import { logCustomer } from "./logbook.js";
 import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen } from "./agent.js";
 import { answerLot } from "./lot.js";
-import { isOutreach, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
+import { isBlast, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
@@ -206,7 +206,10 @@ export function parseCommand(raw) {
 
   // 5) Mass outreach: "text everyone who owns a Sentra that …" — built on
   // the device, reviewed on screen, sent by the salesperson.
-  if (isOutreach(raw)) return { action: "outreach", text: raw };
+  // Only a sentence shaped like one — who to reach, and either an audience
+  // the parser read or something to tell them. "Find me some people I can
+  // reach out to" is a question about who to contact: the assistant's.
+  if (isBlast(raw)) return { action: "outreach", text: raw };
 
   // 5b) Who owns what: "make me a list of everyone who owns a Nissan Rogue",
   // "my Rogue owners", "who drives a Sentra" — the customers on file, not

@@ -256,6 +256,28 @@ export function ownerGaps(text, now = Date.now()) {
   return a ? a.unknown.slice() : [];
 }
 
+// "Find me some people I can reach out to so I can set some appointments,
+// I'm falling behind" has "reach out to" and "people" in it and is not a
+// blast: nobody to pick, nothing to say. It's asking WHO to contact — the
+// day's prospects, each with a reason — and the blast screen is the wrong
+// answer however it's worded.
+export function isProspecting(text) {
+  const t = lower(text);
+  return /\b(find|get|give|bring|show|pull up|line up)( me)?( some| a few| a couple of| the)? (people|someone|somebody|customers?|folks|names?|leads?|prospects?|candidates?)\b/.test(t)
+    || /\b(falling behind|behind on|need (?:more|some|a few)|short on|light on|low on)\b[^.]{0,40}\b(appointments?|appts?|deals?|sales|units|calls)\b/.test(t)
+    || /\b(?:who|whom) (?:should|can|could|do|would) i (?:call|text|contact|reach|reach out to|talk to|sell|go after|chase|work)\b/.test(t)
+    || /\b(worth a call|worth calling|worth reaching|worth a text|work the book|who to call|who to contact|who to text|set (?:some |more |a few )?appointments?|book (?:some |more |a few )?appointments?|people to (?:call|text|contact|reach))\b/.test(t);
+}
+// A sentence the phone can build a blast from by itself: a way to reach
+// them, a plural, and either an audience it read or a message to send.
+// Anything looser — a misheard audience with nothing to say, a question
+// about who to contact — is the assistant's to weigh whole.
+export function isBlast(text, now = Date.now()) {
+  if (!isOutreach(text) || isProspecting(text)) return false;
+  const spec = parseOutreach(text, now);
+  return !!spec.message || !spec.audience.unknown.length;
+}
+
 /**
  * The audience, from the book: { included: [lead], excluded: [{ lead, why }] }.
  * `opts.channel` decides what "reachable" means; `opts.recentDays` (default

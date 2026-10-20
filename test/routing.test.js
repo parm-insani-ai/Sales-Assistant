@@ -60,7 +60,13 @@ const table = [
   ["dana wants to know how many rogues we have", "not-lot", false],
   // Blasts and owner lists stay on the phone.
   ["text everyone who owns a rogue that the new one is in", "outreach", null],
+  ["text everyone whose lease is sending this year", "outreach", null],
   ["make me a list of everyone who owns a nissan rogue", "owners", null],
+  // "Reach out to" + "people" is not a blast when it's asking WHO: the
+  // assistant's (today's prospects), never the blast screen with nobody on it.
+  ["find me some people i can reach out to so i can set some appointments i'm falling behind an appointment i need more", "not-outreach", null],
+  ["who should i reach out to today", "not-outreach", null],
+  ["bring me people worth a call", "not-outreach", null],
 ];
 const got = await p.evaluate(async (rows) => {
   const v = await import("/js/voice.js");
@@ -70,8 +76,8 @@ for (let i = 0; i < table.length; i++) {
   const [s, want, sure] = table[i], r = got[i];
   // "not-lot": the phone must not answer it as the lot — either it isn't read
   // as one at all, or it is but waits for the assistant.
-  const okAction = want === "not-lot" ? (r.action !== "lot" || r.sure === false) : r.action === want;
-  const okSure = sure === null || want === "not-lot" || r.sure === sure;
+  const okAction = want === "not-lot" ? (r.action !== "lot" || r.sure === false) : want === "not-outreach" ? !/^(outreach|lot|owners)$/.test(r.action) : r.action === want;
+  const okSure = sure === null || /^not-/.test(want) || r.sure === sure;
   console.log(`${okAction && okSure ? "ok  " : "BAD "} "${s}" → ${r.action}${r.action === "lot" ? (r.sure ? " (phone answers)" : " (assistant first)") : ""}`);
   if (!okAction) fail(`"${s}" routed to ${r.action}, wanted ${want}`);
   if (!okSure) fail(`"${s}" ${r.sure ? "would be answered on the phone" : "would wait for the assistant"}; wanted the opposite`);
@@ -85,8 +91,13 @@ const tools = await p.evaluate(async () => {
     compare: await m.execTool("lot_lookup", { question: "how did the rogue stack up with the rav4" }),
     owners: await m.execTool("lot_lookup", { question: "make me a list of everyone who owns a rogue" }),
     lot: await m.execTool("lot_lookup", { question: "do we have any rogues" }),
+    // …and the blast tool won't open a blast to nobody for a who-should-I-contact question.
+    asking: await m.execTool("mass_outreach", { sentence: "find me some people I can reach out to so I can set some appointments, I'm falling behind on appointments, I need more" }),
+    blast: await m.execTool("mass_outreach", { sentence: "text everyone who owns a rogue that the new one is in" }),
   };
 });
+if (!tools.asking.result.notABlast || !Array.isArray(tools.asking.result.prospects)) fail("the blast tool should answer a who-to-contact question with today's prospects: " + JSON.stringify(tools.asking).slice(0, 200));
+if (tools.blast.result.notABlast || tools.blast.result.audience !== "Rogue owners") fail("a real blast stopped being a blast: " + JSON.stringify(tools.blast.result).slice(0, 200));
 console.log("lot tool on a comparison →", (tools.compare.note || "").slice(0, 80));
 if (!/comparing|not in the vehicle database/.test(tools.compare.note || "")) fail("the lot tool listed the lot for a comparison: " + JSON.stringify(tools.compare).slice(0, 200));
 if (!tools.owners.result.notTheLot || tools.owners.result.count !== 1) fail("the lot tool listed the lot for an owner question: " + JSON.stringify(tools.owners.result).slice(0, 200));
