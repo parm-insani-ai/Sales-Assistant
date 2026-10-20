@@ -131,6 +131,19 @@ function namesACustomer(text) {
   return false;
 }
 
+// The shapes a lot question takes, at the start of the sentence or as the
+// lot named outright. Anything else that mentions a vehicle is not one.
+const LOT_ASK = new RegExp(String.raw`^\s*(?:hey |ok |okay |so |um |uh |please |can you |could you |tell me )*(?:` + [
+  String.raw`do we (?:still )?have`, String.raw`have we (?:still )?got`, String.raw`we got any`, String.raw`we have any`, String.raw`got any`,
+  String.raw`how many`, String.raw`how much (?:is|are|for|does|do)`, String.raw`how many (?:km|kms|kilomet\w*|miles)`,
+  String.raw`what(?:'s| is| are)? (?:the |our )?(?:price|prices|cheapest|priciest|newest|kilomet\w*|mileage|kms?|stock)`,
+  String.raw`what(?:'s| is) (?:the |a |an |that |this |our )?[a-z0-9 -]{0,40}?(?:going for|listed (?:at|for)|priced at|selling for|cost)`,
+  String.raw`what (?:do we have|have we got|we have|we got)`, String.raw`what(?:'s| is) (?:in stock|on the lot|available|new on the lot)`,
+  String.raw`is there`, String.raw`are there`, String.raw`any `, String.raw`anything`, String.raw`cheapest`, String.raw`priciest`, String.raw`newest`,
+  String.raw`show me (?:the |what |any |all )`, String.raw`list (?:the |what |any |all )`, String.raw`pull up (?:the |any |all )`,
+  String.raw`is (?:the |that |stock |#)?[a-z0-9 -]{0,30}?(?:still )?(?:here|available|on the lot|in stock|sold)`,
+].join("|") + String.raw`)\b|\b(?:on the lot|in stock|inventory|in our stock)\b`);
+
 // ---------- Command parser ----------
 const NAV = [
   { re: /\b(home|dashboard)\b/, route: "/", label: "Home" },
@@ -200,15 +213,19 @@ export function parseCommand(raw) {
   // the lot. Read before the lot so the lot never answers for the people.
   if (ownerList(raw)) return { action: "owners", text: raw };
 
-  // 5a) A question about the lot — answered from the lot, on the device.
-  // Not when a customer on file is named: "Dana Muise is coming back in to
-  // look at new Rogues" is about Dana, and the assistant hears it whole.
-  if (!namesACustomer(t) || /\b(how many|do we have|in stock|on the lot|going for|cheapest|price)\b/.test(t)) {
+  // 5a) A question about the lot, answered from the lot on the device.
+  //
+  // The SHAPE of the sentence decides, never a noun in it. "Do we have any
+  // Rogue SVs", "how many Rogues", "what's the Civic going for" are shaped
+  // like lot questions and are answered here, instantly. "How does the
+  // Rogue stack up with the RAV4", "Ken's coming in for a Rogue", "why is
+  // Scott a candidate for a new vehicle" merely mention a vehicle: they are
+  // the assistant's, whole. A sentence naming a customer on file is theirs
+  // too. `sure` is that shape; without it the phone answers only when there
+  // is no assistant to ask (offline, or none set up).
+  {
     const lot = answerLot(store.all("vehicles"), raw);
-    // `sure`: a model or a stock number was named. A looser match (a
-    // condition, a colour) is answered here only when there's no assistant
-    // to weigh the whole sentence.
-    if (lot && lot.filters.confidence >= 1) return { action: "lot", text: raw, sure: lot.filters.confidence >= 2 };
+    if (lot && lot.filters.confidence >= 1) return { action: "lot", text: raw, sure: LOT_ASK.test(t) && !namesACustomer(t) };
   }
 
   // 5) Dealer inventory search
@@ -822,7 +839,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     // (A rep's lot, from their phone; the manager's questions all go up.)
     const lotCmd = manager ? { action: "none" } : parseCommand(said);
     if ((lotCmd.action === "lot" && (lotCmd.sure || !agent)) || lotCmd.action === "outreach" || lotCmd.action === "owners") {
-      turn.step(lotCmd.action === "lot" ? "Checking the lot" : lotCmd.action === "owners" ? "Looking through your customers" : "Building the outreach");
+      // Said as such, so a wrong turn can be told from the assistant's.
+      turn.step(lotCmd.action === "lot" ? "Checking the lot (on the phone)" : lotCmd.action === "owners" ? "Looking through your customers (on the phone)" : "Building the outreach (on the phone)");
       reply = executeCommand(lotCmd) || "";
     }
     if (reply) { /* answered on the device */ } else if (agent) {
@@ -844,7 +862,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         // answer by itself is answered now, rather than reading out a
         // network error for something that never needed the network.
         const local = lotCmd.action === "lot" ? executeCommand(lotCmd) : null;
-        if (local) { turn.step("Checking the lot"); reply = local; }
+        if (local) { turn.step("Checking the lot (on the phone — the assistant couldn't be reached)"); reply = local; }
         else {
           ok = false;
           reply = e && e.message ? e.message : "I couldn't reach the assistant";

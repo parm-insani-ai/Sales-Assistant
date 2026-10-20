@@ -66,8 +66,8 @@ const parsed = await p.evaluate(async () => {
   };
 });
 console.log("parsed:", JSON.stringify(parsed));
-if (parsed.dana === "lot" || parsed.danaFirst === "lot") fail("a sentence naming a customer was taken for a lot question: " + JSON.stringify(parsed));
-if (parsed.danaAsks !== "lot" || parsed.forced !== 2) fail("a plain lot ask with a name in it, or the assistant's lot tool, stopped answering from the lot: " + JSON.stringify(parsed));
+if (parsed.dana === "lot" || parsed.danaFirst === "lot" || parsed.danaAsks === "lot") fail("a sentence naming a customer was taken for a lot question: " + JSON.stringify(parsed));
+if (parsed.forced !== 2) fail("the assistant's lot tool stopped answering from the lot: " + JSON.stringify(parsed));
 if (parsed.q !== "lot" || parsed.km !== "lot" || parsed.price !== "lot" || parsed.ev !== "lot") fail("lot questions aren't recognised: " + JSON.stringify(parsed));
 if (parsed.lead !== "lead" || parsed.appt !== "appointment") fail("a command got taken for a lot question: " + JSON.stringify(parsed));
 if (parsed.msgs === "lot" || parsed.whatsNew === "lot") fail("a question about messages or the day is not a lot question — it goes to the assistant: " + JSON.stringify(parsed));

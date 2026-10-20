@@ -32,6 +32,7 @@ import * as backend from "./backend.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
+import { modelsIn } from "./segments.js";
 import { styleBrief } from "./style.js";
 import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps, ownerList, ownerGaps, inAudience, AUDIENCE_HELP } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
@@ -1159,6 +1160,17 @@ async function runTool(t, p = {}) {
       // customers; answer it from the book rather than reading out the lot.
       const owners = ownersOnScreen(p.question || p.query || "");
       if (owners) return { ...owners, result: { ...owners.result, notTheLot: "this asked about CUSTOMERS who own the vehicle, not units for sale — answered from the book, and the list is on the Leads screen" } };
+      // "How does the Rogue stack up with the RAV4" asked of the lot is a
+      // comparison: two models and a comparing word. Hand it to the compare
+      // tool rather than listing every Rogue.
+      {
+        const q = String(p.question || p.query || "");
+        const models = modelsIn(q);
+        if (models.length >= 2 && /\b(stacks? up|stacked up|compare|comparison|compared|versus|vs\.?|against|better than|difference between|cross-?shop\w*)\b/i.test(q)) {
+          const out = await runTool("compare_vehicles", { vehicles: models });
+          return { ...out, result: typeof out.result === "object" && out.result ? { ...out.result, notTheLot: "this was a comparison, not a lot question — the compare tool answered" } : out.result };
+        }
+      }
       const hints = { condition: p.condition || "", maxPrice: p.maxPrice || null, minPrice: p.minPrice || null, maxKm: p.maxKm || null, stock: p.stock ? String(p.stock).toUpperCase() : "", sort: p.sort || "", ask: p.ask || "" };
       // The model chose the lot tool, so the sentence is read for its filters
       // without the phone's own is-this-the-lot gates in the way.

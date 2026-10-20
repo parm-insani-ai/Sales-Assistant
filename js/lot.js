@@ -156,10 +156,12 @@ export function parseLotQuestion(text, vehicles, hints = {}, { force = false } =
   if (force) { f.confidence = f.models.length || f.stock ? 2 : 1; return f; }
   // An instruction is never a lot question, whatever vehicle it names.
   if (/\b(add|create|new (lead|customer|prospect)|book|schedule|text|message|call|phone|remind|log|email|send|note|mark|update|delete|cancel|sold|bought|signed|deliver\w*)\b/.test(t) && !/\b(how many|how much|cheapest|price of|going for)\b/.test(t)) return null;
+  // A comparison is the compare tool's, whichever models it names.
+  if (/\b(stacks? up|stacked up|compare|comparison|compared|versus|vs\.?|against|better than|difference between|cross-?shop\w*)\b/.test(t)) return null;
   // "Ken is coming back in to look at new Rogues on Tuesday" is an
   // appointment: someone coming in, a day, a time of day. The Rogues in it
   // are what he's coming for, not a question about the lot.
-  if (/\b(coming (?:back )?(?:in|by|down|over)|come (?:back )?in|came in|stopping by|dropping by|swinging by|swing by|showed up|be in|back in|is in at|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|tomorrow|tonight|this (?:morning|afternoon|evening)|next (?:week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|at \d{1,2}(?::\d{2})?\s?(?:am|pm|o'?clock)?\b)/.test(t) && !/\b(how many|how much|cheapest|price of|going for|in stock|on the lot)\b/.test(t)) return null;
+  if (/\b(coming (?:back )?(?:in|by|down|over)|come (?:back )?in|came in|stopping by|dropping by|swinging by|swing by|showed up|be in|back in|is in at|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|tomorrow|tonight|this (?:morning|afternoon|evening)|next (?:week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|at \d{1,2}(?::\d{2})?\s?(?:am|pm|o'?clock)?\b)/.test(t) && !/\b(how many|how much|cheapest|price of|going for|in stock|on the lot|any|anything|do we|have we|is there|are there)\b/.test(t)) return null;
   // Nor is anything about people or what they've said. "Have I got any new
   // messages from my clients" has "new" and "got" in it and is not about
   // cars; the lot is metal, and a sentence about messages, customers,
@@ -167,7 +169,7 @@ export function parseLotQuestion(text, vehicles, hints = {}, { force = false } =
   // "Why would Scott be a good candidate for a new vehicle right now" has
   // "new" and "vehicle" in it and is about Scott: a why, a should, a
   // candidate, a pronoun — a person — never the lot.
-  if (/\b(messages?|texts?|emails?|inbox|mail|repl(y|ies|ied)|clients?|customers?|leads?|prospects?|people|anyone|anybody|someone|who|whose|appointments?|calls?|voicemails?|follow-?ups?|tasks?|to-?dos?|plays?|plate|reminders?|deliver\w*|deals?|sales?|commission|target|goal|waiting|heard|said|told|wrote|why|should|candidates?|good fit|ready for|due for|upgrade|trade[- ]in|him|his|her|hers|he|she|they|them|their)\b/.test(t) && !/\b(on the lot|in stock|inventory)\b/.test(t)) return null;
+  if (/\b(messages?|texts?|emails?|inbox|mail|repl(y|ies|ied)|clients?|customers?|leads?|prospects?|people|anyone|anybody|someone|who|whose|appointments?|calls?|voicemails?|follow-?ups?|tasks?|to-?dos?|plays?|plate|reminders?|deliver\w*|deals?|sales?|commission|target|goal|waiting|heard|said|told|wrote|why|should|candidates?|good fit|ready for|due for|upgrade|trade[- ]in|him|his|her|hers|he|she|they|them|their|says?|tell|ask(?:ed|ing)?|wants? to know|worth)\b/.test(t) && !/\b(on the lot|in stock|inventory)\b/.test(t)) return null;
   const aboutLot = /\b(lot|stock|inventory|in stock|on hand|available|have|got|carry|sell|selling|units?|cars?|vehicles?|suvs?|trucks?|sedans?|listed|going for|priced?|kilomet\w*|kms?|mileage|cheapest|newest)\b/.test(t);
   // A vehicle, a stock number, a body, a fuel, a price or a kilometre
   // figure says "cars" on its own. A condition, a colour or a year does
