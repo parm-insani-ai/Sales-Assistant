@@ -85,8 +85,11 @@ export function renderLog(view) {
   todoBody.className = "tasks-slot";
   const todoCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence).length;
   setCount("todos", todoCount());
-  // A screenful of to-dos, the rest behind a button — see taskListEl.
-  todoBody.appendChild(taskListEl({ limit: 12, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("todos", todoCount()) }));
+  // A screenful of to-dos, newest first, the rest behind a button — see
+  // taskListEl. Opened from the overdue line on Home, it shows just those.
+  let lateOnly = false;
+  try { lateOnly = sessionStorage.getItem("viniva:log:overdue") === "1"; sessionStorage.removeItem("viniva:log:overdue"); } catch { /* the whole list, then */ }
+  todoBody.appendChild(taskListEl({ limit: 12, showOverdue: lateOnly, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("todos", todoCount()) }));
   todoPanel.appendChild(todoBody);
   const note = document.createElement("div");
   note.className = "hint";

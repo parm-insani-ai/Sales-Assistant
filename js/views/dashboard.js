@@ -134,6 +134,7 @@ export function renderDashboard(view) {
           return;
         }
         if (n.href) { window.location.href = n.href; return; }
+        if (n.prep) { try { n.prep(); } catch { /* the route still opens */ } }
         if (n.route) navigate(n.route);
       });
       // Swipe left: a text or reminder is ticked off (a text sent from the

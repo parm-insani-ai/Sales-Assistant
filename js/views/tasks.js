@@ -7,7 +7,7 @@ import { openModal, buildForm, toast, undoToast, swipeable } from "../components
 import { esc, relativeDay, daysFromToday } from "../utils.js";
 import { icon } from "../icons.js";
 import { navigate } from "../router.js";
-import { isReminder, reminderWhen, wallClock, askNotifyPermission } from "../reminders.js";
+import { isReminder, reminderWhen, wallClock, askNotifyPermission, isLate, daysLate, taskDay } from "../reminders.js";
 
 const pad = (n) => String(n).padStart(2, "0");
 // The to-dos the assistant is running right now (ids). Module-wide, so a
@@ -124,18 +124,26 @@ export function compactResult(name, input = {}, out) {
 }
 
 // Returns a DOM element listing open tasks.
-// opts.kind:  "todo" (default) — the to-dos, timed or not, soonest first;
+// opts.kind:  "todo" (default) — the to-dos, timed or not, newest first;
 //             the follow-up plan's own steps are left out (they're the
 //             queue's, with their one-tap action);
 //             "reminder" — timed ones only, soonest first;
 //             "all" — everything, plan steps included (a customer's own list).
+// opts.order: "newest" (default for to-dos) — the one just added is at the
+//             top, like a notebook; "soonest" — by when it's due.
+//             Newest first means an old one sinks, so the ones past their
+//             day get a strip across the top of the list — how many, the
+//             oldest — with one tap to show just those. Home's Right now
+//             carries the same line (nudges.js), so they're never out of sight.
+// opts.showOverdue: open on just the overdue ones (from that line on Home).
 // opts.limit: how many open tasks to draw before a "show the rest" row. An
 // imported book with a follow-up cadence on every customer is six hundred open
 // tasks, and Home drew every one of them — the day's screen was mostly a task
 // list nobody scrolls, and it was most of what made Home slow to open.
-export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "todo", empty = "No open tasks. Tap + Add to create one." } = {}) {
+export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "todo", order = kind === "reminder" ? "soonest" : "newest", showOverdue = false, empty = "No open tasks. Tap + Add to create one." } = {}) {
   const container = document.createElement("div");
   let cap = limit;
+  let lateOnly = !!showOverdue;
 
   function draw() {
     const tasks = store.all("tasks");
@@ -146,20 +154,43 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       if (t.due) { const d = new Date(String(t.due).slice(0, 10) + "T23:59:00"); return isNaN(d) ? Infinity : d.getTime(); }
       return Infinity;
     };
+    const made = (t) => { const d = new Date(t.createdAt || 0).getTime(); return isFinite(d) ? d : 0; };
     const all = tasks
       .filter((t) => !t.done && (!leadId || t.leadId === leadId) && (kind === "all" || (kind === "reminder" ? isReminder(t) : !t.cadence)))
       .sort((a, b) => {
+        if (order === "newest") { const ma = made(a), mb = made(b); if (ma !== mb) return mb - ma; }
         const da = at(a), db = at(b);
         if (da !== db) return da - db;
         const pr = { high: 0, normal: 1, low: 2 };
         return (pr[a.priority] ?? 1) - (pr[b.priority] ?? 1);
       });
-    const open = all.slice(0, cap);
-    const hidden = all.length - open.length;
+    // The ones past their day, oldest first — the most forgotten at the top.
+    const late = kind === "reminder" ? [] : all.filter((t) => isLate(t)).sort((a, b) => taskDay(a).localeCompare(taskDay(b)));
+    if (lateOnly && !late.length) lateOnly = false;
+    const list = lateOnly ? late : all;
+    const open = list.slice(0, cap);
+    const hidden = list.length - open.length;
 
     if (!open.length) {
       container.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">${empty}</div></div>`;
       return;
+    }
+
+    // The strip across the top: how many are past their day and the oldest
+    // of them, with one tap to see just those — and one to come back.
+    let strip = null;
+    if (late.length) {
+      const oldest = late[0], days = daysLate(oldest);
+      strip = document.createElement("div");
+      strip.className = "card todo-late" + (lateOnly ? " todo-late-on" : "");
+      strip.innerHTML = `<div class="row">
+          <div class="row-main">
+            <div class="row-title">${icon("alert")} ${late.length} overdue</div>
+            <div class="row-sub">${lateOnly ? "Just the overdue ones, oldest first. Tick them off, or tap one to move its day." : `Oldest: “${esc(oldest.title)}”, ${days} day${days === 1 ? "" : "s"} ago.`}</div>
+          </div>
+          <button type="button" class="btn btn-sm ${lateOnly ? "btn-ghost" : "btn-primary"}" data-act="late-toggle">${lateOnly ? "Show all" : "Show them"}</button>
+        </div>`;
+      strip.querySelector("[data-act=late-toggle]").addEventListener("click", () => { lateOnly = !lateOnly; draw(); });
     }
 
     let more = null;
@@ -170,7 +201,7 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       more.dataset.act = "more-tasks";
       more.textContent = `Show ${hidden.toLocaleString()} more`;
       // A hundred at a time past a couple of hundred; otherwise the rest.
-      more.addEventListener("click", () => { cap = Math.min(all.length, cap + (hidden > 200 ? 100 : hidden)); draw(); });
+      more.addEventListener("click", () => { cap = Math.min(list.length, cap + (hidden > 200 ? 100 : hidden)); draw(); });
     }
     const now = Date.now();
     const frag = document.createDocumentFragment();
@@ -302,6 +333,7 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       }));
     });
     container.innerHTML = "";
+    if (strip) container.appendChild(strip);
     container.appendChild(frag);
     if (more) container.appendChild(more);
   }

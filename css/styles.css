@@ -1098,6 +1098,14 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .todo-card .row-sub .ico { width: 13px; height: 13px; }
 .todo-card .row-sub.todo-overdue { color: var(--danger); font-weight: 600; }
 .todo-card .todo-tick { width: 24px; height: 24px; flex: none; accent-color: var(--brand); cursor: pointer; margin: 0; }
+/* The strip across the top of the list: the to-dos past their day. */
+.todo-late { border-left: 3px solid var(--danger); padding-top: 12px; padding-bottom: 12px; }
+.todo-late .row { align-items: center; gap: 12px; }
+.todo-late .row-main { flex: 1; min-width: 0; }
+.todo-late .row-title { display: flex; align-items: center; gap: 6px; color: var(--danger); }
+.todo-late .row-title .ico { width: 16px; height: 16px; flex: none; }
+.todo-late .btn { flex: none; }
+.todo-late-on { background: color-mix(in srgb, var(--danger) 6%, var(--surface)); }
 .todo-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px -18px -18px; padding: 10px 18px; background: var(--surface-2); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); min-height: 52px; }
 .todo-banner .tb-label { font-size: 0.8rem; color: var(--muted); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-banner .do-it { flex: none; padding: 8px 14px; font-size: 0.8rem; white-space: nowrap; }

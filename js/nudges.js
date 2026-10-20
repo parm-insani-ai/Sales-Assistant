@@ -20,6 +20,7 @@
 import * as store from "./store.js";
 import { telHref } from "./utils.js";
 import { readyTouches, heldTouches } from "./cadence.js";
+import { lateTasks, daysLate } from "./reminders.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -228,6 +229,27 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         at: new Date(at).toISOString(),
       });
     });
+
+  // --- 0c. To-dos past their day. The list on Log is newest first, so an
+  // old one sinks; this is the line that keeps it from being forgotten: how
+  // many, and the oldest. It clears itself as they're ticked off, and a
+  // swipe hides it for the day. Tapping it opens the list on just those.
+  {
+    const late = lateTasks(now);
+    if (late.length) {
+      const oldest = late[0], days = daysLate(oldest, now);
+      out.push({
+        key: `late:${late.length}:${oldest.id}`,
+        urgency: 72,
+        kind: "late",
+        title: late.length === 1 ? `1 to-do overdue: ${oldest.title}` : `${late.length} to-dos overdue`,
+        sub: late.length === 1 ? `${days} day${days === 1 ? "" : "s"} past its day — tick it off, or move it.` : `Oldest: “${oldest.title}”, ${days} day${days === 1 ? "" : "s"} ago. Tap to see just these.`,
+        route: "/log",
+        prep: () => { try { sessionStorage.setItem("viniva:log:open", "todos"); sessionStorage.setItem("viniva:log:overdue", "1"); } catch { /* the list, then */ } },
+        at: new Date(now).toISOString(),
+      });
+    }
+  }
 
   // --- 1. A customer replied and is waiting on you.
   // The most perishable thing in the app, and until now nothing surfaced it

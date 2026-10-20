@@ -24,6 +24,32 @@ export function wallClock(s) {
 
 export function isReminder(t) { return !!(t && t.remindAt && t.channel === "reminder"); }
 
+// The day a to-do belongs to (YYYY-MM-DD), timed or not; "" when undated.
+export function taskDay(t) {
+  if (!t) return "";
+  const s = isReminder(t) ? String(t.remindAt) : String(t.due || "");
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : "";
+}
+const dayKeyOf = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// Past its day. A timed to-do past its minute today is "now", not late —
+// it's under Right now already; one from an earlier day is late.
+export function isLate(t, now = Date.now()) {
+  if (!t || t.done) return false;
+  const day = taskDay(t);
+  return !!day && day < dayKeyOf(now);
+}
+// How many days past its day, at least 1.
+export function daysLate(t, now = Date.now()) {
+  const day = taskDay(t);
+  if (!day) return 0;
+  const end = new Date(day + "T23:59:59").getTime();
+  return Math.max(1, Math.ceil((now - end) / 86400000));
+}
+// Every open to-do past its day (the plan's own steps aside), oldest first.
+export function lateTasks(now = Date.now()) {
+  return store.all("tasks").filter((t) => !t.done && !t.cadence && isLate(t, now)).sort((a, b) => taskDay(a).localeCompare(taskDay(b)));
+}
+
 // Open reminders, soonest first.
 export function reminders() {
   return store.all("tasks").filter((t) => !t.done && isReminder(t)).sort((a, b) => String(a.remindAt).localeCompare(String(b.remindAt)));
