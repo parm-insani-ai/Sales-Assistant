@@ -1160,7 +1160,9 @@ async function runTool(t, p = {}) {
       const owners = ownersOnScreen(p.question || p.query || "");
       if (owners) return { ...owners, result: { ...owners.result, notTheLot: "this asked about CUSTOMERS who own the vehicle, not units for sale — answered from the book, and the list is on the Leads screen" } };
       const hints = { condition: p.condition || "", maxPrice: p.maxPrice || null, minPrice: p.minPrice || null, maxKm: p.maxKm || null, stock: p.stock ? String(p.stock).toUpperCase() : "", sort: p.sort || "", ask: p.ask || "" };
-      const res = answerLot(store.all("vehicles"), p.question || p.query || "the lot", hints);
+      // The model chose the lot tool, so the sentence is read for its filters
+      // without the phone's own is-this-the-lot gates in the way.
+      const res = answerLot(store.all("vehicles"), p.question || p.query || "the lot", hints, { force: true });
       if (!res) {
         const all = store.all("vehicles").filter((v) => (v.status || "available") === "available");
         return { result: { count: all.length, answer: all.length ? lotSummary(all) : "There's nothing on the lot in the app yet — Settings → Dealer inventory sites → Import the lot now." }, note: "" };

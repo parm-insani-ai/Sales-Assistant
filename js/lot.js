@@ -73,7 +73,10 @@ export function lotVocabulary(vehicles) {
  * Read a sentence about the lot into filters and an ask.
  * Returns null when the sentence isn't about the lot at all.
  */
-export function parseLotQuestion(text, vehicles, hints = {}) {
+// `force`: the caller already knows the sentence is about the lot (the
+// assistant chose the lot tool), so the is-this-the-lot gates are skipped
+// and whatever filters the sentence carries are read.
+export function parseLotQuestion(text, vehicles, hints = {}, { force = false } = {}) {
   const raw = String(text || "");
   const t = spokenNumbers(raw);
   const ws = words(t);
@@ -150,8 +153,13 @@ export function parseLotQuestion(text, vehicles, hints = {}) {
   if (f.ask === "priciest") f.sort = "priceDesc";
   if (f.ask === "newest") f.sort = "year";
 
+  if (force) { f.confidence = f.models.length || f.stock ? 2 : 1; return f; }
   // An instruction is never a lot question, whatever vehicle it names.
   if (/\b(add|create|new (lead|customer|prospect)|book|schedule|text|message|call|phone|remind|log|email|send|note|mark|update|delete|cancel|sold|bought|signed|deliver\w*)\b/.test(t) && !/\b(how many|how much|cheapest|price of|going for)\b/.test(t)) return null;
+  // "Ken is coming back in to look at new Rogues on Tuesday" is an
+  // appointment: someone coming in, a day, a time of day. The Rogues in it
+  // are what he's coming for, not a question about the lot.
+  if (/\b(coming (?:back )?(?:in|by|down|over)|come (?:back )?in|came in|stopping by|dropping by|swinging by|swing by|showed up|be in|back in|is in at|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|tomorrow|tonight|this (?:morning|afternoon|evening)|next (?:week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|at \d{1,2}(?::\d{2})?\s?(?:am|pm|o'?clock)?\b)/.test(t) && !/\b(how many|how much|cheapest|price of|going for|in stock|on the lot)\b/.test(t)) return null;
   // Nor is anything about people or what they've said. "Have I got any new
   // messages from my clients" has "new" and "got" in it and is not about
   // cars; the lot is metal, and a sentence about messages, customers,
@@ -271,8 +279,8 @@ function pluralLabel(label) {
  * `answer` is one or two spoken sentences with the website's prices; the
  * matches are what the screen shows, so the sentence never reads a list.
  */
-export function answerLot(vehicles, text, hints = {}, { today } = {}) {
-  const f = parseLotQuestion(text, vehicles, hints);
+export function answerLot(vehicles, text, hints = {}, { today, force = false } = {}) {
+  const f = parseLotQuestion(text, vehicles, hints, { force });
   if (!f) return null;
   const matches = matchLot(vehicles, f, { today });
   const label = describeFilters(f);

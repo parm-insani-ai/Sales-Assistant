@@ -58,9 +58,16 @@ const parsed = await p.evaluate(async () => {
     ev: v.parseCommand("do we have any electric vehicles").action,
     msgs: v.parseCommand("Have I got any new messages from my clients").action,
     whatsNew: v.parseCommand("what's new").action,
+    // A customer on file in the sentence: hers, not the lot's — unless it's plainly a lot ask.
+    dana: v.parseCommand("Dana Muise is coming back in to look at new rogues on Tuesday").action,
+    danaFirst: v.parseCommand("Dana's coming in for a rogue").action,
+    danaAsks: v.parseCommand("Dana wants to know how many rogues we have").action,
+    forced: (await (await import("/js/agent.js")).execTool("lot_lookup", { question: "rogues coming in on tuesday" })).result.count,
   };
 });
 console.log("parsed:", JSON.stringify(parsed));
+if (parsed.dana === "lot" || parsed.danaFirst === "lot") fail("a sentence naming a customer was taken for a lot question: " + JSON.stringify(parsed));
+if (parsed.danaAsks !== "lot" || parsed.forced !== 2) fail("a plain lot ask with a name in it, or the assistant's lot tool, stopped answering from the lot: " + JSON.stringify(parsed));
 if (parsed.q !== "lot" || parsed.km !== "lot" || parsed.price !== "lot" || parsed.ev !== "lot") fail("lot questions aren't recognised: " + JSON.stringify(parsed));
 if (parsed.lead !== "lead" || parsed.appt !== "appointment") fail("a command got taken for a lot question: " + JSON.stringify(parsed));
 if (parsed.msgs === "lot" || parsed.whatsNew === "lot") fail("a question about messages or the day is not a lot question — it goes to the assistant: " + JSON.stringify(parsed));
@@ -82,7 +89,9 @@ const ev = await p.evaluate(async () => {
   window.__spoke = [];
   document.querySelector("#v-text").value = "any electric vehicles";
   document.querySelector("#v-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  await new Promise((r) => setTimeout(r, 900));
+  // A loose match goes to the assistant first; with none reachable here, the
+  // phone answers once that call fails — so give the failure time to land.
+  await new Promise((r) => setTimeout(r, 2500));
   return (window.__spoke || []).join(" | ");
 });
 console.log("spoken:", ev);

@@ -114,6 +114,23 @@ function between(t, startRe, stopRe) {
   return rest.trim();
 }
 
+// Does the sentence name a customer on file — a full name, or a first name
+// that belongs to exactly one customer? A sentence about a person is theirs
+// to the assistant, whatever vehicle it also mentions.
+function namesACustomer(text) {
+  const t = String(text || "").replace(/'s\b/g, "");
+  const leads = store.all("leads");
+  const firsts = new Map();
+  for (const l of leads) {
+    const full = String(l.name || "").toLowerCase().trim();
+    if (full.length >= 5 && full.includes(" ") && t.includes(" " + full + " ")) return true;
+    const first = full.split(" ")[0];
+    if (first.length >= 3) firsts.set(first, (firsts.get(first) || 0) + 1);
+  }
+  for (const [first, n] of firsts) if (n === 1 && t.includes(" " + first + " ") && !/\b(rogue|kicks|sentra|altima|murano|pathfinder|frontier|titan|armada|versa|leaf|ariya|z)\b/.test(first)) return true;
+  return false;
+}
+
 // ---------- Command parser ----------
 const NAV = [
   { re: /\b(home|dashboard)\b/, route: "/", label: "Home" },
@@ -184,7 +201,9 @@ export function parseCommand(raw) {
   if (ownerList(raw)) return { action: "owners", text: raw };
 
   // 5a) A question about the lot — answered from the lot, on the device.
-  {
+  // Not when a customer on file is named: "Dana Muise is coming back in to
+  // look at new Rogues" is about Dana, and the assistant hears it whole.
+  if (!namesACustomer(t) || /\b(how many|do we have|in stock|on the lot|going for|cheapest|price)\b/.test(t)) {
     const lot = answerLot(store.all("vehicles"), raw);
     // `sure`: a model or a stock number was named. A looser match (a
     // condition, a colour) is answered here only when there's no assistant

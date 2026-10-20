@@ -99,7 +99,9 @@ if (lot.answerLot(V, "add a lead named Rogue Smith", {}, { today })) fail("addin
 // about cars. These all go to the assistant.
 for (const q of ["have I got any new messages from my clients", "anything new from Dana", "any new leads today", "what's new", "did anyone reply", "any new appointments this week", "have I got any customers waiting", "anything in black from Ken",
   // A person with "new vehicle" in the sentence is still a person.
-  "why would Scott be a good candidate for a new vehicle right now", "is Dana ready for a new car", "should I put Ken in a new vehicle", "she wants a new car", "get him into a used truck", "Ken is due for a new vehicle"]) {
+  "why would Scott be a good candidate for a new vehicle right now", "is Dana ready for a new car", "should I put Ken in a new vehicle", "she wants a new car", "get him into a used truck", "Ken is due for a new vehicle",
+  // Someone coming in, on a day, at a time: an appointment, whatever they're coming for.
+  "Ken Jones is coming back in to look at new Rogues on Tuesday", "Dana's coming in tomorrow at 4 for the Rogue", "Sara is stopping by at 2 to see the Kicks", "Moe's back in next week about a Frontier"]) {
   if (lot.answerLot(V, q, {}, { today })) fail(`not a lot question, taken as one: "${q}"`);
 }
 // …while the lot's own words still are.
@@ -107,6 +109,10 @@ for (const q of ["anything new on the lot", "any new rogues", "what new cars hav
   const a = lot.answerLot(V, q, {}, { today });
   if (!a) fail(`a lot question went unrecognised: "${q}"`);
 }
+// The assistant's lot tool trusts the model's choice: the gates are skipped
+// and the sentence is read for its filters.
+const forced = lot.answerLot(V, "rogues coming in on tuesday", {}, { today, force: true });
+if (!forced || !forced.filters.models.includes("rogue") || !forced.count) fail("forced, the sentence should still read as Rogues: " + JSON.stringify(forced && [forced.count, forced.filters.models]));
 r = ask("what new cars have we got");
 show("what new cars have we got", r);
 if (!r || r.count !== 2 || !/^(Yes — )?2 new vehicles on the lot/.test(r.answer)) fail("a bare condition should read 'new vehicles', never 'news': " + (r && r.answer));
