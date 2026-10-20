@@ -22,9 +22,51 @@ const DAY = 86400000;
  *               equity, lease, ownedYears, quietDays, stages, everyone }
  *   message: what to tell them, still in the salesperson's words
  */
-export function parseOutreach(text) {
+// The sentence as a person would hear it. The mic hands over the closest
+// words it knows — "lease sending", "least ending", "paid of", "rouge" —
+// and the parser's keywords are few enough to take a near-miss for the word
+// it was. A word one or two letters off "ending" right after "lease" is
+// "ending"; the rest is a short table of what the mic actually says.
+const MISHEARD = [
+  [/\bleas(?:e|es|ed|t)\s+(?:is\s+|are\s+)?(?:s|sp)?ending\b/g, "lease ending"],
+  [/\b(?:lisa|lease a|leases)\s+ending\b/g, "lease ending"],
+  [/\blease\s+(?:and|an|end)\s+ing\b/g, "lease ending"],
+  [/\blease\s+(?:x|ex)\s*pir(?:ing|ed)\b/g, "lease expiring"],
+  [/\bpa(?:id|yed|y)\s+(?:of|off|or)\b/g, "paid off"],
+  [/\bs\.?\s?u\.?\s?v\.?s?\b/g, "suv"],
+  [/\brouge\b/g, "rogue"],
+  [/\bcentra\b/g, "sentra"],
+  [/\bultima\b/g, "altima"],
+  [/\bpath\s+finder\b/g, "pathfinder"],
+  [/\bfront\s+tier\b/g, "frontier"],
+  [/\bmoreno\b/g, "murano"],
+  [/\bequ[ia]t+y\b|\bequity's\b/g, "equity"],
+];
+const near = (a, b) => { // edit distance, for the handful of keywords the parser leans on
+  const m = a.length, n = b.length; if (Math.abs(m - n) > 2) return 9;
+  const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[m][n];
+};
+export function heard(t) {
+  let s = String(t || "");
+  MISHEARD.forEach(([re, to]) => { s = s.replace(re, to); });
+  s = s.replace(/\b(leases?)\s+(?:(is|are)\s+)?([a-z]{4,9})\b/g, (m, l, is, w) => {
+    const want = ["ending", "expiring", "maturing"].find((k) => near(w, k) <= 2);
+    return want ? `${l} ${is ? is + " " : ""}${want}` : m;
+  });
+  return s;
+}
+
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const monthEnd = (y, m) => ymd(new Date(y, m + 1, 0));
+const monthStart = (y, m) => ymd(new Date(y, m, 1));
+
+export function parseOutreach(text, now = Date.now()) {
   const raw = norm(text);
-  const t = lower(raw);
+  const t = heard(lower(raw));
   const channel = /\b(e-?mail)\b/.test(t) ? "email" : "text";
   // Split at the message: "… that <message>", "… saying <message>",
   // "… telling them <message>", "… : <message>", "… to let them know <message>".
@@ -66,7 +108,28 @@ export function parseOutreach(text) {
   else { const yr = scope.match(/\b((?:19|20)\d{2})\b/g) || []; if (yr.length === 1) { take(/\b(?:19|20)\d{2}\b/); a.yearMin = Number(yr[0]); a.yearMax = Number(yr[0]); } }
   if (take(/\bpaid[- ]off\b|\bno payments?\b|\bown(?:s|ed)? (?:it|their (?:car|vehicle)) outright\b|\bpaid (?:it |their (?:car|vehicle) )?off\b/)) a.paidOff = true;
   if (take(/\b(?:positive |in )?equity\b/)) a.equity = true;
-  if (take(/\blease\w*\s+(?:is |are |that's |that is )?(?:ending|maturing|coming due|up|expiring|due|almost up)\b|\bend of (?:their )?lease\b|\blease-?end\b|\bleases? ending\b/)) a.lease = true;
+  if (take(/\blease\w*\s+(?:is |are |that's |that is )?(?:ending|ends|end|maturing|matures|coming due|comes due|up|expiring|expires|due|almost up|running out|runs out|over|finishing|finishes)\b|\bend of (?:their )?lease\b|\blease-?end\b|\bleases? ending\b/)) {
+    a.lease = true;
+    // When: "this year", "next month", "in March", "by June", "in the next
+    // three months", "within 60 days". Nothing said: the next four months.
+    const d = new Date(now), y = d.getFullYear(), mo = d.getMonth();
+    const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, "a couple of": 2, "a couple": 2, "a few": 3, a: 1, an: 1 };
+    let m;
+    if (take(/\b(?:this|the) (?:calendar )?year\b/)) a.leaseUntil = `${y}-12-31`;
+    else if (take(/\bnext year\b/)) { a.leaseFrom = `${y + 1}-01-01`; a.leaseUntil = `${y + 1}-12-31`; }
+    else if (take(/\bthis month\b/)) a.leaseUntil = monthEnd(y, mo);
+    else if (take(/\bnext month\b/)) { a.leaseFrom = monthStart(y, mo + 1); a.leaseUntil = monthEnd(y, mo + 1); }
+    else if ((m = take(new RegExp(`\\b(?:in|by|before|through|until|till|up to|through) (?:the end of )?(${MONTHS.join("|")})\\b`)))) {
+      const target = MONTHS.indexOf(m[1]); const yy = target >= mo ? y : y + 1;
+      if (/^(by|before|until|till|up to|through)/.test(m[0])) a.leaseUntil = monthEnd(yy, target);
+      else { a.leaseFrom = monthStart(yy, target); a.leaseUntil = monthEnd(yy, target); }
+    }
+    else if ((m = take(/\b(?:in|within|over|during) (?:the )?next (\d+|a couple of|a couple|a few|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a|an) (months?|weeks?|days?)\b/)) || (m = take(/\b(?:in|within) (\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (months?|weeks?|days?)\b/))) {
+      const n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUM[m[1]] || 1;
+      const days = /month/.test(m[2]) ? n * 30 : /week/.test(m[2]) ? n * 7 : n;
+      a.leaseUntil = ymd(new Date(now + days * DAY));
+    }
+  }
   const owned = take(/\b(?:owned|had|driven|in (?:their|the) (?:car|vehicle))\b[^0-9]{0,30}?(\d+)\s*(?:\+\s*)?years?\b/) || take(/\bfor (?:more than |over )?(\d+)\s*(?:\+\s*)?years?\b/);
   if (owned) a.ownedYears = Number(owned[1]);
   const quiet = take(/\b(?:haven'?t|hasn'?t|not|no|didn'?t)\b[^0-9]{0,40}?(?:contact|reach|heard|talk|touch|text|call|spoke)[^0-9]{0,30}?(\d+)\s*(days?|weeks?|months?)\b/);
@@ -80,7 +143,7 @@ export function parseOutreach(text) {
 
 // A blank audience: the shape every filter starts from.
 export function emptyAudience() {
-  return { text: "", models: [], makes: [], nissan: false, body: "", yearMin: null, yearMax: null, paidOff: false, equity: false, lease: false, ownedYears: null, quietDays: null, stages: [], everyone: true, unknown: [] };
+  return { text: "", models: [], makes: [], nissan: false, body: "", yearMin: null, yearMax: null, paidOff: false, equity: false, lease: false, leaseFrom: null, leaseUntil: null, ownedYears: null, quietDays: null, stages: [], everyone: true, unknown: [] };
 }
 
 // Nothing narrows it: the whole book.
@@ -101,7 +164,12 @@ export function inAudience(a, l, now = Date.now()) {
   if (a.yearMax != null && !(c.year && c.year <= a.yearMax)) return false;
   if (a.paidOff && !(l.currentPayment == null || Number(l.currentPayment) === 0) && !(l.payoff != null && Number(l.payoff) === 0)) return false;
   if (a.equity && !(l.currentValue != null && l.payoff != null && Number(l.currentValue) - Number(l.payoff) >= 2000)) return false;
-  if (a.lease) { const d = l.leaseEnd ? (new Date(l.leaseEnd) - now) / DAY : null; if (d == null || d < -30 || d > 120) return false; }
+  if (a.lease) {
+    const d = l.leaseEnd ? (new Date(l.leaseEnd) - now) / DAY : null; if (d == null || d < -30) return false;
+    const end = String(l.leaseEnd).slice(0, 10);
+    if (a.leaseUntil ? end > a.leaseUntil : d > 120) return false;
+    if (a.leaseFrom && end < a.leaseFrom) return false;
+  }
   if (a.ownedYears != null) { const p = l.purchaseDate ? (now - new Date(l.purchaseDate)) / (365.25 * DAY) : null; if (p == null || p < a.ownedYears) return false; }
   if (a.quietDays != null) { const last = l.lastContacted ? (now - new Date(l.lastContacted)) / DAY : Infinity; if (last < a.quietDays) return false; }
   if (a.stages.length && !a.stages.includes(l.stage)) return false;
@@ -173,7 +241,7 @@ export function audienceFor(spec, leads, opts = {}) {
 }
 
 // What the parser can read, for the reply that says it didn't understand.
-export const AUDIENCE_HELP = "a model, a make, Nissan, SUV / truck / sedan / van, a year or a range of years, paid off, with equity, lease ending, owned so many years, not heard from in so many days, past customers, or open leads";
+export const AUDIENCE_HELP = "a model, a make, Nissan, SUV / truck / sedan / van, a year or a range of years, paid off, with equity, lease ending (this year, in March, in the next three months), owned so many years, not heard from in so many days, past customers, or open leads";
 
 // "I didn't understand \"under 60,000 km\"…" — empty when everything was read.
 export function unknownNote(spec) {
@@ -252,7 +320,10 @@ export function describeAudience(spec) {
   if (a.models.length && kind) extra.push(kind);
   if (a.paidOff) extra.push("paid off");
   if (a.equity) extra.push("with equity");
-  if (a.lease) extra.push("lease ending");
+  if (a.lease) {
+    const say = (iso) => { const d = new Date(iso + "T12:00:00"); return d.toLocaleDateString("en-CA", { month: "short", year: "numeric" }); };
+    extra.push(a.leaseFrom && a.leaseUntil && a.leaseFrom.slice(0, 7) === a.leaseUntil.slice(0, 7) ? `lease ending ${say(a.leaseUntil)}` : a.leaseUntil ? `lease ending by ${say(a.leaseUntil)}` : "lease ending");
+  }
   if (a.ownedYears != null) extra.push(`owned ${a.ownedYears}+ years`);
   if (a.quietDays != null) extra.push(`not reached in ${a.quietDays} days`);
   return bits.join(" ") + (extra.length ? " · " + extra.join(" · ") : "");

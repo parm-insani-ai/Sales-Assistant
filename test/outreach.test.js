@@ -16,6 +16,27 @@ s = o.parseOutreach("text everyone with a paid off Nissan: the new Rogue is in a
 if (!s.audience.paidOff || !s.audience.nissan || s.audience.models.length || !/new Rogue is in/.test(s.message)) fail("paid off Nissan with a colon: " + JSON.stringify(s));
 s = o.parseOutreach("text everyone whose lease is ending that we have a loyalty offer this month");
 if (!s.audience.lease) fail("lease ending: " + JSON.stringify(s.audience));
+// What the mic actually hands over: "lease sending", "least ending", "lease and ing", "paid of", "rouge".
+for (const said of ["text everyone with the lease sending this year", "text everyone with the least ending this year", "text everyone whose lease is spending this year", "text everyone with their lease and ing this year", "text everyone whose lease is endng this year"]) {
+  s = o.parseOutreach(said, now);
+  if (!s.audience.lease || s.audience.unknown.length || s.audience.leaseUntil !== "2026-12-31") fail("heard wrong: " + said + " → " + JSON.stringify(s.audience));
+}
+s = o.parseOutreach("text my rouge owners who paid of their car that the new one is here", now);
+if (s.audience.models.join() !== "rogue" || !s.audience.paidOff || s.audience.unknown.length) fail("rouge / paid of: " + JSON.stringify(s.audience));
+// The lease window: this year, in March, by June, the next three months, 60 days.
+s = o.parseOutreach("text everyone whose lease is ending in March that we'd love to see them", now);
+if (s.audience.leaseFrom !== "2027-03-01" || s.audience.leaseUntil !== "2027-03-31" || s.audience.unknown.length || !/lease ending Mar 2027/.test(o.describeAudience(s))) fail("lease in March: " + JSON.stringify(s.audience) + " " + o.describeAudience(s));
+s = o.parseOutreach("text everyone with a lease ending by June", now);
+if (s.audience.leaseFrom || s.audience.leaseUntil !== "2027-06-30" || !/lease ending by Jun 2027/.test(o.describeAudience(s))) fail("lease by June: " + JSON.stringify(s.audience));
+s = o.parseOutreach("email everyone whose lease is up in the next three months", now);
+if (s.audience.leaseUntil !== "2026-12-22" || s.audience.unknown.length) fail("next three months: " + JSON.stringify(s.audience));
+s = o.parseOutreach("text everyone whose lease ends within 60 days", now);
+if (s.audience.leaseUntil !== "2026-11-22" || s.audience.unknown.length) fail("within 60 days: " + JSON.stringify(s.audience));
+// And who's in: a lease ending in November is "this year"; one ending in February isn't; nothing said means the next four months.
+const thisYear = o.parseOutreach("text everyone with the lease ending this year", now).audience;
+if (!o.inAudience(thisYear, { vehicleInterest: "2023 Nissan Rogue", leaseEnd: "2026-11-15" }, now) || o.inAudience(thisYear, { vehicleInterest: "2023 Nissan Rogue", leaseEnd: "2027-02-01" }, now)) fail("the lease window isn't applied");
+const anyLease = o.parseOutreach("text everyone whose lease is ending", now).audience;
+if (!o.inAudience(anyLease, { leaseEnd: "2027-01-10" }, now) || o.inAudience(anyLease, { leaseEnd: "2027-03-10" }, now)) fail("with nothing said the window should be four months");
 s = o.parseOutreach("text all past customers I haven't contacted in 60 days that I'd love to catch up");
 if (JSON.stringify(s.audience.stages) !== '["sold","delivered"]' || s.audience.quietDays !== 60) fail("past customers, quiet 60 days: " + JSON.stringify(s.audience));
 s = o.parseOutreach("email everyone that the service department is open Saturdays now");
