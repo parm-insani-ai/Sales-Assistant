@@ -13,7 +13,8 @@ import { toast, confirmDialog } from "../components.js";
 import { esc, smsHref, mailtoHref } from "../utils.js";
 import { sendText, smsReady } from "../sms.js";
 import { sendEmail, emailSendConfigured, logEmail } from "../email.js";
-import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience } from "../outreach.js";
+import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience, messageFor, audienceGaps } from "../outreach.js";
+import { writeBlastMessage, canWrite } from "../outreachdraft.js";
 import { openAudienceFilter } from "./audience.js";
 import { reachForBlast as reach } from "../consent.js";
 
@@ -43,6 +44,24 @@ export function renderOutreach(view) {
   let spec = sentence ? parseOutreach(sentence) : manual && manual.audience ? { channel: manual.channel || "text", audience: { ...emptyAudience(), ...manual.audience, unknown: [] }, message: "", raw: "" } : null;
   let channel = spec ? spec.channel : "text";
   let message = spec ? spec.message : "";
+  // With only who said, the message is written for them: the template at
+  // once, the agent's version over it when it comes back and nothing has
+  // been typed since.
+  let wrote = "";       // "" | "template" | "agent" | "writing"
+  let writeSeq = 0;
+  function writeMessage() {
+    if (!spec || message.trim()) { wrote = ""; return; }
+    message = messageFor(spec); wrote = "template";
+    if (!canWrite()) return;
+    const seq = ++writeSeq, mine = message;
+    wrote = "writing";
+    writeBlastMessage({ ...spec, channel }).then((text) => {
+      if (seq !== writeSeq || !el.isConnected) return;
+      if (text && message === mine) { message = text; wrote = "agent"; } else if (wrote === "writing") wrote = "template";
+      const y = view.scrollTop; draw(); view.scrollTop = y;
+    });
+  }
+  if (spec) writeMessage();
   let includeRecent = false;
   const skipped = new Set();
   let sending = false;
@@ -82,12 +101,13 @@ export function renderOutreach(view) {
         </div>
         ${aud.unknown && aud.unknown.length ? `<div class="fab-note mo-unknown" style="text-align:left;color:var(--danger);margin-bottom:8px">${esc(unknownNote(live))} Reword it above and build again — the audience is never widened to everyone.</div>` : ""}
         <div class="row" style="margin-bottom:6px"><span class="strong">${recipients.length} ${channel === "text" ? "will be texted" : "will be emailed"}</span><span class="small muted">${aud.excluded.length ? aud.excluded.length + " left out" : ""}</span></div>
+        ${!aud.included.length && !(aud.unknown && aud.unknown.length) && !aud.excluded.length ? `<div class="fab-note mo-gaps" style="text-align:left;color:var(--danger);margin-bottom:8px">${esc(audienceGaps(live, leads))}</div>` : ""}
         <div class="mo-list">
           ${recipients.length ? recipients.map((l) => `
             <div class="row mo-row" data-lead="${esc(l.id)}">
               <div class="row-main" style="min-width:0"><div class="row-title" style="font-size:0.95rem">${esc(l.name)}</div><div class="row-sub">${esc(l.vehicleInterest || "")}${channel === "text" && l.phone ? " · " + esc(l.phone) : channel === "email" && l.email ? " · " + esc(l.email) : ""}</div></div>
               <button class="modal-close" data-skip="${esc(l.id)}" aria-label="Leave out" title="Leave out">&times;</button>
-            </div>`).join("") : aud.unknown && aud.unknown.length ? "" : `<div class="muted small">Nobody in this audience can be reached by ${channel} right now.</div>`}
+            </div>`).join("") : aud.unknown && aud.unknown.length ? "" : aud.included.length || aud.excluded.length ? `<div class="muted small">Nobody in this audience can be reached by ${channel} right now.</div>` : ""}
         </div>
         ${aud.excluded.length || skipped.size ? `
         <details style="margin-top:8px"><summary class="small muted" style="cursor:pointer">Left out (${aud.excluded.length + skipped.size})</summary>
@@ -104,7 +124,7 @@ export function renderOutreach(view) {
         <div class="field" style="margin-bottom:8px">
           <label>What to tell them</label>
           <textarea id="mo-message" rows="3">${esc(message)}</textarea>
-          <div class="hint">"They" becomes "you" in each message. No dollar amounts or rates — those stay for the desk.</div>
+          <div class="hint mo-wrote">${wrote === "writing" ? "Writing it for this audience…" : wrote === "agent" ? "Written for this audience — edit as you like." : wrote === "template" ? "Written for this audience — edit as you like, or " : ""}${wrote === "template" || wrote === "agent" ? `<a href="#" data-act="rewrite">${wrote === "agent" ? "Write it again" : "have the agent write it"}</a>. ` : ""}"They" becomes "you" in each message. No dollar amounts or rates — those stay for the desk.</div>
         </div>
         ${figures.length ? `<div class="fab-note" style="text-align:left;color:var(--danger)">Take the figure${figures.length > 1 ? "s" : ""} out before sending: ${figures.map(esc).join(", ")}.</div>` : ""}
         ${recipients[0] ? `<div class="small muted" style="margin-bottom:4px">How ${esc(recipients[0].name.split(" ")[0])} will get it:</div>
@@ -123,12 +143,14 @@ export function renderOutreach(view) {
       sentence = el.querySelector("#mo-sentence").value.trim();
       if (!sentence) { toast("Say who, and what to tell them", "warn"); return; }
       spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear();
-      if (!spec.message) toast("Add what to tell them — after \"that\" or a colon", "warn");
+      writeMessage();
       draw();
     });
     el.querySelector('[data-act="examples"]').addEventListener("click", () => { const x = el.querySelector(".mo-examples"); x.hidden = !x.hidden; });
-    el.querySelectorAll("[data-example]").forEach((b) => b.addEventListener("click", () => { sentence = EXAMPLES[Number(b.dataset.example)]; spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear(); draw(); }));
+    el.querySelectorAll("[data-example]").forEach((b) => b.addEventListener("click", () => { sentence = EXAMPLES[Number(b.dataset.example)]; spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear(); writeMessage(); draw(); }));
     if (!spec) return;
+    const rewrite = el.querySelector('[data-act="rewrite"]');
+    if (rewrite) rewrite.addEventListener("click", (e) => { e.preventDefault(); message = ""; writeMessage(); draw(); });
     el.querySelector('[data-act="adjust"]').addEventListener("click", () => openAudienceFilter(spec.audience, (a) => {
       spec = { ...spec, audience: a || emptyAudience() }; skipped.clear(); draw();
     }, { title: "Who it goes to" }));
@@ -140,7 +162,7 @@ export function renderOutreach(view) {
     el.querySelectorAll(".mo-row .row-main").forEach((n) => n.addEventListener("click", () => navigate(`/leads/${n.closest(".mo-row").dataset.lead}`)));
     const msgEl = el.querySelector("#mo-message");
     let t = null;
-    msgEl.addEventListener("input", () => { message = msgEl.value; clearTimeout(t); t = setTimeout(() => { const y = view.scrollTop; draw(); view.scrollTop = y; const m2 = el.querySelector("#mo-message"); m2.focus(); m2.setSelectionRange(m2.value.length, m2.value.length); }, 400); });
+    msgEl.addEventListener("input", () => { message = msgEl.value; wrote = ""; writeSeq++; clearTimeout(t); t = setTimeout(() => { const y = view.scrollTop; draw(); view.scrollTop = y; const m2 = el.querySelector("#mo-message"); m2.focus(); m2.setSelectionRange(m2.value.length, m2.value.length); }, 400); });
     el.querySelector('[data-act="send"]').addEventListener("click", () => send(recipients, live));
   }
 

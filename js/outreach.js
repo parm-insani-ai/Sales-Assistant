@@ -86,7 +86,7 @@ export function parseOutreach(text, now = Date.now()) {
   // The audience is the whole clause after the verb ("text", "send a note
   // to", "reach out to"): "my Altima owners" names a model as surely as
   // "everyone who owns an Altima" does.
-  let scope = audienceText.replace(/^\s*(?:please |can you |could you )?(?:send (?:out )?(?:a |an )?(?:quick )?(?:text|sms|message|note|email|e-mail|blast) (?:out )?to|text|sms|message|email|e-mail|reach out to|blast|let|tell|remind)\s+/, " ");
+  let scope = audienceText.replace(/^\s*(?:please |can you |could you |i want to |i'd like to |let's )?(?:send (?:out )?(?:a |an )?(?:quick )?(?:text|sms|message|note|email|e-mail|blast) (?:out )?to|text|sms|message|email|e-mail|reach out to|blast|let|tell|remind|contact|get in touch with|get hold of|reach|ping|follow up with|touch base with|write to|drop a (?:line|note) to|send out to)\s+/, " ");
   // Every piece of the clause the parser reads is blanked out as it goes;
   // whatever is left over with meaning is what it did not understand.
   let rest = " " + scope + " ";
@@ -204,7 +204,7 @@ function leftovers(rest) {
 // to reach them; a text to one named person is not.
 export function isOutreach(text) {
   const t = lower(text);
-  const verb = /\b(text|sms|message|email|e-mail|reach out to|blast|send (?:a )?(?:text|message|note|email)|let .* know|tell)\b/.test(t);
+  const verb = /\b(text|sms|message|email|e-mail|reach out to|blast|send (?:a )?(?:text|message|note|email)|let .* know|tell|contact|get in touch with|get hold of|reach|ping|follow up with|touch base with|write to|drop a (?:line|note) to|send out to)\b/.test(t);
   const plural = /\b(everyone|everybody|anyone|anybody|all (?:my |the |of |our )?(?:[a-z0-9-]+ )?(?:customers|clients|owners|people|leads|prospects)|every (?:customer|owner|client|person|lead)|every [a-z0-9-]+ (?:owner|driver|customer)s?\b|customers who|people who|owners? (?:of|who|with)|(?:my |the |our )?[a-z0-9-]+ (?:owners|people|customers|clients|leads|prospects)\b|mass|blast|campaign)\b/.test(t);
   return verb && plural;
 }
@@ -294,6 +294,49 @@ export function draftFor(lead, spec, settings = {}) {
   }
   const body = `Hi ${first}, it's ${me} at ${store}. ${offer || "I wanted to reach out about your " + (car || "vehicle") + "."} Want me to see what that looks like for you? Reply STOP to opt out.`;
   return { body };
+}
+
+// What to tell them when the sentence only said who: a message written to
+// the reason they were picked, in the second person, with no figure in it.
+// "your car" is named per customer by draftFor. The agent can write a
+// better one (outreachdraft.js); this is the one that's always there.
+export function messageFor(spec) {
+  const a = spec.audience || spec;
+  const when = a.leaseFrom && a.leaseUntil && a.leaseFrom.slice(0, 7) === a.leaseUntil.slice(0, 7) ? ` in ${new Date(a.leaseUntil + "T12:00:00").toLocaleDateString("en-CA", { month: "long" })}` : a.leaseUntil ? (a.leaseUntil.slice(5) === "12-31" ? " this year" : ` by ${new Date(a.leaseUntil + "T12:00:00").toLocaleDateString("en-CA", { month: "long" })}`) : " soon";
+  if (a.lease) return `your lease on your car is coming up${when}. Before it's due, I can walk you through your options — keep it, hand it back, or move into something newer — in about ten minutes, no pressure.`;
+  if (a.paidOff) return `your car is paid off, which puts you in a strong spot if you've thought about something newer. I'd be glad to show you what that could look like, no pressure.`;
+  if (a.equity) return `you're likely sitting in a good position on your car right now. If a newer one has crossed your mind, I can show you where you stand in a few minutes.`;
+  if (a.quietDays != null) return `it's been a while — I hope your car is treating you well. If anything has come up, or you're curious what's next, I'm a text away.`;
+  if (a.stages.length && a.stages.every((s) => ["sold", "delivered"].includes(s))) return `I hope your car is still treating you well. If you've thought about what's next, or just want to know where you stand, I'd love to help.`;
+  if (a.stages.length) return `I wanted to check in — if you're still looking, I can line a few things up for you to see this week.`;
+  if (a.models.length || a.makes.length || a.nissan || a.body || a.yearMin != null || a.yearMax != null) return `I'm working with owners like you this week — if you've thought about what's next, or just want a quick look at where you stand, I'd be glad to help.`;
+  return `I wanted to say hello — if anything's on your mind about your car or what's next, I'm a text away.`;
+}
+
+// Why nobody matched, said plainly: what the audience needs on file and how
+// many have it, so "0 will be texted" explains itself. Empty when someone
+// matched, or when the sentence wasn't read.
+export function audienceGaps(spec, leads, now = Date.now()) {
+  const a = spec.audience || spec;
+  if ((a.unknown && a.unknown.length) || !leads.length) return leads.length ? "" : "Nobody on file yet.";
+  if (leads.some((l) => inAudience(a, l, now))) return "";
+  const n = leads.length.toLocaleString();
+  const bits = [];
+  if (a.lease) {
+    const with_ = leads.filter((l) => l.leaseEnd);
+    if (!with_.length) bits.push(`none of the ${n} customers on file has a lease end date — it comes in with the owner book (a lease end column) or on the customer's page`);
+    else bits.push(`${with_.length} of ${n} have a lease end on file, none in ${a.leaseUntil ? `the window (${a.leaseFrom ? a.leaseFrom + " to " : "by "}${a.leaseUntil})` : "the next four months"}`);
+  }
+  if (a.paidOff) { const w = leads.filter((l) => l.currentPayment != null || l.payoff != null); bits.push(w.length ? `${w.length} of ${n} have a payment or payoff on file, none paid off` : `none of the ${n} customers has a payment or payoff on file, which "paid off" needs`); }
+  if (a.equity) { const w = leads.filter((l) => l.currentValue != null && l.payoff != null); bits.push(w.length ? `${w.length} of ${n} have a value and a payoff on file, none with equity to speak of` : `none of the ${n} customers has both a value and a payoff on file, which "equity" needs`); }
+  if (a.models.length || a.makes.length || a.nissan || a.body || a.yearMin != null || a.yearMax != null) {
+    const v = { ...emptyAudience(), models: a.models, makes: a.makes, nissan: a.nissan, body: a.body, yearMin: a.yearMin, yearMax: a.yearMax };
+    const w = leads.filter((l) => inAudience(v, l, now));
+    bits.push(w.length ? `${w.length} of ${n} drive what was named; none meet the rest` : `nobody on file drives what was named`);
+  }
+  if (a.ownedYears != null) { const w = leads.filter((l) => l.purchaseDate); if (!w.length) bits.push(`none of the ${n} customers has a purchase date on file, which "owned so many years" needs`); }
+  if (a.stages.length && !bits.length) bits.push(`nobody on file is at that stage`);
+  return bits.length ? `Nobody matched: ${bits.join("; ")}.` : `Nobody on file matched.`;
 }
 
 // A label for the audience, for the screen and the spoken reply: "Sentra owners".

@@ -151,6 +151,23 @@ if (suv.hash !== "#/outreach" || suv.rows !== 0 || !/didn't understand "financed
 const tool2 = await p.evaluate(async () => { const m = await import("/js/agent.js"); return await m.execTool("mass_outreach", { sentence: "text everyone in Dartmouth that I'm at the Dartmouth store this week" }); });
 if (!tool2.result || tool2.result.recipients !== 0 || !(tool2.result.notUnderstood || []).includes("dartmouth")) fail("the tool widened an unreadable audience: " + JSON.stringify(tool2.result));
 
+// --- Only who was said: the message is written for the audience, the lease window is read, and an empty audience says why.
+const thisYear = new Date(); const leaseEnd = `${thisYear.getFullYear()}-12-01`;
+const wholease = await p.evaluate(async (leaseEnd) => {
+  const s = await import("/js/store.js"); const m = await import("/js/agent.js");
+  s.update("leads", "r1", { leaseEnd, purchaseDate: "2025-06-01" }); // the Rogue owner, with a purchase (so consent is implied): not in the Sentra blast just sent, so not "reached recently"
+  const r = await m.execTool("mass_outreach", { sentence: "contact everyone whose lease ends this year" });
+  await new Promise((r2) => setTimeout(r2, 900));
+  return { result: r.result, hash: location.hash, to: [...document.querySelectorAll(".mo-row .row-title")].map((n) => n.textContent.trim()), message: document.querySelector("#mo-message")?.value || "", wrote: document.querySelector(".mo-wrote")?.textContent.trim(), send: document.querySelector('[data-act="send"]')?.disabled, label: document.querySelector(".section-title .muted")?.textContent.trim() };
+}, leaseEnd);
+console.log("lease, who only:", JSON.stringify(wholease).slice(0, 500));
+if (!wholease.result || wholease.result.recipients !== 1 || !/being written/.test(wholease.result.message) || !wholease.result.ready) fail("the tool should pick the lease and say the message is being written: " + JSON.stringify(wholease.result));
+if (wholease.to.join() !== "Rogue Owner" || !/lease ending by Dec/.test(wholease.label || "")) fail("the screen didn't pick Dana for the lease window: " + JSON.stringify(wholease));
+if (!wholease.message || /\$|\d+ ?(%|a month)/.test(wholease.message) || !/Written for this audience/.test(wholease.wrote || "") || wholease.send !== false) fail("the message wasn't written for the audience: " + JSON.stringify([wholease.message, wholease.wrote, wholease.send]));
+const nobody = await p.evaluate(async () => { const m = await import("/js/agent.js"); const r = await m.execTool("mass_outreach", { sentence: "text everyone whose lease is ending in March" }); await new Promise((r2) => setTimeout(r2, 500)); return { result: r.result, gaps: document.querySelector(".mo-gaps")?.textContent.trim() }; });
+console.log("nobody:", JSON.stringify(nobody).slice(0, 400));
+if (!nobody.result || nobody.result.recipients !== 0 || !/lease end/.test(nobody.result.whyNobody || "") || !/Nobody matched/.test(nobody.gaps || "")) fail("an empty audience isn't explained: " + JSON.stringify(nobody));
+
 // --- "my Sentra owners" names the model without "everyone who owns".
 const mine = await p.evaluate(async () => {
   const v = await import("/js/voice.js");

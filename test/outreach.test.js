@@ -32,6 +32,23 @@ s = o.parseOutreach("email everyone whose lease is up in the next three months",
 if (s.audience.leaseUntil !== "2026-12-22" || s.audience.unknown.length) fail("next three months: " + JSON.stringify(s.audience));
 s = o.parseOutreach("text everyone whose lease ends within 60 days", now);
 if (s.audience.leaseUntil !== "2026-11-22" || s.audience.unknown.length) fail("within 60 days: " + JSON.stringify(s.audience));
+// "Contact" and the other ways of saying send-to-many; a sentence with only who in it has no message and isn't "not understood".
+for (const said of ["contact everyone whose lease ends this year", "get in touch with everyone whose lease is ending this year", "reach everyone with a lease ending this year", "follow up with everyone whose lease is up this year"]) {
+  s = o.parseOutreach(said, now);
+  if (!s.audience.lease || s.audience.unknown.length || s.message) fail("a plain who-only sentence: " + said + " → " + JSON.stringify(s));
+}
+// With only who said, the message is written to the reason — no figure, second person, the window named.
+const written = o.messageFor(o.parseOutreach("contact everyone whose lease ends this year", now));
+if (!/lease/.test(written) || !/this year/.test(written) || !/you/.test(written) || /\$|\d/.test(written)) fail("the lease message: " + written);
+if (!/in March/.test(o.messageFor(o.parseOutreach("text everyone whose lease is ending in March", now)))) fail("the month isn't named in the message");
+if (!/paid off/.test(o.messageFor(o.parseOutreach("text everyone with a paid off car", now)))) fail("the paid-off message");
+// Why nobody matched, said with what the audience needs on file.
+const book = [{ vehicleInterest: "2023 Nissan Rogue" }, { vehicleInterest: "2021 Nissan Kicks" }];
+const gaps = o.audienceGaps(o.parseOutreach("contact everyone whose lease ends this year", now), book, now);
+if (!/none of the 2 customers on file has a lease end date/.test(gaps)) fail("the gap isn't explained: " + gaps);
+const gaps2 = o.audienceGaps(o.parseOutreach("contact everyone whose lease ends this year", now), [{ leaseEnd: "2027-05-01" }], now);
+if (!/1 of 1 have a lease end on file, none in the window/.test(gaps2)) fail("the window gap isn't explained: " + gaps2);
+if (o.audienceGaps(o.parseOutreach("contact everyone whose lease ends this year", now), [{ leaseEnd: "2026-11-01" }], now) !== "") fail("a match shouldn't read as a gap");
 // And who's in: a lease ending in November is "this year"; one ending in February isn't; nothing said means the next four months.
 const thisYear = o.parseOutreach("text everyone with the lease ending this year", now).audience;
 if (!o.inAudience(thisYear, { vehicleInterest: "2023 Nissan Rogue", leaseEnd: "2026-11-15" }, now) || o.inAudience(thisYear, { vehicleInterest: "2023 Nissan Rogue", leaseEnd: "2027-02-01" }, now)) fail("the lease window isn't applied");
