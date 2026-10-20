@@ -72,7 +72,10 @@ export function parseOutreach(text, now = Date.now()) {
   // "… telling them <message>", "… : <message>", "… to let them know <message>".
   let audienceText = t, message = "";
   // "that" starts the message unless it introduces the audience ("customers that own a Sentra").
-  const cut = /\b(?:that(?!\s+(?:own|owns|drive|drives|have|has|had|bought|are|is|were|lease|leased|got|still)\b)|saying|telling them(?: that)?|tell them(?: that)?|let them know(?: that)?|letting them know(?: that)?|with the message|about)\b[:,]?\s+/.exec(t.slice(4));
+  // "telling them", "telling him" (what the mic makes of it), "tell her",
+  // "let them know", "saying", "to say", "mention that", "with the message".
+  const WHO = "(?:them|him|her|everyone|everybody|people|all of them|each of them|the customer|the customers)";
+  const cut = new RegExp(String.raw`\b(?:that(?!\s+(?:own|owns|drive|drives|have|has|had|bought|are|is|were|lease|leased|got|still)\b)|saying(?: that)?|(?:and |to )?say(?: that)?|telling ${WHO}(?: that)?|tell ${WHO}(?: that)?|(?:to )?let ${WHO} know(?: that)?|letting ${WHO} know(?: that)?|(?:and |to )?mention(?:ing)?(?: to ${WHO})?(?: that)?|with (?:the |a )?message(?: that| saying)?|about)\b[:,]?\s+`).exec(t.slice(4));
   if (cut) cut.index += 4;
   const colon = t.indexOf(":");
   if (cut && (colon < 0 || cut.index < colon)) { audienceText = t.slice(0, cut.index); message = raw.slice(cut.index + cut[0].length); }
@@ -337,6 +340,24 @@ export function audienceGaps(spec, leads, now = Date.now()) {
   if (a.ownedYears != null) { const w = leads.filter((l) => l.purchaseDate); if (!w.length) bits.push(`none of the ${n} customers has a purchase date on file, which "owned so many years" needs`); }
   if (a.stages.length && !bits.length) bits.push(`nobody on file is at that stage`);
   return bits.length ? `Nobody matched: ${bits.join("; ")}.` : `Nobody on file matched.`;
+}
+
+// The message with its figures taken out, the way a salesperson would say
+// it without the number: "0% financing" becomes "special financing", "$2,000
+// over book" becomes "a strong offer". The agent does it better
+// (outreachdraft.js); this always works.
+export function stripFigures(message) {
+  let m = String(message || "");
+  m = m.replace(/\b0\s?%\s*(financing|apr|interest|rate)/gi, "special $1")
+    .replace(/\b\d+(?:\.\d+)?\s?(?:%|percent)\s*(financing|apr|interest|rate|off)\b/gi, (_, w) => (w.toLowerCase() === "off" ? "a real discount" : `a special ${w}`))
+    .replace(/(?:\b(?:up to|over|an extra|another)\s+)?\$\s?[\d,]+(?:\.\d+)?k?\b(\s*(?:over book|off|back|cash|in savings|toward|towards|more))?/gi, (_, tail) => (tail ? `a strong offer ${tail.trim()}` : "a strong offer"))
+    .replace(/\b\d+(?:\.\d+)?\s?k\b/gi, "a strong offer")
+    .replace(/\b\d[\d,]*\s?(grand|dollars|bucks)\b/gi, "a strong offer")
+    .replace(/\b\d{2,3}\s?(?:a|per)\s?(?:month|mo)\b/gi, "a payment that works")
+    .replace(/\bapr\b/gi, "rate")
+    .replace(/\b(?:a strong offer)\s+(?:a strong offer)\b/g, "a strong offer")
+    .replace(/\s{2,}/g, " ").trim();
+  return m;
 }
 
 // A label for the audience, for the screen and the spoken reply: "Sentra owners".

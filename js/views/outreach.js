@@ -14,7 +14,7 @@ import { esc, smsHref, mailtoHref } from "../utils.js";
 import { sendText, smsReady } from "../sms.js";
 import { sendEmail, emailSendConfigured, logEmail } from "../email.js";
 import { parseOutreach, audienceFor, draftFor, figuresIn, describeAudience, toSecondPerson, unknownNote, emptyAudience, messageFor, audienceGaps } from "../outreach.js";
-import { writeBlastMessage, canWrite } from "../outreachdraft.js";
+import { writeBlastMessage, canWrite, rewordWithoutFigures } from "../outreachdraft.js";
 import { openAudienceFilter } from "./audience.js";
 import { reachForBlast as reach } from "../consent.js";
 
@@ -126,7 +126,7 @@ export function renderOutreach(view) {
           <textarea id="mo-message" rows="3">${esc(message)}</textarea>
           <div class="hint mo-wrote">${wrote === "writing" ? "Writing it for this audience…" : wrote === "agent" ? "Written for this audience — edit as you like." : wrote === "template" ? "Written for this audience — edit as you like, or " : ""}${wrote === "template" || wrote === "agent" ? `<a href="#" data-act="rewrite">${wrote === "agent" ? "Write it again" : "have the agent write it"}</a>. ` : ""}"They" becomes "you" in each message. No dollar amounts or rates — those stay for the desk.</div>
         </div>
-        ${figures.length ? `<div class="fab-note" style="text-align:left;color:var(--danger)">Take the figure${figures.length > 1 ? "s" : ""} out before sending: ${figures.map(esc).join(", ")}.</div>` : ""}
+        ${figures.length ? `<div class="fab-note mo-figures" style="text-align:left;color:var(--danger)">Take the figure${figures.length > 1 ? "s" : ""} out before sending: ${figures.map(esc).join(", ")}. <a href="#" data-act="defigure" style="color:var(--brand);font-weight:600">Take ${figures.length > 1 ? "them" : "it"} out for me ›</a></div>` : ""}
         ${recipients[0] ? `<div class="small muted" style="margin-bottom:4px">How ${esc(recipients[0].name.split(" ")[0])} will get it:</div>
         <div class="mo-preview small" style="white-space:pre-wrap;line-height:1.45;background:var(--surface-2);border-radius:10px;padding:10px">${(() => { const d = draftFor(recipients[0], live, s); return esc(channel === "email" ? "Subject: " + d.subject + "\n\n" + d.body : d.body); })()}</div>` : ""}
       </div>
@@ -149,6 +149,16 @@ export function renderOutreach(view) {
     el.querySelector('[data-act="examples"]').addEventListener("click", () => { const x = el.querySelector(".mo-examples"); x.hidden = !x.hidden; });
     el.querySelectorAll("[data-example]").forEach((b) => b.addEventListener("click", () => { sentence = EXAMPLES[Number(b.dataset.example)]; spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear(); writeMessage(); draw(); }));
     if (!spec) return;
+    const defigure = el.querySelector('[data-act="defigure"]');
+    if (defigure) defigure.addEventListener("click", async (e) => {
+      e.preventDefault(); defigure.textContent = "Rewriting…";
+      const was = message;
+      const text = await rewordWithoutFigures(was);
+      if (!el.isConnected || message !== was) return;
+      message = text; wrote = ""; writeSeq++;
+      const y = view.scrollTop; draw(); view.scrollTop = y;
+      toast("Figure taken out — read it over", "success");
+    });
     const rewrite = el.querySelector('[data-act="rewrite"]');
     if (rewrite) rewrite.addEventListener("click", (e) => { e.preventDefault(); message = ""; writeMessage(); draw(); });
     el.querySelector('[data-act="adjust"]').addEventListener("click", () => openAudienceFilter(spec.audience, (a) => {

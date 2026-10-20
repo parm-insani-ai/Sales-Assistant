@@ -7,7 +7,25 @@
 import * as store from "./store.js";
 import * as backend from "./backend.js";
 import { looksLikeMoney } from "./money.js";
-import { describeAudience } from "./outreach.js";
+import { describeAudience, stripFigures } from "./outreach.js";
+
+// The rep's own message with the figure taken out and the meaning kept —
+// by the agent, or by the plain substitution when it can't be reached.
+export async function rewordWithoutFigures(message, settings = store.getSettings()) {
+  const plain = stripFigures(message);
+  if (!canWrite()) return plain;
+  const system = "You rewrite one short text message a car salesperson is sending to customers. Keep the meaning, the tone and the length. Remove every dollar amount, price, payment, rate and percentage, and say it the way a salesperson would without the number: '0% financing' becomes 'special financing', '$2,000 over book' becomes 'a strong offer on your trade'. No greeting, no sign-off, no emojis. Answer with the rewritten message alone.";
+  const url = (settings.agentUrl || "").trim().replace(/\/+$/, "");
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ system, messages: [{ role: "user", content: message }], max_tokens: 400 }), signal: ctl.signal });
+    if (!res.ok) return plain;
+    const j = await res.json().catch(() => ({}));
+    const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join(" ").trim().replace(/^["\u201c']|["\u201d']$/g, "");
+    return text && !looksLikeMoney(text) && text.length >= 10 ? text : plain;
+  } catch { return plain; } finally { clearTimeout(timer); }
+}
 
 export function canWrite() {
   return !!((store.getSettings().agentUrl || "").trim() && backend.currentUser());

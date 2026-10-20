@@ -32,6 +32,19 @@ s = o.parseOutreach("email everyone whose lease is up in the next three months",
 if (s.audience.leaseUntil !== "2026-12-22" || s.audience.unknown.length) fail("next three months: " + JSON.stringify(s.audience));
 s = o.parseOutreach("text everyone whose lease ends within 60 days", now);
 if (s.audience.leaseUntil !== "2026-11-22" || s.audience.unknown.length) fail("within 60 days: " + JSON.stringify(s.audience));
+// Every way of introducing the message — "telling him" is what the mic makes of "telling them".
+for (const [said, model] of [["message everyone who has a nissan rogue telling him that there's special financing on the rogue this month", "rogue"], ["text all my kicks owners tell her the new one is in", "kicks"], ["text sentra owners and let him know that the new sentra is in", "sentra"], ["email everyone who drives a frontier and say that we're buying trucks this week", "frontier"], ["text my altima owners, mention that the altima is being discontinued", "altima"], ["text rogue owners with a message that the new rogue is here", "rogue"]]) {
+  s = o.parseOutreach(said, now);
+  if (s.audience.models.join() !== model || s.audience.unknown.length || !s.message) fail("the message wasn't found: " + said + " → " + JSON.stringify(s));
+}
+s = o.parseOutreach("message everyone who has a nissan rogue telling him that there's 0% financing on nissan rogue this month and it might be one of the best times to buy", now);
+if (s.audience.models.join() !== "rogue" || s.audience.unknown.length || !/^there's 0% financing/.test(s.message)) fail("telling him: " + JSON.stringify(s));
+// The figures taken out, the meaning kept.
+const noFig = o.stripFigures(s.message);
+if (/0%|\$|\d%/.test(noFig) || !/special financing on nissan rogue this month/.test(noFig)) fail("the figure wasn't taken out plainly: " + noFig);
+if (o.stripFigures("we'll give you $2,000 over book this month") !== "we'll give you a strong offer over book this month") fail("over book: " + o.stripFigures("we'll give you $2,000 over book this month"));
+if (!/a payment that works/.test(o.stripFigures("get into a new Kicks for 300 a month"))) fail("a month: " + o.stripFigures("get into a new Kicks for 300 a month"));
+if (/\d/.test(o.stripFigures("rates from 2.9% APR and up to $1,500 cash back"))) fail("rates and cash back: " + o.stripFigures("rates from 2.9% APR and up to $1,500 cash back"));
 // "Contact" and the other ways of saying send-to-many; a sentence with only who in it has no message and isn't "not understood".
 for (const said of ["contact everyone whose lease ends this year", "get in touch with everyone whose lease is ending this year", "reach everyone with a lease ending this year", "follow up with everyone whose lease is up this year"]) {
   s = o.parseOutreach(said, now);
