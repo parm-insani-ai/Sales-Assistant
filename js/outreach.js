@@ -161,7 +161,9 @@ export function inAudience(a, l, now = Date.now()) {
   const c = classify(String(l.vehicleInterest || ""));
   const drive = lower(l.vehicleInterest);
   if (a.models.length && !a.models.some((m) => c.model === m || drive.includes(m))) return false;
-  if (a.makes.length && !a.makes.includes(c.make)) return false;
+  // "Nissan Rogue" named: a customer down as "Rogue Platinum 2019", no make
+  // written, is a Rogue owner all the same — the model already says the make.
+  if (a.makes.length && !a.makes.includes(c.make) && !(a.models.length && !c.make)) return false;
   if (a.nissan && c.make !== "nissan") return false;
   if (a.body && c.body !== a.body) return false;
   if (a.yearMin != null && !(c.year && c.year >= a.yearMin)) return false;
@@ -211,6 +213,29 @@ export function isOutreach(text) {
   const verb = /\b(text|sms|message|email|e-mail|reach out to|blast|send (?:a )?(?:text|message|note|email)|let .* know|tell|contact|get in touch with|get hold of|reach|ping|follow up with|touch base with|write to|drop a (?:line|note) to|send out to)\b/.test(t);
   const plural = /\b(everyone|everybody|anyone|anybody|all (?:my |the |of |our )?(?:[a-z0-9-]+ )?(?:customers|clients|owners|people|leads|prospects)|every (?:customer|owner|client|person|lead)|every [a-z0-9-]+ (?:owner|driver|customer)s?\b|customers who|people who|owners? (?:of|who|with)|(?:my |the |our )?[a-z0-9-]+ (?:owners|people|customers|clients|leads|prospects)\b|mass|blast|campaign)\b/.test(t);
   return verb && plural;
+}
+
+// "Make me a list of everyone who owns a Nissan Rogue", "my Rogue owners",
+// "who drives a Sentra?", "how many customers have a paid-off Altima?" — a
+// question about the PEOPLE on file by what they drive, not about the metal
+// on the lot. Read with the same parser as a blast, so what narrows a blast
+// narrows a list; words that only ask for the list are not "not understood".
+// Returns the audience, or null when the sentence isn't that: a blast (it
+// names a way to reach them), a lot question, or nothing that narrows.
+const LIST_WORDS = new Set(("make give get pull show bring build put together find fetch list print read up out names name rundown roster count number total how many do does any are there is which whichever everyone mine drive driving owning currently right now file book database crm records have has got hey ok okay please can could would want need like let us quick full whole entire complete all of my our me i").split(" "));
+const PEOPLE = /\b(owners?|drivers?|customers?|clients?|people|folks|everyone|everybody|anyone|anybody|who|whose|whoever|leads|prospects|on file|in (?:my|the) book|my book)\b/;
+const THE_LOT = /\b(on the lot|the lot|in stock|inventory|for sale|price|priced|going for|cheapest|priciest|kilomet\w*|kms?|mileage|stock number|units?)\b/;
+export function ownerList(text, now = Date.now()) {
+  const t = lower(text);
+  if (!PEOPLE.test(t) || THE_LOT.test(t) || isOutreach(t)) return null;
+  const spec = parseOutreach(t, now);
+  const a = spec.audience;
+  // The words that ask for a list are the shape of the request, not a filter
+  // the parser missed.
+  a.unknown = a.unknown.map((run) => run.split(/\s+/).filter((w) => !LIST_WORDS.has(w)).join(" ")).filter(Boolean);
+  if (a.unknown.length || isEveryone(a)) return null;
+  a.everyone = false;
+  return { audience: a, said: describeAudience(a) };
 }
 
 /**

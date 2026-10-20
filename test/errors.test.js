@@ -37,7 +37,9 @@ if (!kept.some((e) => e.kind === "promise" && /fell over/.test(e.msg))) fail("a 
 if (!kept.some((e) => e.kind === "load" && /does-not-exist/.test(e.src))) fail("a script that failed to load wasn't recorded");
 if (!kept.every((e) => /^\d{4}-\d{2}-\d{2}T/.test(e.at) && typeof e.hash === "string")) fail("entries lack a time or the page they happened on");
 
-// The Storage check shows them and offers the report.
+// The Storage check shows them and offers the report. (The page may have
+// redrawn after the errors, folding Advanced back up — open it again.)
+await p.$$eval("details.set-fold", (ds) => ds.forEach((d) => (d.open = true)));
 await p.click('[data-act="storagecheck"]');
 await p.waitForTimeout(300);
 const panel = await p.evaluate(() => {

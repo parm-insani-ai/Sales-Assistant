@@ -33,7 +33,7 @@ import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
 import { styleBrief } from "./style.js";
-import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps } from "./outreach.js";
+import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps, ownerList, inAudience } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
@@ -85,7 +85,7 @@ CONTEXT_PROPS.notes = { type: "string", description: "EVERYTHING else said about
 // improved and shipped via the normal auto-update — no Supabase redeploy.
 const TOOLS = [
   { name: "ask_user", description: "Ask the salesperson ONE short question when a required detail is genuinely missing or ambiguous (e.g. which customer, or a time you can't reasonably assume), or to confirm something that can't be undone. Only use when you truly can't proceed. When the answer is one of a few clear choices — yes or no, which of two customers, new or used, one of a few times — pass them as `options` (2 to 5 short labels) so they can just tap one; leave `options` out when the answer is free-form (a phone number, a name, a note).", input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, description: "2–5 short tappable answers, only when the answer is one of a few clear choices" } }, required: ["question"] } },
-  { name: "find_customers", description: "Look up customers/leads by name/vehicle query, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
+  { name: "find_customers", description: "The CUSTOMERS on file — never the lot. 'Make me a list of everyone who owns a Nissan Rogue', 'my Rogue owners', 'who drives a Sentra?', 'how many customers have a paid-off Altima?', 'Rogue owners from 2018 to 2021' → pass the salesperson's whole sentence as `who`; the list is picked by what they drive and put on the Leads screen. Or look up by name/vehicle `query`, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { who: { type: "string", description: "the salesperson's own words for who: a model, make, body style, years, paid off, with equity, lease ending…" }, query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
   { name: "get_customer", description: "Full details for one customer by name — contact, vehicle, position, profile, notes, the assessment, and the CONVERSATION so far (their texts, emails and calls, oldest first) with whether they're waiting on a reply.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "get_messages", description: "What people have SAID — every text, email and call on file. With `customer`: that person's whole conversation, oldest first ('what did Dana say?', 'read me Ken's email', 'did Sara get back to me?', 'where did I leave things with Moe?'). Without: everything that came in recently from everyone, newest first, each marked answered or waiting ('anything from my customers?', 'what came in today?', 'who's waiting on me?', 'any emails?'). Includes mail in the connected inbox from people not on file.", input_schema: { type: "object", properties: { customer: { type: "string" }, kind: { type: "string", enum: ["text", "email", "call"], description: "only this kind" }, hours: { type: "number", description: "without a customer: how far back (default 48)" } } } },
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
@@ -126,7 +126,7 @@ const TOOLS = [
   { name: "book_appointment", description: "Book an appointment with a customer.", input_schema: { type: "object", properties: { customer: { type: "string" }, type: { type: "string", enum: ["appointment", "testdrive", "delivery", "call"] }, when: { type: "string", description: "YYYY-MM-DDTHH:MM" }, vehicle: { type: "string" } }, required: ["customer", "when"] } },
   { name: "appointment_outcome", description: "Set a customer's appointment outcome.", input_schema: { type: "object", properties: { customer: { type: "string" }, outcome: { type: "string", enum: ["confirmed", "showed", "no_show", "sold"] } }, required: ["customer", "outcome"] } },
   { name: "start_cadence", description: "Start the follow-up plan for a customer.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
-  { name: "lot_lookup", description: "ANY question about what's on the lot — answered from the store's own inventory with the WEBSITE'S prices and kilometres. 'Do we have any Rogue SVs?', 'how many used Rogues?', 'what's the Civic Sport going for?', 'how many kilometres on stock NHP1868?', 'cheapest used SUV under thirty?', 'any hybrids?', 'anything black under 25?'. Pass the salesperson's words as `question`; add structured filters only when they help. Returns the count, the matching units (price, km, stock, colour, arrival date) and a ready spoken `answer` — read the answer back as is; the units are already on screen.", input_schema: { type: "object", properties: { question: { type: "string", description: "the salesperson's own words" }, condition: { type: "string", enum: ["New", "Used"] }, maxPrice: { type: "number" }, minPrice: { type: "number" }, maxKm: { type: "number" }, stock: { type: "string" }, sort: { type: "string", enum: ["price", "priceDesc", "km", "year"] }, ask: { type: "string", enum: ["count", "price", "km", "cheapest", "priciest", "newest", "list"] } }, required: ["question"] } },
+  { name: "lot_lookup", description: "ANY question about the UNITS FOR SALE on the lot — answered from the store's own inventory with the WEBSITE'S prices and kilometres. Not for customers: 'everyone who owns a Rogue', 'my Rogue owners', 'who drives a Sentra' is find_customers. 'Do we have any Rogue SVs?', 'how many used Rogues?', 'what's the Civic Sport going for?', 'how many kilometres on stock NHP1868?', 'cheapest used SUV under thirty?', 'any hybrids?', 'anything black under 25?'. Pass the salesperson's words as `question`; add structured filters only when they help. Returns the count, the matching units (price, km, stock, colour, arrival date) and a ready spoken `answer` — read the answer back as is; the units are already on screen.", input_schema: { type: "object", properties: { question: { type: "string", description: "the salesperson's own words" }, condition: { type: "string", enum: ["New", "Used"] }, maxPrice: { type: "number" }, minPrice: { type: "number" }, maxKm: { type: "number" }, stock: { type: "string" }, sort: { type: "string", enum: ["price", "priceDesc", "km", "year"] }, ask: { type: "string", enum: ["count", "price", "km", "cheapest", "priciest", "newest", "list"] } }, required: ["question"] } },
   { name: "mass_outreach", description: "The message is optional: with only who said, one is written for the audience and shown for review. Set up a text or email to MANY customers at once, picked by what they drive or where they stand: 'text everyone who owns a Sentra that this month if they trade it in for a new Nissan they get double loyalty', 'email all my Rogue owners from 2018 to 2021 that…', 'text everyone with a paid off Nissan that…', 'text everyone whose lease is ending that…'. Pass the salesperson's whole sentence as `sentence` (audience AND message). The app builds the recipient list and writes each message in the customer's name; the salesperson reviews on screen and taps Send — nothing sends from this tool. Never put a dollar amount or a rate in the message.", input_schema: { type: "object", properties: { sentence: { type: "string", description: "the whole request: who, and what to tell them" }, channel: { type: "string", enum: ["text", "email"] } }, required: ["sentence"] } },
   { name: "search_inventory", description: "Put the dealer-website search buttons on screen for the wider O'Regan's NETWORK (other stores, used vehicles) — only when the salesperson asks about the network or other stores. It opens the website in the browser; this app does NOT see the results, cannot count, filter or sort them, and cannot say what's there. Questions about OUR lot are lot_lookup. NOT for comparing models — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "when_it_makes_sense", description: "WHEN a customer's next vehicle starts to make sense — not whether, but the month: when their equity clears the line as the payoff comes down and the value drifts, when a like-for-like on the lot lands at their payment, when the contract runs out, or six months before a lease ends. 'When should I go back to Dana?', 'when does it make sense for Ken?', or with no customer: 'who opens up in the next six months?', 'who's coming up?'. Opens the Timing screen.", input_schema: { type: "object", properties: { customer: { type: "string" }, months: { type: "number", description: "with no customer: how far ahead to list (default 6)" } } } },
@@ -154,6 +154,7 @@ function buildStanding() {
     `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call" → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen.`,
     `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
+    `WHO OWNS WHAT: "make me a list of everyone who owns a Nissan Rogue", "my Rogue owners", "who drives a Sentra?", "which customers have a paid-off Altima?", "Rogue owners from 2018 to 2021" → find_customers with the whole sentence as \`who\`. Those are the CUSTOMERS on file, picked by what they drive — not the lot (the lot is units for sale). Say how many and that they're on screen.`,
     `TIMING: "when should I go back to Dana?", "when does it make sense for Ken?", "who opens up in the next six months?", "who's coming up?" → when_it_makes_sense; "when do my leases end?", "what's coming off lease this year?" → lease_ends. The answer is a month and the reason — say it plainly: "Dana opens up in March, when her equity clears three thousand."`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
@@ -457,6 +458,30 @@ export function undoLast() {
 }
 export function lastUndoable() { return undoStack.length ? undoStack[undoStack.length - 1].label : null; }
 
+// "Make me a list of everyone who owns a Nissan Rogue" → the customers on
+// file who drive one, best candidates first, on the Leads screen under the
+// same filter bar a hand-picked audience gets. Null when the sentence isn't
+// about who owns what. Shared by the agent's tools and the offline voice path.
+export function ownersOnScreen(text) {
+  const own = ownerList(text);
+  if (!own) return null;
+  const a = own.audience;
+  const rank = assessAll().byId;
+  const sc = (l) => { const r = rank.get(l.id); return r ? r.score : 0; };
+  const list = store.all("leads").filter((l) => inAudience(a, l)).sort((x, y) => sc(y) - sc(x));
+  const customers = list.slice(0, 15).map((l) => { const r = rank.get(l.id); return { name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", equity: equityOf(l), score: r ? r.score : 0, why: r ? r.reasons : [] }; });
+  try {
+    sessionStorage.setItem("viniva:leads-audience", JSON.stringify(a));
+    sessionStorage.setItem("leads-filter", "all");
+    sessionStorage.removeItem("leads-search");
+  } catch { }
+  navigate("/leads");
+  const n = list.length;
+  const said = n === 1 ? own.said.replace(/\b(owner|customer|lead)s\b/, "$1") : own.said;
+  const answer = n ? `${n} ${said} on file — ${n === 1 ? "they're" : "they're all"} on the screen.` : `Nobody on file is down as ${own.said} yet.`;
+  return { result: { count: n, audience: own.said, customers, answer, screen: "the Leads list, filtered to these customers" }, note: n ? `${n} ${said} on screen` : `no ${own.said} on file` };
+}
+
 export async function execTool(name, p = {}) {
   const t = (name || "").toLowerCase();
   if (t === "undo_last" || t === "undo") {
@@ -488,9 +513,16 @@ async function runTool(t, p = {}) {
     // to it. Nothing new is rendered; these screens already have the one-tap
     // text and call buttons on every row.
     case "find_customers": {
+      // "Everyone who owns a Nissan Rogue" is an audience, not a search term:
+      // the same filter the Leads page has, set from the sentence.
+      const owners = ownersOnScreen(p.who || p.query || "");
+      if (owners) return owners;
       let list = store.all("leads");
       const q = (p.query || "").toLowerCase();
-      if (q) list = list.filter((l) => (l.name || "").toLowerCase().includes(q) || (l.vehicleInterest || "").toLowerCase().includes(q));
+      // "Nissan Rogue" matches what a customer drives by the model, however
+      // the vehicle was written down, as well as by the plain words.
+      const vq = q ? ownerList(`${q} owners`) : null;
+      if (q) list = list.filter((l) => (l.name || "").toLowerCase().includes(q) || (l.vehicleInterest || "").toLowerCase().includes(q) || (vq && inAudience(vq.audience, l)));
       if (p.stage) list = list.filter((l) => l.stage === p.stage);
       if (p.needsFollowUp) list = list.filter((l) => l.followUp);
       if (p.hasEquity) list = list.filter((l) => (equityOf(l) || 0) > 0);
@@ -1117,6 +1149,10 @@ async function runTool(t, p = {}) {
       return { result: { channel: spec.channel, audience: describeAudience(spec), recipients: aud.included.length, leftOut: aud.excluded.length, leftOutWhy: aud.excluded.slice(0, 5).map((x) => x.why), ...(why ? { whyNobody: why } : {}), message: spec.message || written, ready: true, status: why ? "nobody matched — tell the salesperson why, in a sentence" : "on screen — the salesperson reviews and taps Send" }, note: aud.included.length ? `${aud.included.length} on screen to ${spec.channel}` : `⚠ nobody matched` };
     }
     case "lot_lookup": case "lot": case "inventory_lookup": {
+      // "Everyone who owns a Rogue" asked of the lot is a question about the
+      // customers; answer it from the book rather than reading out the lot.
+      const owners = ownersOnScreen(p.question || p.query || "");
+      if (owners) return { ...owners, result: { ...owners.result, notTheLot: "this asked about CUSTOMERS who own the vehicle, not units for sale — answered from the book, and the list is on the Leads screen" } };
       const hints = { condition: p.condition || "", maxPrice: p.maxPrice || null, minPrice: p.minPrice || null, maxKm: p.maxKm || null, stock: p.stock ? String(p.stock).toUpperCase() : "", sort: p.sort || "", ask: p.ask || "" };
       const res = answerLot(store.all("vehicles"), p.question || p.query || "the lot", hints);
       if (!res) {

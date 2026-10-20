@@ -12,9 +12,9 @@ import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
 import { inferShopping } from "./target.js";
 import { logCustomer } from "./logbook.js";
-import { agentConfigured, createAgentSession, showLotOnScreen } from "./agent.js";
+import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen } from "./agent.js";
 import { answerLot } from "./lot.js";
-import { isOutreach, parseOutreach, audienceFor, describeAudience, unknownNote } from "./outreach.js";
+import { isOutreach, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
@@ -178,6 +178,11 @@ export function parseCommand(raw) {
   // the device, reviewed on screen, sent by the salesperson.
   if (isOutreach(raw)) return { action: "outreach", text: raw };
 
+  // 5b) Who owns what: "make me a list of everyone who owns a Nissan Rogue",
+  // "my Rogue owners", "who drives a Sentra" — the customers on file, not
+  // the lot. Read before the lot so the lot never answers for the people.
+  if (ownerList(raw)) return { action: "owners", text: raw };
+
   // 5a) A question about the lot — answered from the lot, on the device.
   {
     const lot = answerLot(store.all("vehicles"), raw);
@@ -268,6 +273,10 @@ export function executeCommand(cmd) {
       if (!res) return null;
       showLotOnScreen(res);
       return res.answer;
+    }
+    case "owners": {
+      const out = ownersOnScreen(cmd.text);
+      return out ? out.result.answer : null;
     }
     case "outreach": {
       const spec = parseOutreach(cmd.text);
@@ -790,8 +799,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     // network — the count and the website's price are exact, and instant.
     // (A rep's lot, from their phone; the manager's questions all go up.)
     const lotCmd = manager ? { action: "none" } : parseCommand(said);
-    if (lotCmd.action === "lot" || lotCmd.action === "outreach") {
-      turn.step(lotCmd.action === "lot" ? "Checking the lot" : "Building the outreach");
+    if (lotCmd.action === "lot" || lotCmd.action === "outreach" || lotCmd.action === "owners") {
+      turn.step(lotCmd.action === "lot" ? "Checking the lot" : lotCmd.action === "owners" ? "Looking through your customers" : "Building the outreach");
       reply = executeCommand(lotCmd) || "";
     }
     if (reply) { /* answered on the device */ } else if (agent) {

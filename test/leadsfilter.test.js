@@ -84,7 +84,8 @@ const blast = await p.evaluate(() => ({ hash: location.hash, to: [...document.qu
 console.log("blast:", JSON.stringify(blast));
 if (blast.hash !== "#/outreach" || blast.to !== "Frontier Owner,Lee Wong,Rogue Owner") fail("Text these didn't carry the filtered people: " + JSON.stringify(blast));
 if (!/2020–2022 Nissan owners/.test(blast.label || "")) fail("the blast doesn't name the audience: " + blast.label);
-if (blast.send !== true || blast.msg !== "") fail("send should wait for a message");
+// The message is written for the audience and shown for review, so Send is live.
+if (blast.send !== false || !/owners like you/.test(blast.msg || "")) fail("a message should be written for the audience, ready to review: " + JSON.stringify({ send: blast.send, msg: blast.msg }));
 await p.evaluate(() => { const m = document.querySelector("#mo-message"); m.value = "the new Rogue is in and we're short on trades"; m.dispatchEvent(new Event("input", { bubbles: true })); });
 await p.waitForTimeout(700);
 const ready = await p.evaluate(() => ({ send: document.querySelector('[data-act="send"]').disabled, preview: document.querySelector(".mo-preview")?.textContent }));
