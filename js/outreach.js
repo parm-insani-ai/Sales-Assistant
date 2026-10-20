@@ -10,6 +10,7 @@
 // Pure functions over strings and customer arrays, so node can test them.
 
 import { classify, MAKES, modelsIn } from "./segments.js";
+import { moneyIn } from "./money.js";
 
 const norm = (s) => String(s || "").replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
 const lower = (s) => norm(s).toLowerCase();
@@ -272,8 +273,8 @@ export function toSecondPerson(message) {
 // Figures never leave: a dollar amount or a percentage rate in a blast is
 // the one thing the review must refuse.
 export function figuresIn(message) {
-  const hits = String(message || "").match(/\$\s?\d[\d,]*(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d[\d,]{2,}\s?(?:dollars|bucks)\b|\b\d+\s?(?:a|per)\s?month\b/gi) || [];
-  return hits;
+  // Advertised figures — a current special on file — aren't figures here.
+  return moneyIn(message).map((m) => m.text);
 }
 
 /**
@@ -347,17 +348,31 @@ export function audienceGaps(spec, leads, now = Date.now()) {
 // over book" becomes "a strong offer". The agent does it better
 // (outreachdraft.js); this always works.
 export function stripFigures(message) {
-  let m = String(message || "");
-  m = m.replace(/\b0\s?%\s*(financing|apr|interest|rate)/gi, "special $1")
-    .replace(/\b\d+(?:\.\d+)?\s?(?:%|percent)\s*(financing|apr|interest|rate|off)\b/gi, (_, w) => (w.toLowerCase() === "off" ? "a real discount" : `a special ${w}`))
-    .replace(/(?:\b(?:up to|over|an extra|another)\s+)?\$\s?[\d,]+(?:\.\d+)?k?\b(\s*(?:over book|off|back|cash|in savings|toward|towards|more))?/gi, (_, tail) => (tail ? `a strong offer ${tail.trim()}` : "a strong offer"))
-    .replace(/\b\d+(?:\.\d+)?\s?k\b/gi, "a strong offer")
-    .replace(/\b\d[\d,]*\s?(grand|dollars|bucks)\b/gi, "a strong offer")
-    .replace(/\b\d{2,3}\s?(?:a|per)\s?(?:month|mo)\b/gi, "a payment that works")
-    .replace(/\bapr\b/gi, "rate")
-    .replace(/\b(?:a strong offer)\s+(?:a strong offer)\b/g, "a strong offer")
-    .replace(/\s{2,}/g, " ").trim();
-  return m;
+  const src = String(message || "");
+  const hits = moneyIn(src); // the advertised ones stay
+  let out = src;
+  for (const h of hits.slice().reverse()) {
+    const after = src.slice(h.end, h.end + 24);
+    const before = src.slice(Math.max(0, h.at - 12), h.at);
+    let rep = "a strong offer", eat = 0;
+    const t = h.text.toLowerCase();
+    if (/%|percent/.test(t)) {
+      const w = /^\s*(financing|apr|interest|rate)\b/i.exec(after);
+      if (w) rep = "special";
+      else if (/^\s*off\b/i.test(after)) { rep = "a real discount"; eat = /^\s*off\b/i.exec(after)[0].length; }
+      else rep = "a special rate";
+    } else if (/^apr$/i.test(t)) rep = "rate";
+    else if (/(?:a|per)\s?(?:month|mo|week|wk)$/i.test(t)) rep = "a payment that works";
+    else if (/^(?:up to|over|an extra|another)\s*$/i.test(before.trim().split(/\s+/).slice(-2).join(" ")) || /^(?:up to|over|an extra|another)\s*$/i.test(before.trim().split(/\s+/).slice(-1).join(" "))) {
+      const lead = /(?:up to|over|an extra|another)\s*$/i.exec(before)[0];
+      out = out.slice(0, h.at - lead.length) + out.slice(h.at); // drop "up to"
+      const shift = lead.length;
+      out = out.slice(0, h.at - shift) + rep + out.slice(h.end - shift + eat);
+      continue;
+    }
+    out = out.slice(0, h.at) + rep + out.slice(h.end + eat);
+  }
+  return out.replace(/\b(a strong offer)\s+(a strong offer)\b/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
 
 // A label for the audience, for the screen and the spoken reply: "Sentra owners".

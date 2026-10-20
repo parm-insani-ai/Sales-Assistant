@@ -3,6 +3,7 @@
 const path = require("path");
 (async () => {
 const o = await import("file://" + path.resolve(__dirname, "../js/outreach.js"));
+const money = await import("file://" + path.resolve(__dirname, "../js/money.js"));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 const now = new Date("2026-09-23T12:00:00").getTime();
 
@@ -45,6 +46,11 @@ if (/0%|\$|\d%/.test(noFig) || !/special financing on nissan rogue this month/.t
 if (o.stripFigures("we'll give you $2,000 over book this month") !== "we'll give you a strong offer over book this month") fail("over book: " + o.stripFigures("we'll give you $2,000 over book this month"));
 if (!/a payment that works/.test(o.stripFigures("get into a new Kicks for 300 a month"))) fail("a month: " + o.stripFigures("get into a new Kicks for 300 a month"));
 if (/\d/.test(o.stripFigures("rates from 2.9% APR and up to $1,500 cash back"))) fail("rates and cash back: " + o.stripFigures("rates from 2.9% APR and up to $1,500 cash back"));
+// Advertised content stays: with a 0% special on file, "0% financing" isn't a figure and the strip leaves it alone.
+money.setAdvertised(["0%"]);
+if (o.figuresIn("there's 0% financing on the Rogue and $500 toward your trade").join("|") !== "$500") fail("advertised figures shouldn't count: " + JSON.stringify(o.figuresIn("there's 0% financing on the Rogue and $500 toward your trade")));
+if (o.stripFigures("there's 0% financing on the Rogue and $500 toward your trade") !== "there's 0% financing on the Rogue and a strong offer toward your trade") fail("the strip touched the advertised figure: " + o.stripFigures("there's 0% financing on the Rogue and $500 toward your trade"));
+money.setAdvertised([]);
 // "Contact" and the other ways of saying send-to-many; a sentence with only who in it has no message and isn't "not understood".
 for (const said of ["contact everyone whose lease ends this year", "get in touch with everyone whose lease is ending this year", "reach everyone with a lease ending this year", "follow up with everyone whose lease is up this year"]) {
   s = o.parseOutreach(said, now);

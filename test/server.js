@@ -531,7 +531,12 @@ const server = http.createServer((req, res) => {
         return json(res, 200, { sent: 1, errors: [] });
       }
       if (msg.sms) {
-        if (/(\$\s?\d|\d+\s?(%|percent)|\bapr\b|\b\d+(\.\d+)?\s?k\b|\bthousand\b|\bgrand\b|\b(dollars|bucks)\b)/i.test(String(msg.sms.body || ""))) return json(res, 400, { error: "No figures in a text to a customer — take the dollar amount or rate out" });
+        const uid0 = USERS[bearer] || USERS.t;
+        const ads = new Set();
+        [...records.values()].filter((r) => r.user_id === uid0 && r.collection === "specials" && !r.deleted).forEach((r) => { const d = r.data || {}; if (d.financeApr != null && d.financeApr !== "") ads.add(Number(d.financeApr) + "%"); if (d.cash) ads.add("$" + Number(d.cash)); if (d.leasePayment) ads.add("$" + Number(d.leasePayment)); });
+        const key = (m) => { let x; if ((x = /\$\s?(\d+)/.exec(m.replace(/,/g, "")))) return "$" + Number(x[1]); if ((x = /(\d+(?:\.\d+)?)\s?(%|percent)/.exec(m))) return Number(x[1]) + "%"; return m.toLowerCase(); };
+        const hits = String(msg.sms.body || "").match(/\$\s?\d[\d,]*|\d+(?:\.\d+)?\s?(%|percent)|\bapr\b|\b\d+(\.\d+)?\s?k\b|\bthousand\b|\bgrand\b|\b(dollars|bucks)\b/gi) || [];
+        if (hits.some((h) => !(ads.has(key(h)) || (/^apr$/i.test(h) && [...ads].some((k) => /%$/.test(k)))))) return json(res, 400, { error: "No figures in a text to a customer — take the dollar amount or rate out" });
         if (failNextSend) { failNextSend = false; return json(res, 502, { error: "carrier rejected the message" }); }
         sent.push(msg.sms);
         return json(res, 200, { sent: true, id: msg.sms.id, sid: "SM" + sent.length });

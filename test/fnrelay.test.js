@@ -230,6 +230,8 @@ try {
   db.records.push(
     { id: "c1", user_id: U1, collection: "leads", data: { id: "c1", name: "Dana Muise", phone: "9025551111", stage: "working" } },
     { id: "in1", user_id: U1, collection: "texts", data: { id: "in1", leadId: "c1", dir: "in", body: "Can I come Saturday?", at: new Date(Date.now() - 20 * 60000).toISOString(), read: false } },
+    // A current special on Parm's book: 0% on the Rogue with $500 cash — advertised content, which a text may say.
+    { id: "sp1", user_id: U1, collection: "specials", data: { id: "sp1", model: "Rogue", financeApr: 0, financeTerm: 60, cash: 500, expiry: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) } },
   );
   const mt = (tok, body) => post(LOCKED, { mtext: { rep: U1, leadId: "c1", body } }, tok);
   const stranger2 = await mt("tok-b", "Hi Dana");
@@ -251,6 +253,13 @@ try {
   }
   const fine = await post(LOCKED, { sms: { u: U1, to: "9025551111", leadId: "c1", body: "Hi Dana, I've had a look at your trade — come by any time and I'll walk you through it." } }, "tok-a");
   if (fine.status !== 200 || !fine.body.sent) fail("a text with no figure in it was refused: " + JSON.stringify(fine));
+  // Advertised content: the special's 0% and $500 may be said, by the rep and by the manager; a trade value beside them may not.
+  const adRep = await post(LOCKED, { sms: { u: U1, to: "9025551111", leadId: "c1", body: "Hi Dana, there's 0% financing on the Rogue this month and $500 toward it — want to come see one?" } }, "tok-a");
+  if (adRep.status !== 200 || !adRep.body.sent) fail("the rep's text with advertised content was refused: " + JSON.stringify(adRep));
+  const adMgr = await mt("tok-c", "Hi Dana, Sam here — 0% on the Rogue this month, worth a look.");
+  if (adMgr.status !== 200 || !adMgr.body.sent) fail("the manager's text with advertised content was refused: " + JSON.stringify(adMgr));
+  const adMixed = await post(LOCKED, { sms: { u: U1, to: "9025551111", leadId: "c1", body: "0% on the Rogue, and your trade is worth $14,000" } }, "tok-a");
+  if (adMixed.status !== 400) fail("a trade value beside advertised content got through: " + JSON.stringify(adMixed));
   twilio.sent.length = 0;
 
   // --- The managers' sweep: the floor's problems, pushed to the manager, each once.

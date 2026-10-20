@@ -3,6 +3,7 @@
 // specials, activity. Plus settings.
 
 import { uid } from "./utils.js";
+import { setAdvertised, advertisedFigures } from "./money.js";
 import { BACKEND_DEFAULTS } from "./config.js";
 
 const KEY = "sales-assistant:v1";
@@ -341,7 +342,9 @@ const dirty = { records: new Set(), outbox: new Set(), kv: new Set(), rewriteAll
 // actually changed. Marking a text read must not cost a radar run.
 const gen = { all: 0 };
 export function generation(name) { return name ? (gen[name] || 0) : gen.all; }
-const bump = (name) => { gen.all++; gen[name] = (gen[name] || 0) + 1; };
+const bump = (name) => { gen.all++; gen[name] = (gen[name] || 0) + 1; if (name === "specials") refreshAdvertised(); };
+// What may be quoted in a text: the figures in the current specials (money.js).
+function refreshAdvertised() { try { setAdvertised(advertisedFigures(state.specials || [])); } catch { /* the guard stays strict */ } }
 const touch = (c, id) => { dirty.records.add(c + SEP + id); bump(c); };
 const touchOutbox = (key) => dirty.outbox.add(key);
 const touchKv = (key) => { dirty.kv.add(key); bump(key); };
@@ -692,12 +695,14 @@ export const ready = (async () => {
       // The blob is removed only after the write has committed — a failure
       // here leaves it exactly where it was.
       state = hydrate(JSON.parse(blob));
+      refreshAdvertised();
       delete state.needsPersist;
       await writeEverything(db);
       try { localStorage.removeItem(KEY); } catch { }
       return;
     }
     state = hydrate(snapshot);
+    refreshAdvertised();
     if (state.needsPersist) {
       // A migration changed records and queued outbox entries; write it all.
       delete state.needsPersist;

@@ -2220,9 +2220,44 @@ function redactMoneyServer(text: string): string {
 }
 // The same expression as the app's js/money.js: no figure reaches a customer.
 const MONEY_WORDS = "(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a couple|a few|several)";
-const MONEY_RE = new RegExp([String.raw`\$\s?\d`, String.raw`\d+\s?(%|percent)`, String.raw`\bapr\b`, String.raw`\b\d{2,3}\s?(a|per)\s?(month|mo|week|wk)\b`, String.raw`\b\d[\d,]{2,}\s?(dollars|bucks)\b`, String.raw`\b\d+(\.\d+)?\s?k\b`, String.raw`\b\d[\d,]*\s?grand\b`, String.raw`\bmonthly\s+payment(\s+\w+){0,2}\s+\d|\bmonthly\s+is\s+\d`, String.raw`\b` + MONEY_WORDS + String.raw`[\w\s-]{0,24}\b(thousand|grand|dollars|bucks)\b`].join("|"), "i");
-function looksLikeMoneyServer(text: string): boolean {
-  return MONEY_RE.test(String(text || ""));
+const MONEY_RE = new RegExp([String.raw`\$\s?\d[\d,]*(?:\.\d+)?k?`, String.raw`\d+(?:\.\d+)?\s?(%|percent)`, String.raw`\bapr\b`, String.raw`\b\d{2,3}\s?(a|per)\s?(month|mo|week|wk)\b`, String.raw`\b\d[\d,]{2,}\s?(dollars|bucks)\b`, String.raw`\b\d+(\.\d+)?\s?k\b`, String.raw`\b\d[\d,]*\s?grand\b`, String.raw`\bmonthly\s+payment(\s+\w+){0,2}\s+\d|\bmonthly\s+is\s+\d`, String.raw`\b` + MONEY_WORDS + String.raw`[\w\s-]{0,24}\b(thousand|grand|dollars|bucks)\b`].join("|"), "i");
+function looksLikeMoneyServer(text: string, allowed?: Set<string>): boolean {
+  if (!MONEY_RE.test(String(text || ""))) return false;
+  if (!allowed || !allowed.size) return true;
+  const all = new RegExp(MONEY_RE.source, "gi");
+  for (const m of String(text).matchAll(all)) {
+    const hit = m[0];
+    if (/^apr$/i.test(hit)) { if ([...allowed].some((k) => /%$/.test(k))) continue; return true; }
+    if (!allowed.has(figureKeyServer(hit))) return true;
+  }
+  return false;
+}
+// The app's money.js, for the function: a figure as a key, and what the
+// rep's current specials advertise — the one kind of figure a text may say.
+function figureKeyServer(m: string): string {
+  const s = String(m || "").toLowerCase().replace(/,/g, "");
+  let x: RegExpExecArray | null;
+  if ((x = /\$\s?(\d+(?:\.\d+)?)(k)?/.exec(s))) return "$" + (x[2] ? Number(x[1]) * 1000 : Number(x[1]));
+  if ((x = /(\d+(?:\.\d+)?)\s?(?:%|percent)/.exec(s))) return Number(x[1]) + "%";
+  if ((x = /(\d{2,3})\s?(?:a|per)\s?(?:month|mo|week|wk)/.exec(s))) return x[1] + "/mo";
+  if ((x = /(\d+(?:\.\d+)?)\s?k\b/.exec(s))) return "$" + Number(x[1]) * 1000;
+  if ((x = /(\d+)\s?grand/.exec(s))) return "$" + Number(x[1]) * 1000;
+  if ((x = /(\d+)\s?(?:dollars|bucks)/.exec(s))) return "$" + Number(x[1]);
+  return s.trim();
+}
+async function advertisedFor(uid: string): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const today = new Date().toISOString().slice(0, 10);
+  const num = (v: unknown) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v));
+  for (const sp of await rowsOf(uid, "specials")) {
+    if (!sp || (sp.expiry && String(sp.expiry).slice(0, 10) < today)) continue;
+    const apr = num(sp.financeApr); if (apr != null) keys.add(apr + "%");
+    const lp = num(sp.leasePayment); if (lp) { keys.add("$" + lp); keys.add(lp + "/mo"); }
+    const ld = num(sp.leaseDown); if (ld) keys.add("$" + ld);
+    const cash = num(sp.cash); if (cash) keys.add("$" + cash);
+    for (const m of String(sp.notes || "").matchAll(new RegExp(MONEY_RE.source, "gi"))) keys.add(figureKeyServer(m[0]));
+  }
+  return keys;
 }
 
 const NIGHT_TOOL = {
@@ -3297,7 +3332,7 @@ async function handleSendSms(body: any): Promise<Response> {
   if (phoneKey(to).length < 10) return json({ error: "bad number" }, 400);
   if (!text) return json({ error: "empty message" }, 400);
   // The rep's own text meets the same rule as the agent's and the manager's.
-  if (looksLikeMoneyServer(text)) return json({ error: "No figures in a text to a customer — take the dollar amount or rate out" }, 400);
+  if (looksLikeMoneyServer(text, await advertisedFor(uid))) return json({ error: "No figures in a text to a customer — take the dollar amount or rate out" }, 400);
   const sent = await twilioSend(to, text);
   if (!sent.ok) return json({ error: sent.error, code: sent.code ?? null }, /not set up/.test(String(sent.error)) ? 500 : 502);
   const out = { sid: sent.sid };
@@ -3411,7 +3446,7 @@ Deno.serve(async (req: Request) => {
     if (!lead) return json({ error: "no such customer" }, 400);
     if (!lead.phone) return json({ error: "no phone number on file" }, 400);
     if (lead.doNotContact || lead.smsOptOut) return json({ error: "they've asked not to be texted" }, 400);
-    if (looksLikeMoneyServer(text)) return json({ error: "No figures in a text to a customer — take the dollar amount or rate out" }, 400);
+    if (looksLikeMoneyServer(text, await advertisedFor(rep))) return json({ error: "No figures in a text to a customer — take the dollar amount or rate out" }, 400);
     const r = await twilioSend(String(lead.phone), text);
     if (!r.ok) return json({ error: r.error }, /not set up/.test(r.error || "") ? 500 : 502);
     const now = new Date().toISOString();
