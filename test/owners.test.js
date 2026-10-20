@@ -54,6 +54,19 @@ const paid = await p.evaluate(async () => { const m = await import("/js/agent.js
 console.log("find_customers who →", JSON.stringify(paid.result).slice(0, 200));
 if (paid.result.count !== 2 || paid.result.audience !== "Nissan owners · paid off" || paid.result.customers.map((c) => c.name).sort().join() !== "Dana Muise,Pat Roy") fail("paid-off Nissan owners: " + JSON.stringify(paid.result));
 
+// --- What the mic actually said on the floor: "payoff centre" is a paid-off
+// Sentra, and "look for paid off Sentras" is about customers though it never
+// says "who" — a unit on the lot is never paid off.
+const heardWrong = await p.evaluate(async () => { const m = await import("/js/agent.js"); return await m.execTool("find_customers", { who: "who has a payoff centre from 2018 to 2021" }); });
+console.log("payoff centre →", JSON.stringify(heardWrong.result).slice(0, 160));
+if (heardWrong.result.count !== 1 || heardWrong.result.audience !== "2018–2021 Sentra owners · paid off" || heardWrong.result.customers[0].name !== "Pat Roy") fail("'payoff centre from 2018 to 2021' should read as paid-off Sentras: " + JSON.stringify(heardWrong.result));
+const lookFor = await p.evaluate(async () => { const m = await import("/js/agent.js"); return await m.execTool("lot_lookup", { question: "look for paid off nissan sentra's that are model year 2018 to 2021" }); });
+if (lookFor.result.count !== 1 || !lookFor.result.notTheLot) fail("'look for paid off Sentras' asked of the lot should still answer from the book: " + JSON.stringify(lookFor.result).slice(0, 200));
+// A phrase that can't be read is said back — never the whole book as the list.
+const unread = await p.evaluate(async () => { const m = await import("/js/agent.js"); return await m.execTool("find_customers", { who: "everyone with a blue thingamajig" }); });
+console.log("not understood →", JSON.stringify(unread.result).slice(0, 160));
+if (unread.result.count !== 0 || !(unread.result.notUnderstood || []).includes("blue thingamajig") || !unread.result.canPickBy) fail("an unreadable owner question should say what wasn't understood, not list everyone: " + JSON.stringify(unread.result).slice(0, 200));
+
 // --- A plain vehicle query matches by the model however the car was written down.
 const q = await p.evaluate(async () => { const m = await import("/js/agent.js"); return await m.execTool("find_customers", { query: "Nissan Rogue" }); });
 if (q.result.count !== 2) fail("query 'Nissan Rogue' should find both Rogue owners, however the vehicle was written: " + JSON.stringify(q.result));

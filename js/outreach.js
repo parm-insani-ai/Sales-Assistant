@@ -34,6 +34,9 @@ const MISHEARD = [
   [/\blease\s+(?:and|an|end)\s+ing\b/g, "lease ending"],
   [/\blease\s+(?:x|ex)\s*pir(?:ing|ed)\b/g, "lease expiring"],
   [/\bpa(?:id|yed|y)\s+(?:of|off|or)\b/g, "paid off"],
+  // "who has a payoff centre from 2018 to 2021" is "paid-off Sentra".
+  [/\bpay-?off\b/g, "paid off"],
+  [/\b(paid[- ]off|nissan|a|an|the|my|our)\s+cent(?:re|er)s?\b/g, "$1 sentra"],
   [/\bs\.?\s?u\.?\s?v\.?s?\b/g, "suv"],
   [/\brouge\b/g, "rogue"],
   [/\bcentra\b/g, "sentra"],
@@ -222,20 +225,35 @@ export function isOutreach(text) {
 // narrows a list; words that only ask for the list are not "not understood".
 // Returns the audience, or null when the sentence isn't that: a blast (it
 // names a way to reach them), a lot question, or nothing that narrows.
-const LIST_WORDS = new Set(("make give get pull show bring build put together find fetch list print read up out names name rundown roster count number total how many do does any are there is which whichever everyone mine drive driving owning currently right now file book database crm records have has got hey ok okay please can could would want need like let us quick full whole entire complete all of my our me i").split(" "));
+const LIST_WORDS = new Set(("make give get pull show bring build put together find fetch look search list print read up out names name rundown roster count number total how many do does any are there is which whichever everyone mine drive driving owning currently right now file book database crm records have has got hey ok okay please can could would want need like let us quick full whole entire complete all of my our me i model models year years").split(" "));
 const PEOPLE = /\b(owners?|drivers?|customers?|clients?|people|folks|everyone|everybody|anyone|anybody|who|whose|whoever|leads|prospects|on file|in (?:my|the) book|my book)\b/;
 const THE_LOT = /\b(on the lot|the lot|in stock|inventory|for sale|price|priced|going for|cheapest|priciest|kilomet\w*|kms?|mileage|stock number|units?)\b/;
-export function ownerList(text, now = Date.now()) {
+function readOwners(text, now) {
   const t = lower(text);
-  if (!PEOPLE.test(t) || THE_LOT.test(t) || isOutreach(t)) return null;
-  const spec = parseOutreach(t, now);
-  const a = spec.audience;
+  if (THE_LOT.test(t) || isOutreach(t)) return null;
+  const a = parseOutreach(t, now).audience;
   // The words that ask for a list are the shape of the request, not a filter
   // the parser missed.
   a.unknown = a.unknown.map((run) => run.split(/\s+/).filter((w) => !LIST_WORDS.has(w)).join(" ")).filter(Boolean);
-  if (a.unknown.length || isEveryone(a)) return null;
+  // Where someone stands — paid off, with equity, lease ending, owned so many
+  // years, quiet, bought from us — is only ever true of a customer. A unit
+  // on the lot is none of those, so the sentence is about people even when
+  // it never says "who".
+  const standing = a.paidOff || a.equity || a.lease || a.ownedYears != null || a.quietDays != null || a.stages.length > 0;
+  if (!PEOPLE.test(t) && !standing) return null;
+  return a;
+}
+export function ownerList(text, now = Date.now()) {
+  const a = readOwners(text, now);
+  if (!a || a.unknown.length || isEveryone(a)) return null;
   a.everyone = false;
   return { audience: a, said: describeAudience(a) };
+}
+// What an owner question said that couldn't be read — "blue thingamajig" —
+// so the answer can be "I didn't understand …" rather than everyone on file.
+export function ownerGaps(text, now = Date.now()) {
+  const a = readOwners(text, now);
+  return a ? a.unknown.slice() : [];
 }
 
 /**
@@ -430,5 +448,7 @@ export function describeAudience(spec) {
   }
   if (a.ownedYears != null) extra.push(`owned ${a.ownedYears}+ years`);
   if (a.quietDays != null) extra.push(`not reached in ${a.quietDays} days`);
+  // "Frontier owners · past customers": the stage rides along when a vehicle led.
+  if (a.stages.length && (a.models.length || a.makes.length || a.nissan || kind)) extra.push(a.stages.every((s) => ["sold", "delivered"].includes(s)) ? "past customers" : a.stages.every((s) => ["new", "working", "appointment", "negotiating"].includes(s)) ? "open leads" : a.stages.join(" / "));
   return bits.join(" ") + (extra.length ? " · " + extra.join(" · ") : "");
 }
