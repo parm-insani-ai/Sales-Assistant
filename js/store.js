@@ -1136,6 +1136,14 @@ export function leadByPhone(phone) {
   if (k.length < 10) return null;
   return state.leads.find((l) => phoneKey(l.phone) === k) || null;
 }
+// Everyone else on file with this number — a second customer on one number
+// gets their replies filed on whoever matched first, so adding one is asked
+// about first (the lead form, the assistant's create_lead).
+export function leadsByPhone(phone, exceptId = null) {
+  const k = phoneKey(phone);
+  if (k.length < 10) return [];
+  return state.leads.filter((l) => l.id !== exceptId && phoneKey(l.phone) === k);
+}
 
 export function textsFor(leadId) {
   return state.texts

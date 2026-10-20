@@ -1111,6 +1111,14 @@ export function openLeadForm(existing, opts = {}) {
       {
         submitLabel: isEdit ? "Save changes" : "Add lead",
         onSubmit: (data) => {
+          // A number already on file: say whose, once; a second tap adds anyway.
+          const dups = store.leadsByPhone(data.phone, isEdit ? existing.id : null);
+          if (dups.length && dupSeen !== store.phoneKey(data.phone)) {
+            dupSeen = store.phoneKey(data.phone);
+            showDup(dups);
+            toast(`Same number as ${dups.map((d) => d.name).join(" and ")} — tap ${isEdit ? "Save" : "Add"} again to keep it`, "warn");
+            return;
+          }
           if (isEdit) {
             store.update("leads", existing.id, data);
             toast("Lead updated", "success");
@@ -1128,6 +1136,26 @@ export function openLeadForm(existing, opts = {}) {
         },
       }
     );
+    // The same number as someone already on file, said under the phone as
+    // it's typed, with a way over to them. (Two test customers on one
+    // phone, a family sharing a line: their replies file on whoever matched
+    // first, so it's worth knowing before the second is added.)
+    let dupSeen = "";
+    const phoneEl = element.querySelector('[name="phone"]');
+    const hint = document.createElement("div");
+    hint.className = "hint dup-phone";
+    hint.hidden = true;
+    (phoneEl.closest(".field-inline") || phoneEl.closest(".field")).insertAdjacentElement("afterend", hint);
+    const showDup = (dups) => {
+      hint.hidden = !dups.length;
+      if (!dups.length) return;
+      const dup = dups[0];
+      hint.innerHTML = `${icon("alert")} Same number as <b>${esc(dups.map((d) => d.name).join(" and "))}</b> on file — <a href="#" data-open-dup>open ${esc(String(dup.name).split(" ")[0])} ›</a>`;
+      hint.querySelector("[data-open-dup]").addEventListener("click", (e) => { e.preventDefault(); close(); navigate(`/leads/${dup.id}`); });
+    };
+    const checkDup = () => showDup(store.leadsByPhone(phoneEl.value, isEdit ? existing.id : null));
+    phoneEl.addEventListener("input", checkDup);
+    checkDup();
     // Land on the field the user tapped (after the sheet's slide-up).
     if (opts.focus) setTimeout(() => element.querySelector(`[name="${opts.focus}"]`)?.focus(), 150);
     return element;
