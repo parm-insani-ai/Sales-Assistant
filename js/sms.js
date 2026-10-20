@@ -11,6 +11,7 @@
 // A failed row keeps its text so it can be retried rather than retyped.
 
 import * as store from "./store.js";
+import { looksLikeMoney, MONEY_MESSAGE } from "./money.js";
 import * as backend from "./backend.js";
 import { navigate } from "./router.js";
 import { toast } from "./components.js";
@@ -44,6 +45,8 @@ export function threadFor(leadId) {
 export async function sendText(lead, body) {
   const text = String(body || "").trim();
   if (!lead || !text) return { ok: false, error: "Nothing to send." };
+  // Typed, dictated or drafted, the same rule: no figure reaches a customer.
+  if (looksLikeMoney(text)) return { ok: false, blocked: true, error: MONEY_MESSAGE };
   if (store.optedOut(lead)) return { ok: false, error: `${lead.name || "This customer"} has opted out of texts.` };
   const blocker = smsBlocker();
   if (blocker) return { ok: false, error: blocker };

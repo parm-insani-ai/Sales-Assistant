@@ -531,6 +531,7 @@ const server = http.createServer((req, res) => {
         return json(res, 200, { sent: 1, errors: [] });
       }
       if (msg.sms) {
+        if (/(\$\s?\d|\d+\s?(%|percent)|\bapr\b|\b\d+(\.\d+)?\s?k\b|\bthousand\b|\bgrand\b|\b(dollars|bucks)\b)/i.test(String(msg.sms.body || ""))) return json(res, 400, { error: "No figures in a text to a customer — take the dollar amount or rate out" });
         if (failNextSend) { failNextSend = false; return json(res, 502, { error: "carrier rejected the message" }); }
         sent.push(msg.sms);
         return json(res, 200, { sent: true, id: msg.sms.id, sid: "SM" + sent.length });

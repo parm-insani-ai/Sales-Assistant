@@ -2218,8 +2218,11 @@ function redactMoneyServer(text: string): string {
     .replace(/\b\d{4,6}\b(?!\s*(km|kms|kilomet))/g, "[a figure]")
     .replace(/\u0000(\d+)\u0000/g, (_m, i) => dates[Number(i)]);
 }
+// The same expression as the app's js/money.js: no figure reaches a customer.
+const MONEY_WORDS = "(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|a couple|a few|several)";
+const MONEY_RE = new RegExp([String.raw`\$\s?\d`, String.raw`\d+\s?(%|percent)`, String.raw`\bapr\b`, String.raw`\b\d{2,3}\s?(a|per)\s?(month|mo|week|wk)\b`, String.raw`\b\d[\d,]{2,}\s?(dollars|bucks)\b`, String.raw`\b\d+(\.\d+)?\s?k\b`, String.raw`\b\d[\d,]*\s?grand\b`, String.raw`\bmonthly\s+payment(\s+\w+){0,2}\s+\d|\bmonthly\s+is\s+\d`, String.raw`\b` + MONEY_WORDS + String.raw`[\w\s-]{0,24}\b(thousand|grand|dollars|bucks)\b`].join("|"), "i");
 function looksLikeMoneyServer(text: string): boolean {
-  return /(\$\s?\d|\d+\s?(%|percent)|\bapr\b|\b\d{2,3}\s?(a|per)\s?(month|mo)\b|\b\d{3,}\s?(dollars|bucks)\b|\bmonthly\s+(payment|is)\s+\d)/i.test(String(text || ""));
+  return MONEY_RE.test(String(text || ""));
 }
 
 const NIGHT_TOOL = {
@@ -3293,6 +3296,8 @@ async function handleSendSms(body: any): Promise<Response> {
   if (!/^[0-9a-f-]{36}$/.test(uid)) return json({ error: "bad user" }, 400);
   if (phoneKey(to).length < 10) return json({ error: "bad number" }, 400);
   if (!text) return json({ error: "empty message" }, 400);
+  // The rep's own text meets the same rule as the agent's and the manager's.
+  if (looksLikeMoneyServer(text)) return json({ error: "No figures in a text to a customer — take the dollar amount or rate out" }, 400);
   const sent = await twilioSend(to, text);
   if (!sent.ok) return json({ error: sent.error, code: sent.code ?? null }, /not set up/.test(String(sent.error)) ? 500 : 502);
   const out = { sid: sent.sid };

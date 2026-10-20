@@ -18,6 +18,7 @@ import { bestPitch, equityDetail } from "./views/dealbuilder.js";
 import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
 import { conversationFor } from "./convo.js";
 import { redactMoney } from "./context.js";
+import { looksLikeMoney } from "./money.js";
 import { writingLine } from "./style.js";
 
 export function draftingAvailable() {
@@ -84,14 +85,9 @@ HOW TO WRITE
 Reply with the message text and nothing else — no quotation marks, no preamble, no alternatives.`;
 }
 
-// Any figure that could be read as money or a rate. Deliberately broad: the
-// cost of a false positive is one regenerated draft, the cost of a miss is a
-// number the salesperson has to walk back with a real customer.
-const MONEY = /(\$\s?\d|\d+\s?(%|percent)|\bapr\b|\b\d{2,3}\s?(a|per)\s?(month|mo)\b|\$\d|\b\d{3,}\s?(dollars|bucks)\b|\bmonthly\s+(payment|is)\s+\d)/i;
-
-export function looksLikeMoney(text) {
-  return MONEY.test(String(text || ""));
-}
+// Any figure that could be read as money or a rate — the one check every
+// text to a customer meets (js/money.js), re-exported here for the drafters.
+export { looksLikeMoney };
 
 async function ask(lead, messages) {
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");

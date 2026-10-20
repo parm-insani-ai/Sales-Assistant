@@ -16,6 +16,8 @@ const { launch } = require("./browser.js");
 const APP = "http://127.0.0.1:8137";
 const AGENT = APP + "/functions/v1/voice-agent";
 const b = await launch();
+// A clean stub: a store or a text left by an earlier test would otherwise sync down into this rep.
+await fetch(APP + "/__reset");
 const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };

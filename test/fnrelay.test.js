@@ -244,6 +244,14 @@ try {
   if (twilio.sent.length !== 1 || twilio.sent[0].To !== "9025551111" || !/Saturday works/.test(twilio.sent[0].Body)) fail("the text didn't go to Dana through Twilio: " + JSON.stringify(twilio.sent));
   if (!filed || filed.data.leadId !== "c1" || filed.data.dir !== "out" || filed.data.by !== "Sam") fail("the manager's text isn't filed in the rep's thread as the manager's: " + JSON.stringify(filed));
   if (!inbound.data.read) fail("Dana's waiting text wasn't marked read after the manager answered it");
+  // The rep's own text — typed or dictated in the Inbox — meets the same rule, however the figure is written.
+  for (const bad of ["Good news, your trade is worth $14,000.", "We'd put your trade at 14k", "It came in around fourteen thousand", "Call it 14 grand", "About 300 a month"]) {
+    const own = await post(LOCKED, { sms: { u: U1, to: "9025551111", leadId: "c1", body: bad } }, "tok-a");
+    if (own.status !== 400 || !/figures/.test(own.body.error)) fail("the rep's own text with a figure went through: " + JSON.stringify([bad, own.status, own.body]));
+  }
+  const fine = await post(LOCKED, { sms: { u: U1, to: "9025551111", leadId: "c1", body: "Hi Dana, I've had a look at your trade — come by any time and I'll walk you through it." } }, "tok-a");
+  if (fine.status !== 200 || !fine.body.sent) fail("a text with no figure in it was refused: " + JSON.stringify(fine));
+  twilio.sent.length = 0;
 
   // --- The managers' sweep: the floor's problems, pushed to the manager, each once.
   db.records.push(

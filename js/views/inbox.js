@@ -306,7 +306,7 @@ function renderThread(view, leadId) {
       sync();
       paintThread();
       const r = await sendText(lead, body);
-      if (!r.ok) toast(r.error, "warn");
+      if (!r.ok) { toast(r.error, "warn"); if (r.blocked) { box.value = body; sync(); } } // a refused text comes back to be fixed, not retyped
       paintThread();
     };
     sendBtn.addEventListener("click", send);
