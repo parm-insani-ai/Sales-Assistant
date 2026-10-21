@@ -39,7 +39,7 @@ await p.route("**/functions/v1/voice-agent", (route) => {
 const openAndSay = async (text) => {
   await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   await p.waitForSelector("#v-form", { timeout: 5000 });
-  const note = await p.evaluate(() => document.querySelector(".vt-note")?.textContent || "");
+  const note = await p.evaluate(() => document.querySelector(".vt-divider")?.textContent.replace(/\s+/g, " ").trim() || "");
   await p.evaluate((t) => { document.querySelector("#v-text").value = t; document.querySelector("#v-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); }, text);
   await p.waitForTimeout(900);
   return note;
@@ -59,7 +59,10 @@ await p.goto(APP + "/?r=1#/");
 await p.waitForTimeout(500);
 note = await openAndSay("book her Thursday at five");
 console.log("after reload:", JSON.stringify({ note, users: asked[1] && asked[1].users }));
-if (!/Picking up today's conversation/.test(note)) fail("reopened, the panel should say it's picking the day up: " + note);
+if (!/^Earlier today · 1 exchange · Start fresh$/.test(note)) fail("reopened, the panel should show the day so far under its own line: " + note);
+// The morning's exchange is readable in the thread, dimmed, above the new one.
+const shown = await p.evaluate(() => ({ me: [...document.querySelectorAll(".vt-earlier .vt-me")].map((n) => n.textContent), bot: [...document.querySelectorAll(".vt-earlier .vt-bot")].map((n) => n.textContent), dim: parseFloat(getComputedStyle(document.querySelector(".vt-earlier .vt-me")).opacity) < 1, later: [...document.querySelectorAll(".voice-thread > .vt-me")].map((n) => n.textContent) }));
+if (shown.me.join() !== "what's the story with Ann Lee" || shown.bot.join() !== "Reply 1." || !shown.dim || !shown.later.includes("book her Thursday at five")) fail("the earlier exchange isn't shown as said and answered: " + JSON.stringify(shown));
 if (!asked[1] || asked[1].users.length !== 2 || !/Ann Lee/.test(asked[1].users[0])) fail("the morning's turn should be in the thread after a reload: " + JSON.stringify(asked[1] && asked[1].users));
 const gapLine = (s) => (s.match(/The last exchange in this conversation was[^\n]*/) || [""])[0];
 if (!/was under a minute ago/.test(gapLine(asked[1].system))) fail("the live brief should say how long ago the last exchange was: " + gapLine(asked[1].system));
@@ -95,6 +98,22 @@ const day = await p.evaluate(async () => { const a = await import("/js/agent.js"
 console.log("new day:", JSON.stringify(day));
 if (day.turns !== 0 || day.recalled !== 0) fail("yesterday's thread shouldn't come back today: " + JSON.stringify(day));
 if (day.early === day.today || day.late !== day.today) fail("the day should start at 4am, not midnight: " + JSON.stringify(day));
+
+// --- "Start fresh": the day's thread is forgotten, and the next turn is alone.
+await p.evaluate(async () => { const a = await import("/js/agent.js"); localStorage.setItem("viniva:convo:rep", JSON.stringify({ day: a.convoDay(), at: Date.now(), messages: [{ role: "user", content: "what's the story with Ann Lee" }, { role: "assistant", content: [{ type: "text", text: "Ann Lee is working a Rogue." }] }] })); });
+await p.goto(APP + "/?r=3#/");
+await p.waitForTimeout(500);
+await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+await p.waitForSelector(".vt-earlier [data-act=fresh]", { timeout: 5000 });
+await p.click(".vt-earlier [data-act=fresh]");
+await p.waitForTimeout(200);
+const fresh = await p.evaluate(() => ({ earlier: !!document.querySelector(".vt-earlier"), note: document.querySelector(".vt-note")?.textContent || "", kept: localStorage.getItem("viniva:convo:rep") }));
+const before = asked.length;
+await p.evaluate(() => { document.querySelector("#v-text").value = "who should I call"; document.querySelector("#v-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+await p.waitForTimeout(900);
+console.log("start fresh:", JSON.stringify({ ...fresh, users: asked[before] && asked[before].users }));
+if (fresh.earlier || !/Started fresh/.test(fresh.note) || fresh.kept) fail("Start fresh should drop the earlier thread from the panel and the phone: " + JSON.stringify(fresh));
+if (!asked[before] || asked[before].users.length !== 1) fail("after Start fresh the next turn should be alone: " + JSON.stringify(asked[before] && asked[before].users));
 
 if (errs.length) fail("page errors: " + errs.join(" | "));
 await b.close();

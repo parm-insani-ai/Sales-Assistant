@@ -1486,5 +1486,24 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
     return true;
   }
 
-  return { send, undo, abandon, turns: () => messages.filter((m) => m.role === "user" && typeof m.content === "string").length, lastAt: () => lastAt, recalled: () => recalled };
+  // The thread as exchanges — what was said, what was answered — for the
+  // panel to show when it picks the day back up. Tool traffic is left out;
+  // an Undo aside is stripped from the front of what was said.
+  function history() {
+    const out = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (m.role !== "user" || typeof m.content !== "string") continue;
+      const ask = m.content.replace(/^\[The salesperson tapped Undo:[^\]]*\]\s*/, "");
+      let say = "";
+      for (let j = i + 1; j < messages.length && !say; j++) {
+        const a = messages[j];
+        if (a.role === "user" && typeof a.content === "string") break;
+        if (a.role === "assistant" && Array.isArray(a.content) && !a.content.some((b) => b.type === "tool_use")) say = a.content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+      }
+      out.push({ ask, say });
+    }
+    return out;
+  }
+  return { send, undo, abandon, history, turns: () => messages.filter((m) => m.role === "user" && typeof m.content === "string").length, lastAt: () => lastAt, recalled: () => recalled };
 }

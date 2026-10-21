@@ -223,12 +223,15 @@ await p.waitForTimeout(300);
 if (await p.$(".voice-overlay")) fail("the sheet didn't close");
 await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 await p.waitForSelector(".voice-overlay #v-thread", { timeout: 5000 });
-const reopened = await p.evaluate(() => ({ note: document.querySelector("#v-thread .vt-note")?.textContent || "", bubbles: document.querySelectorAll("#v-thread .vt-me:not(.vt-live)").length }));
+// The day so far is on the thread, dimmed under its own line, so what's
+// said next reads as the continuation it is.
+const reopened = await p.evaluate(() => ({ note: document.querySelector("#v-thread .vt-divider")?.textContent.replace(/\s+/g, " ").trim() || "", bubbles: document.querySelectorAll("#v-thread .vt-earlier .vt-me").length, fresh: document.querySelectorAll("#v-thread .vt-me:not(.vt-live):not(.vt-earlier .vt-me)").length }));
 console.log("reopened:", JSON.stringify(reopened));
-if (!/Picking up where we left off/.test(reopened.note) || reopened.bubbles !== 0) fail("a reopened sheet should say it's picking up, on a fresh thread: " + JSON.stringify(reopened));
+if (!/^Earlier today · \d+ exchanges · Start fresh$/.test(reopened.note) || reopened.bubbles !== turnsBefore || reopened.fresh !== 0) fail("a reopened sheet should show the day so far under its own line, nothing new yet: " + JSON.stringify(reopened));
 const callsBefore = calls;
+const botsReopen = await p.evaluate(() => document.querySelectorAll("#v-thread .vt-bot").length);
 await p.evaluate(() => window.__say("book her Thursday at five"));
-await p.waitForFunction(() => document.querySelectorAll("#v-thread .vt-bot").length === 1, null, { timeout: 8000 }).catch(() => fail("no reply after reopening"));
+await p.waitForFunction((n) => document.querySelectorAll("#v-thread .vt-bot").length === n + 1, botsReopen, { timeout: 8000 }).catch(() => fail("no reply after reopening"));
 if (calls <= callsBefore) fail("the reopened sheet never reached the agent");
 if (histories[histories.length - 1] !== turnsBefore + 1) fail(`the reopened session should carry the earlier turns (${turnsBefore}) plus this one into the next call, got a history of ${histories[histories.length - 1]} user turns`);
 if (!replies[replies.length - 1]) fail("the assistant's own earlier replies should be in the history it's sent, or 'her' has no referent");

@@ -12,7 +12,7 @@ import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
 import { inferShopping } from "./target.js";
 import { logCustomer } from "./logbook.js";
-import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen } from "./agent.js";
+import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen, forgetConvo } from "./agent.js";
 import { answerLot } from "./lot.js";
 import { isBlast, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
@@ -679,26 +679,48 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // later, "book him Thursday" had no "him". So the session is parked when
   // the sheet closes and picked back up if the sheet reopens soon enough —
   // the same brain, with the last few minutes still in mind.
-  const pickedUp = (text) => {
-    const note = document.createElement("div");
-    note.className = "vt-note";
-    note.textContent = text;
-    threadEl.insertBefore(note, transcriptEl);
+  // The day so far, in the thread: every exchange since the first open
+  // after 4am, a little dimmed, under a line that says so — the sheet
+  // opens on the conversation it's continuing, not on a blank. "Start
+  // fresh" forgets the day's thread and starts a new one.
+  const showEarlier = (s) => {
+    const turns = s && s.history ? s.history() : [];
+    if (!turns.length) return;
+    const block = document.createElement("div");
+    block.className = "vt-earlier";
+    const head = document.createElement("div");
+    head.className = "vt-note vt-divider";
+    head.innerHTML = `Earlier today · ${turns.length} exchange${turns.length === 1 ? "" : "s"} · <button type="button" class="vt-fresh" data-act="fresh">Start fresh</button>`;
+    block.appendChild(head);
+    turns.forEach(({ ask, say }) => {
+      const me = document.createElement("div"); me.className = "vt-me"; me.textContent = ask; block.appendChild(me);
+      if (say) { const turn = document.createElement("div"); turn.className = "vt-turn"; const bot = document.createElement("div"); bot.className = "vt-bot"; bot.textContent = say; turn.appendChild(bot); block.appendChild(turn); }
+    });
+    head.querySelector("[data-act=fresh]").addEventListener("click", () => {
+      forgetConvo(manager ? "manager" : "rep");
+      parked = null;
+      session = manager ? null : createAgentSession({ remember: "rep" });
+      block.remove();
+      const note = document.createElement("div"); note.className = "vt-note"; note.textContent = "Started fresh — the earlier conversation is forgotten.";
+      threadEl.insertBefore(note, transcriptEl);
+    });
+    threadEl.insertBefore(block, transcriptEl);
+    scrollThread();
   };
   if (parked && parked.manager === manager && Date.now() - parked.at < RECALL_MS && agentConfigured()) {
     session = parked.session;
     parked = null;
     if (session.abandon) session.abandon();
-    pickedUp("Picking up where we left off");
+    showEarlier(session);
   } else {
     parked = null;
     // The day's thread, kept on the phone (agent.js): the same conversation
     // since the first open after 4am, so an answer from this morning is
-    // still in mind this afternoon. A rep's is made now, so the note can
-    // say so; the manager's brain loads when first spoken to.
+    // still in mind this afternoon. A rep's is made now, so it can be
+    // shown; the manager's brain loads when first spoken to.
     if (!manager && agentConfigured()) {
       session = createAgentSession({ remember: "rep" });
-      if (session.recalled && session.recalled() > 0) pickedUp("Picking up today's conversation");
+      showEarlier(session);
     }
   }
   const agentSession = async () => {
