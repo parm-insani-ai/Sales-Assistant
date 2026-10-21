@@ -148,6 +148,8 @@ export function renderDashboard(view) {
         </div><div class="row-meta">${n.locked ? icon("clock") : "\u203a"}</div>`;
       if (n.locked && n.unlockAt) { const t = new Date(n.unlockAt).getTime(); if (t > Date.now() && (!nextUnlock || t < nextUnlock)) nextUnlock = t; }
       row.addEventListener("click", async () => {
+        // The end-of-day check: the sheet opens and the assistant asks there.
+        if (n.open === "voice") { import("../voice.js").then((m) => m.startVoiceAssistant()).catch(() => {}); return; }
         if (n.taskId && !n.route) {
           row.style.opacity = "0.6";
           try { await reviewTouch(n.taskId); } finally { row.style.opacity = ""; }

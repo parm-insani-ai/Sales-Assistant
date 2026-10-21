@@ -225,8 +225,12 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         kind: "reminder",
         taskId: t.id,
         title: `⏰ ${t.title}`,
-        sub: `Reminder for ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${mins >= 2 ? ` · ${human(mins)} ago` : ""} — tick it off on Today.`,
-        route: "/today",
+        sub: t.source === "wrapup"
+          ? "Today's conversation with the assistant is forgotten at 4am. Tap to go through it together."
+          : `Reminder for ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${mins >= 2 ? ` · ${human(mins)} ago` : ""} — tick it off on Today.`,
+        // The end-of-day check opens the sheet, where the assistant asks.
+        route: t.source === "wrapup" ? null : "/today",
+        open: t.source === "wrapup" ? "voice" : null,
         at: new Date(at).toISOString(),
       });
     });

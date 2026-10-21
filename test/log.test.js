@@ -58,7 +58,9 @@ if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list 
 // One list, newest first — the one just added at the top — with the ones
 // added together in due order (the reminder due now, the one later today,
 // then the to-dos dated today), and the week-old one at the bottom.
-if (today.todos.length !== 7 || !/^Order the plates/.test(today.todos[0]) || !/^Ring Dana back.*now/i.test(today.todos[1]) || !/Check the SV came in/.test(today.todos[2]) || !/Send the registration/.test(today.todos[6])) fail("to-dos should be one list, newest first, the due reminder marked: " + JSON.stringify(today.todos));
+// (Run late in the evening, "later today" is tomorrow, so only the ends of
+// the order are pinned.)
+if (today.todos.length !== 7 || !/^Order the plates/.test(today.todos[0]) || !/^Ring Dana back.*now/i.test(today.todos[1]) || !today.todos.slice(2, 4).some((t) => /Check the SV came in/.test(t)) || !/Send the registration/.test(today.todos[6])) fail("to-dos should be one list, newest first, the due reminder marked: " + JSON.stringify(today.todos));
 if (!today.todos[6].includes("Overdue")) fail("the week-old to-do isn't marked overdue: " + today.todos[6]);
 // …and the strip across the top says what's past its day, so sinking
 // doesn't mean forgotten.

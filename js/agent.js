@@ -1369,6 +1369,46 @@ function saveConvo(who, messages, at, now = new Date()) {
 }
 export function forgetConvo(who) { try { localStorage.removeItem(convoKey(who)); } catch { /* fine */ } }
 
+// --- End of day ---
+// Before the day's thread is forgotten at 4am, the assistant asks on its
+// own whether anything in it should be kept: a detail said about a
+// customer, a to-do mentioned and never set, an appointment talked about
+// and not booked — checked against what's on file, saved only on the
+// salesperson's say-so. Asked once a day, from closing time (Settings →
+// hours), once the conversation has been quiet for a while. A timed
+// to-do is set for closing time when the day's conversation starts, so
+// the phone is asked even with the app shut (the function pushes timed
+// to-dos); tapping it opens the sheet, and the assistant asks there.
+export const WRAPUP_MARK = "[End of day]";
+export const WRAPUP_ASK = `${WRAPUP_MARK} Today's conversation is forgotten at 4am. Go back through it and pick out anything worth keeping that isn't on file yet: something said about a customer (a detail, a preference, what they're after, a number), a to-do or follow-up mentioned but never set, an appointment talked about but not booked. Check the customer's record (get_customer) before saying something isn't on file. Then say in a few words what you'd save and ask me which to keep — nothing is saved until I say so. If there's nothing worth keeping, say so in one line.`;
+const WRAPUP_QUIET_MIN = 20;
+const wrappedKey = (who) => `viniva:convo:wrapped:${who}`;
+const closingHour = () => { const h = Number(store.getSettings().hoursTo); return isFinite(h) ? Math.min(23, Math.max(0, h)) : 18; };
+export function wrapUpDue(who = "rep", now = new Date()) {
+  if (now.getHours() < closingHour()) return false;
+  const kept = loadConvo(who, now);
+  if (!kept) return false;
+  if (kept.at && now.getTime() - kept.at < WRAPUP_QUIET_MIN * 60000) return false; // still talking
+  try { if (localStorage.getItem(wrappedKey(who)) === convoDay(now)) return false; } catch { /* ask, then */ }
+  return true;
+}
+export function markWrappedUp(who = "rep", now = new Date()) {
+  try { localStorage.setItem(wrappedKey(who), convoDay(now)); } catch { /* fine */ }
+  store.all("tasks").filter((t) => t.source === "wrapup" && !t.done).forEach((t) => store.update("tasks", t.id, { done: true, doneBy: "wrapup", doneAt: now.toISOString() }));
+}
+export function ensureWrapUpReminder(who = "rep", now = new Date()) {
+  if (who !== "rep") return null;
+  const day = convoDay(now);
+  const tasks = store.all("tasks");
+  // Yesterday's, still open: the thread it was about is gone.
+  tasks.filter((t) => t.source === "wrapup" && !t.done && String(t.due) !== day).forEach((t) => store.update("tasks", t.id, { done: true, doneBy: "wrapup" }));
+  if (tasks.some((t) => t.source === "wrapup" && String(t.due) === day)) return null;
+  if (now.getHours() >= closingHour()) return null; // closing time has passed; the next open asks
+  try { if (localStorage.getItem(wrappedKey(who)) === day) return null; } catch { /* set it */ }
+  const hh = String(closingHour()).padStart(2, "0");
+  return store.create("tasks", { title: "Anything to save from today's conversation with the assistant?", due: day, remindAt: `${day}T${hh}:00`, channel: "reminder", source: "wrapup", priority: "normal", done: false, leadId: null, notifiedAt: null });
+}
+
 // opts.remember: a name ("rep", "manager") under which the day's thread is
 // kept on the phone and picked back up — see above.
 export function createAgentSession({ call = callAgent, exec = execTool, stay = false, onTool = null, remember = null } = {}) {
@@ -1495,13 +1535,14 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
       const m = messages[i];
       if (m.role !== "user" || typeof m.content !== "string") continue;
       const ask = m.content.replace(/^\[The salesperson tapped Undo:[^\]]*\]\s*/, "");
+      const auto = ask.startsWith(WRAPUP_MARK); // the assistant's own end-of-day check
       let say = "";
       for (let j = i + 1; j < messages.length && !say; j++) {
         const a = messages[j];
         if (a.role === "user" && typeof a.content === "string") break;
         if (a.role === "assistant" && Array.isArray(a.content) && !a.content.some((b) => b.type === "tool_use")) say = a.content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
       }
-      out.push({ ask, say });
+      out.push({ ask: auto ? "End of day — anything to save?" : ask, say, auto });
     }
     return out;
   }

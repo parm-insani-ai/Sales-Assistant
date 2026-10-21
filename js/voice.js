@@ -12,7 +12,7 @@ import { maybeStartCadence } from "./cadence.js";
 import { addContext } from "./context.js";
 import { inferShopping } from "./target.js";
 import { logCustomer } from "./logbook.js";
-import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen, forgetConvo } from "./agent.js";
+import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen, forgetConvo, wrapUpDue, markWrappedUp, ensureWrapUpReminder, WRAPUP_ASK } from "./agent.js";
 import { answerLot } from "./lot.js";
 import { isBlast, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
@@ -692,8 +692,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     head.className = "vt-note vt-divider";
     head.innerHTML = `Earlier today · ${turns.length} exchange${turns.length === 1 ? "" : "s"} · <button type="button" class="vt-fresh" data-act="fresh">Start fresh</button>`;
     block.appendChild(head);
-    turns.forEach(({ ask, say }) => {
-      const me = document.createElement("div"); me.className = "vt-me"; me.textContent = ask; block.appendChild(me);
+    turns.forEach(({ ask, say, auto }) => {
+      const me = document.createElement("div"); me.className = auto ? "vt-note" : "vt-me"; me.textContent = ask; block.appendChild(me);
       if (say) { const turn = document.createElement("div"); turn.className = "vt-turn"; const bot = document.createElement("div"); bot.className = "vt-bot"; bot.textContent = say; turn.appendChild(bot); block.appendChild(turn); }
     });
     head.querySelector("[data-act=fresh]").addEventListener("click", () => {
@@ -811,7 +811,10 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // thing said is taken as it (or as "don't have it").
   let awaitingPhone = null;
 
-  const run = async (text) => {
+  // `auto`: a turn the assistant starts itself (the end-of-day check) — shown
+  // as a line about the thread, not as something the salesperson said, and
+  // never taken for a lot question.
+  const run = async (text, { auto = false } = {}) => {
     const said = (text || "").trim();
     if (!said || busy) return;
     if (awaitingPhone) {
@@ -846,7 +849,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     busy = true;
     stopHearing();
     settleChoices();
-    addMe(said);
+    if (auto) { const note = document.createElement("div"); note.className = "vt-note vt-auto"; note.textContent = "End of day — anything from today's conversation to save?"; threadEl.insertBefore(note, transcriptEl); scrollThread(); }
+    else addMe(said);
     textInput.value = "";
     const turn = startTurn();
 
@@ -859,7 +863,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     // A question about the lot is answered here, from the lot, before any
     // network — the count and the website's price are exact, and instant.
     // (A rep's lot, from their phone; the manager's questions all go up.)
-    const lotCmd = manager ? { action: "none" } : parseCommand(said);
+    const lotCmd = manager || auto ? { action: "none" } : parseCommand(said);
     if ((lotCmd.action === "lot" && (lotCmd.sure || !agent)) || lotCmd.action === "outreach" || lotCmd.action === "owners") {
       // Said as such, so a wrong turn can be told from the assistant's.
       turn.step(lotCmd.action === "lot" ? "Checking the lot (on the phone)" : lotCmd.action === "owners" ? "Looking through your customers (on the phone)" : "Building the outreach (on the phone)");
@@ -879,6 +883,9 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         reply = res.say || "Done";
         choices = Array.isArray(res.options) ? res.options : [];
         undoLabel = res.undo || null;
+        // The day's conversation has started: at closing time the phone is
+        // asked whether anything in it should be kept (agent.js).
+        if (!manager && !auto) { try { ensureWrapUpReminder("rep"); } catch { /* the sheet asks on the next open anyway */ } }
       } catch (e) {
         // The assistant couldn't be reached. A lot question the phone can
         // answer by itself is answered now, rather than reading out a
@@ -1062,6 +1069,14 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     setStatus("Type your command, or tap your keyboard's mic to dictate.");
     // Focus synchronously (within the tap gesture) so iOS opens the keyboard.
     textInput.focus();
+  }
+
+  // Closing time, with a day's conversation behind it and nothing said for
+  // a while: the assistant asks, on its own, whether anything in it should
+  // be kept before it's forgotten at 4am. Once a day.
+  if (!manager && agentConfigured() && wrapUpDue("rep")) {
+    markWrappedUp("rep");
+    setTimeout(() => { if (!closed) run(WRAPUP_ASK, { auto: true }); }, 400);
   }
 
   // Started from a place that already has something on screen worth keeping —

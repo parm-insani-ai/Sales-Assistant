@@ -17,7 +17,9 @@ await p.addInitScript(() => {
     localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
     localStorage.setItem("sales-assistant:v1", JSON.stringify({
       leads: [{ id: "a", name: "Ann Lee", phone: "9025551111", stage: "working", vehicleInterest: "2023 Nissan Rogue", createdAt: "x", updatedAt: "x" }],
-      settings: { salesperson: "Parm", dealership: "O'Regan's Nissan", cloudAutoSync: false, agentUrl: "http://127.0.0.1:8137/functions/v1/voice-agent" },
+      // Closing time late, so the end-of-day check (below) doesn't fire on
+      // the earlier steps when this runs in the evening.
+      settings: { salesperson: "Parm", dealership: "O'Regan's Nissan", cloudAutoSync: false, hoursTo: 23, agentUrl: "http://127.0.0.1:8137/functions/v1/voice-agent" },
     }));
   }
   function Fake() { this.start = () => {}; this.stop = () => {}; this.abort = () => {}; }
@@ -98,6 +100,39 @@ const day = await p.evaluate(async () => { const a = await import("/js/agent.js"
 console.log("new day:", JSON.stringify(day));
 if (day.turns !== 0 || day.recalled !== 0) fail("yesterday's thread shouldn't come back today: " + JSON.stringify(day));
 if (day.early === day.today || day.late !== day.today) fail("the day should start at 4am, not midnight: " + JSON.stringify(day));
+
+// --- End of day. A turn sets a timed to-do for closing time — "anything
+// to save?" — so the phone is asked even with the app shut; and at closing
+// time, with the conversation quiet, the sheet asks on its own, once.
+await p.evaluate(async () => { const s = await import("/js/store.js"); s.updateSettings({ hoursTo: 23 }); localStorage.removeItem("viniva:convo:rep"); localStorage.removeItem("viniva:convo:wrapped:rep"); s.all("tasks").filter((t) => t.source === "wrapup").forEach((t) => s.remove("tasks", t.id)); });
+await p.goto(APP + "/?r=4#/");
+await p.waitForTimeout(500);
+await openAndSay("what's the story with Ann Lee");
+const wrap = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.source === "wrapup"); return t ? { due: t.due, remindAt: t.remindAt, channel: t.channel, done: t.done, title: t.title } : null; });
+console.log("wrap-up reminder:", JSON.stringify(wrap));
+if (new Date().getHours() < 23) {
+  if (!wrap || !/T23:00$/.test(wrap.remindAt) || wrap.channel !== "reminder" || wrap.done || !/save from today's conversation/.test(wrap.title)) fail("the day's first turn should set the closing-time reminder: " + JSON.stringify(wrap));
+}
+// Closing time (set to midnight so it's always past), the thread quiet for half an hour.
+await p.evaluate(async () => { const s = await import("/js/store.js"); s.updateSettings({ hoursTo: 0 }); const c = JSON.parse(localStorage.getItem("viniva:convo:rep")); c.at = Date.now() - 30 * 60000; localStorage.setItem("viniva:convo:rep", JSON.stringify(c)); });
+await p.goto(APP + "/?r=5#/");
+await p.waitForTimeout(500);
+const beforeAsk = asked.length;
+await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+await p.waitForSelector("#v-form", { timeout: 5000 });
+await p.waitForTimeout(1500);
+const auto = await p.evaluate(async () => { const s = await import("/js/store.js"); return { note: document.querySelector(".vt-auto")?.textContent || "", me: [...document.querySelectorAll(".voice-thread > .vt-me:not(.vt-live)")].map((n) => n.textContent), bots: [...document.querySelectorAll(".voice-thread > .vt-turn .vt-bot")].map((n) => n.textContent), wrapped: localStorage.getItem("viniva:convo:wrapped:rep"), taskDone: (s.all("tasks").find((x) => x.source === "wrapup") || {}).done }; });
+console.log("end of day:", JSON.stringify({ ...auto, sent: asked[beforeAsk] && asked[beforeAsk].users.slice(-1)[0].slice(0, 40) }));
+if (!/End of day — anything from today's conversation to save\?/.test(auto.note) || auto.me.length !== 0) fail("the sheet should ask on its own, as a line about the thread, not as something said: " + JSON.stringify(auto));
+if (!asked[beforeAsk] || !/^\[End of day\] Today's conversation is forgotten at 4am/.test(asked[beforeAsk].users.slice(-1)[0]) || asked[beforeAsk].users.length < 2) fail("the end-of-day turn should go up with the day's thread: " + JSON.stringify(asked[beforeAsk] && asked[beforeAsk].users));
+if (!auto.bots.length || !auto.wrapped || auto.taskDone !== true) fail("the assistant should answer, the day marked as asked and the reminder ticked: " + JSON.stringify(auto));
+// Reopened, it doesn't ask twice — and the check reads as a note in the day so far.
+await p.click(".voice-close"); await p.waitForTimeout(300);
+await p.$eval("#voice-btn", (n) => n.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+await p.waitForSelector("#v-form", { timeout: 5000 });
+await p.waitForTimeout(800);
+const again = await p.evaluate(() => ({ autos: document.querySelectorAll(".vt-auto").length, earlierNote: [...document.querySelectorAll(".vt-earlier .vt-note")].map((n) => n.textContent).join("|"), sent: 0 }));
+if (again.autos !== 0 || !/End of day — anything to save\?/.test(again.earlierNote)) fail("reopened, it shouldn't ask twice, and the check should read as a note in the day so far: " + JSON.stringify(again));
 
 // --- "Start fresh": the day's thread is forgotten, and the next turn is alone.
 await p.evaluate(async () => { const a = await import("/js/agent.js"); localStorage.setItem("viniva:convo:rep", JSON.stringify({ day: a.convoDay(), at: Date.now(), messages: [{ role: "user", content: "what's the story with Ann Lee" }, { role: "assistant", content: [{ type: "text", text: "Ann Lee is working a Rogue." }] }] })); });
