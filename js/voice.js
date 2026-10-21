@@ -693,20 +693,31 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // later, "book him Thursday" had no "him". So the session is parked when
   // the sheet closes and picked back up if the sheet reopens soon enough —
   // the same brain, with the last few minutes still in mind.
+  const pickedUp = (text) => {
+    const note = document.createElement("div");
+    note.className = "vt-note";
+    note.textContent = text;
+    threadEl.insertBefore(note, transcriptEl);
+  };
   if (parked && parked.manager === manager && Date.now() - parked.at < RECALL_MS && agentConfigured()) {
     session = parked.session;
     parked = null;
     if (session.abandon) session.abandon();
-    const note = document.createElement("div");
-    note.className = "vt-note";
-    note.textContent = "Picking up where we left off";
-    threadEl.insertBefore(note, transcriptEl);
+    pickedUp("Picking up where we left off");
   } else {
     parked = null;
+    // The day's thread, kept on the phone (agent.js): the same conversation
+    // since the first open after 4am, so an answer from this morning is
+    // still in mind this afternoon. A rep's is made now, so the note can
+    // say so; the manager's brain loads when first spoken to.
+    if (!manager && agentConfigured()) {
+      session = createAgentSession({ remember: "rep" });
+      if (session.recalled && session.recalled() > 0) pickedUp("Picking up today's conversation");
+    }
   }
   const agentSession = async () => {
     if (!agentConfigured()) return null;
-    if (!session) session = manager ? (await managerMod).createManagerSession() : createAgentSession();
+    if (!session) session = manager ? (await managerMod).createManagerSession() : createAgentSession({ remember: "rep" });
     return session;
   };
 

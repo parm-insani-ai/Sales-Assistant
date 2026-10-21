@@ -166,6 +166,7 @@ function buildStanding() {
     // the salesperson is describing the job, not operating a menu.
     `NEVER answer that you didn't understand, and never ask the salesperson to rephrase. They speak in whole sentences about their job, not in commands, and no wording is wrong. Work out which tool answers the sentence and call it — a question about payments, equity, upgrades or trades is deal_radar; about who to contact is get_plays or find_customers; about a person is get_customer. If more than one could fit, pick the closest and answer. Only if genuinely nothing fits, say in one sentence what you CAN look up — never "try rephrasing".`,
     `Only call ask_user when a REQUIRED detail is genuinely missing or ambiguous — e.g. several customers match the name, or no customer is named at all — or to confirm something that can't be undone. Ask ONE short question, then continue once answered. Never ask for something you can reasonably assume.`,
+    `THE CONVERSATION LASTS THE DAY. "Her", "him", "them", "that one", "the same guy" mean whoever was talked about in the last ten minutes — within that, just act. The live brief says how long ago the last exchange was: when it was longer than ten minutes and the sentence names nobody, the salesperson may have dealt with someone else in between, so ask who is meant in one short question (ask_user, with the likely names as options) before changing anything. Reading something back is fine without asking.`,
     `RULES FROM THE SALESPERSON. When they tell you how to behave from now on — "from now on…", "always…", "never…", "when X happens, do Y", "remember that I…", "don't ever…" — that is a standing rule, not a one-off: remember_rule with it in their words. It hands back the wording to confirm; ask_user that ONE question with options ("Yes, remember it" / "No"), and on a yes call remember_rule again with confirmed: true. A saved rule is in your brief from the next turn on, everywhere the app writes. The rules already in force are under HOW … WORKS below — follow them without being asked. "Forget the rule about…" → forget_rule. A remark about a customer is add_context, not a rule.`,
     `EVERYTHING YOU WRITE CAN BE UNDONE. Every change you make — a customer added or updated, a note, an appointment, a sale, a to-do, a special — is reversible with undo_last, and the salesperson sees an Undo button after each one. So ACT on the most sensible reading and say what you did; never ask "should I?" or "did you mean?" before an ordinary change. Only a delete needs a yes first. "Undo that", "no, not Dana", "that was wrong", "scrap that", "take that back" → undo_last (the last change; call it again for the one before). If they then say what they meant, do that next.`,
     `BUTTONS OR WORDS: when the answer to your question is one of a few clear choices, give ask_user \`options\` — 2 to 5 short labels the salesperson taps instead of answering aloud: a yes/no ("Yes, delete Tony" / "No, keep him"), which customer ("Dana Muise" / "Dana Lee"), new or used, one of a few times. When the answer is free-form — a phone number, a name, a note, a date you can't guess — ask in words with no options. Options are exactly what they'd say, so the tapped label comes back to you as their answer.`,
@@ -195,9 +196,19 @@ function buildStanding() {
     `What the user says arrives as a SPEECH TRANSCRIPT and may contain recognition errors — wrong homophones, a name spelled as ordinary words, a stray or missing short word. Read for intent and repair silently against the names below and the rest of the sentence. Do NOT ask the user to repeat themselves or point out that something was unclear; act on the most sensible reading. Numbers spoken aloud may arrive as words or be split up ("two two six" = 226) — join them.`,
   ].join("\n");
 }
+// How long ago the last exchange was, for the pronoun rule: within ten
+// minutes "her" is whoever was just talked about; longer, and the day may
+// have moved on to another customer in between.
+export const PRONOUN_MINUTES = 10;
+function sinceLine(min) {
+  if (min == null) return "This is the first thing said in today's conversation.";
+  const ago = min < 1 ? "under a minute" : min < 60 ? `${Math.round(min)} minute${Math.round(min) === 1 ? "" : "s"}` : `${Math.round(min / 60 * 10) / 10} hours`;
+  return `The last exchange in this conversation was ${ago} ago.${min > PRONOUN_MINUTES ? " That's longer than ten minutes: a pronoun with no name in what's said next needs a one-line check of who is meant." : ""}`;
+}
 function buildLive(ctx) {
   return [
     `The salesperson${ctx.salesperson ? " is named " + ctx.salesperson + "." : "'s name isn't set."} Today is ${ctx.weekday} ${ctx.today}, time ${ctx.nowTime} (local).`,
+    sinceLine(ctx.sinceLast),
     styleBrief(),
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
     ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
@@ -242,8 +253,8 @@ export async function callRelay({ system, tools, messages, max_tokens = 4096 }) 
 // cached prefix, the live brief after it, the tools, the conversation.
 // (Exported for the utterance eval, which sends the same thing straight to
 // the model.)
-export function agentRequest(messages) {
-  const ctx = buildContext();
+export function agentRequest(messages, meta = {}) {
+  const ctx = { ...buildContext(), sinceLast: meta.sinceLast ?? null };
   return {
     system: [
       { type: "text", text: buildStanding(), cache_control: { type: "ephemeral" } },
@@ -257,8 +268,8 @@ export function agentRequest(messages) {
     max_tokens: 4096,
   };
 }
-function callAgent(messages) {
-  return callRelay(agentRequest(messages));
+function callAgent(messages, meta) {
+  return callRelay(agentRequest(messages, meta));
 }
 
 // Cheap end-to-end check used by Settings: hits the saved URL with a tiny
@@ -1317,11 +1328,58 @@ export function stayingOnPage() { return staying; }
 // opts.stay — run every tool with navigation held and nothing opened: the
 // caller's page draws the results itself. opts.onTool(name, input, result)
 // hears each tool as it finishes, for that drawing.
-export function createAgentSession({ call = callAgent, exec = execTool, stay = false, onTool = null } = {}) {
-  const messages = [];
+// --- The day's conversation, kept on the phone ---
+//
+// The thread used to live in memory and die with the sheet (parked ten
+// minutes in case the next thing said was a follow-up). Now it lasts the
+// working day: "what did I say about Ken this morning" has an answer, and
+// the plan made at nine is the same thread at four. Three rules keep it
+// honest. The day starts at the first open after 4am — midnight is the
+// wrong boundary for a 9pm close and an 8am open. The window stays capped
+// (trimHistory), so a long day's thread is the recent part, not all of it.
+// And a pronoun older than ten minutes gets a one-line check (the brief
+// above, with the gap in the live brief), because a day is long enough to
+// have dealt with someone else in between.
+export const DAY_STARTS_AT = 4; // o'clock
+export function convoDay(now = new Date()) {
+  const d = new Date(now.getTime() - DAY_STARTS_AT * 3600000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const convoKey = (who) => `viniva:convo:${who}`;
+// A saved thread that can be sent on as it stands: thinking blocks from
+// earlier turns left out (allowed, and they don't persist well), and never
+// ending mid-step — the last message is the assistant's reply in words.
+function sanitizeThread(messages) {
+  const out = (Array.isArray(messages) ? messages : []).map((m) => (m.role === "assistant" && Array.isArray(m.content) ? { ...m, content: m.content.filter((b) => b && b.type !== "thinking" && b.type !== "redacted_thinking") } : m)).filter((m) => m && (m.role === "user" || m.role === "assistant"));
+  while (out.length && !(out[0].role === "user" && typeof out[0].content === "string")) out.shift();
+  let end = out.length - 1;
+  while (end >= 0 && !(out[end].role === "assistant" && Array.isArray(out[end].content) && !out[end].content.some((b) => b.type === "tool_use"))) end--;
+  return out.slice(0, end + 1);
+}
+export function loadConvo(who, now = new Date()) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(convoKey(who)) || "null");
+    if (!saved || saved.day !== convoDay(now)) return null;
+    const messages = sanitizeThread(saved.messages);
+    return messages.length ? { messages, at: Number(saved.at) || 0 } : null;
+  } catch { return null; }
+}
+function saveConvo(who, messages, at, now = new Date()) {
+  try { localStorage.setItem(convoKey(who), JSON.stringify({ day: convoDay(now), at, messages: sanitizeThread(messages) })); } catch { /* the thread lives in memory for now */ }
+}
+export function forgetConvo(who) { try { localStorage.removeItem(convoKey(who)); } catch { /* fine */ } }
+
+// opts.remember: a name ("rep", "manager") under which the day's thread is
+// kept on the phone and picked back up — see above.
+export function createAgentSession({ call = callAgent, exec = execTool, stay = false, onTool = null, remember = null } = {}) {
+  const kept = remember ? loadConvo(remember) : null;
+  const messages = kept ? kept.messages : [];
+  const recalled = kept ? messages.filter((m) => m.role === "user" && typeof m.content === "string").length : 0;
   let pending = null; // { results:[...], askId } while awaiting a human answer
   let aside = "";     // something that happened off-thread (an Undo tap), told on the next turn
-  let lastAt = 0;     // when the salesperson last said something
+  let lastAt = kept ? kept.at : 0; // when the salesperson last said something
+  let sinceLast = null;            // minutes between that and the turn under way
+  const keep = () => { if (remember && !pending) saveConvo(remember, messages, lastAt); };
 
   // onProgress hears the work as it happens: the model's own words when it
   // thinks aloud before acting, each step as it starts, and what came of it.
@@ -1332,7 +1390,7 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
     const undone = (r) => ({ ...r, undo: undoStack.length > undoBefore ? lastUndoable() : null });
     for (let step = 0; step < 8; step++) {
       trimHistory(messages);
-      const resp = await call(messages);
+      const resp = await call(messages, { sinceLast });
       const content = resp.content || [];
       const toolUses = content.filter((b) => b.type === "tool_use");
       const text = content.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
@@ -1344,6 +1402,7 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
       if (resp.stop_reason === "max_tokens") {
         const said = text || "That one ran long and got cut off. Try asking for one thing at a time.";
         messages.push({ role: "assistant", content: [{ type: "text", text: said }] });
+        keep();
         return undone({ say: said, done: true });
       }
 
@@ -1352,6 +1411,7 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
         // follow-up on it, and "book her Thursday" needs the "her" the
         // assistant just talked about.
         messages.push({ role: "assistant", content: content.length ? content : [{ type: "text", text: text || "Done." }] });
+        keep();
         return undone({ say: text, done: true });
       }
       if (text && onProgress) onProgress(text);
@@ -1389,6 +1449,7 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
   async function send(text, onProgress) {
     const said = aside ? `${aside} ${text}` : String(text);
     aside = "";
+    sinceLast = lastAt ? Math.max(0, (Date.now() - lastAt) / 60000) : null;
     lastAt = Date.now();
     if (pending) {
       const results = pending.results;
@@ -1421,8 +1482,9 @@ export function createAgentSession({ call = callAgent, exec = execTool, stay = f
     messages.push({ role: "user", content: results });
     messages.push({ role: "assistant", content: [{ type: "text", text: "Okay." }] });
     pending = null;
+    keep();
     return true;
   }
 
-  return { send, undo, abandon, turns: () => messages.filter((m) => m.role === "user" && typeof m.content === "string").length, lastAt: () => lastAt };
+  return { send, undo, abandon, turns: () => messages.filter((m) => m.role === "user" && typeof m.content === "string").length, lastAt: () => lastAt, recalled: () => recalled };
 }

@@ -378,5 +378,6 @@ export function createManagerSession() {
     // screen has yet (Home no longer does — the Floor and Customers do).
     call: async (messages) => { const t = await team(); if (!cachedBook()) { try { await loadBook(t); } catch { /* the brief goes without the names */ } } return callRelay({ system: buildSystem(t), tools: TOOLS, messages, max_tokens: 4096 }); },
     exec: execManagerTool,
+    remember: "manager", // the day's thread, kept on the phone (agent.js)
   });
 }
