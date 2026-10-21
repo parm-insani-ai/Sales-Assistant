@@ -206,12 +206,13 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   await p.waitForTimeout(400);
   const after = await p.evaluate(() => {
     const o = document.querySelector(".voice-overlay");
-    const sheet = o?.querySelector(".voice-sheet");
+    // Docked, the sheet lives in the shell above the tab bar, not in the overlay.
+    const sheet = document.querySelector("#app > .voice-sheet.voice-strip");
     const cs = o ? getComputedStyle(o) : null;
     return {
       open: !!o,
       docked: o?.classList.contains("voice-docked"),
-      overlayClicks: cs?.pointerEvents,
+      overlayClicks: cs && cs.display === "none" ? "none" : cs?.pointerEvents,
       sheetClicks: sheet ? getComputedStyle(sheet).pointerEvents : null,
       sheetHeight: sheet ? Math.round(sheet.getBoundingClientRect().height) : null,
       viewport: window.innerHeight,
@@ -226,23 +227,24 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   if (after.sheetHeight > after.viewport / 3)
     fail(`the docked bar is ${after.sheetHeight}px tall — it's still covering the screen`);
   // The whole point, and the thing every previous version got wrong: the strip
-  // must not be ON the app. It takes the top of the screen and viniva starts
-  // below it — top bar, content, tab bar, all of it. Anything overlapping means
-  // a row of the screen it just opened is hidden behind a bar, which is the
-  // complaint that produced this in the first place.
+  // must not be ON the app. It's a band of the shell between the page and the
+  // tab bar — the page ends above it, the tabs sit under it. Anything
+  // overlapping means a row of the screen it just opened is hidden behind a
+  // bar, which is the complaint that produced this in the first place.
   const clears = await p.evaluate(() => {
-    const bar = document.querySelector(".voice-overlay .voice-sheet")?.getBoundingClientRect();
+    const bar = document.querySelector("#app > .voice-sheet.voice-strip")?.getBoundingClientRect();
     const box = (sel) => document.querySelector(sel)?.getBoundingClientRect();
     const shell = box("#app"), topbar = box(".topbar");
     const compose = box("#ib-compose"), tabs = box(".tabbar");
-    const under = (r) => !!(bar && r && r.height > 0 && r.top < bar.bottom - 1);
+    // Overlapping the bar's band, top or bottom.
+    const over = (r) => !!(bar && r && r.height > 0 && r.bottom > bar.top + 1 && r.top < bar.bottom - 1);
     return {
-      atTop: !!bar && Math.round(bar.top) <= 1,
-      appStartsBelow: !!(shell && bar && Math.round(shell.top) >= Math.round(bar.bottom) - 1),
+      aboveTabs: !!(bar && tabs && Math.abs(Math.round(bar.bottom) - Math.round(tabs.top)) <= 1),
+      pageEndsAbove: !!(bar && box(".view") && Math.round(box(".view").bottom) <= Math.round(bar.top) + 1),
       // Nothing the app draws may sit behind it.
-      behind: [".topbar", "#ib-compose", ".tabbar", ".view"].filter((s) => under(box(s))),
-      // And the shell still reaches the bottom of the screen — pushing its top
-      // down must shrink it, not slide it off the end.
+      behind: [".topbar", "#ib-compose", ".tabbar", ".view"].filter((s) => over(box(s))),
+      // And the shell is still the whole screen.
+      shellTop: shell ? Math.round(shell.top) : null,
       shellBottom: shell ? Math.round(shell.bottom) : null,
       screen: window.innerHeight,
       topbarVisible: !!(topbar && topbar.height > 0),
@@ -250,20 +252,20 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
     };
   });
   console.log("  layout:", JSON.stringify(clears));
-  if (!clears.atTop) fail("the strip isn't at the top of the screen");
-  if (!clears.appStartsBelow) fail("the app shell doesn't start below the strip — it's overlaying viniva");
+  if (!clears.aboveTabs) fail("the strip isn't sitting right above the tab bar");
+  if (!clears.pageEndsAbove) fail("the page runs on under the strip — it's overlaying the screen");
   if (clears.behind.length)
     fail("the strip is covering part of the app: " + clears.behind.join(", "));
-  if (Math.abs(clears.shellBottom - clears.screen) > 1)
-    fail(`pushing the shell down slid it off the bottom (ends at ${clears.shellBottom} of ${clears.screen})`);
-  if (!clears.topbarVisible) fail("the top bar disappeared under the strip");
+  if (clears.shellTop !== 0 || Math.abs(clears.shellBottom - clears.screen) > 1)
+    fail(`the shell is no longer the whole screen (${clears.shellTop}–${clears.shellBottom} of ${clears.screen})`);
+  if (!clears.topbarVisible) fail("the top bar disappeared");
   // The strip has to read as a band of the screen, not a widget dropped on top
   // of one: full width, square, opaque, and the waveform down to one
   // brand-coloured line at a size where three interleaved colours are just a
   // squiggle. The canvas also has to actually re-measure — rendered at the full
   // panel's backing size and squashed into a strip, it looked broken.
   const look = await p.evaluate(() => {
-    const sheet = document.querySelector(".voice-overlay .voice-sheet");
+    const sheet = document.querySelector("#app > .voice-sheet.voice-strip");
     const cs = getComputedStyle(sheet);
     const c = document.querySelector("#v-wave");
     return {
@@ -294,14 +296,16 @@ if (asked[1] < 2) fail("the follow-up started a new session — the agent lost t
   await p.waitForTimeout(300);
   const back = await p.evaluate(() => ({
     docked: document.querySelector(".voice-overlay")?.classList.contains("voice-docked"),
-    // Undocking has to hand the top of the screen back, or the app stays
-    // pushed down behind a strip that isn't there any more.
+    // Undocking has to give the shell its band back: the sheet returns to
+    // the overlay and nothing of it is left in the shell.
+    inShell: !!document.querySelector("#app > .voice-sheet"),
+    inOverlay: !!document.querySelector(".voice-overlay .voice-sheet"),
     appTop: Math.round(document.querySelector("#app").getBoundingClientRect().top),
     bodyFlag: document.body.classList.contains("voice-docked"),
   }));
   if (back.docked) fail("tapping the docked bar didn't reopen the full panel");
-  if (back.appTop !== 0 || back.bodyFlag)
-    fail(`the app is still pushed down after undocking (top ${back.appTop})`);
+  if (back.inShell || !back.inOverlay || back.appTop !== 0 || back.bodyFlag)
+    fail(`the strip didn't leave the shell on undocking: ${JSON.stringify(back)}`);
   console.log("  tapping it reopens the panel and gives the screen back \u2713");
 }
 

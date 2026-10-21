@@ -592,9 +592,9 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     // Give the shell its top back, or the app stays pushed down behind a strip
     // that no longer exists.
     clearStrip();
-    if (stripRO) stripRO.disconnect();
     stopSpeaking();
     wave.stop();
+    sheet.remove(); // docked, it lives in the shell rather than the overlay
     overlay.remove();
     session_ = null;
     // Kept for a few minutes, in case the next thing said is a follow-up.
@@ -611,33 +611,18 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   //
   // So a route change docks it. Tap to bring it back.
   //
-  // The bar takes the top of the screen and the app shell is moved down to
-  // start underneath it — it doesn't hover over the screen at all. Docked at
-  // the bottom it was still a thing lying on top of the app: however flush it
-  // was made against the tab bar, it covered a row of the conversation it had
-  // just opened, and the first thing you did was scroll to see what was there.
-  // Taking a slice of the screen instead of borrowing one means there is
-  // nothing left to interfere with.
+  // The bar is a band of the shell itself, in flow, between the page and the
+  // tab bar: the sheet leaves the overlay and is put into #app above the
+  // tabs. The page ends above it and the tabs sit under it, so it covers
+  // nothing — a bar lying over the bottom of the screen always covered a row
+  // of whatever it had just opened — and it's where the eye already is, next
+  // to the mic it came from. Tap to bring the panel back.
   let docked = false;
   const sheet = overlay.querySelector(".voice-sheet");
-
-  // How far down to push the app. The strip's height isn't a constant — the
-  // status-bar inset differs per device, and the text can change the line box —
-  // so it's measured and published for the stylesheet to consume.
-  function measureStrip() {
-    if (!docked || closed) return;
-    const h = Math.round(sheet.getBoundingClientRect().height);
-    if (h > 0) document.documentElement.style.setProperty("--voice-strip-h", `${h}px`);
-  }
-  // Keep it honest: rotation, a longer status line wrapping, the keyboard
-  // changing the insets. A stale height would leave a band of nothing under the
-  // strip, or clip the top bar behind it.
-  let stripRO = null;
-  if (window.ResizeObserver) { stripRO = new ResizeObserver(measureStrip); stripRO.observe(sheet); }
+  const sheetHome = sheet.parentNode, sheetNext = sheet.nextSibling;
 
   function clearStrip() {
     document.body.classList.remove("voice-docked");
-    document.documentElement.style.removeProperty("--voice-strip-h");
   }
 
   function dock() {
@@ -645,15 +630,16 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     docked = true;
     overlay.classList.add("voice-docked");
     document.body.classList.add("voice-docked");
+    const app = document.getElementById("app");
+    if (app) { sheet.classList.add("voice-strip"); app.insertBefore(sheet, app.querySelector(".tabbar")); }
     wave.compact(true);
-    // A frame, so the strip has been laid out at its docked size before it's
-    // measured — otherwise the app is offset by the full panel's height.
-    requestAnimationFrame(measureStrip);
   }
   function undock() {
     if (!docked || closed) return;
     docked = false;
     overlay.classList.remove("voice-docked");
+    sheet.classList.remove("voice-strip");
+    sheetHome.insertBefore(sheet, sheetNext);
     clearStrip();
     wave.compact(false);
   }
@@ -663,7 +649,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // thread, a screen, a customer — means there's something on screen to look at.
   // Router event rather than hashchange: re-entering the screen you're already
   // on still puts an answer in front of you, and hashchange doesn't fire for it.
-  const onRoute = () => { dock(); requestAnimationFrame(measureStrip); };
+  const onRoute = () => { dock(); };
   window.addEventListener("viniva-navigated", onRoute);
   // Pulse the waveform as dictated/typed words stream in.
   textInput.addEventListener("input", () => wave.bump(0.85));
