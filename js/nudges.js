@@ -22,6 +22,7 @@ import { telHref } from "./utils.js";
 import { readyTouches, heldTouches } from "./cadence.js";
 import { lateTasks, daysLate } from "./reminders.js";
 import { todayPlan } from "./plan.js";
+import { matchedWatches, closeWatch, describeWant } from "./watch.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -102,6 +103,10 @@ export function dismissNudge(n) {
     if (leadId) store.markThreadRead(leadId);
     return "Marked read";
   }
+  if (n.kind === "watch") {
+    if (n.watchId) closeWatch(n.watchId, "swipe");
+    return "Watch closed";
+  }
   try {
     const d = JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}");
     const today = new Date().toISOString().slice(0, 10);
@@ -115,6 +120,7 @@ export function dismissNudge(n) {
 export function restoreNudge(n, snapshot) {
   if (!n) return;
   if ((n.kind === "touch" || n.kind === "reminder") && snapshot) { store.update("tasks", snapshot.id, { done: false, doneBy: null, doneAt: null }); if (snapshot.lastContacted !== undefined && snapshot.leadId) store.update("leads", snapshot.leadId, { lastContacted: snapshot.lastContacted }); return; }
+  if (n.kind === "watch" && n.watchId) { store.update("watches", n.watchId, { done: false, doneAt: null, doneBy: null }); return; }
   try { const d = JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}"); delete d[n.key]; localStorage.setItem(DISMISS_KEY, JSON.stringify(d)); } catch { /* fine */ }
 }
 
@@ -276,6 +282,28 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       });
     }
   }
+
+  // --- 0e. A vehicle a customer was waiting for has landed on the lot.
+  // The watch was set when they asked for something we didn't have; the
+  // unit is here now, and they're the first call. Swiping it away closes
+  // the watch (the customer has been told, or it wasn't the one).
+  matchedWatches().forEach(({ watch, vehicle, lead }) => {
+    if (!lead) return;
+    const m = watch.matched || {};
+    const label = (vehicle && [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ")) || m.label || "the vehicle";
+    const price = (vehicle && vehicle.price != null ? vehicle.price : m.price);
+    const stock = (vehicle && vehicle.stock) || m.stock || "";
+    out.push({
+      key: `watch:${watch.id}`,
+      urgency: 88,
+      kind: "watch",
+      watchId: watch.id,
+      title: `${firstName(lead.name)}'s ${describeWant(watch.want)} is in`,
+      sub: `${label}${stock ? ` · stock ${stock}` : ""}${price != null ? ` · $${Number(price).toLocaleString()}` : ""} — they asked for one${watch.createdAt ? ` on ${new Date(watch.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}` : ""}. Text or call them first.`,
+      route: lead.phone ? `/inbox/${lead.id}` : `/leads/${lead.id}`,
+      at: watch.matchedAt || new Date(now).toISOString(),
+    });
+  });
 
   // --- 1. A customer replied and is waiting on you.
   // The most perishable thing in the app, and until now nothing surfaced it

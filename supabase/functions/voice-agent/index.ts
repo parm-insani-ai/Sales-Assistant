@@ -1065,6 +1065,58 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
   return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added, shared };
 }
 
+// ---- Stock watches ----
+// A customer wanted a vehicle the lot didn't have (the app's watch.js), and
+// the morning import is where it most often lands. The same rules as the
+// phone's, so the push at 7am and the line on Home never disagree: the
+// first unit that fits closes the search, is kept on the watch, and the
+// salesperson is told — name, unit, stock number, price — to call first.
+function fitsWant(w: any, v: any): boolean {
+  const lower = (s: unknown) => String(s || "").toLowerCase().trim();
+  if ((v.status || "available") !== "available") return false;
+  const model = lower(v.model), make = lower(v.make), trim = lower(v.trim), colour = lower(v.color).replace("gray", "grey");
+  const models: string[] = Array.isArray(w.models) ? w.models : [];
+  const makes: string[] = Array.isArray(w.makes) ? w.makes : [];
+  if (models.length && !models.some((m) => model === m || model.includes(m))) return false;
+  if (makes.length && !makes.some((m) => make.includes(m))) return false;
+  if (!models.length && w.body && !lower(v.bodyStyle).includes(w.body === "car" ? "sedan" : w.body)) return false;
+  if (w.trim && !trim.includes(String(w.trim).replace(/\+$/, ""))) return false;
+  if (w.colour && !colour.includes(String(w.colour))) return false;
+  if (w.condition && v.condition && lower(v.condition) !== lower(w.condition)) return false;
+  if (w.yearMin != null && !(v.year && Number(v.year) >= Number(w.yearMin))) return false;
+  if (w.yearMax != null && !(v.year && Number(v.year) <= Number(w.yearMax))) return false;
+  if (w.maxPrice && v.price != null && Number(v.price) > Number(w.maxPrice)) return false;
+  if (w.maxKm && v.mileage != null && Number(v.mileage) > Number(w.maxKm)) return false;
+  return true;
+}
+async function watchPass(uid: string, vehicles: any[]): Promise<number> {
+  const r = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.watches&deleted=eq.false&select=id,data`), { headers: sbHeaders() });
+  if (!r.ok) return 0;
+  const open = ((await r.json()) as any[]).map((x) => ({ ...(x.data || {}), id: x.id })).filter((w) => !w.done && !w.matchedVehicleId && w.want);
+  if (!open.length) return 0;
+  const leads = await leadsFor(uid).catch(() => [] as any[]);
+  const leadOf = (id: string) => { const l = leads.find((x: any) => x.id === id); return (l && l.data) || null; };
+  const now = new Date().toISOString();
+  let hits = 0;
+  for (const w of open) {
+    const v = vehicles.find((x) => fitsWant(w.want, x));
+    if (!v) continue;
+    const label = [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
+    const vid = "web_" + (invKey(v) || "");
+    const matched = { id: vid, label, price: v.price ?? null, stock: v.stock || "", color: v.color || "", km: v.mileage ?? null };
+    try { await saveRecord(uid, "watches", w.id, { ...w, matchedAt: now, matchedVehicleId: vid, matched, notifiedAt: now, updatedAt: now }); } catch { continue; }
+    const lead = leadOf(w.leadId);
+    const who = String((lead && lead.name) || "A customer").split(" ")[0];
+    await sendPush(uid, {
+      title: `${who}'s ${w.text || "vehicle"} is in`,
+      body: `${label}${v.stock ? " · stock " + v.stock : ""}${v.price != null ? " · $" + Number(v.price).toLocaleString() : ""} — text or call them first.`,
+      tag: `watch:${w.id}`, url: w.leadId ? (lead && lead.phone ? `./#/inbox/${w.leadId}` : `./#/leads/${w.leadId}`) : "./#/",
+    }).catch(() => 0);
+    hits++;
+  }
+  return hits;
+}
+
 // {inventory: 1} from the daily job: every user whose Settings name a store
 // URL. {inventory: {u, url?, probe?}} from Settings: that user, now.
 async function handleInventory(body: any): Promise<Response> {
@@ -1089,7 +1141,10 @@ async function handleInventory(body: any): Promise<Response> {
     try {
       const { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep);
       const write = await writeInventory(uid, vehicles, report.complete !== false);
-      results.push({ uid: uid.slice(0, 8), ...report, ...write, at: new Date().toISOString() });
+      // Anyone waiting for one of these: told now.
+      let watched = 0;
+      try { watched = await watchPass(uid, vehicles); } catch (e) { console.error("watch pass", String(e)); }
+      results.push({ uid: uid.slice(0, 8), ...report, ...write, watched, at: new Date().toISOString() });
     } catch (e) {
       results.push({ uid: uid.slice(0, 8), url, error: String((e as Error)?.message || e) });
     }

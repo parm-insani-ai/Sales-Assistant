@@ -3,6 +3,7 @@
 import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
 import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swipeable } from "../components.js";
+import { watchesFor, createWatch, cancelWatch, closeWatch, parseWant, isUseful, describeWant, vehicleFits } from "../watch.js";
 import { navigate, goBack, isReturn } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
@@ -1500,8 +1501,19 @@ function renderLeadDetail(view, id) {
           </div>
         </div>` }));
 
+    // The lot watched for a vehicle they want that we don't have (watch.js):
+    // what's being watched for, or the unit that landed, each with its button.
+    const watches = watchesFor(l.id);
+    const watchRows = watches.map((w) => {
+      const m = w.matched;
+      return m
+        ? `<div class="row lead-watch lead-watch-in" data-watch="${esc(w.id)}"><div class="row-main" style="min-width:0"><div class="row-title">${icon("check")} In: ${esc(m.label)}${m.stock ? ` · stock ${esc(m.stock)}` : ""}${m.price != null ? ` · $${Number(m.price).toLocaleString()}` : ""}</div><div class="row-sub">They asked for ${esc(describeWant(w.want))}${w.createdAt ? " on " + esc(new Date(w.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" })) : ""}.</div></div><button class="btn btn-sm btn-ghost" data-act="watch-done" data-watch="${esc(w.id)}" style="flex:none">Done</button></div>`
+        : `<div class="row lead-watch" data-watch="${esc(w.id)}"><div class="row-main" style="min-width:0"><div class="row-title">${icon("bell")} Watching the lot for ${esc(describeWant(w.want))}</div><div class="row-sub">Since ${w.createdAt ? esc(new Date(w.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" })) : "today"} — you're told the moment one lands.</div></div><button class="btn btn-sm btn-ghost" data-act="watch-cancel" data-watch="${esc(w.id)}" style="flex:none">Stop</button></div>`;
+    }).join("");
     root.appendChild(fold({ key: "lead:actions", title: "Actions", open: false, body: `
         <div class="card">
+          ${watchRows ? `<div class="lead-watches" style="margin-bottom:10px">${watchRows}</div>` : ""}
+          <button class="btn btn-ghost btn-block" data-act="watch-add" style="margin-bottom:10px">${icon("bell")} Tell me when a vehicle comes in</button>
           <button class="btn btn-primary btn-block" data-act="find-car" style="margin-bottom:10px">${icon("search")} Find a car on O'Regan's</button>
           <button class="btn btn-ghost btn-block" data-act="cadence" style="margin-bottom:10px">${icon("bell")} ${hasCadence(l.id) ? "Follow-up plan is active" : "Start follow-up plan"}</button>
           <button class="btn btn-ghost btn-block" data-act="referral" style="margin-bottom:14px">${icon("users")} Ask for a referral</button>
@@ -1532,6 +1544,23 @@ function renderLeadDetail(view, id) {
     const done = () => renderRefresh(view, id);
     on("[data-edit]", (ev) => openLeadForm(cur, { focus: ev.currentTarget.dataset.edit }));
     on('[data-act="edit"]', () => openLeadForm(cur));
+    // A vehicle they want that we don't have: watch the lot for it.
+    on('[data-act="watch-add"]', () => openModal("Tell me when it comes in", (close) => {
+      const { element } = buildForm(
+        [{ name: "want", label: `What is ${esc(l.name.split(" ")[0])} after?`, value: "", required: true, placeholder: "white Rogue Platinum, 2024 or newer, under 45" }],
+        { submitLabel: "Watch the lot", onSubmit: (data) => {
+          const want = parseWant(data.want);
+          if (!isUseful(want)) { toast("Name at least a model, a make, or SUV / truck / sedan / van", "warn"); return; }
+          const here = store.all("vehicles").filter((v) => vehicleFits(want, v));
+          createWatch(l.id, data.want);
+          close();
+          toast(here.length ? `${here.length} on the lot now fit that — check Inventory` : `Watching the lot for ${describeWant(want)}`, "success");
+          done();
+        } });
+      return element;
+    }));
+    on('[data-act="watch-cancel"]', (ev) => { cancelWatch(ev.currentTarget.dataset.watch); toast("Stopped watching"); done(); });
+    on('[data-act="watch-done"]', (ev) => { closeWatch(ev.currentTarget.dataset.watch, "done"); toast("Watch closed"); done(); });
     on('[data-act="contacted"], [data-act="log-contact"]', (ev) => {
       const anchor = ev.currentTarget.closest(".card");
       const existing = anchor.querySelector(".contact-ways");

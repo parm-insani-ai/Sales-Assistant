@@ -102,6 +102,26 @@ async function pullApply() {
       }
     }
   } catch { /* the lot is a convenience; the book is what matters */ }
+  // The lot may have changed: any customer waiting for a vehicle that's
+  // just landed is told about now (watch.js) — a line on Home, and a
+  // notification while the app is open. The 7am import pushes the same
+  // from the function when the app is shut.
+  try {
+    const w = await import("./watch.js");
+    const hits = w.checkWatches();
+    if (hits.length) {
+      const { toast } = await import("./components.js");
+      hits.forEach(({ watch, vehicle, lead }) => {
+        const label = [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
+        const who = lead ? lead.name : "A customer";
+        toast(`${who}'s ${w.describeWant(watch.want)} is in — ${label}${vehicle.stock ? ", stock " + vehicle.stock : ""}`, "success");
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          navigator.serviceWorker?.ready.then((reg) => reg.showNotification(`${who}'s ${w.describeWant(watch.want)} is in`, { body: `${label}${vehicle.stock ? " · stock " + vehicle.stock : ""} — text or call them first.`, tag: `watch:${watch.id}`, icon: "./icons/icon-192.png", badge: "./icons/icon-192.png", data: { url: lead && lead.phone ? `./#/inbox/${lead.id}` : `./#/leads/${lead ? lead.id : ""}` } })).catch(() => {});
+        }
+      });
+      try { window.dispatchEvent(new CustomEvent("viniva-watch", { detail: { hits: hits.length } })); } catch { /* no window */ }
+    }
+  } catch { /* nothing waiting, or no lot */ }
   return applied;
 }
 // Whether a pull in the current sync changed the live settings — the
