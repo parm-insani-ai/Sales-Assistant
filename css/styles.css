@@ -1103,6 +1103,13 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .todo-card .row-sub .ico { width: 13px; height: 13px; }
 .todo-card .row-sub.todo-overdue { color: var(--danger); font-weight: 600; }
 .todo-card .todo-tick { width: 24px; height: 24px; flex: none; accent-color: var(--brand); cursor: pointer; margin: 0; }
+/* Inventory → Wanted: the people waiting for a vehicle the lot doesn't have. */
+.wanted-card { padding: 4px 14px; }
+.wanted-row { padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.wanted-row:last-child { border-bottom: none; }
+.wanted-row .row-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.wanted-row .row-sub .ico { width: 13px; height: 13px; }
+.wanted-row.wanted-in .row-sub { color: var(--success); font-weight: 600; }
 /* Today's plan on Home: calls and appointments against what the day needs. */
 .plan-card { border-left: 3px solid var(--brand); margin-bottom: 10px; }
 .plan-card.plan-done { border-left-color: var(--success); }

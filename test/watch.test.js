@@ -95,6 +95,27 @@ await p.click('[data-act="watch-cancel"]'); await p.waitForTimeout(300);
 const stopped = await p.evaluate(async () => { const s = await import("/js/store.js"); return { open: s.all("watches").filter((w) => !w.done).length, rows: document.querySelectorAll(".lead-watch").length }; });
 if (stopped.open !== 0 || stopped.rows !== 0) fail("Stop should cancel the watch: " + JSON.stringify(stopped));
 
+// --- The list of everyone waiting: Inventory → Wanted, and by voice.
+const wantedList = await p.evaluate(async () => {
+  const m = await import("/js/agent.js");
+  await m.execTool("watch_for_vehicle", { customer: "Ken Jones", vehicle: "a used Frontier under 40" });
+  await m.execTool("watch_for_vehicle", { customer: "Dana Muise", vehicle: "a 2024 or newer Kicks SR" });
+  const r = await m.execTool("wanted_list", {});
+  await new Promise((res) => setTimeout(res, 400));
+  return { result: r.result, hash: location.hash, chip: document.querySelector('[data-filter="wanted"]')?.textContent.trim(), active: document.querySelector('[data-filter="wanted"]')?.classList.contains("btn-primary"), rows: [...document.querySelectorAll(".wanted-row")].map((x) => x.textContent.replace(/\s+/g, " ").trim()) };
+});
+console.log("wanted:", JSON.stringify(wantedList).slice(0, 600));
+if (wantedList.result.count !== 2 || wantedList.result.waiting.map((x) => x.customer).sort().join() !== "Dana Muise,Ken Jones" || !/Frontier, used, under \$40,000/.test(JSON.stringify(wantedList.result.waiting))) fail("the voice list should name everyone waiting and what for: " + JSON.stringify(wantedList.result));
+if (wantedList.hash !== "#/inventory" || wantedList.chip !== "Wanted · 2" || !wantedList.active || wantedList.rows.length !== 2 || !wantedList.rows.some((r) => /Dana Muise · 2024\+ Kicks SR.*Watching since/.test(r))) fail("Inventory → Wanted should list them, newest first, with the chip counted: " + JSON.stringify({ hash: wantedList.hash, chip: wantedList.chip, rows: wantedList.rows }));
+await p.click(".wanted-row"); await p.waitForTimeout(400);
+if (!/^#\/leads\//.test(await p.evaluate(() => location.hash))) fail("a Wanted row should open the customer");
+// The chip is there even with nobody waiting.
+await p.evaluate(async () => { const s = await import("/js/store.js"); s.all("watches").forEach((w) => s.update("watches", w.id, { done: true })); location.hash = "#/inventory"; }); await p.waitForTimeout(400);
+await p.click('[data-filter="wanted"]'); await p.waitForTimeout(200);
+const none = await p.evaluate(() => ({ chip: document.querySelector('[data-filter="wanted"]')?.textContent.trim(), empty: document.querySelector(".veh-list")?.textContent.replace(/\s+/g, " ").trim() }));
+if (none.chip !== "Wanted" || !/Nobody's waiting/.test(none.empty || "")) fail("with nobody waiting the chip should still be there, uncounted, with a plain empty state: " + JSON.stringify(none));
+await p.evaluate(async () => { const s = await import("/js/store.js"); s.all("watches").forEach((w) => s.update("watches", w.id, { done: true })); });
+
 // --- "Stop watching for Ken", by voice.
 const cancelled = await p.evaluate(async () => { const m = await import("/js/agent.js"); await m.execTool("watch_for_vehicle", { customer: "Ken Jones", vehicle: "a Kicks SR" }); const r = await m.execTool("watch_for_vehicle", { customer: "Ken Jones", cancel: true }); const s = await import("/js/store.js"); return { cancelled: r.result.cancelled, open: s.all("watches").filter((w) => !w.done).length }; });
 if (cancelled.cancelled !== 1 || cancelled.open !== 0) fail("cancelling by voice should close Ken's open watch: " + JSON.stringify(cancelled));

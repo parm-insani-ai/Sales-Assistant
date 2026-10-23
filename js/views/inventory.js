@@ -7,6 +7,7 @@ import { openMarketplaceBuilder } from "./marketplace.js";
 import { openDealerSearch } from "./dealer.js";
 import { icon } from "../icons.js";
 import { currency, num, esc } from "../utils.js";
+import { describeWant } from "../watch.js";
 
 export function vehicleName(v) {
   return [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle";
@@ -24,6 +25,13 @@ export function renderInventory(view, { param }) {
   let pick = null;
   try { pick = JSON.parse(sessionStorage.getItem("inventory-pick") || "null"); sessionStorage.removeItem("inventory-pick"); } catch { pick = null; }
   if (pick && !(Array.isArray(pick.ids) && pick.ids.length)) pick = null;
+  // "Who's waiting for something we don't have?" lands on the Wanted chip.
+  try { if (sessionStorage.getItem("inventory-wanted")) { filter = "wanted"; pick = null; sessionStorage.removeItem("inventory-wanted"); } } catch { /* the lot, then */ }
+
+  // The customers waiting for a vehicle the lot doesn't have (watch.js):
+  // open watches, and the ones whose unit has landed, newest first.
+  const wanted = () => store.all("watches").filter((w) => !w.done).map((w) => ({ w, lead: store.get("leads", w.leadId) || null })).filter((x) => x.lead)
+    .sort((a, b) => (b.w.matchedAt ? 1 : 0) - (a.w.matchedAt ? 1 : 0) || String(b.w.createdAt || "").localeCompare(String(a.w.createdAt || "")));
 
   const wrap = document.createElement("div");
   view.appendChild(wrap);
@@ -40,6 +48,7 @@ export function renderInventory(view, { param }) {
   }
 
   function draw() {
+    const waiting = wanted();
     const chips = [
       { id: "available", label: "Available" },
       { id: "new", label: "New" },
@@ -47,6 +56,9 @@ export function renderInventory(view, { param }) {
       { id: "hold", label: "On Hold" },
       { id: "sold", label: "Sold" },
       { id: "all", label: "All" },
+      // Not units: the people waiting for one. Always there, so the list
+      // has a home even when it's empty.
+      { id: "wanted", label: `Wanted${waiting.length ? ` · ${waiting.length}` : ""}` },
     ];
     wrap.innerHTML = `
       <button class="btn btn-success btn-block" data-act="dealer" style="margin-bottom:12px">${icon("search")} Search O'Regan's network (used)</button>
@@ -61,6 +73,28 @@ export function renderInventory(view, { param }) {
     `;
     wrap.querySelector('[data-act="dealer"]').addEventListener("click", () => openDealerSearch());
     const listEl = wrap.querySelector(".veh-list");
+    if (!pick && filter === "wanted") {
+      // The people waiting: who, for what, since when — and the unit, once
+      // it has landed. Each row opens the customer.
+      const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString("en-CA", { month: "short", day: "numeric" }) : "");
+      listEl.innerHTML = waiting.length ? `<div class="card wanted-card">${waiting.map(({ w, lead }) => `
+          <div class="row wanted-row${w.matched ? " wanted-in" : ""}" data-lead="${esc(lead.id)}" role="button" tabindex="0">
+            <div class="row-main" style="min-width:0">
+              <div class="row-title">${esc(lead.name)} <span class="muted" style="font-weight:500">· ${esc(describeWant(w.want))}</span></div>
+              <div class="row-sub">${w.matched ? `${icon("check")} In: ${esc(w.matched.label)}${w.matched.stock ? ` · stock ${esc(w.matched.stock)}` : ""}${w.matched.price != null ? ` · ${currency(w.matched.price)}` : ""} — asked ${esc(fmt(w.createdAt))}` : `${icon("bell")} Watching since ${esc(fmt(w.createdAt) || "today")}${lead.phone ? "" : " · no phone on file"}`}</div>
+            </div>
+            <div class="row-meta">›</div>
+          </div>`).join("")}</div>
+        <div class="hint" style="margin:8px 2px 0">Set one from a customer's page (Actions → Tell me when a vehicle comes in) or by saying "Ken wants a white Rogue Platinum, let me know when one comes in". The lot is checked every morning's import and every sync.</div>`
+        : emptyState("bell", "Nobody's waiting", "When a customer wants a vehicle we don't have, set a watch from their page or by voice, and they show up here.");
+      listEl.querySelectorAll(".wanted-row").forEach((r) => { const go = () => navigate(`/leads/${r.dataset.lead}`); r.addEventListener("click", go); r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }); });
+      wrap.querySelector('input[type="search"]').addEventListener("input", (e) => {
+        const q = e.target.value.toLowerCase();
+        listEl.querySelectorAll(".wanted-row").forEach((r) => { r.hidden = !!q && !r.textContent.toLowerCase().includes(q); });
+      });
+      wrap.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { pick = null; filter = b.dataset.filter; draw(); }));
+      return;
+    }
     const items = list();
     if (!items.length) {
       listEl.innerHTML = emptyState("car", "No vehicles", search ? "No matches." : "Tap + to add inventory.");
