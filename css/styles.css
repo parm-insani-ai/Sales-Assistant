@@ -1103,6 +1103,12 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .todo-card .row-sub .ico { width: 13px; height: 13px; }
 .todo-card .row-sub.todo-overdue { color: var(--danger); font-weight: 600; }
 .todo-card .todo-tick { width: 24px; height: 24px; flex: none; accent-color: var(--brand); cursor: pointer; margin: 0; }
+/* The deal radar's card: the payment line is the hero, the reasons sit
+   under it as chips that wrap, and the three actions share the row. */
+.opp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.opp-chips .badge { white-space: nowrap; }
+.opp-actions { display: flex; gap: 8px; }
+.opp-actions .btn { flex: 1 1 0; min-width: 0; white-space: nowrap; justify-content: center; }
 /* Inventory → Wanted: the people waiting for a vehicle the lot doesn't have. */
 .wanted-card { padding: 4px 14px; }
 .wanted-row { padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }

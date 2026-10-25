@@ -12,7 +12,7 @@ import { navigate } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { icon } from "../icons.js";
 import { fillTemplate } from "./messages.js";
-import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday, paymentDelta } from "../utils.js";
+import { currency, currency2, esc, smsHref, telHref, parseDate, daysFromToday, paymentDelta, pct, properName } from "../utils.js";
 export { paymentDelta };
 import { SPEC_LIBRARY } from "../specs.js";
 import { cacheGet, cacheSet, fingerprint } from "../cachedb.js";
@@ -282,7 +282,7 @@ export function trimProgram(rows, v) {
 function specialLabel(sp, method) {
   if (method === "finance") {
     const bits = [];
-    if (sp.financeApr != null && sp.financeApr !== "") bits.push(`${sp.financeApr}% APR${sp.financeTerm ? ` / ${sp.financeTerm} mo` : ""}`);
+    if (sp.financeApr != null && sp.financeApr !== "") bits.push(`${pct(sp.financeApr)} APR${sp.financeTerm ? ` / ${sp.financeTerm} mo` : ""}`);
     if (Number(sp.cash)) bits.push(`${currency(Number(sp.cash))} cash`);
     return bits.join(" + ") || null;
   }
@@ -415,7 +415,7 @@ function optionsForVehicle(lead, v, opts = {}) {
         // Term settled; now price it with whatever cash is actually down.
         const f = computeDeal({ ...base, fees: feeFor, apr: bestT.apr, term: bestT.term, price });
         f.surplus = cashBack(base, price, feeFor, s);
-        const label = `${bestT.apr}% APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
+        const label = `${pct(bestT.apr)} APR / ${bestT.term} mo${cash ? ` + ${currency(cash)} cash` : ""}`;
         out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, surplus: f.surplus, term: bestT.term, apr: bestT.apr, rateTable: table, cash, down: num(base.down), special: label });
       }
     } else {
@@ -478,7 +478,7 @@ function optionsForVehicle(lead, v, opts = {}) {
       });
       if (bestL) {
         const l = computeLease({ ...base, fees: leaseFee, term: bestL.term, residualPct: bestL.res, apr: bestL.apr, msrp: v.price, price: leasePrice });
-        const label = `${bestL.apr}% lease / ${bestL.term} mo${lcash ? ` + ${currency(lcash)} lease cash` : ""}`;
+        const label = `${pct(bestL.apr)} lease / ${bestL.term} mo${lcash ? ` + ${currency(lcash)} lease cash` : ""}`;
         out.push({ vehicle: v, method: "lease", monthly: l.monthly, residual: l.residual, surplus: l.surplus, term: bestL.term, apr: bestL.apr, resPct: bestL.res, rateTable: lr.byTerm, leaseCash: lcash, down: num(base.down), special: label });
       }
     } else {
@@ -598,9 +598,9 @@ function scoreParts(lead, { has, cur, monthly, apr, special, eq, eqSrc, theirs, 
   // maturity) vs the actual program rate on the matched deal.
   const progApr = has && apr != null ? apr : null;
   if (theirs != null && progApr != null && theirs - progApr >= 1.5) {
-    score += 14; reasons.push(`~${theirs}% now → ${progApr}% program`);
+    score += 14; reasons.push(`~${pct(theirs)} now → ${pct(progApr)} program`);
   } else if (theirs != null && theirs > (s.defaultApr || 0) + 1) {
-    score += 12; reasons.push(`Rate ${theirs}% → ~${s.defaultApr}%`);
+    score += 12; reasons.push(`Rate ${pct(theirs)} → ~${pct(s.defaultApr)}`);
   }
 
   // The incentive is pitch material — keep it ahead of the reason cap.
@@ -1519,7 +1519,7 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
         <div class="row small muted"><span>Same payment</span><span>+$200/mo</span></div>
       </div>
       <div style="margin-top:14px">
-        <div class="row"><label class="small strong">Payment ceiling</label><span class="small mono strong" id="cap-val" style="color:var(--brand)">${Number(s.dealMaxPayment) ? currency(s.dealMaxPayment) + "/mo" : "off"}</span></div>
+        <div class="row"><label class="small strong">Payment ceiling</label><span class="small mono strong" id="cap-val" style="color:var(--brand)">${Number(s.dealMaxPayment) ? currency(s.dealMaxPayment) + "/mo" : "Off"}</span></div>
         <input id="cap-slider" type="range" min="0" max="1200" step="25" value="${Number(s.dealMaxPayment) || 0}" style="width:100%;margin-top:6px" />
         <div class="row small muted"><span>Off</span><span>$1,200/mo</span></div>
       </div>
@@ -1536,11 +1536,15 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
     list.innerHTML = "";
     // Always say what the controls are doing — otherwise a slider that filters
     // nobody (because no one has a current payment on file) looks broken.
-    const bits = [`${rows.length} shown`];
+    // In words a salesperson would use: "over the same-payment line", not
+    // "over the +$0/mo band".
+    const band = pickParams().band;
+    const total = all.rows.length + (overBand || 0) + (overCap || 0);
+    const bits = [`Top ${rows.length}${total > rows.length ? ` of ${total.toLocaleString()}` : ""}`];
     if (outside) bits.push(`${outside} outside the filter`);
-    if (overBand) bits.push(`${overBand} over the +${currency(pickParams().band)}/mo band`);
+    if (overBand) bits.push(`${overBand} over the ${band > 0 ? `+${currency(band)}/mo band` : "same-payment line"}`);
     if (overCap) bits.push(`${overCap} over the ceiling`);
-    if (noBaseline) bits.push(`${noBaseline} with no current payment on file — the band can't filter these, use the ceiling`);
+    if (noBaseline) bits.push(`${noBaseline} with no current payment on file (the band can't sort these — use the ceiling)`);
     countEl.textContent = bits.join(" · ");
     if (!rows.length) {
       list.innerHTML = `<div class="muted small" style="text-align:center;padding:30px">${outside ? "Nobody in this filter has a deal at these settings — pick another chip, clear the search, or widen the tolerance." : "Nothing matches these settings. Widen the tolerance, raise the ceiling, switch Finance/Lease, or add inventory."}</div>`;
@@ -1595,34 +1599,39 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
 
 function opportunityCard({ lead, best, score, reasons }) {
   const el = document.createElement("div");
-  el.className = "card";
+  el.className = "card opp-card";
   const st = strength(score);
   const v = best.vehicle;
+  // The payment line is the hero; the same fact as a chip underneath was
+  // saying it twice. Whole dollars: a radar reads to the dollar, the desk
+  // works the cents.
+  const dl = paymentDelta(best.delta);
+  const chips = dl ? reasons.filter((r) => !/\/mo less$|^Same payment$|^\+\$[\d,]+\/mo$/.test(r)) : reasons;
   el.innerHTML = `
     <div class="row">
       <div class="row-main">
-        <div class="row-title">${esc(lead.name)}</div>
+        <div class="row-title">${esc(properName(lead.name))}</div>
         <div class="row-sub">${lead.currentPayment != null ? "Pays " + currency(lead.currentPayment) + "/mo · " : ""}${esc(lead.vehicleInterest || "current vehicle")}</div>
       </div>
       <span class="badge ${st.badge}">${st.label}</span>
     </div>
-    <div class="card" style="margin:12px 0 0;background:var(--surface-2);border:none">
+    <div class="card opp-hero" style="margin:12px 0 0;background:var(--surface-2);border:none">
       <div class="row">
         <div class="row-main"><div class="small muted">Put them in · ${best.method === "lease" ? "Lease" : "Finance"}</div><div class="strong">${esc(vehName(v))}</div></div>
-        <div class="row-meta"><div class="strong mono" style="font-size:1.05rem">${currency2(best.monthly)}<span class="muted" style="font-size:.8rem">/mo</span></div>${(() => { const dl = paymentDelta(best.delta); return dl ? `<div class="small" style="color:${dl.color};font-weight:700">${dl.text}</div>` : ""; })()}</div>
+        <div class="row-meta"><div class="strong mono" style="font-size:1.05rem">${currency(Math.round(best.monthly))}<span class="muted" style="font-size:.8rem">/mo</span></div>${dl ? `<div class="small" style="color:${dl.color};font-weight:700">${dl.text}</div>` : ""}</div>
       </div>
     </div>
-    ${reasons.length ? `<div class="btn-row" style="gap:6px;margin-top:10px">${reasons.map((r) => `<span class="badge badge-working">${esc(r)}</span>`).join("")}</div>` : ""}
+    ${chips.length ? `<div class="opp-chips">${chips.map((r) => `<span class="badge badge-working">${esc(r)}</span>`).join("")}</div>` : ""}
     <button class="btn btn-primary btn-block" data-act="book" style="margin-top:12px">${icon("calendar")} Book appointment</button>
-    <div class="btn-row" style="margin-top:8px">
+    <div class="btn-row opp-actions" style="margin-top:8px">
       ${lead.phone
-        ? `<a class="btn btn-ghost btn-sm" data-act="offer" style="flex:1" href="${smsHref(lead.phone, offerText(lead, best))}">${icon("message")} Text offer</a>
-           <a class="btn btn-ghost btn-sm" data-act="call" style="flex:0 0 auto" href="${telHref(lead.phone)}">${icon("phone")}</a>`
+        ? `<a class="btn btn-ghost btn-sm" data-act="offer" href="${smsHref(lead.phone, offerText(lead, best))}">${icon("message")} Text</a>
+           <a class="btn btn-ghost btn-sm" data-act="call" href="${telHref(lead.phone)}">${icon("phone")} Call</a>`
         // No number on file: keep the same three-button layout rather than
         // collapsing the row, and make the empty slots add the phone.
-        : `<button class="btn btn-ghost btn-sm" data-act="addphone" style="flex:1">${icon("message")} Add a phone</button>
-           <button class="btn btn-ghost btn-sm" data-act="addphone" style="flex:0 0 auto">${icon("phone")}</button>`}
-      <button class="btn btn-ghost btn-sm" data-act="more" style="flex:1">${icon("dollar")} Options</button>
+        : `<button class="btn btn-ghost btn-sm" data-act="addphone">${icon("message")} Add a phone</button>
+           <button class="btn btn-ghost btn-sm" data-act="addphone">${icon("phone")} Call</button>`}
+      <button class="btn btn-ghost btn-sm" data-act="more">${icon("dollar")} Options</button>
     </div>
   `;
   const touch = () => { store.logActivity("touch"); store.update("leads", lead.id, { lastContacted: new Date().toISOString() }); };

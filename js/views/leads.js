@@ -23,7 +23,7 @@ import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail,
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
-  relativeDay, daysFromToday, formatDate, formatDateTime, todayISO, num,
+  relativeDay, daysFromToday, formatDate, formatDateTime, todayISO, num, properName, pct,
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
@@ -717,7 +717,7 @@ function contractBanner(l, opts = {}) {
   // The rate they carry: as stated, or solved from payment, payoff and
   // months left when it isn't on file (marked ≈).
   let rate = "—";
-  if (c.apr != null) rate = `${c.apr}%`;
+  if (c.apr != null) rate = pct(c.apr);
   else { try { const a = dealInputs(l).apr; if (a && a.v != null && a.src !== "default") rate = `<span class="cb-approx">≈</span>${Math.round(Number(a.v) * 10) / 10}%`; } catch { /* no rate to show */ } }
   return `<div class="contract-banner${c.paidOff ? " contract-banner-done" : ""}"${opts.tap ? ' data-act="money" style="cursor:pointer"' : ""}>
       <div class="cb-cell"><span class="cb-label">Payment</span><span class="cb-value">${pay}</span></div>
@@ -1182,7 +1182,7 @@ function renderLeadDetail(view, id) {
     <div class="card lead-head">
       <div class="row">
         <div class="row-main" data-edit="name" style="cursor:pointer">
-          <div class="row-title" style="font-size:1.35rem">${esc(l.name)}</div>
+          <div class="row-title" style="font-size:1.35rem">${esc(properName(l.name))}</div>
           <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted — tap to add"}</div>
         </div>
       </div>

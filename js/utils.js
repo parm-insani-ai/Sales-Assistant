@@ -31,6 +31,25 @@ export function num(n) {
   return (Number(n) || 0).toLocaleString("en-US");
 }
 
+// A rate as people say it: "7.9%", "5.95%", "12.42%", "0%" — never the
+// float's tail ("7.900000095367432%").
+export function pct(n, digits = 2) {
+  const v = Number(n);
+  if (!isFinite(v)) return "";
+  return String(Number(v.toFixed(digits))) + "%";
+}
+
+// A name as it would be written, from an import that shouted it: "RACHELLE
+// DEEGAN" → "Rachelle Deegan", "O'REGAN" → "O'Regan", "MARY-ANN" →
+// "Mary-Ann". A name already in mixed case is left exactly as typed, and
+// so is a bare set of initials ("JP").
+export function properName(name) {
+  const s = String(name || "").trim();
+  if (!s || s !== s.toUpperCase() || !/[A-Z]/.test(s)) return s;
+  if (!/\s/.test(s) && s.replace(/[^A-Z]/g, "").length <= 3) return s;
+  return s.toLowerCase().replace(/(^|[\s\-'’.])([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
+}
+
 // Format a phone number as a clickable tel: friendly display.
 export function phoneDisplay(p) {
   const d = String(p || "").replace(/\D/g, "");

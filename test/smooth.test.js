@@ -403,7 +403,7 @@ console.log("payment sliders:");
   console.log("  " + JSON.stringify(r));
   if (r.blocked > 120) fail(`the slider's change event took ${r.blocked}ms to paint the new answer`);
   if (r.tight.saved === 0) fail("dragging the slider wrote the settings before it was let go");
-  if (!/over the \+\$0\/mo band/.test(r.tight.label)) fail("the list didn't follow the knob while it was dragged: " + r.tight.label);
+  if (!/over the same-payment line/.test(r.tight.label)) fail("the list didn't follow the knob while it was dragged: " + r.tight.label);
   if (r.wide.saved !== 200 || !r.wide.current) fail(`letting go didn't save the band and bring the radar current: ${JSON.stringify(r.wide)}`);
   if (r.wide.dimmed || !r.wide.cards) fail("the list waited on a re-price instead of painting at once");
   if (!r.tight.shown || r.wide.shown >= r.tight.shown) fail(`widening the band from +$0 to +$200 didn't let more through: ${r.tight.shown} → ${r.wide.shown} over the band`);
