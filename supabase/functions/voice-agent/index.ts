@@ -1184,19 +1184,51 @@ async function handleSweep(body: any): Promise<Response> {
     // their local wall-clock time) fire at that moment — proactive switch,
     // quiet hours and business hours notwithstanding: they asked for it.
     // Once each; a reminder more than a day past is left alone.
-    let remindersPushed = 0;
+    // The ledger (the app's ledger.js): every commitment is one kind of
+    // thing, and nothing stays overdue quietly. A reminder is pushed at its
+    // minute; several due together go as ONE push; one still open two hours
+    // on is pushed once more ("second reminder") and its count kept in
+    // `pokes`, which the phone reads — after the third the app stops
+    // reminding and asks on Home.
+    let remindersPushed = 0, repoked = 0;
+    const pokeRows: any[] = await rows("pokes");
+    const pokeOf = (key: string) => pokeRows.find((p: any) => p.key === key) || null;
+    const bumpPoke = async (key: string, count: number) => {
+      const p = pokeOf(key);
+      const c = Math.max(count, Number(p?.count) || 0);
+      const at = new Date(now).toISOString();
+      const data = { ...(p || {}), id: `poke:${key}`, key, count: c, lastAt: at, firstAt: p?.firstAt || at, updatedAt: at };
+      try { await saveRecord(uid, "pokes", `poke:${key}`, data); } catch { /* the count is a convenience */ }
+    };
     {
       const already = await sentNudges(uid);
-      const due = (await rows("tasks")).filter((t: any) => {
-        if (t.done || t.channel !== "reminder" || !t.remindAt) return false;
+      const tasks = await rows("tasks");
+      const open = tasks.filter((t: any) => !t.done && t.channel === "reminder" && t.remindAt);
+      const due = open.filter((t: any) => {
         const at = wallClockMs(t.remindAt, tzOffset);
         return isFinite(at) && at <= now && now - at <= 24 * 3600 * 1000 && !already[`rem:${t.id}`];
       });
-      for (const t of due) {
-        remindersPushed += await sendPush(uid, { title: "Reminder", body: String(t.title || "").slice(0, 120), tag: `rem:${t.id}`, url: "./#/today" });
-        already[`rem:${t.id}`] = new Date().toISOString();
+      const stamp = new Date().toISOString();
+      if (due.length === 1) {
+        const t = due[0];
+        remindersPushed += await sendPush(uid, { title: "Reminder", body: String(t.title || "").slice(0, 120), tag: `rem:${t.id}`, url: "./#/log" });
+        already[`rem:${t.id}`] = stamp;
+      } else if (due.length > 1) {
+        // Bundled: one push, one coherent thought.
+        const names = due.map((t: any) => String(t.title || "").slice(0, 40));
+        remindersPushed += await sendPush(uid, { title: `${due.length} things due now`, body: `${names.slice(0, 3).join(" · ")}${names.length > 3 ? ` · +${names.length - 3}` : ""}`, tag: `rem:bundle:${stamp.slice(0, 13)}`, url: "./#/log" });
+        for (const t of due) already[`rem:${t.id}`] = stamp;
       }
-      if (due.length) await rememberNudges(uid, already);
+      // Two hours on, still open: once more, and the count goes to two.
+      for (const t of open) {
+        const at = wallClockMs(t.remindAt, tzOffset);
+        if (!isFinite(at) || now - at < 2 * 3600 * 1000 || now - at > 26 * 3600 * 1000) continue;
+        if (!already[`rem:${t.id}`] || already[`rem2:${t.id}`]) continue;
+        repoked += await sendPush(uid, { title: `Still open: ${String(t.title || "").slice(0, 80)}`, body: "Second reminder — tick it off, or it comes up again at the next check-in.", tag: `rem2:${t.id}`, url: "./#/log" });
+        already[`rem2:${t.id}`] = stamp;
+        await bumpPoke(`task:${t.id}`, 2);
+      }
+      if (due.length || repoked) await rememberNudges(uid, already);
     }
 
     // New mail — a notification on the phone like a mail app's, any hour,
@@ -1219,6 +1251,56 @@ async function handleSweep(body: any): Promise<Response> {
     const leads = await rows("leads");
     const leadById = (id: string) => leads.find((l: any) => l.id === id) || null;
     const found: { key: string; urgency: number; title: string; body: string; url: string; actions?: { action: string; title: string; url: string }[] }[] = [];
+    const dayOf = (v: unknown) => { const s = String(v || ""); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : (isNaN(new Date(s).getTime()) ? "" : new Date(new Date(s).getTime() - tzOffset * 60000).toISOString().slice(0, 10)); };
+    const firstOf = (n: unknown) => String(n || "").trim().split(/\s+/)[0] || "them";
+
+    // 0a. Follow-up dates (the ledger's): from nine, the customers whose
+    //     follow-up is today and who haven't been reached — one push for
+    //     all of them; two hours on, still open, once more.
+    if (openForBusiness && localHour >= 9) {
+      const dueFu = leads.filter((l: any) => dayOf(l.followUp) === localDay && !(l.lastContacted && dayOf(l.lastContacted) >= localDay) && !["sold", "lost"].includes(l.stage));
+      const fresh = dueFu.filter((l: any) => !already[`fu:${l.id}:${localDay}`]);
+      const stamp = new Date(now).toISOString();
+      if (fresh.length === 1) {
+        const l = fresh[0];
+        await sendPush(uid, { title: `Follow up with ${firstOf(l.name)} today`, body: `${l.vehicleInterest ? l.vehicleInterest + " — " : ""}it's the day you set.`, tag: `fu:${l.id}:${localDay}`, url: l.phone ? `./#/inbox/${l.id}` : `./#/leads/${l.id}` });
+        already[`fu:${l.id}:${localDay}`] = stamp;
+      } else if (fresh.length > 1) {
+        await sendPush(uid, { title: `${fresh.length} follow-ups due today`, body: fresh.slice(0, 4).map((l: any) => firstOf(l.name)).join(", ") + (fresh.length > 4 ? ` +${fresh.length - 4}` : ""), tag: `fu:bundle:${localDay}`, url: "./#/leads" });
+        for (const l of fresh) already[`fu:${l.id}:${localDay}`] = stamp;
+      }
+      for (const l of dueFu) {
+        const sentAt = already[`fu:${l.id}:${localDay}`];
+        if (!sentAt || already[`fu2:${l.id}:${localDay}`] || now - new Date(sentAt).getTime() < 2 * 3600 * 1000) continue;
+        await sendPush(uid, { title: `Still open: follow up with ${firstOf(l.name)}`, body: "Second reminder — reach them, or move the date on their page.", tag: `fu2:${l.id}:${localDay}`, url: l.phone ? `./#/inbox/${l.id}` : `./#/leads/${l.id}` });
+        already[`fu2:${l.id}:${localDay}`] = stamp;
+        await bumpPoke(`fu:${l.id}:${localDay}`, 2);
+      }
+      if (fresh.length) await rememberNudges(uid, already);
+    }
+
+    // 0b. The midday check-in, at one, once: where the day stands in one
+    //     push — appointments set, to-dos due and overdue, replies waiting
+    //     — and the things reminded twice already are now reminded a third
+    //     time, which is the last: after this, Home asks.
+    if (openForBusiness && localHour === 13 && !already[`pulse:${localDay}`]) {
+      const tasksAll = await rows("tasks");
+      const openTodos = tasksAll.filter((t: any) => !t.done && !t.cadence && t.due);
+      const dueToday = openTodos.filter((t: any) => dayOf(t.due) === localDay).length;
+      const overdue = openTodos.filter((t: any) => dayOf(t.due) < localDay);
+      const setToday = (await rows("appointments")).filter((a: any) => a.status !== "canceled" && dayOf(a.createdAt || a.when) === localDay).length;
+      const waiting = (await rows("texts")).filter((t: any) => t.dir === "in" && !t.read && now - new Date(t.at || t.createdAt).getTime() >= REPLY_GRACE_MIN * 60000);
+      const waitingLeads = new Set(waiting.map((t: any) => t.leadId || t.phone)).size;
+      let third = 0;
+      for (const t of overdue) { const p = pokeOf(`task:${t.id}`); if (p && Number(p.count) >= 2) { await bumpPoke(`task:${t.id}`, 3); third++; } }
+      const bits = [`${setToday} appointment${setToday === 1 ? "" : "s"} set so far`];
+      if (dueToday || overdue.length) bits.push(`${dueToday} to-do${dueToday === 1 ? "" : "s"} due${overdue.length ? ` (${overdue.length} overdue)` : ""}`);
+      if (waitingLeads) bits.push(`${waitingLeads} waiting on a reply`);
+      if (third) bits.push(`${third} reminded 3 times — decide on them on Home`);
+      await sendPush(uid, { title: "Midday check-in", body: bits.join(" · "), tag: `pulse:${localDay}`, url: "./#/" });
+      already[`pulse:${localDay}`] = new Date(now).toISOString();
+      await rememberNudges(uid, already);
+    }
 
     // 0. Asking for an OK — business hours only.
     //    A welcome text whose five-minute hold is up (the app drafts it; the push
@@ -2706,8 +2788,22 @@ async function handleMorningPlays(body: any): Promise<Response> {
     const appts = (await rows("appointments")).filter((a: any) =>
       a.status === "scheduled" && !a.outcome && String(a.when || "").startsWith(today));
     const unconfirmed = appts.filter((a: any) => !a.confirmed).length;
-    const tasksDue = (await rows("tasks")).filter((t: any) =>
-      !t.done && t.due && String(t.due).slice(0, 10) <= today).length;
+    const openTasks = (await rows("tasks")).filter((t: any) => !t.done && t.due && !t.cadence);
+    const tasksDue = openTasks.filter((t: any) => String(t.due).slice(0, 10) <= today).length;
+    const overdue = openTasks.filter((t: any) => String(t.due).slice(0, 10) < today);
+    // Overdue and reminded twice already: this is the third time, the last
+    // the function reminds — after it, Home asks (the app's ledger.js).
+    let third = 0;
+    if (overdue.length) {
+      const pokes = await rows("pokes");
+      for (const t of overdue) {
+        const p = pokes.find((x: any) => x.key === `task:${t.id}`);
+        if (p && Number(p.count) >= 2 && Number(p.count) < 3) {
+          const at = new Date().toISOString();
+          try { await saveRecord(uid, "pokes", `poke:task:${t.id}`, { ...p, count: 3, lastAt: at, updatedAt: at }); third++; } catch { /* fine */ }
+        } else if (p && Number(p.count) >= 3) third++;
+      }
+    }
     const links = (await rows("links")).filter((l: any) => l.lastOpenAt && l.lastOpenAt >= dayAgo);
     // The night read, when there is one for today: its first play leads.
     const night = (await rows("agentplays")).find((r: any) => r.date === today);
@@ -2720,7 +2816,7 @@ async function handleMorningPlays(body: any): Promise<Response> {
       bits.push(label ? `${label} was opened overnight 👀` : `${links.length} link${links.length === 1 ? "" : "s"} opened overnight 👀`);
     }
     if (appts.length) bits.push(`${appts.length} appointment${appts.length === 1 ? "" : "s"} today${unconfirmed ? ` (${unconfirmed} unconfirmed)` : ""}`);
-    if (tasksDue) bits.push(`${tasksDue} follow-up${tasksDue === 1 ? "" : "s"} due`);
+    if (tasksDue) bits.push(`${tasksDue} to-do${tasksDue === 1 ? "" : "s"} due${overdue.length ? ` (${overdue.length} overdue${third ? `, ${third} reminded 3 times — decide on them` : ""})` : ""}`);
     if (!bits.length) continue; // quiet day — no noise
 
     pushed += await sendPush(uid, {

@@ -324,7 +324,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount, daylogToday, postsToday] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount, daylogToday, postsToday, tasksToday, tasksLate] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -352,7 +352,17 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     // Today's daily customer prospect log, for the line on Home.
     backend.readRecords(userId, "daylogs", { id: `eq.daylog:${today}` }, { select: "data", limit: 1 }).catch(() => []),
     backend.readRecords(userId, "events", { "data->>kind": "eq.fb_post", "data->>at": `gte.${since(2)}` }, { select: "data", limit: 200 }).catch(() => []),
+    // The day's commitments (ledger.js): to-dos due today, and the ones
+    // from before still open — due against done is the number that turns
+    // reminders into a habit.
+    backend.readRecords(userId, "tasks", { "data->>due": `eq.${today}` }, { select: "data", limit: 500 }).catch(() => []),
+    backend.readRecords(userId, "tasks", { "data->>due": `lt.${today}`, "data->>done": "eq.false" }, { select: "data", limit: 500 }).catch(() => []),
   ]);
+  const commit = (() => {
+    const data = (xs) => (xs || []).map((r) => r.data || {});
+    const td = data(tasksToday).filter((t) => !t.cadence), late = data(tasksLate).filter((t) => !t.cadence && t.due);
+    return { due: td.length, done: td.filter((t) => t.done).length, overdue: late.length };
+  })();
   const rows = (xs) => xs.map((r) => r.data || {});
   const acts = rows(activity).filter((a) => a.type === "touch" || a.type === "text");
   const touchesByDay = {};
@@ -524,7 +534,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // it: the list customers reached today come in by themselves.
   const dlSheet = buildSheet({ date: today, saved: (daylogToday[0] && daylogToday[0].data) || null, leads: book, calls: callsAll, texts, appointments: allAppts, events: rows(postsToday) });
   const daylog = dlSheet.counts.prospects || dlSheet.counts.posts ? dlSheet.counts : null;
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, daylog, note: readNote, at: now.toISOString() };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, daylog, commit, note: readNote, at: now.toISOString() };
 }
 
 // The board's self-check: for each member, what the server holds against

@@ -23,6 +23,7 @@ import { readyTouches, heldTouches } from "./cadence.js";
 import { lateTasks, daysLate } from "./reminders.js";
 import { todayPlan } from "./plan.js";
 import { matchedWatches, closeWatch, describeWant } from "./watch.js";
+import { stale, noteOverdue, ASK_AFTER } from "./ledger.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -218,9 +219,13 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
 
   // --- 0b. A reminder whose time has come. The salesperson set the moment
   // themselves, the action is whatever they wrote, and ticking it off (on
-  // Today) makes it go away — all three tests, by construction.
+  // Today) makes it go away — all three tests, by construction. One the
+  // ledger is already asking about (below) isn't also nagged here.
+  try { noteOverdue(now); } catch { /* the pokes are a convenience */ }
+  const asking = stale(now);
+  const askingKeys = new Set(asking.map((c) => c.key));
   store.all("tasks")
-    .filter((t) => !t.done && t.remindAt && t.channel === "reminder")
+    .filter((t) => !t.done && t.remindAt && t.channel === "reminder" && !askingKeys.has(`task:${t.id}`))
     .forEach((t) => {
       const at = apptTime(t.remindAt);
       if (!isFinite(at) || at > now || now - at > 24 * HOUR) return;
@@ -302,6 +307,25 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       sub: `${label}${stock ? ` · stock ${stock}` : ""}${price != null ? ` · $${Number(price).toLocaleString()}` : ""} — they asked for one${watch.createdAt ? ` on ${new Date(watch.createdAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}` : ""}. Text or call them first.`,
       route: lead.phone ? `/inbox/${lead.id}` : `/leads/${lead.id}`,
       at: watch.matchedAt || new Date(now).toISOString(),
+    });
+  });
+
+  // --- 0f. Still open after three reminders (ledger.js). The app stops
+  // reminding and asks instead: tomorrow, next week, or let it go. Nothing
+  // stays overdue quietly, and nothing nags forever either.
+  asking.forEach((c) => {
+    const times = c.pokes ? Number(c.pokes.count) || 0 : 0;
+    const since = new Date(c.due).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+    out.push({
+      key: `stale:${c.key}`,
+      urgency: 82,
+      kind: "stale",
+      ledgerKey: c.key,
+      title: `Still open: ${c.title}`,
+      sub: `${times >= ASK_AFTER ? `Reminded ${times} times` : "Overdue"} since ${since} — move it, or let it go.`,
+      route: c.route,
+      choices: [{ label: "Tomorrow", act: "tomorrow" }, { label: "Next week", act: "nextweek" }, { label: "Drop", act: "drop" }],
+      at: new Date(c.due).toISOString(),
     });
   });
 

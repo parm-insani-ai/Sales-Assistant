@@ -11,10 +11,11 @@ import { salesTarget, openTargetForm } from "../target.js";
 import { repInsight } from "../insight.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
-import { swipeable, undoToast } from "../components.js";
+import { swipeable, undoToast, toast } from "../components.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getNudges, missingWelcomes, dismissNudge, restoreNudge } from "../nudges.js";
 import { todayPlan } from "../plan.js";
+import { resolve as resolveCommitment } from "../ledger.js";
 import { reviewTouch } from "../touches.js";
 import { ensurePlans } from "../apptplan.js";
 import { canManage, viewModeOverride, setViewMode } from "../team.js";
@@ -147,6 +148,24 @@ export function renderDashboard(view) {
           ${n.sub ? `<div class="row-sub">${esc(n.sub)}</div>` : ""}
         </div><div class="row-meta">${n.locked ? icon("clock") : "\u203a"}</div>`;
       if (n.locked && n.unlockAt) { const t = new Date(n.unlockAt).getTime(); if (t > Date.now() && (!nextUnlock || t < nextUnlock)) nextUnlock = t; }
+      // A question with answers (the ledger's "still open?"): the buttons
+      // answer it here; the row itself still opens the thing.
+      if (Array.isArray(n.choices) && n.choices.length) {
+        const bar = document.createElement("div");
+        bar.className = "nudge-choices";
+        n.choices.forEach((c) => {
+          const b = document.createElement("button");
+          b.type = "button"; b.className = `btn btn-sm ${c.act === "drop" ? "btn-ghost" : "btn-ghost"}`; b.textContent = c.label; b.dataset.act = c.act;
+          b.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const r = resolveCommitment(n.ledgerKey, c.act);
+            toast(c.act === "drop" ? "Dropped" : `Moved to ${c.act === "nextweek" ? "next week" : "tomorrow"}${r && r.movedTo ? ` (${r.movedTo})` : ""}`, "success");
+            paintNudges();
+          });
+          bar.appendChild(b);
+        });
+        row.querySelector(".row-main").appendChild(bar);
+      }
       row.addEventListener("click", async () => {
         // The end-of-day check: the sheet opens and the assistant asks there.
         if (n.open === "voice") { import("../voice.js").then((m) => m.startVoiceAssistant()).catch(() => {}); return; }
