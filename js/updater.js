@@ -3,8 +3,12 @@
 // GitHub Actions workflow), so the browser sees a genuinely new service worker;
 // this checks for it on launch/focus and reloads once the new version takes over.
 
+import { isNative } from "./native.js";
+
 export function initAutoUpdate() {
-  if (!("serviceWorker" in navigator)) return;
+  // The iPhone app ships its own copy of the files (or loads the live site):
+  // no worker to update, and a WKWebView can't run one anyway.
+  if (isNative() || !("serviceWorker" in navigator)) return;
 
   const hadController = !!navigator.serviceWorker.controller;
   let refreshing = false;
@@ -43,7 +47,7 @@ export function initAutoUpdate() {
 // it's already there). updateViaCache:"none" → the sw.js script itself is
 // never served from the HTTP cache, so a new deploy is always noticed.
 export function registerWorker() {
-  if (!("serviceWorker" in navigator)) return Promise.resolve(null);
+  if (isNative() || !("serviceWorker" in navigator)) return Promise.resolve(null);
   return navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
 }
 

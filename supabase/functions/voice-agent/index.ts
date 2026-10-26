@@ -171,17 +171,97 @@ async function pushSubs(uid: string, errs?: string[]): Promise<any[]> {
   return res.json();
 }
 
-// Send {title, body, url, tag} to every device the user registered.
-// Dead subscriptions (404/410 from the push service) are tombstoned so we
-// stop trying them. Returns how many devices accepted.
+// ---- Apple push (the iPhone app) ----
+// A phone running viniva as its own app (native/README.md) registers with
+// Apple's push service and saves {kind:"apns", token} in place of a web
+// subscription. Sending needs the App Store Connect push key: APNS_KEY_P8
+// (the .p8 file's PEM text), APNS_KEY_ID, APNS_TEAM_ID, and APNS_BUNDLE_ID
+// (default ai.entoa.viniva). Apple runs two gateways: Xcode builds register
+// on the sandbox, TestFlight and App Store builds on production. Production
+// is tried first (APNS_SANDBOX=1 flips that); a token one gateway calls bad
+// is retried on the other before the device is given up on.
+function apnsConfigured(): boolean {
+  return !!(Deno.env.get("APNS_KEY_P8") && Deno.env.get("APNS_KEY_ID") && Deno.env.get("APNS_TEAM_ID"));
+}
+const b64url = (b: Uint8Array | string) => btoa(typeof b === "string" ? b : String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+let apnsJwt: { token: string; at: number } | null = null;
+// The provider token Apple wants: an ES256 JWT, good for an hour, reused for fifty minutes.
+async function apnsToken(): Promise<string> {
+  if (apnsJwt && Date.now() - apnsJwt.at < 50 * 60_000) return apnsJwt.token;
+  const pem = (Deno.env.get("APNS_KEY_P8") || "").replace(/\\n/g, "\n");
+  const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const head = b64url(JSON.stringify({ alg: "ES256", kid: Deno.env.get("APNS_KEY_ID") }));
+  const claims = b64url(JSON.stringify({ iss: Deno.env.get("APNS_TEAM_ID"), iat: Math.floor(Date.now() / 1000) }));
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(`${head}.${claims}`)));
+  apnsJwt = { token: `${head}.${claims}.${b64url(sig)}`, at: Date.now() };
+  return apnsJwt.token;
+}
+// The same {title, body, url, tag} the web push carries, in Apple's shape.
+// The url rides along for the app to open on a tap; the tag collapses
+// repeats of the same alert and groups them in the tray.
+async function apnsSend(deviceToken: string, payload: Record<string, unknown>, sandbox: boolean): Promise<{ ok: boolean; status: number; reason: string }> {
+  const host = sandbox ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
+  const tag = String(payload.tag || "");
+  const aps: Record<string, unknown> = { alert: { title: String(payload.title || "viniva"), body: String(payload.body || "") }, sound: "default" };
+  if (tag) aps["thread-id"] = tag.split(":")[0];
+  if (typeof payload.badge === "number") aps.badge = payload.badge;
+  const headers: Record<string, string> = {
+    authorization: `bearer ${await apnsToken()}`,
+    "apns-topic": Deno.env.get("APNS_BUNDLE_ID") || "ai.entoa.viniva",
+    "apns-push-type": "alert",
+    "apns-priority": "10",
+    "content-type": "application/json",
+  };
+  if (tag) headers["apns-collapse-id"] = tag.slice(0, 64);
+  const r = await fetch(`${host}/3/device/${deviceToken}`, { method: "POST", headers, body: JSON.stringify({ aps, url: String(payload.url || "./#/"), tag, actions: payload.actions ?? null }) });
+  if (r.ok) return { ok: true, status: r.status, reason: "" };
+  let reason = "";
+  try { reason = String(((await r.json()) as any)?.reason || ""); } catch { /* no body */ }
+  return { ok: false, status: r.status, reason };
+}
+const APNS_DEAD = new Set(["BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic", "ExpiredToken"]);
+
+function tombstonePush(rowId: string): void {
+  fetch(sbUrl(`/records?id=eq.${encodeURIComponent(rowId)}&collection=eq.push`), {
+    method: "PATCH", headers: sbHeaders(),
+    body: JSON.stringify({ deleted: true, updated_at: new Date().toISOString() }),
+  }).catch(() => {});
+}
+
+// Send {title, body, url, tag} to every device the user registered — web
+// subscriptions through their push service, the iPhone app through Apple's.
+// Dead subscriptions (404/410, or a token Apple no longer knows) are
+// tombstoned so we stop trying them. Returns how many devices accepted.
 async function sendPush(uid: string, payload: Record<string, unknown>, errs?: string[]): Promise<number> {
-  if (!ensureVapid()) { errs?.push("VAPID keys not configured"); return 0; }
+  const vapid = ensureVapid(), apns = apnsConfigured();
+  if (!vapid && !apns) { errs?.push("VAPID keys not configured"); return 0; }
   const rows = await pushSubs(uid, errs);
   if (!rows.length && !errs?.length) errs?.push(`no subscription rows for user ${uid.slice(0, 8)}`);
   let sent = 0;
   for (const row of rows) {
-    const sub = row.data?.sub;
+    const d = row.data || {};
+    if (d.kind === "apns" && d.token) {
+      if (!apns) { errs?.push("Apple push key not configured (APNS_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID)"); continue; }
+      try {
+        const sandboxFirst = Deno.env.get("APNS_SANDBOX") === "1";
+        let r = await apnsSend(String(d.token), payload, sandboxFirst);
+        if (!r.ok && r.reason === "BadDeviceToken") r = await apnsSend(String(d.token), payload, !sandboxFirst);
+        if (r.ok) { sent++; continue; }
+        const detail = `apns failed (${r.status}): ${r.reason || "no reason"}`;
+        console.error(detail);
+        errs?.push(detail);
+        if (r.status === 410 || APNS_DEAD.has(r.reason)) tombstonePush(row.id);
+      } catch (e) {
+        const detail = `apns failed: ${String((e as Error)?.message || e).slice(0, 300)}`;
+        console.error(detail);
+        errs?.push(detail);
+      }
+      continue;
+    }
+    const sub = d.sub;
     if (!sub?.endpoint) { errs?.push(`row ${row.id}: no endpoint in stored subscription`); continue; }
+    if (!vapid) { errs?.push("VAPID keys not configured"); continue; }
     try {
       await webpush.sendNotification(sub, JSON.stringify(payload));
       sent++;
@@ -190,12 +270,7 @@ async function sendPush(uid: string, payload: Record<string, unknown>, errs?: st
       const detail = `push failed (${code || "no status"}): ${String(e?.body || e?.message || e).slice(0, 300)}`;
       console.error(detail);
       errs?.push(detail);
-      if (code === 404 || code === 410) {
-        fetch(sbUrl(`/records?id=eq.${encodeURIComponent(row.id)}&collection=eq.push`), {
-          method: "PATCH", headers: sbHeaders(),
-          body: JSON.stringify({ deleted: true, updated_at: new Date().toISOString() }),
-        }).catch(() => {});
-      }
+      if (code === 404 || code === 410) tombstonePush(row.id);
     }
   }
   return sent;
@@ -3508,7 +3583,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "POST" && new URL(req.url).searchParams.get("sms")) return handleInboundSms(req);
   if (req.method === "GET") {
     const u = new URL(req.url);
-    if (u.searchParams.get("push") === "cfg") return json({ publicKey: Deno.env.get("VAPID_PUBLIC_KEY") || null });
+    if (u.searchParams.get("push") === "cfg") return json({ publicKey: Deno.env.get("VAPID_PUBLIC_KEY") || null, apns: apnsConfigured() });
     if (u.searchParams.get("l")) return handleResolve(u.searchParams.get("l") || "");
     if (u.searchParams.get("avail")) return handleAvail(req);
     return proxyICS(req);

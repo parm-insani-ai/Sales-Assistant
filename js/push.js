@@ -10,21 +10,29 @@ import * as store from "./store.js";
 import * as backend from "./backend.js";
 import * as sync from "./sync.js";
 import { registerWorker } from "./updater.js";
+import { isNative, platform, nativePushGranted, nativePushRegister, nativePushUnregister } from "./native.js";
 
 const agentUrl = () => (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
 
+// Inside the iPhone app, push is Apple's own (native.js) and needs no worker.
 export function pushSupported() {
+  if (isNative()) return true;
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
-// iOS only exposes push to installed (standalone) web apps.
+// iOS only exposes push to installed (standalone) web apps — the real app
+// is as installed as it gets.
 export function needsInstall() {
+  if (isNative()) return false;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   return ios && !standalone;
 }
 
+const nativeRecord = () => { const r = store.get("push", deviceId()); return r && r.kind === "apns" && r.token ? r : null; };
+
 export async function currentSubscription() {
+  if (isNative()) return nativeRecord();
   if (!pushSupported()) return null;
   // getRegistration answers even when nothing is registered; `ready` waits
   // for an active worker and never resolves if there isn't one — which left
@@ -81,6 +89,19 @@ export async function enablePush() {
   if (!backend.isSignedIn()) throw new Error("Sign in to Cloud sync first — notifications travel through it.");
   if (!agentUrl()) throw new Error("Set up the agent function first (Settings → Voice agent).");
 
+  // The app itself: Apple hands back a device token, saved as the device's
+  // push record with kind "apns" so the function sends through Apple.
+  if (isNative()) {
+    const token = await nativePushRegister();
+    if (!token) throw new Error("The phone didn't hand back a push token — try again.");
+    const id = deviceId();
+    const data = { kind: "apns", token, platform: platform(), ua: navigator.userAgent.slice(0, 120) };
+    if (store.get("push", id)) store.update("push", id, { ...data, sub: null });
+    else store.create("push", { id, ...data });
+    sync.syncNow();
+    return true;
+  }
+
   const perm = await Notification.requestPermission();
   if (perm !== "granted") throw new Error("Notifications were declined — enable them for viniva in iOS Settings, then try again.");
 
@@ -100,14 +121,18 @@ export async function enablePush() {
 }
 
 export async function disablePush() {
-  const sub = await currentSubscription();
-  if (sub) await sub.unsubscribe().catch(() => {});
+  if (isNative()) await nativePushUnregister();
+  else {
+    const sub = await currentSubscription();
+    if (sub) await sub.unsubscribe().catch(() => {});
+  }
   const id = deviceId();
   if (store.get("push", id)) store.remove("push", id);
   sync.syncNow();
 }
 
 export async function pushEnabled() {
+  if (isNative()) return !!nativeRecord() && (await nativePushGranted());
   if (!pushSupported() || Notification.permission !== "granted") return false;
   return !!(await currentSubscription());
 }

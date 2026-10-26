@@ -59,6 +59,13 @@ Deploy the folder to any static host (GitHub Pages, Netlify, Cloudflare Pages, V
 
 Now it launches full-screen like an app and works offline.
 
+#### As a real iPhone app (TestFlight)
+
+The same files also build into a native iPhone app, with Apple's own speech
+recognizer behind the microphone and real push notifications — no
+Home Screen step. See [native/README.md](native/README.md) for the one-time
+Apple setup and the GitHub Action that uploads to TestFlight.
+
 #### Deploy to GitHub Pages (free)
 
 1. Push this branch to GitHub.

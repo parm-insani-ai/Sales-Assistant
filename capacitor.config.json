@@ -1,0 +1,19 @@
+{
+  "appId": "ai.entoa.viniva",
+  "appName": "viniva",
+  "webDir": "native/www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0b0f14",
+    "preferredContentMode": "mobile"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
+    }
+  }
+}

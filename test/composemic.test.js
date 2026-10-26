@@ -78,11 +78,13 @@ const after = await p.evaluate(() => {
   const bar = o?.querySelector(".voice-sheet")?.getBoundingClientRect();
   const compose = document.querySelector("#ib-compose")?.getBoundingClientRect();
   const thread = document.querySelector("#ib-thread")?.getBoundingClientRect();
+  const tabs = document.querySelector(".tabbar")?.getBoundingClientRect();
   return {
     open: !!o,
     docked: o?.classList.contains("voice-docked"),
     listening: window.__live || 0,
-    atTop: !!bar && Math.round(bar.top) <= 1,
+    // The strip sits just above the tab bar, where the thumb already is.
+    aboveTabs: !!(bar && tabs && Math.abs(bar.bottom - tabs.top) <= 2),
     // The point of docking: what you're talking about is still in front of you.
     coversCompose: !!(bar && compose && compose.top < bar.bottom - 1),
     coversThread: !!(bar && thread && thread.bottom > bar.top && thread.top < bar.bottom - 1),
@@ -97,7 +99,7 @@ console.log("after tapping it:", JSON.stringify(after));
 if (!after.open) fail("tapping the mic didn't start a voice session");
 if (!after.docked) fail("it opened the full panel over the conversation instead of the strip");
 if (!after.listening) fail("it opened but never started listening");
-if (!after.atTop) fail("the strip isn't at the top");
+if (!after.aboveTabs) fail("the strip isn't sitting above the tab bar");
 if (after.coversCompose) fail("the strip is covering the reply row it was launched from");
 if (after.coversThread) fail("the strip is covering the conversation");
 if (after.micLive === "none") fail("the mic doesn't show that it's already listening");
