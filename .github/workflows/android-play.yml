@@ -1,0 +1,126 @@
+name: Android · build and upload to Play internal testing
+
+# Builds the Android app (the web app wrapped by Capacitor, see
+# native/README.md) as a signed app bundle and uploads it to the Play
+# Console's internal testing track. Run it by hand from the Actions tab.
+#
+# Secrets it needs (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_B64        the upload keystore (.jks), base64-encoded
+#   ANDROID_KEYSTORE_PASSWORD   its password
+#   ANDROID_KEY_ALIAS           the key's alias (e.g. upload)
+#   ANDROID_KEY_PASSWORD        the key's password
+#   PLAY_SERVICE_ACCOUNT_JSON   a Google Cloud service account with release
+#                               access in the Play Console, the JSON key file
+#                               as is. Leave it unset to just build the
+#                               bundle (kept as a run artifact).
+#   GOOGLE_SERVICES_JSON        the app's Firebase config file, base64-encoded.
+#                               Optional: without it the app builds and runs
+#                               but can't receive notifications.
+#
+# The Play Console wants the very first bundle uploaded by hand to create
+# the app; after that this workflow does it. The version code is the run
+# number, so every upload is newer than the last.
+
+on:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Shell loads the live site (https://entoa.ai) instead of bundling the files."
+        type: boolean
+        default: false
+      version:
+        description: "Version name shown in Play (e.g. 1.0)"
+        default: "1.0"
+      upload:
+        description: "Upload to the internal testing track (needs PLAY_SERVICE_ACCOUNT_JSON)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Copy the web app into the shell
+        env:
+          CAP_SERVER_URL: ${{ inputs.live && 'https://entoa.ai' || '' }}
+        run: |
+          npm run native:build
+          npx cap sync android
+
+      - name: Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Firebase config, when there is one
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+            echo "Firebase config in place: notifications on."
+          else
+            echo "::warning::No GOOGLE_SERVICES_JSON secret — the app will build but cannot receive notifications."
+          fi
+
+      - name: Upload key
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KS_B64" ]; then echo "::error::Add the ANDROID_KEYSTORE_B64 secret (native/README.md)."; exit 1; fi
+          echo "$KS_B64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Build the signed bundle
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew bundleRelease --no-daemon \
+            -PversionCode="$GITHUB_RUN_NUMBER" -PversionName="${{ inputs.version }}"
+          ls -la app/build/outputs/bundle/release/
+
+      - name: Keep the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: viniva-android-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Upload to Play internal testing
+        if: ${{ inputs.upload && env.PLAY_SA != '' }}
+        env:
+          PLAY_SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ai.entoa.viniva
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+
+      - name: Clean up
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks" android/app/google-services.json

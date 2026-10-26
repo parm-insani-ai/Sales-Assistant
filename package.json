@@ -5,16 +5,18 @@
   "description": "viniva — the salesperson's assistant. The web app is the product; this package wraps it as a native iPhone app (Capacitor) for TestFlight.",
   "scripts": {
     "native:build": "node native/build.mjs",
-    "native:sync": "npm run native:build && npx cap sync ios",
+    "native:sync": "npm run native:build && npx cap sync",
     "native:open": "npx cap open ios",
+    "native:open:android": "npx cap open android",
     "test": "node test/assets.test.js && node test/native.test.js"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.0",
+    "@capacitor/android": "^7.6.9",
     "@capacitor/app": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/ios": "^7.0.0",
-    "@capacitor/push-notifications": "^7.0.0",
-    "@capacitor-community/speech-recognition": "^7.0.0"
+    "@capacitor/push-notifications": "^7.0.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.0.0"

@@ -11,9 +11,10 @@
 //     alternatives, onerror, onend). The browser's version stops listening
 //     after a few seconds, fails in home-screen mode on some iOS versions,
 //     and can't hear a showroom. This one can.
-//   • push — a real device token from Apple's push service, saved to the
-//     "push" collection the function already reads, as {kind:"apns", token}
-//     instead of a web subscription. No "add to Home Screen first".
+//   • push — a real device token from Apple's push service (or Google's, on
+//     Android), saved to the "push" collection the function already reads,
+//     as {kind:"apns"|"fcm", token} instead of a web subscription. No "add
+//     to Home Screen first".
 //
 // In a browser it defines nothing and its helpers answer "not native".
 // Everything goes through the bridge's own calls (nativePromise/addListener),
@@ -174,15 +175,21 @@ export async function nativePushGranted() {
 }
 // Ask, register, and hand back the device token. Throws plain-language messages.
 export async function nativePushRegister() {
+  const android = platform() === "android";
   const perm = await call("PushNotifications", "requestPermissions");
-  if (!perm || perm.receive !== "granted") throw new Error("Notifications were declined — enable them for viniva in iOS Settings, then try again.");
+  if (!perm || perm.receive !== "granted") throw new Error(`Notifications were declined — enable them for viniva in ${android ? "the phone's" : "iOS"} Settings, then try again.`);
+  // Android groups notifications by channel; this is viniva's.
+  if (android) await call("PushNotifications", "createChannel", { id: "viniva", name: "viniva", description: "Reminders, replies and what's come in", importance: 4, visibility: 1, vibration: true }).catch(() => {});
   const handles = [];
+  // On Android the token comes from Google's messaging service, which is only
+  // in the build when the Firebase file was (native/README.md).
+  const explain = (e) => /firebase|default firebaseapp|google/i.test(String(e)) ? "This Android build has no Firebase file in it, so it can't receive notifications — see native/README.md." : "Couldn't register for notifications: " + String(e);
   try {
     return await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("The phone didn't hand back a push token — check the signal and try again.")), 15000);
       handles.push(listen("PushNotifications", "registration", (tok) => { clearTimeout(timer); resolve(String((tok && tok.value) || "")); }));
-      handles.push(listen("PushNotifications", "registrationError", (err) => { clearTimeout(timer); reject(new Error("Couldn't register for notifications: " + String((err && err.error) || err))); }));
-      call("PushNotifications", "register").catch((e) => { clearTimeout(timer); reject(e); });
+      handles.push(listen("PushNotifications", "registrationError", (err) => { clearTimeout(timer); reject(new Error(explain((err && err.error) || err))); }));
+      call("PushNotifications", "register").catch((e) => { clearTimeout(timer); reject(new Error(explain((e && e.message) || e))); });
     });
   } finally {
     for (const h of handles) h.then((x) => x && x.remove && x.remove()).catch(() => {});

@@ -222,6 +222,59 @@ async function apnsSend(deviceToken: string, payload: Record<string, unknown>, s
 }
 const APNS_DEAD = new Set(["BadDeviceToken", "Unregistered", "DeviceTokenNotForTopic", "ExpiredToken"]);
 
+// ---- Google push (the Android app) ----
+// An Android phone running viniva as its own app registers with Firebase
+// Cloud Messaging and saves {kind:"fcm", token}. Sending needs a Firebase
+// service account: FCM_SERVICE_ACCOUNT, the whole JSON file Firebase hands
+// out (Project settings → Service accounts → Generate new private key). Its
+// private key signs a short-lived Google access token; the message goes to
+// the FCM v1 endpoint for that project.
+function fcmAccount(): any {
+  try { const raw = Deno.env.get("FCM_SERVICE_ACCOUNT"); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
+function fcmConfigured(): boolean {
+  const a = fcmAccount();
+  return !!(a && a.client_email && a.private_key && a.project_id);
+}
+let fcmAccess: { token: string; at: number } | null = null;
+async function fcmToken(): Promise<string> {
+  if (fcmAccess && Date.now() - fcmAccess.at < 50 * 60_000) return fcmAccess.token;
+  const a = fcmAccount();
+  const pem = String(a.private_key).replace(/\\n/g, "\n");
+  const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = b64url(JSON.stringify({ iss: a.client_email, scope: "https://www.googleapis.com/auth/firebase.messaging", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${head}.${claims}`)));
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${head}.${claims}.${b64url(sig)}` }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error(`fcm auth failed (${r.status}): ${String(j.error_description || j.error || "").slice(0, 200)}`);
+  fcmAccess = { token: String(j.access_token), at: Date.now() };
+  return fcmAccess.token;
+}
+async function fcmSend(deviceToken: string, payload: Record<string, unknown>): Promise<{ ok: boolean; status: number; reason: string }> {
+  const a = fcmAccount();
+  const tag = String(payload.tag || "");
+  const message: Record<string, unknown> = {
+    token: deviceToken,
+    notification: { title: String(payload.title || "viniva"), body: String(payload.body || "") },
+    data: { url: String(payload.url || "./#/"), tag },
+    android: { priority: "high", ...(tag ? { collapse_key: tag.slice(0, 64) } : {}), notification: { channel_id: "viniva", ...(tag ? { tag } : {}) } },
+  };
+  const r = await fetch(`https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`, {
+    method: "POST", headers: { authorization: `Bearer ${await fcmToken()}`, "content-type": "application/json" }, body: JSON.stringify({ message }),
+  });
+  if (r.ok) return { ok: true, status: r.status, reason: "" };
+  let reason = "";
+  try { const j = await r.json(); reason = String((j?.error?.details || []).find((d: any) => d.errorCode)?.errorCode || j?.error?.status || ""); } catch { /* no body */ }
+  return { ok: false, status: r.status, reason };
+}
+const FCM_DEAD = new Set(["UNREGISTERED", "NOT_FOUND", "INVALID_ARGUMENT"]);
+
 function tombstonePush(rowId: string): void {
   fetch(sbUrl(`/records?id=eq.${encodeURIComponent(rowId)}&collection=eq.push`), {
     method: "PATCH", headers: sbHeaders(),
@@ -234,13 +287,29 @@ function tombstonePush(rowId: string): void {
 // Dead subscriptions (404/410, or a token Apple no longer knows) are
 // tombstoned so we stop trying them. Returns how many devices accepted.
 async function sendPush(uid: string, payload: Record<string, unknown>, errs?: string[]): Promise<number> {
-  const vapid = ensureVapid(), apns = apnsConfigured();
-  if (!vapid && !apns) { errs?.push("VAPID keys not configured"); return 0; }
+  const vapid = ensureVapid(), apns = apnsConfigured(), fcm = fcmConfigured();
+  if (!vapid && !apns && !fcm) { errs?.push("VAPID keys not configured"); return 0; }
   const rows = await pushSubs(uid, errs);
   if (!rows.length && !errs?.length) errs?.push(`no subscription rows for user ${uid.slice(0, 8)}`);
   let sent = 0;
   for (const row of rows) {
     const d = row.data || {};
+    if (d.kind === "fcm" && d.token) {
+      if (!fcm) { errs?.push("Firebase service account not configured (FCM_SERVICE_ACCOUNT)"); continue; }
+      try {
+        const r = await fcmSend(String(d.token), payload);
+        if (r.ok) { sent++; continue; }
+        const detail = `fcm failed (${r.status}): ${r.reason || "no reason"}`;
+        console.error(detail);
+        errs?.push(detail);
+        if (r.status === 404 || FCM_DEAD.has(r.reason)) tombstonePush(row.id);
+      } catch (e) {
+        const detail = `fcm failed: ${String((e as Error)?.message || e).slice(0, 300)}`;
+        console.error(detail);
+        errs?.push(detail);
+      }
+      continue;
+    }
     if (d.kind === "apns" && d.token) {
       if (!apns) { errs?.push("Apple push key not configured (APNS_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID)"); continue; }
       try {
@@ -3583,7 +3652,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "POST" && new URL(req.url).searchParams.get("sms")) return handleInboundSms(req);
   if (req.method === "GET") {
     const u = new URL(req.url);
-    if (u.searchParams.get("push") === "cfg") return json({ publicKey: Deno.env.get("VAPID_PUBLIC_KEY") || null, apns: apnsConfigured() });
+    if (u.searchParams.get("push") === "cfg") return json({ publicKey: Deno.env.get("VAPID_PUBLIC_KEY") || null, apns: apnsConfigured(), fcm: fcmConfigured() });
     if (u.searchParams.get("l")) return handleResolve(u.searchParams.get("l") || "");
     if (u.searchParams.get("avail")) return handleAvail(req);
     return proxyICS(req);

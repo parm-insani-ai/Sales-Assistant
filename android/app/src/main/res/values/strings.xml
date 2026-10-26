@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">viniva</string>
+    <string name="title_activity_main">viniva</string>
+    <string name="package_name">ai.entoa.viniva</string>
+    <string name="custom_url_scheme">ai.entoa.viniva</string>
+</resources>

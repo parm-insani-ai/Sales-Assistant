@@ -142,6 +142,46 @@ const where = await p.evaluate(() => ({ hash: location.hash, title: document.get
 console.log("tap:", JSON.stringify(where));
 if (where.hash !== "#/log") fail("a tapped notification should open the page in its url: " + JSON.stringify(where));
 
+// --- The same shell on Android: the token is Google's, saved as kind "fcm",
+// and the app's notification channel is created before registering.
+const droid = await ctx.newPage();
+await droid.addInitScript(() => {
+  localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
+  localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [], settings: { salesperson: "Parm", cloudAutoSync: false, agentUrl: "http://127.0.0.1:8137/fn" } }));
+  const listeners = {}; const log = [];
+  window.__cap = { log, emit: (plugin, ev, data) => (listeners[plugin + ":" + ev] || []).forEach((fn) => fn(data)) };
+  window.Capacitor = {
+    isNativePlatform: () => true, getPlatform: () => "android",
+    addListener: (plugin, ev, fn) => { (listeners[plugin + ":" + ev] = listeners[plugin + ":" + ev] || []).push(fn); return { remove: () => {} }; },
+    nativePromise: (plugin, method, options) => {
+      log.push({ plugin, method, options });
+      if (method === "requestPermissions" || method === "checkPermissions") return Promise.resolve({ receive: "granted", speechRecognition: "granted" });
+      if (method === "register") {
+        if (window.__noFirebase) return Promise.reject(new Error("Default FirebaseApp is not initialized in this process"));
+        setTimeout(() => window.__cap.emit("PushNotifications", "registration", { value: "fcm-token-xyz" }), 10);
+      }
+      return Promise.resolve();
+    },
+  };
+});
+await droid.goto(APP + "/#/");
+await droid.waitForTimeout(600);
+const android = await droid.evaluate(async () => {
+  const m = await import("/js/push.js"); const s = await import("/js/store.js"); const n = await import("/js/native.js");
+  await m.enablePush();
+  const rec = s.all("push")[0] || null;
+  const channel = window.__cap.log.find((l) => l.method === "createChannel");
+  const order = window.__cap.log.filter((l) => l.plugin === "PushNotifications").map((l) => l.method);
+  await m.disablePush();
+  window.__noFirebase = true;
+  let msg = ""; try { await m.enablePush(); } catch (e) { msg = e.message; }
+  return { platform: n.platform(), record: rec && { kind: rec.kind, token: rec.token, platform: rec.platform }, channel: channel && channel.options.id, order, msg };
+});
+console.log("android:", JSON.stringify(android));
+if (android.platform !== "android" || !android.record || android.record.kind !== "fcm" || android.record.token !== "fcm-token-xyz" || android.record.platform !== "android") fail("on Android the token should be saved as kind fcm: " + JSON.stringify(android));
+if (android.channel !== "viniva" || android.order.indexOf("createChannel") > android.order.indexOf("register")) fail("the app's notification channel should exist before registering: " + JSON.stringify(android.order));
+if (!/Firebase file/.test(android.msg)) fail("a build without Firebase should say so plainly: " + android.msg);
+
 // --- In a browser, none of this exists.
 const web = await ctx.newPage();
 await web.addInitScript(() => { localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [], settings: { salesperson: "Parm", cloudAutoSync: false } })); });

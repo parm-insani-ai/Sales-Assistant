@@ -29,7 +29,7 @@ export function needsInstall() {
   return ios && !standalone;
 }
 
-const nativeRecord = () => { const r = store.get("push", deviceId()); return r && r.kind === "apns" && r.token ? r : null; };
+const nativeRecord = () => { const r = store.get("push", deviceId()); return r && (r.kind === "apns" || r.kind === "fcm") && r.token ? r : null; };
 
 export async function currentSubscription() {
   if (isNative()) return nativeRecord();
@@ -89,13 +89,14 @@ export async function enablePush() {
   if (!backend.isSignedIn()) throw new Error("Sign in to Cloud sync first — notifications travel through it.");
   if (!agentUrl()) throw new Error("Set up the agent function first (Settings → Voice agent).");
 
-  // The app itself: Apple hands back a device token, saved as the device's
-  // push record with kind "apns" so the function sends through Apple.
+  // The app itself: the phone hands back a device token, saved as the
+  // device's push record with its kind — "apns" on an iPhone, "fcm" on
+  // Android — so the function sends through Apple or Google.
   if (isNative()) {
     const token = await nativePushRegister();
     if (!token) throw new Error("The phone didn't hand back a push token — try again.");
     const id = deviceId();
-    const data = { kind: "apns", token, platform: platform(), ua: navigator.userAgent.slice(0, 120) };
+    const data = { kind: platform() === "android" ? "fcm" : "apns", token, platform: platform(), ua: navigator.userAgent.slice(0, 120) };
     if (store.get("push", id)) store.update("push", id, { ...data, sub: null });
     else store.create("push", { id, ...data });
     sync.syncNow();
