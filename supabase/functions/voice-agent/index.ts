@@ -1,3 +1,4 @@
+// Deployed by .github/workflows/deploy-function.yml on every push touching supabase/functions/**.
 // viniva's one Supabase Edge Function — four jobs, one URL:
 //   POST {system, tools, messages}  → Claude relay for the voice agent.
 //   POST {email: {to, subject, text}} → send a real email via Resend
