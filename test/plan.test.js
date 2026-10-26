@@ -60,7 +60,9 @@ const r = plan.result;
 if (!(r.month.behind > 0) && new Date().getDate() > 2) fail("four set this month on a 30-a-month goal should read as behind: " + JSON.stringify(r.month));
 if (!(r.today.appointmentsToSet >= 1) || r.today.callsToMake !== r.today.appointmentsToSet * r.today.callsPerAppointment) fail("today's calls should be appointments × the ratio: " + JSON.stringify(r.today));
 if (r.today.callsPerAppointment !== 4 || r.today.ratioAssumed) fail("the ratio should be this rep's own, four to one: " + JSON.stringify(r.today));
-if (r.people.length !== Math.min(r.today.callsToMake, 34) || !r.people[0].reason) fail("the plan should name as many people as calls, each with a reason: " + r.people.length + " for " + r.today.callsToMake);
+// Everyone on the book is a month or more from their last call, so all forty
+// are fair game; late in the month the day can need every one of them.
+if (r.people.length !== Math.min(r.today.callsToMake, 40) || !r.people[0].reason) fail("the plan should name as many people as calls, each with a reason: " + r.people.length + " for " + r.today.callsToMake);
 if (!/behind where the month should be/.test(r.answer) || !/to one, so that's \d+ calls today/.test(r.answer) || !/best first: Owner/.test(r.answer)) fail("the spoken answer should reason from the month to the calls to the names: " + r.answer);
 // The reasons are the salesperson's own (a payment figure is fine in their
 // ear — nothing here goes to a customer), and each name has one.
