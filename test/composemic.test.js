@@ -75,7 +75,9 @@ await p.$eval('.ib-compose [data-act="voice"]', (n) => n.dispatchEvent(new Mouse
 await p.waitForTimeout(400);
 const after = await p.evaluate(() => {
   const o = document.querySelector(".voice-overlay");
-  const bar = o?.querySelector(".voice-sheet")?.getBoundingClientRect();
+  // Docked, the sheet leaves the overlay and becomes a band of the shell
+  // between the page and the tab bar.
+  const bar = (document.querySelector("#app > .voice-sheet.voice-strip") || o?.querySelector(".voice-sheet"))?.getBoundingClientRect();
   const compose = document.querySelector("#ib-compose")?.getBoundingClientRect();
   const thread = document.querySelector("#ib-thread")?.getBoundingClientRect();
   const tabs = document.querySelector(".tabbar")?.getBoundingClientRect();
@@ -86,13 +88,14 @@ const after = await p.evaluate(() => {
     // The strip sits just above the tab bar, where the thumb already is.
     aboveTabs: !!(bar && tabs && Math.abs(bar.bottom - tabs.top) <= 2),
     // The point of docking: what you're talking about is still in front of you.
-    coversCompose: !!(bar && compose && compose.top < bar.bottom - 1),
+    coversCompose: !!(bar && compose && compose.bottom > bar.top + 1 && compose.top < bar.bottom - 1),
     coversThread: !!(bar && thread && thread.bottom > bar.top && thread.top < bar.bottom - 1),
     // Live has to LOOK live, without becoming a second filled circle beside
     // send — the two green discs fought for the same tap.
     micLive: getComputedStyle(document.querySelector('[data-act="voice"]')).animationName,
     micFilled: getComputedStyle(document.querySelector('[data-act="voice"]')).backgroundColor
       === getComputedStyle(document.querySelector('[data-act="send"]')).backgroundColor,
+    rects: Object.fromEntries(Object.entries({ bar, compose, thread, tabs, view: document.querySelector(".view")?.getBoundingClientRect() }).map(([k, r]) => [k, r && [Math.round(r.top), Math.round(r.bottom)]])),
   };
 });
 console.log("after tapping it:", JSON.stringify(after));

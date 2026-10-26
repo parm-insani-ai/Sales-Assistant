@@ -11,9 +11,11 @@ const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await p.addInitScript(() => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   localStorage.setItem("viniva:leads-filter", "all"); // every customer, not just Best now
+  // "26 left" stated 3.5 months ago reads as 23 left today, whatever today is.
+  const asOf = new Date(Date.now() - 3.5 * 30.44 * 86400000).toISOString().slice(0, 10);
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
     leads: [
-      { id: "a", name: "Dana Muise", phone: "9025551111", stage: "working", vehicleInterest: "2021 Nissan Rogue SV", currentPayment: 532, paymentsLeft: 26, paymentsLeftAsOf: "2026-06-20", currentTerm: 72, payoff: 19455, currentValue: 21500, currentApr: 8.9, dealType: "Retail", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+      { id: "a", name: "Dana Muise", phone: "9025551111", stage: "working", vehicleInterest: "2021 Nissan Rogue SV", currentPayment: 532, paymentsLeft: 26, paymentsLeftAsOf: asOf, currentTerm: 72, payoff: 19455, currentValue: 21500, currentApr: 8.9, dealType: "Retail", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
       { id: "b", name: "Ravi Anand", phone: "9025552222", stage: "working", vehicleInterest: "2019 Nissan Kicks", currentPayment: 299, purchaseDate: "2019-05-01", currentTerm: 60, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
       { id: "c", name: "Lynn Chu", phone: "9025553333", stage: "new", vehicleInterest: "Sentra", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
     ],
