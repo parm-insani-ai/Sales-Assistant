@@ -123,22 +123,29 @@ jobs:
         run: |
           set -euo pipefail
           ASC_KEY_ID="${ASC_KEY_ID_FIXED:-$ASC_KEY_ID}"
-          # Sign the archive with the distribution certificate straight away.
-          # Left to itself, Xcode archives with a development profile and
-          # re-signs on export — and Apple won't issue a development profile
-          # to a team with no registered devices. Distribution needs none.
+          # Xcode's automatic signing archives with a development profile,
+          # and Apple won't issue one to a team with no registered device. So
+          # the App Store profile is fetched (made once, reused after) through
+          # the App Store Connect API and the archive is signed manually with it.
+          PROFILE_NAME="viniva App Store (CI)"
+          python3 ../../native/asc-profile.py \
+            --key "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+            --bundle-id ai.entoa.viniva --name "$PROFILE_NAME" \
+            --out "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          # A store profile carries production push; the entitlements must agree.
+          plutil -replace aps-environment -string production App/App.entitlements
           xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             MARKETING_VERSION="$MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            archive | tail -40
+            archive | grep -E "error|warning: .*sign|ARCHIVE|Signing Identity|Provisioning Profile" | tail -40 || true
+          test -d "$RUNNER_TEMP/App.xcarchive" || { echo "::error::The archive was not produced; see the lines above."; exit 1; }
 
       - name: Export the .ipa
         env:
@@ -155,18 +162,18 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>export</string>
             <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict>
+              <key>ai.entoa.viniva</key><string>${PROFILE_NAME}</string>
+            </dict>
             <key>uploadSymbols</key><true/>
           </dict></plist>
           EOF
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/export.plist" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" | tail -20
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" | tail -20
           ls -la "$RUNNER_TEMP/export"
 
       - name: Upload to TestFlight
