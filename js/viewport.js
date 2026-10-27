@@ -71,7 +71,12 @@ function measure() {
   root.style.setProperty("--vvh", `${Math.round(h)}px`);
   root.style.setProperty("--vvtop", `${Math.round(offset)}px`);
   root.style.setProperty("--kb", `${covered}px`);
-  document.body.classList.toggle("kb-open", covered > KEYBOARD_MIN);
+  // The geometry says the keyboard is up only while a field is focused. A
+  // keyboard with nothing to type into doesn't exist — but a web view that
+  // misses the resize after the keyboard goes away does, and inside the
+  // native app that left the shell shrunk and the tab bar gone for good.
+  const typing = document.body.classList.contains("typing");
+  document.body.classList.toggle("kb-open", typing && covered > KEYBOARD_MIN);
 }
 
 function schedule() {
@@ -109,8 +114,19 @@ function watchFocus() {
       if (!isTextField(document.activeElement)) {
         document.body.classList.remove("typing");
         schedule();
+        // The keyboard animates away; measure again once it has, in case the
+        // web view never says so itself.
+        setTimeout(schedule, 350);
       }
     }, 0);
+  });
+  // Coming back to the app (a permission dialog, another app, the lock
+  // screen): whatever the geometry looked like on the way out is stale.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    baseline = window.innerHeight;
+    reconcileSafeArea();
+    schedule();
   });
 }
 

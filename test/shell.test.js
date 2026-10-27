@@ -169,8 +169,12 @@ console.log("\nbefore keyboard:", JSON.stringify(before));
 if (!before.tabVisible) fail("the tab bar is missing before the keyboard is even open");
 if (before.appBottom !== 844) fail(`the shell ends at ${before.appBottom}, not the screen bottom`);
 
-// Safari's shape: the layout viewport stays 844, the visual one shrinks.
+// Safari's shape: the layout viewport stays 844, the visual one shrinks. A
+// keyboard is only ever up for a focused field, and the geometry is trusted
+// only then — a web view that misses the resize when the keyboard goes
+// must not leave the tab bar gone.
 await p.evaluate(() => {
+  document.querySelector("#ib-text").focus();
   const vv = window.visualViewport;
   Object.defineProperty(vv, "height", { configurable: true, get: () => 508 });
   Object.defineProperty(vv, "offsetTop", { configurable: true, get: () => 0 });
