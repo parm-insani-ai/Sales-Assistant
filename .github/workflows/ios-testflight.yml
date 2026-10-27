@@ -77,7 +77,17 @@ jobs:
           if [[ "$ASC_KEY_P8" == *"BEGIN PRIVATE KEY"* ]]; then printf '%s\n' "$ASC_KEY_P8" > "$KEYFILE";
           else echo "$ASC_KEY_P8" | base64 --decode > "$KEYFILE" 2>/dev/null || true; fi
           if ! grep -q "BEGIN PRIVATE KEY" "$KEYFILE"; then
-            echo "::error::ASC_KEY_P8 doesn't hold a .p8 key. It should be the App Store Connect API key file (AuthKey_${ASC_KEY_ID}.p8, from App Store Connect → Users and Access → Integrations), pasted either as base64 or as the file's text."
+            # Describe the shape of what arrived, never its content.
+            RAW_LEN=${#ASC_KEY_P8}
+            DEC_LEN=$(wc -c < "$KEYFILE" | tr -d ' ')
+            HEAD4=$(head -c 4 "$KEYFILE" | xxd -p 2>/dev/null || echo "?")
+            case "$HEAD4" in
+              3082*) WHAT="binary DER/PKCS12 data — this looks like the .p12 certificate, not the .p8 key" ;;
+              2d2d2d2d) WHAT="text starting with dashes but without 'BEGIN PRIVATE KEY'" ;;
+              "") WHAT="nothing — the value did not decode as base64 and is not key text" ;;
+              *) WHAT="unrecognised data (first bytes $HEAD4)" ;;
+            esac
+            echo "::error::ASC_KEY_P8 doesn't hold a .p8 key. Received $RAW_LEN characters, decoding to $DEC_LEN bytes of $WHAT. It should be the App Store Connect API key file (AuthKey_${ASC_KEY_ID}.p8, from App Store Connect → Users and Access → Integrations): paste the file's text, which starts with -----BEGIN PRIVATE KEY-----."
             exit 1
           fi
           echo "API key file in place ($(wc -c < "$KEYFILE" | tr -d ' ') bytes)."
