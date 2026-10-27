@@ -111,12 +111,24 @@ export class NativeSpeechRecognition {
         await wire();
         const p = await call("SpeechRecognition", "requestPermissions");
         if (p && p.speechRecognition && p.speechRecognition !== "granted") return this._fail("not-allowed");
-        await call("SpeechRecognition", "start", {
+        const opts = {
           language: this.lang || "en-US",
           maxResults: Math.min(5, Math.max(1, Number(this.maxAlternatives) || 1)),
           partialResults: true,
           popup: false,
-        });
+        };
+        try {
+          await call("SpeechRecognition", "start", opts);
+        } catch (e) {
+          // The engine is still winding down from the last turn, or the
+          // microphone wasn't ready: stop it, give it a moment, try once more.
+          const msg = String((e && e.message) || e || "");
+          if (!/already running|isn't ready|not ready/i.test(msg)) throw e;
+          await call("SpeechRecognition", "stop").catch(() => {});
+          await new Promise((r) => setTimeout(r, 250));
+          if (this._done) return;
+          await call("SpeechRecognition", "start", opts);
+        }
       } catch (e) {
         const msg = String((e && e.message) || e || "");
         return this._fail(/permission|denied|authori/i.test(msg) ? "not-allowed" : "audio-capture");
