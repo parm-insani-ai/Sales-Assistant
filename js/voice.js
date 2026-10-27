@@ -18,8 +18,11 @@ import { isBlast, parseOutreach, audienceFor, describeAudience, unknownNote, own
 import { reachForBlast } from "./consent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-export function voiceRecognitionSupported() { return !!SR; }
+// Looked up when needed, not when this module loads: inside the phone app
+// the recognizer is the native one (native.js), and it must be whichever is
+// there at the moment of the tap.
+const SR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+export function voiceRecognitionSupported() { return !!SR(); }
 
 export function speak(text) {
   speakAsync(text);
@@ -964,10 +967,10 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // most engines, and reusing one that has already ended silently never fires
   // again.
   function listen() {
-    if (closed || busy || hearing || !SR) return;
+    if (closed || busy || hearing || !SR()) return;
     let heard = "";
     try {
-      rec = new SR();
+      rec = new (SR())();
     } catch {
       return fallbackToTyping("Voice isn't available here \u2014 type below.");
     }
@@ -1062,7 +1065,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // which made the mic button a keyboard on the one device this is built for.
   // If it genuinely isn't available the error handlers above fall through to
   // typing within a second, which is a better trade than never trying.
-  if (SR) {
+  if (SR()) {
     listen();
   } else {
     wave.set("idle");

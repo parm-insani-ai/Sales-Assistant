@@ -14,9 +14,10 @@
 
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+// Looked up at the moment of use: in the phone app it's the native recognizer.
+const SR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 
-export function dictationSupported() { return !!SR; }
+export function dictationSupported() { return !!SR(); }
 
 export function dictate({ onInterim, onFinal, onFallback } = {}) {
   let rec = null, heard = "", done = false;
@@ -31,8 +32,8 @@ export function dictate({ onInterim, onFinal, onFallback } = {}) {
     done = true;
     if (onFallback) onFallback(why, repair(heard.trim(), vocab));
   };
-  if (!SR) { setTimeout(() => fallback("Voice isn't available here — type it below."), 0); return { stop() {} }; }
-  try { rec = new SR(); } catch { setTimeout(() => fallback("Voice isn't available here — type it below."), 0); return { stop() {} }; }
+  if (!SR()) { setTimeout(() => fallback("Voice isn't available here — type it below."), 0); return { stop() {} }; }
+  try { rec = new (SR())(); } catch { setTimeout(() => fallback("Voice isn't available here — type it below."), 0); return { stop() {} }; }
   rec.lang = recognitionLang();
   rec.interimResults = true;
   rec.maxAlternatives = 5;

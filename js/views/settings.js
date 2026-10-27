@@ -19,6 +19,7 @@ import * as calfeeds from "../calfeeds.js";
 import { checkForUpdate, getVersion, runningVersion, hardRefresh } from "../updater.js";
 import { goBack } from "../router.js";
 import { viewportReport } from "../viewport.js";
+import { nativeDiag } from "../native.js";
 
 // What the page-level catcher in index.html wrote down.
 function recentErrors() {
@@ -513,8 +514,10 @@ export function renderSettings(view) {
             ? `<div style="color:#FFD27C">nothing was on disk at launch; ${i.inMemory} rows are in memory now — if they're gone after a relaunch, the write never landed</div>`
             : `<div style="color:#7CFFC4">disk and memory agree (${i.loaded} loaded, ${i.inMemory} in memory)</div>`;
       const counts = Object.entries(i.counts).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") || "none";
+      const nd = nativeDiag;
       panel.innerHTML = `<b>storage check</b> · tap to close
         <div>build ${esc(String(running || "?").replace(/^viniva-/, ""))} · store ${esc(i.backend)} v${i.dbVersion}</div>
+        <div>app ${nd.native ? esc(nd.platform) : "browser"} · bridge ${nd.bridge ? "yes" : "no"} · speech ${esc((window.SpeechRecognition && window.SpeechRecognition.name) || (window.webkitSpeechRecognition ? "webkit" : "none"))} · starts ${nd.speechStarts} ok ${nd.speechOk}${nd.lastSpeechError ? ` · <span style="color:#FF9E9E">last: ${esc(nd.lastSpeechError)}</span>` : ""}</div>
         ${verdict}
         <div>expected ${i.expected} · loaded ${i.loaded} · in memory ${i.inMemory} · pending writes ${i.pending}</div>
         <div><b>in the cloud ${esc(String(cloud))}</b> · queued for push ${store.getOutbox().length}</div>

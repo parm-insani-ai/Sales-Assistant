@@ -31,6 +31,20 @@ export function platform() {
   try { return isNative() ? String(cap().getPlatform()) : "web"; } catch { return "web"; }
 }
 
+// What happened on the native side, for Settings → Storage check: a phone
+// can't be attached to a debugger, and "the mic just gives me the keyboard"
+// has to be answerable from a screenshot. Failures also go into the same
+// error list the page-level catcher keeps (index.html), so they show there.
+export const nativeDiag = { bridge: !!window.Capacitor, native: isNative(), platform: platform(), speechStarts: 0, speechOk: 0, lastSpeechError: "", lastSpeechAt: "" };
+function note(kind, msg) {
+  try {
+    const K = "viniva:errors";
+    const l = JSON.parse(localStorage.getItem(K) || "[]");
+    l.push({ at: new Date().toISOString(), kind, msg: String(msg || "").slice(0, 300), src: "native.js", hash: location.hash });
+    localStorage.setItem(K, JSON.stringify(l.slice(-20)));
+  } catch { /* no storage, no note */ }
+}
+
 // A plugin call. The shell's bridge exposes nativePromise for any plugin the
 // app was built with; a registered proxy (Capacitor.Plugins.X) is used when
 // that's what there is — which is also how the test stands in for the phone.
@@ -106,6 +120,7 @@ export class NativeSpeechRecognition {
     this._started = true;
     if (current && current !== this) current._abandon();
     current = this;
+    nativeDiag.speechStarts++;
     (async () => {
       try {
         await wire();
@@ -131,9 +146,12 @@ export class NativeSpeechRecognition {
         }
       } catch (e) {
         const msg = String((e && e.message) || e || "");
+        nativeDiag.lastSpeechError = msg; nativeDiag.lastSpeechAt = new Date().toISOString();
+        note("speech", `start failed: ${msg}`);
         return this._fail(/permission|denied|authori/i.test(msg) ? "not-allowed" : "audio-capture");
       }
       if (this._done) return;
+      nativeDiag.speechOk++;
       this._emit("onstart", {});
       this._quiet = setTimeout(() => this.stop(), NO_SPEECH_MS);
     })();
@@ -225,6 +243,9 @@ if (isNative()) {
   // Defined before voice.js and dictate.js read it (this module is the first
   // script on the page, and app.js's imports come after).
   window.SpeechRecognition = NativeSpeechRecognition;
+  // The shell's own errors (a plugin that isn't in this build, say) land in
+  // the same list the Storage check shows.
+  wire().then((handles) => { if (handles.every((h) => !h)) note("native", "no listener bridge: speech events can't arrive"); }).catch((e) => note("native", "speech listeners: " + String((e && e.message) || e)));
   listen("PushNotifications", "pushNotificationActionPerformed", (a) => {
     const n = (a && a.notification) || {};
     const d = n.data || {};
