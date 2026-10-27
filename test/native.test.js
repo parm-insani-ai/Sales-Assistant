@@ -39,12 +39,27 @@ await p.addInitScript(() => {
         if (method === "register") { setTimeout(() => window.__cap.emit("PushNotifications", "registration", { value: "abc123devicetoken" }), 10); return Promise.resolve(); }
         return Promise.resolve();
       }
+      // The phone's own HTTP: answers like the function would, and keeps the request.
+      if (plugin === "CapacitorHttp" && method === "request") {
+        window.__cap.http = options;
+        return Promise.resolve({ status: 200, headers: { "Content-Type": "application/json" }, data: { content: [{ type: "text", text: "Native hello" }], stop_reason: "end_turn" }, url: options.url });
+      }
       return Promise.resolve({});
     },
   };
 });
 await p.goto(APP + "/#/");
 await p.waitForTimeout(700);
+
+// --- The assistant's request goes through the phone's own networking, as JSON, with the sign-in header.
+const relay = await p.evaluate(async () => {
+  const a = await import("/js/agent.js");
+  const r = await a.callRelay({ system: "s", tools: [], messages: [{ role: "user", content: "hi" }], max_tokens: 64 });
+  const q = window.__cap.http;
+  return { text: r.content[0].text, method: q.method, url: q.url, dataType: q.dataType, json: q.data && typeof q.data === "object" && q.data.messages[0].content, auth: /^Bearer /.test(q.headers.Authorization || ""), ct: q.headers["Content-Type"] };
+});
+console.log("relay:", JSON.stringify(relay));
+if (relay.text !== "Native hello" || relay.method !== "POST" || !/\/fn$/.test(relay.url) || relay.dataType !== "json" || relay.json !== "hi" || !relay.auth || !/json/.test(relay.ct)) fail("the assistant's call should go through the native HTTP plugin as JSON with the auth header: " + JSON.stringify(relay));
 
 // --- The recogniser is in place before the app read it.
 const shape = await p.evaluate(async () => {

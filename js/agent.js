@@ -31,7 +31,7 @@ import { createWatch, parseWant, isUseful, describeWant, watchesFor, cancelWatch
 import { assessAll, assessment, warmBook } from "./assess.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
-import { noteError } from "./native.js";
+import { noteError, nativeHttpAvailable, nativeRequest } from "./native.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
@@ -258,6 +258,24 @@ export async function callRelay({ system, tools, messages, max_tokens = 4096 }) 
   // had already closed, which the web view won't retry for a POST. Before
   // each retry a small GET wakes a fresh connection for the POST to use.
   const began = Date.now();
+  // Inside the phone app, the phone's own networking carries the request.
+  if (nativeHttpAvailable()) {
+    const t0 = Date.now();
+    try {
+      const r = await nativeRequest({ url, method: "POST", headers, body });
+      if (r.status >= 200 && r.status < 300) {
+        return typeof r.data === "string" ? JSON.parse(r.data) : r.data;
+      }
+      const errBody = typeof r.data === "string" ? r.data : JSON.stringify(r.data || {});
+      throw new Error(await describeAgentError(new Response(errBody, { status: r.status || 500, headers: { "Content-Type": "application/json" } })));
+    } catch (e) {
+      const msg = String((e && e.message) || e || "");
+      noteError("agent", `native request failed after ${Date.now() - t0}ms: ${msg.slice(0, 120)} · ${host} · ${Math.round(body.length / 1024)}KB`, "agent.js");
+      // A plugin that isn't there falls back to the web view's fetch below;
+      // an answer from the function (a status) is the answer.
+      if (!/no native http|not implemented|not available|unimplemented/i.test(msg)) throw e;
+    }
+  }
   for (let attempt = 0; ; attempt++) {
     const t0 = Date.now();
     let res;

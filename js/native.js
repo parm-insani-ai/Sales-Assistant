@@ -262,6 +262,31 @@ export class NativeSpeechRecognition {
   abort() { this._aborted = true; if (this._started && !this._done) this.stop(); else this._abandon(); }
 }
 
+// ---- Requests through the phone's own networking ----
+// The shell carries a native HTTP plugin (CapacitorHttp, always registered
+// on iOS and Android). Inside the web view a large POST to the function was
+// dying a few seconds in while small requests got through; the phone's own
+// URL loader has none of the web view's quirks, so the assistant's calls go
+// this way when the app is native. Returns { status, headers, data } with
+// data already parsed when the reply is JSON. Throws when there's no bridge.
+export function nativeHttpAvailable() {
+  const c = cap();
+  return isNative() && !!c && typeof c.nativePromise === "function";
+}
+export async function nativeRequest({ url, method = "GET", headers = {}, body = undefined, timeoutMs = 120000 }) {
+  if (!nativeHttpAvailable()) throw new Error("no native http");
+  let data = body;
+  const ct = String(headers["Content-Type"] || headers["content-type"] || "");
+  if (typeof body === "string" && /application\/json/i.test(ct)) { try { data = JSON.parse(body); } catch { /* send as text */ } }
+  const res = await call("CapacitorHttp", "request", {
+    url, method, headers, data,
+    dataType: data !== undefined && typeof data !== "string" ? "json" : undefined,
+    connectTimeout: Math.min(timeoutMs, 60000), readTimeout: timeoutMs,
+    responseType: "json",
+  });
+  return { status: Number(res && res.status) || 0, headers: (res && res.headers) || {}, data: res ? res.data : null, url: res && res.url };
+}
+
 // ---- Push: Apple's device token, saved where the function looks ----
 export async function nativePushGranted() {
   try { const p = await call("PushNotifications", "checkPermissions"); return !!(p && p.receive === "granted"); } catch { return false; }
