@@ -17,6 +17,7 @@ import { answerLot } from "./lot.js";
 import { isBlast, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
 import { reachForBlast } from "./consent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
+import { diagTrail } from "./native.js";
 
 // Looked up when needed, not when this module loads: inside the phone app
 // the recognizer is the native one (native.js), and it must be whichever is
@@ -833,7 +834,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // never taken for a lot question.
   const run = async (text, { auto = false } = {}) => {
     const said = (text || "").trim();
-    if (!said || busy) return;
+    if (!said || busy) { diagTrail(!said ? "run: nothing to send" : "run: dropped, a turn is still in flight"); return; }
+    diagTrail(`run: ${said.split(/\s+/).length} words`);
     if (awaitingPhone) {
       const lead = store.get("leads", awaitingPhone);
       const phone = phoneIn(said);
@@ -904,6 +906,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
         // asked whether anything in it should be kept (agent.js).
         if (!manager && !auto) { try { ensureWrapUpReminder("rep"); } catch { /* the sheet asks on the next open anyway */ } }
       } catch (e) {
+        diagTrail(`assistant failed: ${String((e && e.message) || e).slice(0, 50)}`);
         // The assistant couldn't be reached. A lot question the phone can
         // answer by itself is answered now, rather than reading out a
         // network error for something that never needed the network.
@@ -920,6 +923,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
       awaitingPhone = takeLastCreated(); // a customer added without a number: the reply asked for it
     }
 
+    diagTrail(ok ? `reply: ${reply.split(/\s+/).length} words` : "reply: error shown");
     turn.reply(reply, { error: !ok });
     if (choices.length) turn.choices(choices, (label) => { stopSpeaking(); run(label); });
     // A change was made: one tap puts it back. The assistant acts on its best
@@ -973,6 +977,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   }
   function sendHeld() {
     const said = takeHeld();
+    diagTrail(`send: ${said ? said.split(/\s+/).length + " words" : "nothing held"}`);
     stopHearing();
     if (said) run(said);
   }
@@ -1038,8 +1043,9 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     };
     rec.onend = () => {
       hearing = false;
-      if (closed || busy) return;
+      if (closed || busy) { diagTrail(`ended while ${closed ? "closed" : "busy"}; heard ${heard.trim().split(/\s+/).filter(Boolean).length} words`); return; }
       const said = repair(heard.trim(), vocab);
+      diagTrail(`ended: heard ${heard.trim().split(/\s+/).filter(Boolean).length}, kept ${said ? said.split(/\s+/).length : 0}, held ${held ? held.split(/\s+/).length : 0}`);
       if (said) {
         quiet = 0;
         faults = 0;

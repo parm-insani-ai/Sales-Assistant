@@ -42,8 +42,11 @@ export const nativeDiag = { bridge: !!window.Capacitor, native: isNative(), plat
 function trail(what) {
   const t = new Date();
   nativeDiag.trail.push(`${String(t.getMinutes()).padStart(2, "0")}:${String(t.getSeconds()).padStart(2, "0")} ${what}`);
-  if (nativeDiag.trail.length > 14) nativeDiag.trail.shift();
+  if (nativeDiag.trail.length > 24) nativeDiag.trail.shift();
 }
+// The voice panel adds its own steps to the same trail (what it did with
+// the words), so a turn can be followed end to end.
+export function diagTrail(what) { trail(what); }
 function note(kind, msg, src = "native.js") {
   try {
     const K = "viniva:errors";
