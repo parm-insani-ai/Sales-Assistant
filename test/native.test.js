@@ -72,8 +72,10 @@ const turn = await p.evaluate(() => new Promise((resolve) => {
   rec.onerror = (ev) => out.errors.push(ev.error);
   rec.onend = () => { out.ended = true; out.endedAt = Date.now(); out.startCall = window.__cap.log.find((l) => l.method === "start"); resolve(out); };
   rec.start();
-  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["show me"] }), 60);
-  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["show me the lot", "show me the lots"] }), 160);
+  // The engine takes a moment to come up (the bridge lets the last session
+  // settle first); words arrive once it has.
+  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["show me"] }), 450);
+  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["show me the lot", "show me the lots"] }), 550);
 }));
 console.log("turn:", JSON.stringify(turn));
 if (turn.interim.join("|") !== "show me|show me the lot") fail("partials should arrive as interim results: " + JSON.stringify(turn.interim));
@@ -102,8 +104,8 @@ const aborted = await p.evaluate(() => new Promise((resolve) => {
   rec.onerror = (ev) => out.errors.push(ev.error);
   rec.onend = () => { out.ended = true; out.stops = window.__cap.log.filter((l) => l.method === "stop").length; resolve(out); };
   rec.start();
-  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["never mind"] }), 60);
-  setTimeout(() => rec.abort(), 120);
+  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["never mind"] }), 450);
+  setTimeout(() => rec.abort(), 520);
 }));
 console.log("aborted:", JSON.stringify(aborted));
 if (aborted.results || aborted.errors.length || !aborted.ended || !aborted.stops) fail("abort should stop the engine and report nothing but onend: " + JSON.stringify(aborted));

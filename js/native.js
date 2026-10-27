@@ -92,6 +92,19 @@ const STOP_TIMEOUT_MS = 1500;     // the engine's "stopped" never came: finish a
 
 let current = null;  // the recogniser whose turn it is — the engine is one
 let wired = null;    // the plugin listeners, attached once
+// The engine's teardown after a stop is asynchronous on the phone, and a
+// start that lands in the middle of it fails ("Session activation failed").
+// So a stop leaves a promise behind that the engine's "stopped" resolves,
+// and the next start waits on it (briefly) before asking for the microphone.
+let engineSettled = Promise.resolve();
+let settleEngine = null;
+function engineStopping() {
+  if (settleEngine) return;
+  engineSettled = new Promise((resolve) => { settleEngine = resolve; });
+}
+function engineStopped() {
+  if (settleEngine) { const r = settleEngine; settleEngine = null; r(); }
+}
 
 // The plugin's events carry no session id, and a session that was just
 // stopped can still report a last word or a second "stopped" after the next
@@ -108,6 +121,7 @@ function wire() {
       }),
       listen("SpeechRecognition", "listeningState", (d) => {
         const s = d && d.status;
+        if (s === "stopped") engineStopped();
         if (!current) { trail(`stray ${s} ignored`); return; }
         if (s === "started") { current._live = true; trail("engine started"); }
         else if (s === "stopped") { if (current._live) current._stopped(); else trail("stray stopped ignored"); }
@@ -155,6 +169,11 @@ export class NativeSpeechRecognition {
     (async () => {
       try {
         await wire();
+        // Let the last session finish tearing down (its "stopped", or a
+        // second at most), then a breath for the audio session to settle.
+        await Promise.race([engineSettled, new Promise((r) => setTimeout(r, 1000))]);
+        await new Promise((r) => setTimeout(r, 150));
+        if (this._done) return;
         const p = await call("SpeechRecognition", "requestPermissions");
         if (p && p.speechRecognition && p.speechRecognition !== "granted") return this._fail("not-allowed");
         const opts = {
@@ -176,8 +195,10 @@ export class NativeSpeechRecognition {
             const transient = /already running|isn't ready|not ready|activation failed|audio session/i.test(msg);
             if (!transient || attempt >= 3) throw e;
             trail(`retry ${attempt + 1}: ${msg.slice(0, 40)}`);
+            engineStopping();
             await call("SpeechRecognition", "stop").catch(() => {});
-            await new Promise((r) => setTimeout(r, 300 + 300 * attempt));
+            await Promise.race([engineSettled, new Promise((r) => setTimeout(r, 1000))]);
+            await new Promise((r) => setTimeout(r, 400 + 400 * attempt));
             if (this._done) return;
           }
         }
@@ -234,6 +255,7 @@ export class NativeSpeechRecognition {
     if (this._done || !this._started) return;
     clearTimeout(this._silence); clearTimeout(this._quiet);
     trail(this._matches.length ? "stop after silence" : "stop");
+    engineStopping();
     call("SpeechRecognition", "stop").catch(() => {});
     if (!this._stopGuard) this._stopGuard = setTimeout(() => this._stopped(), STOP_TIMEOUT_MS);
   }

@@ -252,8 +252,12 @@ export async function callRelay({ system, tools, messages, max_tokens = 4096 }) 
   let host = url; try { host = new URL(url).host; } catch { /* as written */ }
   // A request that never reaches the function ("Load failed", "Failed to
   // fetch") says nothing about why. Note how long it took and where it was
-  // going, for Settings → Storage check, and try once more when it died at
-  // once — a connection that failed to open, not a reply that never came.
+  // going, for Settings → Storage check, and try again — twice. Inside the
+  // phone app a large POST has died a few seconds in while a small GET to
+  // the same place works: the shape of a kept-alive connection the server
+  // had already closed, which the web view won't retry for a POST. Before
+  // each retry a small GET wakes a fresh connection for the POST to use.
+  const began = Date.now();
   for (let attempt = 0; ; attempt++) {
     const t0 = Date.now();
     let res;
@@ -262,10 +266,15 @@ export async function callRelay({ system, tools, messages, max_tokens = 4096 }) 
     } catch (e) {
       const ms = Date.now() - t0;
       const msg = String((e && e.message) || e || "");
-      noteError("agent", `request failed after ${ms}ms: ${msg} · ${host} · ${Math.round(body.length / 1024)}KB · online ${navigator.onLine}`, "agent.js");
-      if (attempt === 0 && ms < 3000 && navigator.onLine !== false) { await new Promise((r) => setTimeout(r, 800)); continue; }
-      throw new Error(`Couldn't reach the assistant at ${host} (${msg} after ${ms < 1000 ? ms + "ms" : Math.round(ms / 1000) + "s"})`);
+      noteError("agent", `request failed after ${ms}ms (try ${attempt + 1}): ${msg} · ${host} · ${Math.round(body.length / 1024)}KB · online ${navigator.onLine}`, "agent.js");
+      if (attempt < 2 && navigator.onLine !== false && Date.now() - began < 45000) {
+        try { await fetch(url + "?push=cfg", { cache: "no-store" }); } catch { /* the POST will tell */ }
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      throw new Error(`Couldn't reach the assistant at ${host} (${msg} after ${ms < 1000 ? ms + "ms" : Math.round(ms / 1000) + "s"}, ${attempt + 1} tries)`);
     }
+    if (attempt) noteError("agent", `request succeeded on try ${attempt + 1}`, "agent.js");
     if (!res.ok) throw new Error(await describeAgentError(res));
     return res.json(); // { content:[...], stop_reason }
   }
