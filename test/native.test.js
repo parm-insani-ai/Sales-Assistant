@@ -99,6 +99,53 @@ if (!turn.ended || turn.errors.length) fail("the turn should end cleanly: " + JS
 if (!(turn.endedAt - turn.startedAt >= 1300 && turn.endedAt - turn.startedAt < 3500)) fail("the sentence should be done about a second and a half after the last word: " + (turn.endedAt - turn.startedAt) + "ms");
 if (!turn.startCall || turn.startCall.options.language !== "en-CA" || turn.startCall.options.maxResults !== 5 || turn.startCall.options.partialResults !== true) fail("the engine should be started with the app's language and alternatives, streaming partials: " + JSON.stringify(turn.startCall));
 
+// --- The next turn, right after: the engine is left running through the
+// pause and the new recogniser adopts it — no stop, no start — and sees only
+// the words said since. Blank matches (the engine emits [""] at times) count
+// for nothing. An abort while live stops the engine for real.
+const next = await p.evaluate(() => new Promise((resolve) => {
+  const calls = () => ({ starts: window.__cap.log.filter((l) => l.method === "start").length, stops: window.__cap.log.filter((l) => l.method === "stop").length });
+  const before = calls();
+  const rec = new window.SpeechRecognition();
+  rec.interimResults = true;
+  const out = { before, interim: [], final: null, errors: [], ended: false, t0: Date.now() };
+  rec.onstart = () => { out.startMs = Date.now() - out.t0; out.atStart = calls(); };
+  rec.onresult = (ev) => { const r = ev.results[0]; if (r.isFinal) out.final = r[0].transcript; else out.interim.push(r[0].transcript); };
+  rec.onerror = (ev) => out.errors.push(ev.error);
+  rec.onend = () => { out.ended = true; out.after = calls(); resolve(out); };
+  rec.start();
+  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: [""] }), 60);
+  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["show me the lot and", "show me the lot end"] }), 120);
+  setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["show me the lot and book Ken"] }), 220);
+  setTimeout(() => rec.abort(), 300);
+}));
+console.log("next:", JSON.stringify(next));
+if (next.startMs > 100 || next.atStart.starts !== next.before.starts || next.atStart.stops !== next.before.stops) fail("the next turn should adopt the running engine at once, without stopping or starting it: " + JSON.stringify(next));
+if (next.interim.join("|") !== "and|and book Ken") fail("only the words since the last turn belong to this one: " + JSON.stringify(next.interim));
+if (next.final !== null || next.errors.length || !next.ended || next.after.stops !== next.before.stops + 1) fail("an abort while live should stop the engine and report nothing: " + JSON.stringify(next));
+// A finished recogniser aborted again (voice.js does, at the top of each turn) touches nothing.
+const idle = await p.evaluate(async () => {
+  const stops = () => window.__cap.log.filter((l) => l.method === "stop").length;
+  await new Promise((r) => setTimeout(r, 400)); // the last stop has settled
+  const rec = new window.SpeechRecognition();
+  rec.interimResults = true;
+  const out = { ended: false, stops0: stops() };
+  await new Promise((resolve) => {
+    rec.onend = () => { out.ended = true; resolve(); };
+    rec.start();
+    setTimeout(() => window.__cap.emit("SpeechRecognition", "partialResults", { matches: ["hello"] }), 700);
+  });
+  out.stopsAfterPause = stops();
+  rec.abort();
+  out.stopsAfterAbort = stops();
+  await new Promise((r) => setTimeout(r, 3000));
+  out.stopsAfterIdle = stops();
+  return out;
+});
+console.log("idle:", JSON.stringify(idle));
+if (!idle.ended || idle.stopsAfterPause !== idle.stops0 || idle.stopsAfterAbort !== idle.stops0) fail("a pause, and an abort of the finished recogniser, should leave the engine running: " + JSON.stringify(idle));
+if (idle.stopsAfterIdle !== idle.stops0 + 1) fail("an engine nobody listens to should be stopped after a moment: " + JSON.stringify(idle));
+
 // --- Nothing said: no-speech, then onend — what the browser does, and what voice.js waits for.
 const silent = await p.evaluate(() => new Promise((resolve) => {
   const rec = new window.SpeechRecognition();

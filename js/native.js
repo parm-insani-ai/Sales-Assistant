@@ -83,44 +83,69 @@ function listen(plugin, event, fn) {
 // "show me the lot") and only stops when told to, or after about a minute.
 // The browser engine the app was written for stops itself at the first real
 // silence and reports a final result then. So this watches the partials: a
-// pause after words means the sentence is done (stop, report it as final);
-// no words at all for a while means "no-speech", as the browser would say.
+// pause after words means the sentence is done (report it as final); no
+// words at all for a while means "no-speech", as the browser would say.
+//
+// One native session serves several turns. Stopping the engine at every
+// pause and starting it again a moment later is what failed on the phone:
+// the teardown is slow and a start that lands inside it is refused
+// ("Session activation failed"). So a pause hands the words over and leaves
+// the engine running; the next recogniser adopts it and sees only the words
+// that come after. The engine is really stopped when the app asks (abort —
+// the top of a turn, the pause button, closing the panel), when nobody has
+// claimed it for a few seconds, or when it ends by itself.
 export const SILENCE_MS = 1300;   // quiet this long after words: the sentence is done
 export const NO_SPEECH_MS = 7000; // nothing at all this long: no-speech
 const STOP_GRACE_MS = 300;        // after the engine stops, a last partial may still land
 const STOP_TIMEOUT_MS = 1500;     // the engine's "stopped" never came: finish anyway
+const IDLE_STOP_MS = 2500;        // running with nobody listening this long: stop it
 
 let current = null;  // the recogniser whose turn it is — the engine is one
 let wired = null;    // the plugin listeners, attached once
-// The engine's teardown after a stop is asynchronous on the phone, and a
-// start that lands in the middle of it fails ("Session activation failed").
-// So a stop leaves a promise behind that the engine's "stopped" resolves,
-// and the next start waits on it (briefly) before asking for the microphone.
-let engineSettled = Promise.resolve();
-let settleEngine = null;
+// The engine as this module believes it to be: whether it's up, how many
+// words of its running transcription have already been handed over, and a
+// promise that its "stopped" resolves so the next real start can wait for
+// the teardown to finish.
+const engine = { running: false, consumed: 0, settled: Promise.resolve(), settle: null, idle: 0 };
+const words = (s) => String(s || "").trim().split(/\s+/).filter(Boolean);
+const cleanMatches = (m) => (Array.isArray(m) ? m : []).map((s) => String(s || "").trim()).filter(Boolean);
 function engineStopping() {
-  if (settleEngine) return;
-  engineSettled = new Promise((resolve) => { settleEngine = resolve; });
+  if (!engine.settle) engine.settled = new Promise((r) => { engine.settle = r; });
+  engine.running = false; engine.consumed = 0;
 }
 function engineStopped() {
-  if (settleEngine) { const r = settleEngine; settleEngine = null; r(); }
+  engine.running = false; engine.consumed = 0;
+  if (engine.settle) { const r = engine.settle; engine.settle = null; r(); }
+}
+function realStop(why) {
+  clearTimeout(engine.idle); engine.idle = 0;
+  trail(`stop (${why})`);
+  engineStopping();
+  call("SpeechRecognition", "stop").catch(() => {});
+}
+// Running with nobody listening: a leak, and a microphone left open.
+function scheduleIdleStop() {
+  clearTimeout(engine.idle);
+  engine.idle = setTimeout(() => { engine.idle = 0; if (engine.running && !current) realStop("idle"); }, IDLE_STOP_MS);
 }
 
 // The plugin's events carry no session id, and a session that was just
 // stopped can still report a last word or a second "stopped" after the next
-// one has begun. So a recogniser takes events only once the engine has said
-// "started" for it, and anything arriving before that belongs to its
-// predecessor and is dropped.
+// one has begun. So a recogniser takes events only once it is live — the
+// engine said "started" for it, or it adopted a running engine — and
+// anything else belongs to a predecessor and is dropped.
 function wire() {
   if (!wired) {
     wired = Promise.all([
       listen("SpeechRecognition", "partialResults", (d) => {
-        const m = Array.isArray(d && d.matches) ? d.matches : [];
+        const m = cleanMatches(d && d.matches);
+        if (!m.length) return;
         if (current && current._live) current._partial(m);
         else trail(`stray words (${m.length}) ignored`);
       }),
       listen("SpeechRecognition", "listeningState", (d) => {
         const s = d && d.status;
+        if (s === "started") engine.running = true;
         if (s === "stopped") engineStopped();
         if (!current) { trail(`stray ${s} ignored`); return; }
         if (s === "started") { current._live = true; trail("engine started"); }
@@ -145,7 +170,8 @@ export class NativeSpeechRecognition {
     this.maxAlternatives = 1;
     this.continuous = false;
     this.onstart = null; this.onresult = null; this.onerror = null; this.onend = null;
-    this._matches = [];
+    this._matches = [];   // the words this turn, beyond what earlier turns took
+    this._total = 0;      // words in the engine's whole running transcription
     this._started = false; this._done = false; this._aborted = false; this._live = false;
     this._silence = 0; this._quiet = 0; this._grace = 0; this._stopGuard = 0;
   }
@@ -156,6 +182,7 @@ export class NativeSpeechRecognition {
   }
   _event(isFinal) { return { resultIndex: 0, results: [resultOf(this._matches, isFinal)] }; }
   _clear() { clearTimeout(this._silence); clearTimeout(this._quiet); clearTimeout(this._grace); clearTimeout(this._stopGuard); }
+  _release() { this._done = true; this._clear(); if (current === this) current = null; }
 
   // The browser's start() is synchronous and throws if already started; this
   // one never throws into the caller — a start that can't happen reports
@@ -165,13 +192,24 @@ export class NativeSpeechRecognition {
     this._started = true;
     if (current && current !== this) current._abandon();
     current = this;
+    clearTimeout(engine.idle); engine.idle = 0;
     nativeDiag.speechStarts++;
     (async () => {
       try {
         await wire();
+        if (this._done) return;
+        // An engine already running from the last turn is this turn's too.
+        if (engine.running && !engine.settle) {
+          this._live = true;
+          nativeDiag.speechOk++;
+          trail("listening on (same session)");
+          this._emit("onstart", {});
+          this._quiet = setTimeout(() => this._quietOut(), NO_SPEECH_MS);
+          return;
+        }
         // Let the last session finish tearing down (its "stopped", or a
         // second at most), then a breath for the audio session to settle.
-        await Promise.race([engineSettled, new Promise((r) => setTimeout(r, 1000))]);
+        await Promise.race([engine.settled, new Promise((r) => setTimeout(r, 1000))]);
         await new Promise((r) => setTimeout(r, 150));
         if (this._done) return;
         const p = await call("SpeechRecognition", "requestPermissions");
@@ -182,13 +220,15 @@ export class NativeSpeechRecognition {
           partialResults: true,
           popup: false,
         };
-        // The engine may still be winding down from the last turn, the
-        // microphone not ready, or the phone's audio session still held by
-        // the voice that just finished speaking ("Session activation
-        // failed"): stop, give it a moment, try again — a few times.
+        // The microphone may not be ready, or the phone's audio session
+        // still held by the recognizer that just stopped or the voice that
+        // just finished speaking ("Session activation failed"): wait, try
+        // again, a few times, a little longer each time.
         for (let attempt = 0; ; attempt++) {
           try {
+            engine.consumed = 0;
             await call("SpeechRecognition", "start", opts);
+            engine.running = true;
             break;
           } catch (e) {
             const msg = String((e && e.message) || e || "");
@@ -197,8 +237,8 @@ export class NativeSpeechRecognition {
             trail(`retry ${attempt + 1}: ${msg.slice(0, 40)}`);
             engineStopping();
             await call("SpeechRecognition", "stop").catch(() => {});
-            await Promise.race([engineSettled, new Promise((r) => setTimeout(r, 1000))]);
-            await new Promise((r) => setTimeout(r, 400 + 400 * attempt));
+            await Promise.race([engine.settled, new Promise((r) => setTimeout(r, 1000))]);
+            await new Promise((r) => setTimeout(r, [500, 1000, 1500, 2500][attempt]));
             if (this._done) return;
           }
         }
@@ -212,18 +252,46 @@ export class NativeSpeechRecognition {
       nativeDiag.speechOk++;
       trail("start ok");
       this._emit("onstart", {});
-      this._quiet = setTimeout(() => this.stop(), NO_SPEECH_MS);
+      this._quiet = setTimeout(() => this._quietOut(), NO_SPEECH_MS);
     })();
   }
+  // Words from the engine: the whole transcription so far. Only what comes
+  // after the words earlier turns already took belongs to this one.
   _partial(matches) {
-    if (this._done || !matches.length) return;
+    if (this._done) return;
+    const total = words(matches[0]).length;
+    if (total <= engine.consumed) return;
+    const fresh = matches.map((m) => words(m).slice(engine.consumed).join(" ")).filter(Boolean);
+    if (!fresh.length) return;
     clearTimeout(this._quiet); this._quiet = 0;
     if (!this._matches.length) trail("words arriving");
-    this._matches = matches;
+    this._matches = fresh;
+    this._total = total;
     if (this._grace) return; // the engine has stopped; this is its last word
     if (this.interimResults) this._emit("onresult", this._event(false));
     clearTimeout(this._silence);
-    this._silence = setTimeout(() => this.stop(), SILENCE_MS);
+    this._silence = setTimeout(() => this._pause(), SILENCE_MS);
+  }
+  // Quiet after words: the sentence is done. Hand it over, leave the engine
+  // running for whoever listens next.
+  _pause() {
+    if (this._done) return;
+    engine.consumed = this._total;
+    trail(`pause: ${words(this._matches[0]).length} words handed over`);
+    this._release();
+    scheduleIdleStop();
+    this._emit("onresult", this._event(true));
+    this._emit("onend", {});
+  }
+  // Nothing said for a while: no-speech, as the browser says. The engine
+  // stays up for a retry; the idle stop takes it down if none comes.
+  _quietOut() {
+    if (this._done) return;
+    trail("no speech");
+    this._release();
+    scheduleIdleStop();
+    this._emit("onerror", { error: "no-speech", message: "" });
+    this._emit("onend", {});
   }
   // The engine stopped — on our stop(), by itself, or on an error. A final
   // partial can arrive just after; give it a moment.
@@ -234,32 +302,37 @@ export class NativeSpeechRecognition {
   }
   _finish() {
     if (this._done) return;
-    this._done = true; this._clear();
-    if (current === this) current = null;
+    this._release();
     if (!this._aborted) {
-      if (this._matches.length) { trail(`final: ${this._matches[0].split(/\s+/).length} words`); this._emit("onresult", this._event(true)); }
+      if (this._matches.length) { trail(`final: ${words(this._matches[0]).length} words`); this._emit("onresult", this._event(true)); }
       else { trail("no speech"); this._emit("onerror", { error: "no-speech", message: "" }); }
     } else trail("aborted");
     this._emit("onend", {});
   }
   _fail(code) {
     if (this._done) return;
-    this._done = true; this._clear();
-    if (current === this) current = null;
+    this._release();
     trail(`failed: ${code}`);
     this._emit("onerror", { error: code, message: "" });
     this._emit("onend", {});
   }
-  _abandon() { this._aborted = true; this._done = true; this._clear(); if (current === this) current = null; }
+  _abandon() { this._aborted = true; this._release(); }
+  // The app's own stop: finish for real, engine and all.
   stop() {
     if (this._done || !this._started) return;
     clearTimeout(this._silence); clearTimeout(this._quiet);
-    trail(this._matches.length ? "stop after silence" : "stop");
-    engineStopping();
-    call("SpeechRecognition", "stop").catch(() => {});
+    realStop(this._matches.length ? "asked, with words" : "asked");
     if (!this._stopGuard) this._stopGuard = setTimeout(() => this._stopped(), STOP_TIMEOUT_MS);
   }
-  abort() { this._aborted = true; if (this._started && !this._done) this.stop(); else this._abandon(); }
+  // Aborting while live stops the engine. Aborting a recogniser that has
+  // already finished (voice.js does, at the top of every turn, before it
+  // starts the next) touches nothing: the engine stays up for the next one,
+  // and the idle stop takes it down if none comes.
+  abort() {
+    this._aborted = true;
+    if (this._started && !this._done) { this.stop(); return; }
+    this._abandon();
+  }
 }
 
 // ---- Requests through the phone's own networking ----
