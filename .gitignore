@@ -17,3 +17,4 @@ ios/App/App.xcodeproj/xcuserdata/
 android/app/google-services.json
 *.jks
 *.keystore
+__pycache__/
