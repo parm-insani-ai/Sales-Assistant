@@ -31,6 +31,7 @@ import { createWatch, parseWant, isUseful, describeWant, watchesFor, cancelWatch
 import { assessAll, assessment, warmBook } from "./assess.js";
 import { getNudges } from "./nudges.js";
 import * as backend from "./backend.js";
+import { noteError } from "./native.js";
 import { openText } from "./sms.js";
 import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
@@ -246,13 +247,28 @@ async function describeAgentError(res) {
 export async function callRelay({ system, tools, messages, max_tokens = 4096 }) {
   const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
   if (!url) throw new Error("Voice agent isn't set up");
-  const res = await fetch(url, {
-    method: "POST",
-    headers: await backend.fnHeaders(),
-    body: JSON.stringify({ system, tools, messages, max_tokens }),
-  });
-  if (!res.ok) throw new Error(await describeAgentError(res));
-  return res.json(); // { content:[...], stop_reason }
+  const body = JSON.stringify({ system, tools, messages, max_tokens });
+  const headers = await backend.fnHeaders();
+  let host = url; try { host = new URL(url).host; } catch { /* as written */ }
+  // A request that never reaches the function ("Load failed", "Failed to
+  // fetch") says nothing about why. Note how long it took and where it was
+  // going, for Settings → Storage check, and try once more when it died at
+  // once — a connection that failed to open, not a reply that never came.
+  for (let attempt = 0; ; attempt++) {
+    const t0 = Date.now();
+    let res;
+    try {
+      res = await fetch(url, { method: "POST", headers, body });
+    } catch (e) {
+      const ms = Date.now() - t0;
+      const msg = String((e && e.message) || e || "");
+      noteError("agent", `request failed after ${ms}ms: ${msg} · ${host} · ${Math.round(body.length / 1024)}KB · online ${navigator.onLine}`, "agent.js");
+      if (attempt === 0 && ms < 3000 && navigator.onLine !== false) { await new Promise((r) => setTimeout(r, 800)); continue; }
+      throw new Error(`Couldn't reach the assistant at ${host} (${msg} after ${ms < 1000 ? ms + "ms" : Math.round(ms / 1000) + "s"})`);
+    }
+    if (!res.ok) throw new Error(await describeAgentError(res));
+    return res.json(); // { content:[...], stop_reason }
+  }
 }
 // The request as the function sends it on: the standing brief marked as a
 // cached prefix, the live brief after it, the tools, the conversation.

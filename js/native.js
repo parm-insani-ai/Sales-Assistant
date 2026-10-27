@@ -44,14 +44,16 @@ function trail(what) {
   nativeDiag.trail.push(`${String(t.getMinutes()).padStart(2, "0")}:${String(t.getSeconds()).padStart(2, "0")} ${what}`);
   if (nativeDiag.trail.length > 14) nativeDiag.trail.shift();
 }
-function note(kind, msg) {
+function note(kind, msg, src = "native.js") {
   try {
     const K = "viniva:errors";
     const l = JSON.parse(localStorage.getItem(K) || "[]");
-    l.push({ at: new Date().toISOString(), kind, msg: String(msg || "").slice(0, 300), src: "native.js", hash: location.hash });
+    l.push({ at: new Date().toISOString(), kind, msg: String(msg || "").slice(0, 300), src, hash: location.hash });
     localStorage.setItem(K, JSON.stringify(l.slice(-20)));
   } catch { /* no storage, no note */ }
 }
+// For other modules: a failure worth seeing in Settings → Storage check.
+export function noteError(kind, msg, src = "") { note(kind, msg, src); }
 
 // A plugin call. The shell's bridge exposes nativePromise for any plugin the
 // app was built with; a registered proxy (Capacitor.Plugins.X) is used when
@@ -158,17 +160,23 @@ export class NativeSpeechRecognition {
           partialResults: true,
           popup: false,
         };
-        try {
-          await call("SpeechRecognition", "start", opts);
-        } catch (e) {
-          // The engine is still winding down from the last turn, or the
-          // microphone wasn't ready: stop it, give it a moment, try once more.
-          const msg = String((e && e.message) || e || "");
-          if (!/already running|isn't ready|not ready/i.test(msg)) throw e;
-          await call("SpeechRecognition", "stop").catch(() => {});
-          await new Promise((r) => setTimeout(r, 250));
-          if (this._done) return;
-          await call("SpeechRecognition", "start", opts);
+        // The engine may still be winding down from the last turn, the
+        // microphone not ready, or the phone's audio session still held by
+        // the voice that just finished speaking ("Session activation
+        // failed"): stop, give it a moment, try again — a few times.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await call("SpeechRecognition", "start", opts);
+            break;
+          } catch (e) {
+            const msg = String((e && e.message) || e || "");
+            const transient = /already running|isn't ready|not ready|activation failed|audio session/i.test(msg);
+            if (!transient || attempt >= 3) throw e;
+            trail(`retry ${attempt + 1}: ${msg.slice(0, 40)}`);
+            await call("SpeechRecognition", "stop").catch(() => {});
+            await new Promise((r) => setTimeout(r, 300 + 300 * attempt));
+            if (this._done) return;
+          }
         }
       } catch (e) {
         const msg = String((e && e.message) || e || "");

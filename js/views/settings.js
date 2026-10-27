@@ -519,6 +519,7 @@ export function renderSettings(view) {
         <div>build ${esc(String(running || "?").replace(/^viniva-/, ""))} · store ${esc(i.backend)} v${i.dbVersion}</div>
         <div>app ${nd.native ? esc(nd.platform) : "browser"} · bridge ${nd.bridge ? "yes" : "no"} · speech ${esc((window.SpeechRecognition && window.SpeechRecognition.name) || (window.webkitSpeechRecognition ? "webkit" : "none"))} · starts ${nd.speechStarts} ok ${nd.speechOk}${nd.lastSpeechError ? ` · <span style="color:#FF9E9E">last: ${esc(nd.lastSpeechError)}</span>` : ""}</div>
         ${nd.trail.length ? `<div style="opacity:.85">mic trail: ${esc(nd.trail.join(" → "))}</div>` : ""}
+        <div>assistant at ${esc((() => { const u = (store.getSettings().agentUrl || "").trim(); if (!u) return "not set"; try { return new URL(u).host + new URL(u).pathname; } catch { return u.slice(0, 60); } })())} · signed in ${backend.isSignedIn() ? "yes" : "no"}</div>
         ${verdict}
         <div>expected ${i.expected} · loaded ${i.loaded} · in memory ${i.inMemory} · pending writes ${i.pending}</div>
         <div><b>in the cloud ${esc(String(cloud))}</b> · queued for push ${store.getOutbox().length}</div>
