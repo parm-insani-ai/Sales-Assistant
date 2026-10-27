@@ -440,6 +440,20 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 }
 .voice-send:active { transform: scale(0.9); }
 .voice-send svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+/* The mic beside the box: a tinted circle, not a second filled one next to
+   send. It pulses while the app is listening, as the tab-bar mic does. */
+.voice-mic {
+  flex: none; width: 42px; height: 42px; border-radius: 50%;
+  border: none; background: var(--brand-tint); color: var(--brand-strong);
+  display: grid; place-items: center; cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.2s;
+}
+.voice-mic:active { transform: scale(0.9); }
+.voice-mic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.voice-mic.is-live { animation: ib-mic-live 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .voice-mic.is-live { animation: none; box-shadow: 0 0 0 2px var(--brand); }
+}
 
 /* ---------- View area ---------- */
 .view {

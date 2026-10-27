@@ -474,6 +474,7 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
       </div>
       <form class="voice-input" id="v-form">
         <input id="v-text" type="text" placeholder="Ask or tell me anything…" autocomplete="off" enterkeyhint="send" />
+        <button class="voice-mic" id="v-mic" type="button" aria-label="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3"/></svg></button>
         <button class="voice-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h13"/><path d="M12.5 6.5 19 12l-6.5 5.5"/></svg></button>
       </form>
     </div>
@@ -489,6 +490,19 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   const transcriptEl = overlay.querySelector("#v-transcript"); // your words, as they're heard
   const textInput = overlay.querySelector("#v-text");
   const wave = makeWave(overlay.querySelector("#v-wave"));
+  // The mic beside the text box shows whether the app is listening, the
+  // same way the tab-bar button does — its state follows the wave's.
+  const micBtn = overlay.querySelector("#v-mic");
+  {
+    const set = wave.set.bind(wave);
+    wave.set = (state) => {
+      set(state);
+      const live = state === "listening";
+      micBtn.classList.toggle("is-live", live);
+      micBtn.setAttribute("aria-pressed", String(live));
+      micBtn.setAttribute("aria-label", live ? "Listening — tap to pause" : "Talk instead of typing");
+    };
+  }
   const muteBtn = overlay.querySelector("#v-mute");
   muteBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -1058,6 +1072,19 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     if (held) return sendHeld();
     if (hearing) { stopHearing(); wave.set("idle"); setStatus("Paused \u2014 tap to talk."); }
     else { quiet = 0; faults = 0; listen(); }
+  });
+  // The mic beside the text box: the way back to talking once the panel has
+  // fallen back to typing, for a phone whose keyboard has no dictation key.
+  // Tapping it while listening pauses, like the wave.
+  micBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    stopSpeaking();
+    if (held) return sendHeld();
+    if (hearing) { stopHearing(); wave.set("idle"); setStatus("Paused \u2014 tap the mic to talk."); return; }
+    if (!SR()) { setStatus("Voice isn't available on this device \u2014 type below."); textInput.focus(); return; }
+    textInput.blur(); // the keyboard goes; the mic has the floor
+    quiet = 0; faults = 0;
+    listen();
   });
 
   // Speech recognition is attempted everywhere now, including iOS. It used to
