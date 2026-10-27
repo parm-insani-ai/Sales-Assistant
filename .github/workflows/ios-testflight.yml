@@ -68,6 +68,9 @@ jobs:
           for v in APPLE_TEAM_ID:"$TEAM_ID" ASC_KEY_ID:"$ASC_KEY_ID" ASC_ISSUER_ID:"$ASC_ISSUER_ID" ASC_KEY_P8:"$ASC_KEY_P8" IOS_DIST_CERT_P12:"$P12_B64" IOS_DIST_CERT_PASSWORD:"$P12_PASSWORD"; do
             if [ -z "${v#*:}" ]; then echo "::error::The repository secret ${v%%:*} is empty or missing (Settings → Secrets and variables → Actions)."; exit 1; fi
           done
+          if ! [[ "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ ]]; then echo "::error::ASC_KEY_ID should be the 10-character key id exactly as App Store Connect shows it (letters and digits, no spaces); it is ${#ASC_KEY_ID} characters."; exit 1; fi
+          if ! [[ "$ASC_ISSUER_ID" =~ ^[0-9a-f-]{36}$ ]]; then echo "::error::ASC_ISSUER_ID should be the 36-character issuer id with dashes from App Store Connect → Integrations; it is ${#ASC_ISSUER_ID} characters."; exit 1; fi
+          if ! [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then echo "::error::APPLE_TEAM_ID should be the 10-character Team ID from Membership details; it is ${#TEAM_ID} characters."; exit 1; fi
           # The API key: accepted as the file's base64 or as its plain text.
           mkdir -p "$HOME/private_keys"
           KEYFILE="$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
