@@ -35,7 +35,15 @@ export function platform() {
 // can't be attached to a debugger, and "the mic just gives me the keyboard"
 // has to be answerable from a screenshot. Failures also go into the same
 // error list the page-level catcher keeps (index.html), so they show there.
-export const nativeDiag = { bridge: !!window.Capacitor, native: isNative(), platform: platform(), speechStarts: 0, speechOk: 0, lastSpeechError: "", lastSpeechAt: "" };
+export const nativeDiag = { bridge: !!window.Capacitor, native: isNative(), platform: platform(), speechStarts: 0, speechOk: 0, lastSpeechError: "", lastSpeechAt: "", trail: [] };
+// A short trail of what the recognizer did, newest last — the shape of a
+// failed turn is readable from it: start, words arriving, the stop, what
+// was handed over.
+function trail(what) {
+  const t = new Date();
+  nativeDiag.trail.push(`${String(t.getMinutes()).padStart(2, "0")}:${String(t.getSeconds()).padStart(2, "0")} ${what}`);
+  if (nativeDiag.trail.length > 14) nativeDiag.trail.shift();
+}
 function note(kind, msg) {
   try {
     const K = "viniva:errors";
@@ -80,11 +88,25 @@ const STOP_TIMEOUT_MS = 1500;     // the engine's "stopped" never came: finish a
 let current = null;  // the recogniser whose turn it is — the engine is one
 let wired = null;    // the plugin listeners, attached once
 
+// The plugin's events carry no session id, and a session that was just
+// stopped can still report a last word or a second "stopped" after the next
+// one has begun. So a recogniser takes events only once the engine has said
+// "started" for it, and anything arriving before that belongs to its
+// predecessor and is dropped.
 function wire() {
   if (!wired) {
     wired = Promise.all([
-      listen("SpeechRecognition", "partialResults", (d) => { if (current) current._partial(Array.isArray(d && d.matches) ? d.matches : []); }),
-      listen("SpeechRecognition", "listeningState", (d) => { if (current && d && d.status === "stopped") current._stopped(); }),
+      listen("SpeechRecognition", "partialResults", (d) => {
+        const m = Array.isArray(d && d.matches) ? d.matches : [];
+        if (current && current._live) current._partial(m);
+        else trail(`stray words (${m.length}) ignored`);
+      }),
+      listen("SpeechRecognition", "listeningState", (d) => {
+        const s = d && d.status;
+        if (!current) { trail(`stray ${s} ignored`); return; }
+        if (s === "started") { current._live = true; trail("engine started"); }
+        else if (s === "stopped") { if (current._live) current._stopped(); else trail("stray stopped ignored"); }
+      }),
     ]);
   }
   return wired;
@@ -105,10 +127,14 @@ export class NativeSpeechRecognition {
     this.continuous = false;
     this.onstart = null; this.onresult = null; this.onerror = null; this.onend = null;
     this._matches = [];
-    this._started = false; this._done = false; this._aborted = false;
+    this._started = false; this._done = false; this._aborted = false; this._live = false;
     this._silence = 0; this._quiet = 0; this._grace = 0; this._stopGuard = 0;
   }
-  _emit(name, ev) { const fn = this[name]; if (typeof fn === "function") { try { fn.call(this, ev); } catch (e) { console.error(e); } } }
+  _emit(name, ev) {
+    const fn = this[name];
+    if (typeof fn !== "function") return;
+    try { fn.call(this, ev); } catch (e) { console.error(e); note("speech", `${name} handler: ${String((e && e.message) || e)}`); }
+  }
   _event(isFinal) { return { resultIndex: 0, results: [resultOf(this._matches, isFinal)] }; }
   _clear() { clearTimeout(this._silence); clearTimeout(this._quiet); clearTimeout(this._grace); clearTimeout(this._stopGuard); }
 
@@ -152,6 +178,7 @@ export class NativeSpeechRecognition {
       }
       if (this._done) return;
       nativeDiag.speechOk++;
+      trail("start ok");
       this._emit("onstart", {});
       this._quiet = setTimeout(() => this.stop(), NO_SPEECH_MS);
     })();
@@ -159,6 +186,7 @@ export class NativeSpeechRecognition {
   _partial(matches) {
     if (this._done || !matches.length) return;
     clearTimeout(this._quiet); this._quiet = 0;
+    if (!this._matches.length) trail("words arriving");
     this._matches = matches;
     if (this._grace) return; // the engine has stopped; this is its last word
     if (this.interimResults) this._emit("onresult", this._event(false));
@@ -177,22 +205,24 @@ export class NativeSpeechRecognition {
     this._done = true; this._clear();
     if (current === this) current = null;
     if (!this._aborted) {
-      if (this._matches.length) this._emit("onresult", this._event(true));
-      else this._emit("onerror", { error: "no-speech", message: "" });
-    }
+      if (this._matches.length) { trail(`final: ${this._matches[0].split(/\s+/).length} words`); this._emit("onresult", this._event(true)); }
+      else { trail("no speech"); this._emit("onerror", { error: "no-speech", message: "" }); }
+    } else trail("aborted");
     this._emit("onend", {});
   }
   _fail(code) {
     if (this._done) return;
     this._done = true; this._clear();
     if (current === this) current = null;
+    trail(`failed: ${code}`);
     this._emit("onerror", { error: code, message: "" });
     this._emit("onend", {});
   }
-  _abandon() { this._aborted = true; this._done = true; this._clear(); }
+  _abandon() { this._aborted = true; this._done = true; this._clear(); if (current === this) current = null; }
   stop() {
     if (this._done || !this._started) return;
     clearTimeout(this._silence); clearTimeout(this._quiet);
+    trail(this._matches.length ? "stop after silence" : "stop");
     call("SpeechRecognition", "stop").catch(() => {});
     if (!this._stopGuard) this._stopGuard = setTimeout(() => this._stopped(), STOP_TIMEOUT_MS);
   }
