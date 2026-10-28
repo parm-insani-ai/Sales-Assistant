@@ -15,11 +15,12 @@ mkdirSync(out, { recursive: true });
 
 // The mark, traced from the reference picture (519×415) and scaled to sit
 // centred in the 1024 box: two bold slanted strokes with a gap between
-// them, the right one reaching lower. White on the green.
+// them, the right one reaching the bottom. White on the green.
 const SRC_W = 506, SRC_H = 349, SRC_X = 6, SRC_Y = 40;   // the picture's bounding box
 const SCALE = 780 / SRC_W;                                 // 76% of the icon's width
 const OX = (1024 - SRC_W * SCALE) / 2, OY = (1024 - SRC_H * SCALE) / 2;
-const place = ([x, y]) => [OX + (x - SRC_X) * SCALE, OY + (y - SRC_Y) * SCALE];
+// Mirrored: the stroke that reaches the bottom is the right one.
+const place = ([x, y]) => [OX + (SRC_X + SRC_W - x) * SCALE, OY + (y - SRC_Y) * SCALE];
 const left = [[6, 40], [120, 41], [282, 377], [274, 389], [173, 389]].map(place);
 const right = [[240, 262], [391, 40], [512, 41], [290, 365]].map(place);
 const pts = (p) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");

@@ -3,6 +3,6 @@
   <rect width="1024" height="1024" rx="224" fill="#0a8f5b"/>
   <rect width="1024" height="1024" rx="224" fill="url(#g)"/>
   <g>
-  <polygon points="122.0,243.0 297.7,244.5 547.5,762.5 535.1,781.0 379.4,781.0" fill="#ffffff"/>
-  <polygon points="482.7,585.2 715.5,243.0 902.0,244.5 559.8,744.0" fill="#ffffff"/></g>
+  <polygon points="902.0,243.0 726.3,244.5 476.5,762.5 488.9,781.0 644.6,781.0" fill="#ffffff"/>
+  <polygon points="541.3,585.2 308.5,243.0 122.0,244.5 464.2,744.0" fill="#ffffff"/></g>
 </svg>
