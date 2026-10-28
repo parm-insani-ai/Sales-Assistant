@@ -3,10 +3,6 @@
   <rect width="1024" height="1024" rx="224" fill="#0a8f5b"/>
   <rect width="1024" height="1024" rx="224" fill="url(#g)"/>
   <g>
-  <mask id="cut0" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-    <rect width="1024" height="1024" fill="#fff"/>
-    <polygon points="644.0,318.0 906.0,318.0 624.9,820.0 339.4,862.0" fill="#000" stroke="#000" stroke-width="116" stroke-linejoin="miter" stroke-miterlimit="8"/>
-  </mask>
-  <polygon points="118.0,318.0 380.0,318.0 588.3,690.0 326.3,690.0" fill="#ffffff" mask="url(#cut0)"/>
-  <polygon points="644.0,318.0 906.0,318.0 624.9,820.0 339.4,862.0" fill="#ffffff"/></g>
+  <polygon points="122.0,243.0 297.7,244.5 547.5,762.5 535.1,781.0 379.4,781.0" fill="#ffffff"/>
+  <polygon points="482.7,585.2 715.5,243.0 902.0,244.5 559.8,744.0" fill="#ffffff"/></g>
 </svg>
