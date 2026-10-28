@@ -23,7 +23,7 @@ Everything else is the same files: `index.html`, `js/`, `css/`. In a browser
 |---|---|
 | `package.json`, `capacitor.config.json` | The shell's dependencies and settings (`appId` is `ai.entoa.viniva`) |
 | `native/build.mjs` | Copies the web app into `native/www`, the folder the shell bundles |
-| `ios/` | The Xcode project. Already has the microphone and speech permission strings, the push entitlement, the push callbacks in `AppDelegate.swift`, and a 1024px icon |
+| `ios/` | The Xcode project. Already has the microphone and speech permission strings, the push entitlement, the push callbacks in `AppDelegate.swift`, and a 1024px icon (drawn by `native/icon.mjs`, which also makes the web and Android sizes) |
 | `android/` | The Gradle project. Already has the microphone and notification permissions, release signing from the environment, a version from the build, and launcher icons |
 | `js/native.js` | The bridge: native speech behind `window.SpeechRecognition`, push registration (Apple's token on iPhone, Google's on Android), notification taps |
 | `.github/workflows/ios-testflight.yml` | Builds and uploads to TestFlight from GitHub, no Mac needed |

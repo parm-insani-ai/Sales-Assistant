@@ -1,13 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff" stop-opacity="0.16"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="#0a8f5b"/>
-  <rect width="512" height="512" rx="112" fill="url(#g)"/>
-  <text x="256" y="258" text-anchor="middle" dominant-baseline="central"
-        font-family="Helvetica, Arial, sans-serif" font-weight="700"
-        font-size="400" fill="#ffffff">e</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff" stop-opacity="0.14"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>
+  <rect width="1024" height="1024" rx="224" fill="#0a8f5b"/>
+  <rect width="1024" height="1024" rx="224" fill="url(#g)"/>
+  <g>
+  <mask id="cut0" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+    <rect width="1024" height="1024" fill="#fff"/>
+    <polygon points="644.0,318.0 906.0,318.0 624.9,820.0 339.4,862.0" fill="#000" stroke="#000" stroke-width="116" stroke-linejoin="miter" stroke-miterlimit="8"/>
+  </mask>
+  <polygon points="118.0,318.0 380.0,318.0 588.3,690.0 326.3,690.0" fill="#ffffff" mask="url(#cut0)"/>
+  <polygon points="644.0,318.0 906.0,318.0 624.9,820.0 339.4,862.0" fill="#ffffff"/></g>
 </svg>
