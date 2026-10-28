@@ -1,5 +1,5 @@
 // Draws the viniva mark: a v in two bold slanted strokes with a gap between
-// them, the right one reaching lower, on the green. Writes the SVG and renders
+// them, the left one reaching the bottom, on the green. Writes the SVG and renders
 // PNGs at the sizes the web app, iOS and Android want, into a folder:
 //   node native/icon.mjs /tmp/icon
 // then copy icon.svg, icon-192/512.png and apple-touch-icon.png to icons/,
@@ -9,25 +9,20 @@ import { createRequire } from "node:module";
 import { mkdirSync, writeFileSync } from "node:fs";
 const { launch } = createRequire(import.meta.url)("../test/browser.js");
 
-const GREEN = "#0a8f5b";
+const GREEN = "#12a06e";
 const out = process.argv[2] || ".";
 mkdirSync(out, { recursive: true });
 
-// The mark, traced from the reference picture (519×415) and scaled to sit
-// centred in the 1024 box: two bold slanted strokes with a gap between
-// them, the right one reaching the bottom. White on the green.
-const SRC_W = 506, SRC_H = 349, SRC_X = 6, SRC_Y = 40;   // the picture's bounding box
-const SCALE = 780 / SRC_W;                                 // 76% of the icon's width
-const OX = (1024 - SRC_W * SCALE) / 2, OY = (1024 - SRC_H * SCALE) / 2;
-// Mirrored: the stroke that reaches the bottom is the right one.
-const place = ([x, y]) => [OX + (SRC_X + SRC_W - x) * SCALE, OY + (y - SRC_Y) * SCALE];
-const left = [[6, 40], [120, 41], [282, 377], [274, 389], [173, 389]].map(place);
-const right = [[240, 262], [391, 40], [512, 41], [290, 365]].map(place);
+// The mark, traced from the reference picture (itself a 1024 icon): two
+// bold slanted strokes with a gap between them, the left one reaching the
+// bottom. White on the picture's green.
+const left = [[144, 247], [335, 247], [572, 754], [559, 772], [401, 772]];
+const right = [[498, 534], [681, 247], [880, 246], [587, 722]];
 const pts = (p) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 const glyph = () => `
   <polygon points="${pts(left)}" fill="#ffffff"/>
   <polygon points="${pts(right)}" fill="#ffffff"/>`;
-const shade = `<defs><linearGradient id="g" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff" stop-opacity="0.14"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>`;
+const shade = `<defs><linearGradient id="g" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff" stop-opacity="0"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>`;
 const svg = (rx, transform = "") => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   ${shade}
   <rect width="1024" height="1024" rx="${rx}" fill="${GREEN}"/>
