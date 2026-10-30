@@ -191,6 +191,7 @@ const DEFAULT_STATE = {
     goalUnits: 12, // sales per month
     goalCommission: 8000, // $ per month
     goalAppointments: 30, // appointments set per month — the north-star activity
+    goalDaily: 2, // appointments to set each day — the same number every day, whatever the month says
     // Cloud sync (Supabase). Empty = local-only, exactly like before.
     supabaseUrl: "",
     supabaseAnonKey: "",

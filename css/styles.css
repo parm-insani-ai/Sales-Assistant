@@ -2005,6 +2005,13 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .tg-thin { height: 5px; margin-top: 2px; background: var(--border); }
 .tg-thin.tg-sold > span { background: var(--brand); }
 .tg-thin.tg-spoke > span { background: var(--accent); }
+/* The month under today's number: set so far, with a tick where the month
+   should be by today. */
+.tg-month-bar { position: relative; overflow: visible; }
+.tg-month-bar > span { background: var(--accent); }
+.tg-month-bar .tg-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; opacity: 0.7; }
+.tg-ahead { color: var(--success); font-weight: 600; }
+.tg-behind { color: var(--danger); font-weight: 600; }
 .tg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .tg-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.76rem; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text); }
 .tg-chip .muted { font-weight: 500; }

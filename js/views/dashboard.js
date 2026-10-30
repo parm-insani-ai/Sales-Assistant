@@ -8,13 +8,12 @@ import { navigate } from "../router.js";
 import { esc, currency, relativeDay, daysFromToday, telHref, smsHref } from "../utils.js";
 import { monthSummary } from "./goals.js";
 import { salesTarget, openTargetForm } from "../target.js";
-import { repInsight } from "../insight.js";
 import { fold } from "../fold.js";
 import { icon } from "../icons.js";
 import { swipeable, undoToast, toast } from "../components.js";
 import { getExternalEvents, refreshIfStale, feedsConfigured } from "../calfeeds.js";
 import { getNudges, missingWelcomes, dismissNudge, restoreNudge } from "../nudges.js";
-import { todayPlan } from "../plan.js";
+import { todayPlan, readPace } from "../plan.js";
 import { resolve as resolveCommitment } from "../ledger.js";
 import { reviewTouch } from "../touches.js";
 import { ensurePlans } from "../apptplan.js";
@@ -313,22 +312,17 @@ function targetSection(mtd, s, redraw) {
     chip(t.spokeWeek >= t.perWeek ? "tg-good" : "", `This week ${t.spokeWeek}/${t.perWeek}`),
     chip("", `${t.appts} appt${t.appts === 1 ? "" : "s"} set${s.goalAppointments ? ` <span class="muted">of ${s.goalAppointments}</span>` : ""}`),
   ].join("");
-  // Today's appointments to set, worked from the month: what's left to
-  // sell, what the calendar already covers, and the show and close rates —
-  // the same arithmetic the manager's board uses — spread over the days
-  // left. Then how many were set today. A number to beat before lunch.
+  // Today's appointments to set: the same number every day (set with the
+  // target; two until it is), counted against what was set today. Under
+  // it, the month: set so far against the month's appointment goal, with
+  // where the month should be by today marked on the bar. A number to beat
+  // before lunch, and the month it adds up to.
   const daily = (() => {
-    if (!p.target) return null;
-    const appts = store.all("appointments");
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const dayOf = (v) => { const x = String(v || ""); if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(x)) return x.slice(0, 10); const d = new Date(x); return isNaN(d) ? "" : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-    const ins = repInsight({ appts, leads: [], touches: 0, touchesByDay: {}, goalUnits: p.target, sold: t.sold, now });
-    const n = ins.needs;
-    const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? n.ask : 0;
-    const set = appts.filter((a) => a.status !== "canceled" && dayOf(a.createdAt || a.when) === todayKey).length;
-    return { need, set, onTrack: !!(n.goal && n.onTrack), left: n.apptsNeeded, assumed: n.assumed, reachable: n.reachable, daysLeft: n.daysLeft };
+    if (!p.target && !s.goalDaily) return null;
+    const pace = readPace();
+    const need = Number(s.goalDaily) > 0 ? Number(s.goalDaily) : (pace.target && !pace.onTrack ? pace.apptsToday : 0);
+    const month = pace.monthAppts ? { set: pace.setThisMonth, goal: pace.monthAppts, expected: pace.expectedByNow, diff: pace.setThisMonth - pace.expectedByNow } : null;
+    return { need, set: pace.setToday, onTrack: !!pace.onTrack, month };
   })();
   const body = document.createElement("div");
   body.className = "card target-card";
@@ -342,10 +336,10 @@ function targetSection(mtd, s, redraw) {
     ${daily ? `<div class="tg-today ${daily.need && daily.set >= daily.need ? "tg-good" : ""}" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface-2)">
       <div class="row" style="align-items:baseline"><div class="strong" style="font-size:1.05rem">${daily.need ? `Today: ${daily.set} of ${daily.need} appointment${daily.need === 1 ? "" : "s"} set` : daily.onTrack ? `On track · ${daily.set} set today` : `${daily.set} set today`}</div>${daily.need && daily.set >= daily.need ? `<span class="small" style="color:var(--success);font-weight:600">${icon("check")} done</span>` : ""}</div>
       ${daily.need ? `<div class="progress tg-bar" style="margin-top:6px"><span style="width:${Math.min(100, Math.round((daily.set / daily.need) * 100))}%"></span></div>` : ""}
-      <div class="small muted" style="margin-top:4px">${daily.need
-        ? (daily.reachable ? `${daily.left} more to set this month to hit ${p.target}.`
-          : `${p.target} would take ${daily.left} more this month — out of reach with ${daily.daysLeft} working day${daily.daysLeft === 1 ? "" : "s"} left. ${daily.need} a day finishes strong and sets up next month.`)
-        : daily.onTrack ? "The calendar covers the month." : ""}</div>
+      ${daily.month ? `<div class="tg-month" style="margin-top:10px">
+        <div class="row small" style="align-items:baseline"><span>This month: <b>${daily.month.set} of ${daily.month.goal}</b> set</span><span class="${daily.month.diff > 0 ? "tg-ahead" : daily.month.diff < 0 ? "tg-behind" : "muted"}">${daily.month.diff > 0 ? `${daily.month.diff} ahead of pace` : daily.month.diff < 0 ? `${-daily.month.diff} behind pace` : "on pace"}</span></div>
+        <div class="progress tg-thin tg-month-bar" style="margin-top:4px"><span style="width:${Math.min(100, Math.round((daily.month.set / daily.month.goal) * 100))}%"></span><i class="tg-tick" style="left:${Math.min(100, Math.round((daily.month.expected / daily.month.goal) * 100))}%" title="where the month should be today"></i></div>
+      </div>` : daily.onTrack ? `<div class="small muted" style="margin-top:4px">The calendar covers the month.</div>` : ""}
     </div>` : ""}
     ${p.target ? `
     <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "", "sold")}${tile("Spoken with", t.spoke, p.need, "", "spoken")}</div>

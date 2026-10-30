@@ -144,13 +144,14 @@ export function openTargetForm(onDone) {
         { name: "closingNew", label: "Closing ratio, new (%)", value: Number(s.closingNew) > 0 ? s.closingNew : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true },
         { name: "closingUsed", label: "Closing ratio, used (%)", value: Number(s.closingUsed) > 0 ? s.closingUsed : STORE_CLOSING_PCT, type: "number", inputmode: "decimal", half: true, hint: `Store benchmark ${STORE_CLOSING_PCT}%.` },
         { name: "goalAppointments", label: "Appointments set this month", value: s.goalAppointments || "", type: "number", inputmode: "numeric", half: true, placeholder: "30" },
+        { name: "goalDaily", label: "Appointments to set each day", value: s.goalDaily || "", type: "number", inputmode: "numeric", half: true, placeholder: "2", hint: "The same number every day; Home counts today against it and the month underneath." },
         { name: "goalCommission", label: "Commission goal ($)", value: s.goalCommission || "", type: "number", inputmode: "decimal", half: true, placeholder: "8000" },
       ],
       {
         submitLabel: "Set target",
         onSubmit: (data) => {
           const targetNew = num(data.targetNew), targetUsed = num(data.targetUsed);
-          const patch = { targetNew, targetUsed, closingNew: num(data.closingNew) || STORE_CLOSING_PCT, closingUsed: num(data.closingUsed) || STORE_CLOSING_PCT, goalAppointments: num(data.goalAppointments), goalCommission: num(data.goalCommission) };
+          const patch = { targetNew, targetUsed, closingNew: num(data.closingNew) || STORE_CLOSING_PCT, closingUsed: num(data.closingUsed) || STORE_CLOSING_PCT, goalAppointments: num(data.goalAppointments), goalDaily: num(data.goalDaily), goalCommission: num(data.goalCommission) };
           if (targetNew + targetUsed > 0) { patch.goalUnits = targetNew + targetUsed; patch.targetSetBy = "rep"; }
           store.updateSettings(patch);
           const plan = targetPlan(store.getSettings());
