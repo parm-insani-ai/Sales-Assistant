@@ -14,6 +14,10 @@ const iso = (d) => d.toISOString();
 const ago = (min) => new Date(now.getTime() - min * 60000);
 const pad = (n) => String(n).padStart(2, "0");
 const month = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+// Upcoming appointments sit on tomorrow, not a fixed day of the month: pinned
+// to the 28th they were in the past from the 29th on, and a customer with a
+// time booked read as an unsold be-back.
+const tmrw = (h) => { const d = new Date(now); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:00`; };
 const rpc = (tok, fn, args) => fetch(APP + "/rest/v1/rpc/" + fn, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args) }).then((r) => r.json());
 const st = await rpc("tm", "create_store", { store_name: "Store", display_name: "Sam" });
 await rpc("t", "join_store", { code: st.code, display_name: "Parm" });
@@ -28,8 +32,8 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
   l("4", "Una Unsold", "Walk-in", { vehicleInterest: "Sentra", loggedAt: iso(ago(5 * D)), lastContacted: iso(ago(4 * D)) }),
   l("5", "Ben Booked", "Walk-in", { loggedAt: iso(ago(5 * D)), lastContacted: iso(ago(4 * D)) }),
   l("6", "Val Value", "Referral", { loggedAt: iso(ago(3 * D)), lastContacted: iso(ago(D)) }),
-  { id: "a1", collection: "appointments", data: { id: "a1", leadId: "1", customerName: "Ann Up", when: month + "-28T10:00", status: "scheduled", confirmed: true, createdAt: iso(ago(3 * D)) } },
-  { id: "a5", collection: "appointments", data: { id: "a5", leadId: "5", customerName: "Ben Booked", when: month + "-28T11:00", status: "scheduled", confirmed: true, createdAt: iso(ago(2 * D)) } },
+  { id: "a1", collection: "appointments", data: { id: "a1", leadId: "1", customerName: "Ann Up", when: tmrw(10), status: "scheduled", confirmed: true, createdAt: iso(ago(3 * D)) } },
+  { id: "a5", collection: "appointments", data: { id: "a5", leadId: "5", customerName: "Ben Booked", when: tmrw(11), status: "scheduled", confirmed: true, createdAt: iso(ago(2 * D)) } },
   // Past appointments: Parm shows two of four (50%); Dana below.
   { id: "p1", collection: "appointments", data: { id: "p1", leadId: "2", customerName: "Bo Up", when: month + "-02T10:00", status: "scheduled", outcome: "showed", createdAt: iso(ago(12 * D)) } },
   { id: "p2", collection: "appointments", data: { id: "p2", leadId: "3", customerName: "Cy Up", when: month + "-03T10:00", status: "scheduled", outcome: "showed", createdAt: iso(ago(12 * D)) } },

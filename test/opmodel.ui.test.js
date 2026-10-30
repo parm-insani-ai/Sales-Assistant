@@ -15,6 +15,7 @@ const iso = (d) => d.toISOString();
 const ago = (min) => new Date(now.getTime() - min * 60000);
 const pad = (n) => String(n).padStart(2, "0");
 const month = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+const tmrw = (h) => { const d = new Date(now); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(h)}:00`; }; // upcoming, whatever today is
 const rpc = (tok, fn, args) => fetch(APP + "/rest/v1/rpc/" + fn, { method: "POST", headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(args) }).then((r) => r.json());
 const st = await rpc("tm", "create_store", { store_name: "Store", display_name: "Sam" });
 await rpc("t", "join_store", { code: st.code, display_name: "Parm" });
@@ -26,9 +27,9 @@ await fetch(APP + "/__seed", { method: "POST", body: JSON.stringify({ user_id: U
   l("1", "Ann Up", "Dealer Site"), l("2", "Bo Up", "Dealer Site"), l("3", "Cy Up", "Dealer Site"), l("4", "Di Walk", "Walk-in"),
   { id: "s1", collection: "sales", data: { id: "s1", leadId: "1", customerName: "Ann Up", saleDate: month + "-02", newUsed: "New", ...x } },
   { id: "s2", collection: "sales", data: { id: "s2", leadId: "2", customerName: "Bo Up", saleDate: month + "-03", newUsed: "Used", ...x } },
-  { id: "a1", collection: "appointments", data: { id: "a1", leadId: "3", customerName: "Cy Up", when: month + "-28T10:00", status: "scheduled", confirmed: true, createdAt: iso(ago(3000)) } },
-  { id: "a2", collection: "appointments", data: { id: "a2", leadId: "4", customerName: "Di Walk", when: month + "-28T11:00", status: "scheduled", confirmed: true, createdAt: iso(ago(2500)) } },
-  { id: "a3", collection: "appointments", data: { id: "a3", leadId: "1", customerName: "Ann Up", when: month + "-28T12:00", status: "scheduled", confirmed: true, createdAt: iso(ago(2200)) } },
+  { id: "a1", collection: "appointments", data: { id: "a1", leadId: "3", customerName: "Cy Up", when: tmrw(10), status: "scheduled", confirmed: true, createdAt: iso(ago(3000)) } },
+  { id: "a2", collection: "appointments", data: { id: "a2", leadId: "4", customerName: "Di Walk", when: tmrw(11), status: "scheduled", confirmed: true, createdAt: iso(ago(2500)) } },
+  { id: "a3", collection: "appointments", data: { id: "a3", leadId: "1", customerName: "Ann Up", when: tmrw(12), status: "scheduled", confirmed: true, createdAt: iso(ago(2200)) } },
 ] }) });
 
 const mgr = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();

@@ -14,7 +14,9 @@ const pad = (n) => String(n).padStart(2, "0");
 const d = new Date();
 const ym = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 const today = `${ym}-${pad(d.getDate())}`;
-await p.addInitScript(([ym, today]) => {
+const tm = new Date(d); tm.setDate(tm.getDate() + 1);
+const tmrw = `${tm.getFullYear()}-${pad(tm.getMonth() + 1)}-${pad(tm.getDate())}`; // the unconfirmed one is upcoming, whatever today is
+await p.addInitScript(([ym, today, tmrw]) => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const x = { createdAt: ym + "-01T12:00:00.000Z", updatedAt: ym + "-01T12:00:00.000Z" };
   localStorage.setItem("sales-assistant:v1", JSON.stringify({
@@ -32,11 +34,11 @@ await p.addInitScript(([ym, today]) => {
     appointments: [
       { id: "ap1", leadId: "a", customerName: "Nick Marsh", when: ym + "-02T10:00", status: "scheduled", confirmed: true, outcome: "sold", ...x },
       { id: "ap2", leadId: "d", customerName: "Dana Muise", when: ym + "-03T10:00", status: "scheduled", confirmed: true, outcome: "showed", ...x },
-      { id: "ap3", leadId: "d", customerName: "Dana Muise", when: ym + "-28T15:00", status: "scheduled", confirmed: false, ...x },
+      { id: "ap3", leadId: "d", customerName: "Dana Muise", when: tmrw + "T15:00", status: "scheduled", confirmed: false, ...x },
     ],
     settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false, targetNew: 8, targetUsed: 4, closingNew: 42, closingUsed: 42, goalCommission: 8000, myPlate: "D-23553" },
   }));
-}, [ym, today]);
+}, [ym, today, tmrw]);
 
 // --- Home's target card opens the screen.
 await p.goto(APP + "/#/");
