@@ -326,9 +326,9 @@ function targetSection(mtd, s, redraw) {
     const dayOf = (v) => { const x = String(v || ""); if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(x)) return x.slice(0, 10); const d = new Date(x); return isNaN(d) ? "" : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
     const ins = repInsight({ appts, leads: [], touches: 0, touchesByDay: {}, goalUnits: p.target, sold: t.sold, now });
     const n = ins.needs;
-    const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? Math.max(1, Math.round(n.perDay)) : 0;
+    const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? n.ask : 0;
     const set = appts.filter((a) => a.status !== "canceled" && dayOf(a.createdAt || a.when) === todayKey).length;
-    return { need, set, onTrack: !!(n.goal && n.onTrack), left: n.apptsNeeded, assumed: n.assumed };
+    return { need, set, onTrack: !!(n.goal && n.onTrack), left: n.apptsNeeded, assumed: n.assumed, reachable: n.reachable, daysLeft: n.daysLeft };
   })();
   const body = document.createElement("div");
   body.className = "card target-card";
@@ -342,7 +342,10 @@ function targetSection(mtd, s, redraw) {
     ${daily ? `<div class="tg-today ${daily.need && daily.set >= daily.need ? "tg-good" : ""}" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface-2)">
       <div class="row" style="align-items:baseline"><div class="strong" style="font-size:1.05rem">${daily.need ? `Today: ${daily.set} of ${daily.need} appointment${daily.need === 1 ? "" : "s"} set` : daily.onTrack ? `On track · ${daily.set} set today` : `${daily.set} set today`}</div>${daily.need && daily.set >= daily.need ? `<span class="small" style="color:var(--success);font-weight:600">${icon("check")} done</span>` : ""}</div>
       ${daily.need ? `<div class="progress tg-bar" style="margin-top:6px"><span style="width:${Math.min(100, Math.round((daily.set / daily.need) * 100))}%"></span></div>` : ""}
-      <div class="small muted" style="margin-top:4px">${daily.need ? `${daily.left} more to set this month to hit ${p.target}.` : daily.onTrack ? "The calendar covers the month." : ""}</div>
+      <div class="small muted" style="margin-top:4px">${daily.need
+        ? (daily.reachable ? `${daily.left} more to set this month to hit ${p.target}.`
+          : `${p.target} would take ${daily.left} more this month — out of reach with ${daily.daysLeft} working day${daily.daysLeft === 1 ? "" : "s"} left. ${daily.need} a day finishes strong and sets up next month.`)
+        : daily.onTrack ? "The calendar covers the month." : ""}</div>
     </div>` : ""}
     ${p.target ? `
     <div class="tg-tiles">${tile("Sold", t.sold, p.target, hit ? "tg-hit" : "", "sold")}${tile("Spoken with", t.spoke, p.need, "", "spoken")}</div>

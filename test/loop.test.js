@@ -109,7 +109,8 @@ await rep.goto(APP + "/#/");
 await rep.waitForSelector(".target-card .tg-today", { timeout: 20000 });
 const daily = await rep.evaluate(() => document.querySelector(".target-card .tg-today").textContent.replace(/\s+/g, " ").trim());
 console.log("daily:", daily);
-if (!/^Today: 1 of \d+ appointments? set/.test(daily) || !/more to set this month to hit 12/.test(daily)) fail("the rep's daily target is wrong: " + daily);
+// The ask is capped at what a day can carry; late in the month the line says the 12 is out of reach instead of asking for the impossible.
+if (!/^Today: 1 of \d appointments? set/.test(daily) || !(/more to set this month to hit 12/.test(daily) || /12 would take \d+ more this month — out of reach/.test(daily))) fail("the rep's daily target is wrong: " + daily);
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

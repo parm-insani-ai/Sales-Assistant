@@ -70,9 +70,20 @@ export function needs({ goal, sold, futureSet = 0, showRate = null, closeRate = 
   const pipeline = Math.round(futureSet * perAppt * 10) / 10;
   const unitsLeft = Math.max(0, num(goal) - num(sold) - pipeline);
   const apptsNeeded = num(goal) ? Math.ceil(unitsLeft / perAppt) : 0;
+  const perDay = Math.round((apptsNeeded / daysLeft) * 10) / 10;
+  // The day's ask. Dividing what's left over the days left is right in
+  // week one and absurd in the last days of a slow month ("0 of 69 set
+  // today"). A day can carry about twice the month's normal rate — the
+  // whole goal's appointments over the whole month's working days — and
+  // never less than three; past that the month is out of reach from here,
+  // and the ask is what still makes the day count.
+  const normal = num(goal) ? Math.ceil(num(goal) / perAppt) / workDaysLeft(new Date(now.getFullYear(), now.getMonth(), 1)) : 0;
+  const cap = Math.max(3, Math.ceil(normal * 2));
+  const ask = apptsNeeded ? Math.min(cap, Math.max(1, Math.round(perDay))) : 0;
+  const reachable = apptsNeeded <= cap * daysLeft;
   return {
     goal: num(goal), sold: num(sold), unitsLeft: Math.round(unitsLeft * 10) / 10, pipeline, futureSet,
-    apptsNeeded, perDay: Math.round((apptsNeeded / daysLeft) * 10) / 10, daysLeft,
+    apptsNeeded, perDay, daysLeft, ask, cap, reachable,
     perAppt: Math.round(perAppt * 100) / 100, showRate: Math.round(s * 100), closeRate: Math.round(c * 100), assumed,
     onTrack: !num(goal) || apptsNeeded === 0,
   };
@@ -227,7 +238,12 @@ export function findings(ins) {
   if (srcs.length >= 2) { const best = srcs.reduce((a, b) => (b.setRate > a.setRate ? b : a)); const worst = srcs.reduce((a, b) => (b.setRate < a.setRate ? b : a)); if (best.source !== worst.source) out.push({ kind: "source", text: `${best.source} leads set at ${best.setRate}%, ${worst.source} at ${worst.setRate}%. Work ${best.source} first when the list is long.` }); }
   const tm = ins.times;
   if (tm.bestHour != null && ins.history.set >= 10) out.push({ kind: "time", text: `Most appointments get set ${DAYS[tm.bestDay]}s around ${hourLabel(tm.bestHour)}. Put the calling hour there.` });
-  if (!ins.needs.onTrack) out.push({ kind: "needs", text: `To hit ${ins.needs.goal} units: ${ins.needs.apptsNeeded} more appointments set by month end, ${ins.needs.perDay} a day${ins.touchesPerDay ? `, about ${ins.touchesPerDay} touches a day at the current ratio` : ""}.${ins.needs.assumed ? " (Planned on typical show and close rates until there's more history.)" : ""}` });
+  if (!ins.needs.onTrack) {
+    const n = ins.needs;
+    out.push({ kind: "needs", text: n.reachable
+      ? `To hit ${n.goal} units: ${n.apptsNeeded} more appointments set by month end, ${n.perDay} a day${ins.touchesPerDay ? `, about ${ins.touchesPerDay} touches a day at the current ratio` : ""}.${n.assumed ? " (Planned on typical show and close rates until there's more history.)" : ""}`
+      : `${n.goal} units is out of reach from here: it would take ${n.apptsNeeded} more appointments in ${n.daysLeft} working day${n.daysLeft === 1 ? "" : "s"}. ${n.ask} a day is a strong finish and sets up next month.${n.assumed ? " (Planned on typical show and close rates until there's more history.)" : ""}` });
+  }
   return out;
 }
 

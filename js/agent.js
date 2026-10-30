@@ -874,7 +874,7 @@ async function runTool(t, p = {}) {
       const { pace } = plan;
       return { result: {
         answer: sayPlan(plan, people),
-        month: { target: pace.target, sold: pace.sold, appointmentsSet: pace.setThisMonth, expectedByNow: pace.expectedByNow, behind: pace.behind, stillNeeded: pace.apptsNeeded, daysLeft: pace.daysLeft, onTrack: pace.onTrack },
+        month: { target: pace.target, sold: pace.sold, appointmentsSet: pace.setThisMonth, expectedByNow: pace.expectedByNow, behind: pace.behind, stillNeeded: pace.apptsNeeded, daysLeft: pace.daysLeft, onTrack: pace.onTrack, reachableFromHere: pace.reachable },
         today: { appointmentsToSet: plan.apptsToday, callsToMake: plan.callsToday, callsPerAppointment: plan.calls.perAppt, ratioAssumed: plan.calls.assumed, setSoFar: pace.setToday },
         people: people.map((x) => ({ name: x.name, drives: x.drives, reason: x.reason, canCall: !!x.phone })),
         screen: people.length ? "the queue on Log — each with a Review button that drafts the opener" : "nothing to show",

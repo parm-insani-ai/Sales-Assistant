@@ -56,10 +56,12 @@ export function readPace(now = new Date()) {
   const monthAppts = Number(s.goalAppointments) || (p.target && n.perAppt ? Math.ceil(p.target / n.perAppt) : 0);
   const expectedByNow = monthAppts ? Math.round((monthAppts * t.day) / t.daysIn) : 0;
   const behind = Math.max(0, expectedByNow - ins.setThisMonth);
-  const apptsToday = p.target && !n.onTrack ? Math.max(1, Math.round(n.perDay)) : 0;
+  // The day's ask is capped at what a day can carry (insight.needs): the
+  // raw division is nonsense in the last days of a slow month.
+  const apptsToday = p.target && !n.onTrack ? n.ask : 0;
   return {
     target: p.target, sold: t.sold, unitsLeft: n.unitsLeft, monthAppts, setThisMonth: ins.setThisMonth, expectedByNow, behind,
-    apptsNeeded: n.apptsNeeded, perDay: n.perDay, daysLeft: n.daysLeft, apptsToday, setToday,
+    apptsNeeded: n.apptsNeeded, perDay: n.perDay, daysLeft: n.daysLeft, apptsToday, setToday, reachable: n.reachable,
     onTrack: !!(p.target && n.onTrack), showRate: n.showRate, closeRate: n.closeRate, assumed: n.assumed, day: t.day, daysIn: t.daysIn,
   };
 }
@@ -133,7 +135,9 @@ export function sayPlan(plan, people = planPeople(plan)) {
   else if (p.onTrack) bits.push(`You're on pace — ${p.setThisMonth} set this month and the calendar covers the rest.`);
   else bits.push(`You're on pace for appointments — ${p.setThisMonth} set — but the month still needs ${p.apptsNeeded} more to sell ${p.target}.`);
   if (plan.apptsToday) {
-    bits.push(`To catch up by month end that's ${plan.apptsToday} appointment${plan.apptsToday === 1 ? "" : "s"} a day, today included.`);
+    bits.push(p.reachable
+      ? `To catch up by month end that's ${plan.apptsToday} appointment${plan.apptsToday === 1 ? "" : "s"} a day, today included.`
+      : `Catching all of it up isn't on with ${p.daysLeft} working day${p.daysLeft === 1 ? "" : "s"} left — it would take ${p.apptsNeeded}. ${plan.apptsToday} today is a strong finish and sets up next month.`);
     bits.push(`${plan.calls.assumed ? "Until there's more call history I'm assuming" : "Your own calls run"} about ${plan.calls.perAppt} to one, so that's ${plan.callsToday} call${plan.callsToday === 1 ? "" : "s"} today.`);
   }
   if (people.length) {

@@ -32,6 +32,22 @@ let n = I.needs({ goal: 12, sold: 5, futureSet: 2, showRate: 60, closeRate: 40, 
 console.log("needs:", JSON.stringify(n));
 // per appt 0.24; pipeline 0.5; units left 6.5; appts needed ceil(6.5/0.24)=28; Thu 24 to Wed 30 is six selling days, five of them a rep's → 5.6 a day
 if (n.perAppt !== 0.24 || n.pipeline !== 0.5 || n.unitsLeft !== 6.5 || n.apptsNeeded !== 28 || n.daysLeft !== 5 || n.perDay !== 5.6 || n.assumed || n.onTrack) fail("the math: " + JSON.stringify(n));
+// The day's ask is what a day can carry: about twice the month's normal rate
+// (50 appointments over the month's 22 working days ≈ 2.3 a day → cap 5),
+// never under three. 28 in five days is past that, so the month is out of reach.
+if (n.cap !== 5 || n.ask !== 5 || n.reachable !== false) fail("the ask should be capped at what a day can carry: " + JSON.stringify({ cap: n.cap, ask: n.ask, reachable: n.reachable }));
+// Early in the month the same gap is an ordinary pace: reachable, ask = the division.
+{
+  const early = I.needs({ goal: 12, sold: 2, futureSet: 0, showRate: 60, closeRate: 40, now: new Date(now.getFullYear(), now.getMonth(), 3, 9) });
+  if (!early.reachable || early.ask !== Math.max(1, Math.round(early.perDay)) || early.ask > early.cap) fail("early in the month the ask is the plain division: " + JSON.stringify(early));
+}
+// The last working day of a slow month: dividing the whole gap by one day
+// said "0 of 69 set today". The ask stays at the cap and the month reads as out of reach.
+{
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0, 9); // the 31st
+  const late = I.needs({ goal: 16, sold: 0, futureSet: 0, showRate: 60, closeRate: 40, now: last });
+  if (late.daysLeft !== 1 || late.perDay !== 67 || late.ask !== late.cap || late.cap > 8 || late.reachable) fail("month end: " + JSON.stringify(late));
+}
 n = I.needs({ goal: 12, sold: 12, futureSet: 0, showRate: 60, closeRate: 40, now });
 if (!n.onTrack || n.apptsNeeded !== 0) fail("goal already hit should need nothing: " + JSON.stringify(n));
 n = I.needs({ goal: 10, sold: 2, futureSet: 0, now });
@@ -96,7 +112,8 @@ if (ins.touchesPerDay !== Math.ceil(8.6 * ins.needs.perDay)) fail("touches per d
 const fx = I.findings(ins);
 console.log("findings:\n  " + fx.map((x) => x.kind + ": " + x.text).join("\n  "));
 if (!fx.some((x) => x.kind === "untouched" && /4 leads/.test(x.text))) fail("the untouched finding is missing");
-if (!fx.some((x) => x.kind === "needs" && /appointments set by month end/.test(x.text))) fail("the needs finding is missing");
+// Worded for a month still in reach, or for one that isn't (the fixture runs on the real calendar).
+if (!fx.some((x) => x.kind === "needs" && (/appointments set by month end/.test(x.text) || /out of reach from here.*a day is a strong finish/.test(x.text)))) fail("the needs finding is missing");
 if (fx.some((x) => x.kind === "speed")) fail("speed finding needs 5+ leads in both buckets; shouldn't fire on 4");
 
 // The store rolls the reps up the same way.

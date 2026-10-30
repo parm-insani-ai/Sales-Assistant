@@ -122,7 +122,7 @@ const repFlags = (r, now, today) => {
   if (!r.insight || (!r.leads.open && !r.goal.units && !r.sales.units)) return [];
   const why = [], i = r.insight;
   if (r.leads.untouched.length) why.push(`${r.leads.untouched.length} untouched lead${r.leads.untouched.length === 1 ? "" : "s"}`);
-  if (i.needs.goal && !i.needs.onTrack && i.needs.perDay >= 1 && !setToday(r, today) && now.getHours() >= 12) why.push(`needs ${i.needs.perDay} appointment${i.needs.perDay === 1 ? "" : "s"} a day, none set today`);
+  if (i.needs.goal && !i.needs.onTrack && i.needs.ask >= 1 && !setToday(r, today) && now.getHours() >= 12) why.push(`needs ${i.needs.ask} appointment${i.needs.ask === 1 ? "" : "s"} today, none set`);
   const thisWeek = i.weekly[i.weekly.length - 1];
   if (thisWeek && !thisWeek.set && now.getDay() >= 3) why.push("nothing set this week");
   if (r.leads.overdue.length >= 3) why.push(`${r.leads.overdue.length} overdue follow-ups`);
@@ -208,7 +208,7 @@ export function renderManageHome(view) {
       // leads, customers waiting, texts to send, appointments to confirm.
       const perRep = t ? rows.filter((r) => !r.error && r.insight).map((r) => {
         const n = r.insight.needs, set = setToday(r, today);
-        const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? Math.max(1, Math.round(n.perDay)) : 0;
+        const need = n.goal && !n.onTrack && n.apptsNeeded > 0 ? n.ask : 0;
         const fresh = (r.leads ? r.leads.untouched.length : 0) + (r.raw ? r.raw.leads.filter((l) => l.stage === "new" && !l.importedAt && !l.firstContacted && !l.lastContacted && l.createdAt && now - new Date(l.createdAt) <= 86400000 && now - new Date(l.createdAt) > 5 * 60000 && !(r.leads && r.leads.untouched.some((u) => u.id === l.id))).length : 0);
         const acts = [
           fresh ? [`${fresh} fresh lead${fresh === 1 ? "" : "s"}`, "/floor"] : null,
@@ -539,7 +539,7 @@ export function renderReps(view) {
               <div class="row" style="align-items:flex-start">
                 <div class="row-main"><div class="row-title" style="font-size:1rem">${esc(memberName(r.member))}${r.member.role === "manager" ? ' <span class="badge badge-sold" style="margin-left:4px">Mgr</span>' : ""}</div>
                   ${r.error ? `<div class="row-sub" style="color:var(--danger)">${esc(r.error)}</div>` : `<div class="row-sub">${r.insight ? r.insight.setThisMonth : r.appts.set} set · ${setToday(r, today)} today · ${r.appts.shown} shown · ${r.touches.today} touch${r.touches.today === 1 ? "" : "es"} today · ${r.loggedToday || 0} logged today${r.textsDue && r.textsDue.length ? ` · <span style="color:var(--warning)">${r.textsDue.length} text${r.textsDue.length === 1 ? "" : "s"} to send</span>` : ""}</div>`}</div>
-                ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r.sales.units, r.goal.units, r.goal.pace)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.insight && r.insight.needs.goal ? (r.insight.needs.onTrack ? "on track" : `needs ${r.insight.needs.apptsNeeded} · ${r.insight.needs.perDay}/day`) : "no goal set"}</div></div>` : ""}
+                ${r.sales ? `<div class="row-meta"><div class="mono strong" style="${paceCls(r.sales.units, r.goal.units, r.goal.pace)}">${r.sales.units}<span class="muted" style="font-weight:500"> / ${r.goal.units || "—"}</span></div><div class="small muted">${r.insight && r.insight.needs.goal ? (r.insight.needs.onTrack ? "on track" : r.insight.needs.reachable ? `needs ${r.insight.needs.apptsNeeded} · ${r.insight.needs.perDay}/day` : `needs ${r.insight.needs.apptsNeeded} · out of reach · ${r.insight.needs.ask} today`) : "no goal set"}</div></div>` : ""}
               </div>
               ${r.leads ? `<div class="team-cells"><span style="${r.leads.untouched.length ? "color:var(--danger)" : ""}"><b>${r.leads.untouched.length}</b> untouched</span><span style="${r.leads.overdue.length ? "color:var(--warning)" : ""}"><b>${r.leads.overdue.length}</b> overdue</span><span><b>${r.leads.open}</b> open</span>${r.commit && (r.commit.due || r.commit.overdue) ? `<span class="team-commit" style="${r.commit.overdue ? "color:var(--warning)" : r.commit.due && r.commit.done >= r.commit.due ? "color:var(--success)" : ""}"><b>${r.commit.done}/${r.commit.due}</b> to-dos today${r.commit.overdue ? ` · ${r.commit.overdue} overdue` : ""}</span>` : ""}${r.sheet ? `<span><b>${r.sheet.spoke}</b> logged this month</span>` : ""}</div>` : ""}
               <div class="row" style="margin-top:6px;gap:8px;align-items:center"><span class="small muted" style="flex:1;min-width:0"><span class="mg-synced" style="${sy.stale ? "color:var(--warning)" : ""}">${esc(sy.text)}</span>${r.error ? "" : ` · ${esc(targetText(r))}`}</span><button class="btn btn-ghost btn-sm" data-target="${esc(r.member.user_id)}" style="flex:none">${icon("target")} Targets</button></div>
@@ -673,11 +673,13 @@ export function huddleText(team, t, ins, rows, fx, now) {
   const L = [];
   L.push(`${team.name} · ${now.toLocaleDateString("en-CA", { weekday: "long", month: "short", day: "numeric" })}`);
   L.push(`Units ${t.units}/${t.goal || "—"} · appointments set this month ${ins.setThisMonth} · show rate ${ins.history.showRate != null ? ins.history.showRate + "%" : "—"}`);
-  if (ins.needs.goal) L.push(ins.needs.onTrack ? "On track — keep the calendar full." : `Need ${ins.needs.apptsNeeded} more appointments by month end: ${ins.needs.perDay} a day across the floor.`);
+  if (ins.needs.goal) L.push(ins.needs.onTrack ? "On track — keep the calendar full."
+    : ins.needs.reachable ? `Need ${ins.needs.apptsNeeded} more appointments by month end: ${ins.needs.perDay} a day across the floor.`
+    : `The month's number is out of reach from here — ${ins.needs.apptsNeeded} more appointments in ${ins.needs.daysLeft} working day${ins.needs.daysLeft === 1 ? "" : "s"}. Finish strong and load next month: every appointment set today counts.`);
   if (t.apptsToday.length) L.push(`Today: ${t.apptsToday.map((a) => `${String(a.when).slice(11, 16)} ${a.customerName || ""} (${memberName(a.rep)})`).join(", ")}`);
   else L.push("Today: nothing on the calendar yet — first job is to change that.");
   const reps = rows.filter((r) => r.insight && (r.leads.open || r.goal.units));
-  if (reps.length) L.push("Each of you today: " + reps.map((r) => { const i = r.insight; const bits = []; if (i.needs.goal) bits.push(i.needs.onTrack ? "on track" : `${i.needs.perDay} appt${i.needs.perDay === 1 ? "" : "s"}`); if (r.leads.untouched.length) bits.push(`${r.leads.untouched.length} untouched`); if (r.leads.overdue.length) bits.push(`${r.leads.overdue.length} overdue`); return `${memberName(r.member)} — ${bits.join(", ") || "keep touching"}`; }).join("; ") + ".");
+  if (reps.length) L.push("Each of you today: " + reps.map((r) => { const i = r.insight; const bits = []; if (i.needs.goal) bits.push(i.needs.onTrack ? "on track" : `${i.needs.ask} appt${i.needs.ask === 1 ? "" : "s"}`); if (r.leads.untouched.length) bits.push(`${r.leads.untouched.length} untouched`); if (r.leads.overdue.length) bits.push(`${r.leads.overdue.length} overdue`); return `${memberName(r.member)} — ${bits.join(", ") || "keep touching"}`; }).join("; ") + ".");
   if (fx.length) L.push("The numbers say: " + fx[0].text);
   return L.join("\n");
 }

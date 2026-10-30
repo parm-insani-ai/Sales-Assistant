@@ -95,7 +95,7 @@ const slimRep = (r) => ({
   rep: memberName(r.member), units: r.sales.units, goalUnits: r.goal.units, pace: r.goal.pace, gross: r.sales.gross,
   apptsSetThisMonth: r.insight ? r.insight.setThisMonth : r.appts.set, shown: r.appts.shown, sold: r.appts.sold, showRate: r.appts.showRate,
   touchesToday: r.touches.today, touchesMonth: r.touches.month, untouched: r.leads.untouched.length, overdue: r.leads.overdue.length, open: r.leads.open,
-  needs: r.insight && r.insight.needs.goal ? { apptsNeeded: r.insight.needs.apptsNeeded, perDay: r.insight.needs.perDay, onTrack: r.insight.needs.onTrack } : null,
+  needs: r.insight && r.insight.needs.goal ? { apptsNeeded: r.insight.needs.apptsNeeded, perDay: r.insight.needs.perDay, askToday: r.insight.needs.ask, monthReachable: r.insight.needs.reachable, onTrack: r.insight.needs.onTrack } : null,
   appointmentsToday: r.appts.today.map((a) => `${String(a.when).slice(11, 16)} ${a.customerName || ""}`),
 });
 
@@ -140,7 +140,7 @@ async function execManagerTool(name, input) {
       return { result: {
         store: t.name, date: ymd(now), units: tot.units, goalUnits: tot.goal, gross: tot.gross,
         apptsSetThisMonth: ins.setThisMonth, shown: ins.funnel.shown, showRate: ins.history.showRate,
-        needs: ins.needs.goal ? { apptsNeeded: ins.needs.apptsNeeded, perDay: ins.needs.perDay, onTrack: ins.needs.onTrack, assumedRates: !!ins.needs.assumed } : "no unit goals set",
+        needs: ins.needs.goal ? { apptsNeeded: ins.needs.apptsNeeded, perDay: ins.needs.perDay, askToday: ins.needs.ask, monthReachable: ins.needs.reachable, daysLeft: ins.needs.daysLeft, onTrack: ins.needs.onTrack, assumedRates: !!ins.needs.assumed } : "no unit goals set",
         touchesToday: tot.touchesToday, untouchedLeads: tot.untouched, overdueFollowUps: tot.overdue,
         appointmentsToday: tot.apptsToday.map((a) => `${String(a.when).slice(11, 16)} ${a.customerName || ""} (${memberName(a.rep)})`),
         findings: findings(ins).slice(0, 3).map((f) => f.text),

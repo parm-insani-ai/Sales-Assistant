@@ -100,7 +100,7 @@ if (!/^Today, by rep ?\d+ more to set this month/.test(plan || "") || !/Parm/.te
 // Each rep's untouched lead is in the Act now list with the rep's name; the manager's own book isn't nagged about.
 if (!home.fresh.some((w) => /fresh lead · Parm/.test(w)) || !home.fresh.some((w) => /fresh lead · Dana/.test(w)) || home.fresh.some((w) => /fresh lead · Sam/.test(w))) fail("the untouched leads aren't in the Act now list by rep: " + JSON.stringify(home.fresh));
 if (!home.today.some((t) => /15:30 · Fresh Lead.*Parm.*test drive.*Confirmed/.test(t))) fail("today's appointment isn't on the store's list with the rep: " + JSON.stringify(home.today));
-if (!home.reps[0].startsWith("Parm") || !new RegExp(`${SET} set · 1 today · 1 shown`).test(home.reps[0]) || !/needs \d+ · [\d.]+\/day/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
+if (!home.reps[0].startsWith("Parm") || !new RegExp(`${SET} set · 1 today · 1 shown`).test(home.reps[0]) || !/needs \d+ · ([\d.]+\/day|out of reach · \d today)/.test(home.reps[0])) fail("the reps aren't ordered by appointments set, with what they need: " + JSON.stringify(home.reps));
 // Everything else is under the "+".
 await mgr.click("#quick-add");
 await mgr.waitForFunction(() => /Quick actions/.test(document.querySelector(".modal")?.textContent || ""), null, { timeout: 10000 });
