@@ -28,16 +28,25 @@ export function computeDeal(input) {
   const netTradeEquity = tradeAllowance - tradePayoff; // can be negative
   const amountFinanced = Math.max(0, price + feesTaxable + tax + fees - down - netTradeEquity);
 
-  const r = apr / 12;
-  let monthly = 0;
-  if (term > 0) {
-    monthly = r === 0 ? amountFinanced / term
-      : (amountFinanced * r) / (1 - Math.pow(1 + r, -term));
-  }
+  const monthly = term > 0 ? amortized(amountFinanced, apr, 12, term) : 0;
   const totalOfPayments = monthly * term;
   const totalInterest = Math.max(0, totalOfPayments - amountFinanced);
+  // Used-car desks quote by the week or two weeks. Each is the same loan
+  // amortized at that frequency (26 or 52 payments a year over the same
+  // months), which is how the lender bills it — a shade under the monthly
+  // figure split, because principal comes down sooner.
+  const biweekly = term > 0 ? amortized(amountFinanced, apr, 26, term) : 0;
+  const weekly = term > 0 ? amortized(amountFinanced, apr, 52, term) : 0;
 
-  return { price, tax, taxableBase, fees, feesTaxable, netTradeEquity, amountFinanced, monthly, totalOfPayments, totalInterest, term };
+  return { price, tax, taxableBase, fees, feesTaxable, netTradeEquity, amountFinanced, monthly, biweekly, weekly, totalOfPayments, totalInterest, term };
+}
+
+// The level payment that clears `principal` at `apr` (a fraction) with
+// `perYear` payments a year over `months` months.
+export function amortized(principal, apr, perYear, months) {
+  const n = Math.max(1, Math.round(months * perYear / 12));
+  const r = apr / perYear;
+  return r === 0 ? principal / n : (principal * r) / (1 - Math.pow(1 + r, -n));
 }
 
 // Estimate a monthly LEASE payment. Depreciation + rent (money-factor) on the
@@ -68,7 +77,10 @@ export function computeLease(input) {
   let surplus = 0;
   if (base < 0) { surplus = Math.round(-base * term); base = 0; }
   const tax = base * taxRate;
-  return { monthly: base + tax, residual, term, surplus };
+  const monthly = base + tax;
+  // A lease is priced by the month; paying it by the week or two weeks just
+  // splits the year's payments 52 or 26 ways.
+  return { monthly, biweekly: monthly * 12 / 26, weekly: monthly * 12 / 52, residual, term, surplus };
 }
 
 function num(v) { return Number(v) || 0; }
@@ -161,6 +173,11 @@ export function renderCalculator(view) {
     // payment this page started from, and what the last edit just did.
     const line = (label, dl) => dl
       ? `<div class="kv"><span class="k">${label}</span><span class="v strong" style="color:${dl.color}">${dl.text}</span></div>` : "";
+    // The same payment by the two weeks and by the week — how a used-car
+    // quote is usually said out loud.
+    const frequencies = (d) => d.monthly > 0 ? `
+      <div class="kv kv-freq"><span class="k">Bi-weekly</span><span class="v mono" data-biweekly>${currency2(d.biweekly)}<span class="muted small">/2 wk</span></span></div>
+      <div class="kv kv-freq"><span class="k">Weekly</span><span class="v mono" data-weekly>${currency2(d.weekly)}<span class="muted small">/wk</span></span></div>` : "";
     function comparisons(monthly) {
       const rows = [
         theirPayment != null ? line("vs their payment", paymentDelta(monthly - theirPayment)) : "",
@@ -186,6 +203,7 @@ export function renderCalculator(view) {
         const l = computeLease({ ...common, residualPct: get("res").value, msrp: residualBase || common.price });
         result.innerHTML = `
           <div class="kv kv-total"><span class="k strong">Est. lease payment</span><span class="v mono">${currency2(l.monthly)}<span class="muted small">/mo</span></span></div>
+          ${frequencies(l)}
           ${comparisons(l.monthly)}
           ${l.surplus ? `<div class="kv"><span class="k">Equity beyond the lease</span><span class="v mono" style="color:var(--success)">${currency(l.surplus)} back</span></div>` : ""}
           <hr class="divider" />
@@ -198,6 +216,7 @@ export function renderCalculator(view) {
         const d = computeDeal(common);
         result.innerHTML = `
           <div class="kv kv-total"><span class="k strong">Est. monthly</span><span class="v mono">${currency2(d.monthly)}<span class="muted small">/mo</span></span></div>
+          ${frequencies(d)}
           ${comparisons(d.monthly)}
           <hr class="divider" />
           <div class="kv"><span class="k">Price + fees</span><span class="v mono">${currency(d.price + d.feesTaxable)}</span></div>

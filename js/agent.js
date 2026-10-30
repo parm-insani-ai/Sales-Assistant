@@ -100,7 +100,7 @@ const TOOLS = [
   { name: "get_occasions", description: "Reasons to reach out — upcoming birthdays, lease maturities, purchase anniversaries, each with a ready-to-send message.", input_schema: { type: "object", properties: {} } },
   { name: "get_specials", description: "Current manufacturer/monthly specials on file (APRs, lease deals, cash offers).", input_schema: { type: "object", properties: {} } },
   { name: "get_spiffs", description: "Current spifs/bonuses on file.", input_schema: { type: "object", properties: {} } },
-  { name: "payment_quote", description: "Estimate a monthly car payment. Uses the salesperson's saved tax rate, doc fee, APR and term for anything not given.", input_schema: { type: "object", properties: { price: { type: "number" }, down: { type: "number" }, trade: { type: "number", description: "trade-in allowance" }, payoff: { type: "number", description: "trade-in payoff owed" }, apr: { type: "number" }, term: { type: "number", description: "months" } }, required: ["price"] } },
+  { name: "payment_quote", description: "Estimate a car payment — monthly, bi-weekly and weekly. Uses the salesperson's saved tax rate, doc fee, APR and term for anything not given.", input_schema: { type: "object", properties: { price: { type: "number" }, down: { type: "number" }, trade: { type: "number", description: "trade-in allowance" }, payoff: { type: "number", description: "trade-in payoff owed" }, apr: { type: "number" }, term: { type: "number", description: "months" } }, required: ["price"] } },
   { name: "deal_options", description: "Payment-matched vehicles from inventory for one customer ('what could I put Dana in?').", input_schema: { type: "object", properties: { customer: { type: "string" } }, required: ["customer"] } },
   { name: "get_booking_link", description: "The salesperson's self-serve booking link (customers pick their own appointment time). Pair with text_customer to send it.", input_schema: { type: "object", properties: {} } },
   { name: "get_link_activity", description: "Opens on links the salesperson has sent (booking page, comparisons) — 'did anyone look at what I sent?', 'anything hot?'. Recent opens mean the customer is engaging right now.", input_schema: { type: "object", properties: {} } },
@@ -844,7 +844,7 @@ async function runTool(t, p = {}) {
       const apr = p.apr != null ? Number(p.apr) : (s.defaultApr || 0);
       const term = p.term != null ? Number(p.term) : (s.defaultTerm || 72);
       const d = computeDeal({ price, down: num(p.down) || 0, tradeAllowance: num(p.trade) || 0, tradePayoff: num(p.payoff) || 0, fees: p.fees != null ? num(p.fees) : (s.docFee || 0), taxRate: p.taxRate != null ? Number(p.taxRate) : (s.taxRate || 0), apr, term });
-      return { result: { monthly: Math.round(d.monthly), amountFinanced: Math.round(d.amountFinanced), tax: Math.round(d.tax), term: d.term, aprUsed: apr, assumptions: "salesperson's saved tax rate/doc fee/APR/term fill in anything not stated" }, note: "" };
+      return { result: { monthly: Math.round(d.monthly), biweekly: Math.round(d.biweekly), weekly: Math.round(d.weekly), amountFinanced: Math.round(d.amountFinanced), tax: Math.round(d.tax), term: d.term, aprUsed: apr, assumptions: "salesperson's saved tax rate/doc fee/APR/term fill in anything not stated" }, note: "" };
     }
     case "deal_options": case "match_deals": {
       const lead = findLead(p.customer || p.name);

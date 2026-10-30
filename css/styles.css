@@ -1307,6 +1307,8 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .kv .k { color: var(--muted); }
 .kv .v { font-weight: 650; text-align: right; }
 .kv-total { font-size: 1.2rem; padding: 6px 0 12px; }
+.kv-freq { padding: 7px 0; }
+.kv-freq .v { color: var(--brand); }
 .kv-total .v { color: var(--brand); font-weight: 800; }
 .fab-note { text-align: center; color: var(--muted); font-size: 0.79rem; margin-top: 20px; line-height: 1.5; }
 a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
