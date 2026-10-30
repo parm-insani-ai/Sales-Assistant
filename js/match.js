@@ -38,7 +38,7 @@ export function feesFor(v, s = {}) {
  * not available, are left out.
  */
 export function prepareUnits(vehicles, s = {}) {
-  const t = num(s.taxRate, 15) / 100;
+  const t = num(s.taxRate, 14) / 100; // NS HST on a vehicle deal
   const k = perDollar(s.defaultApr ?? 7.9, s.defaultTerm ?? 72);
   return (vehicles || []).filter((v) => v && num(v.price) > 0 && (v.status || "available") === "available").map((v) => {
     const fees = feesFor(v, s);

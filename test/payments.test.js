@@ -47,23 +47,23 @@ const addLine = await p.evaluate(() => ({ total: document.querySelector("[data-a
 console.log("add-ons:", JSON.stringify({ withBoth, addLine }));
 if (Math.abs(money(withBoth.monthly) - (26000 + 549 + 799) / 72) > 0.01) fail("rust protection should add $799 more: " + JSON.stringify(withBoth));
 if (money(addLine.total) !== 1348 || !/walkaway/i.test(addLine.label) || !/rust/i.test(addLine.label) || addLine.pressed.join() !== "true,true") fail("the breakdown should list the add-ons and their total: " + JSON.stringify(addLine));
-// Taxed with the vehicle: at 15% the two add $1,348 × 1.15 to the amount financed.
-const taxed = await quote({ tax: 15 });
-if (Math.abs(money(taxed.monthly) - (26000 + 1348) * 1.15 / 72) > 0.01) fail("add-ons should carry the tax: " + JSON.stringify(taxed));
+// Taxed with the vehicle: at 14% HST the two add $1,348 × 1.14 to the amount financed.
+const taxed = await quote({ tax: 14 });
+if (Math.abs(money(taxed.monthly) - (26000 + 1348) * 1.14 / 72) > 0.01) fail("add-ons should carry the tax: " + JSON.stringify(taxed));
 await p.click('[data-addon="walkaway"]'); await p.click('[data-addon="rust"]');
 const off = await quote({ tax: 0 });
 if (Math.abs(money(off.monthly) - 361.11) > 0.01) fail("tapping again should take the add-ons off: " + JSON.stringify(off));
 
 // --- With interest: amortized at the frequency, so a touch under the monthly split, and the module agrees with the page.
-const used = await quote({ price: 18500, down: 1000, trade: 0, payoff: 0, feestax: 499, tax: 15, apr: 8.99, term: 84 });
+const used = await quote({ price: 18500, down: 1000, trade: 0, payoff: 0, feestax: 499, tax: 14, apr: 8.99, term: 84 });
 console.log("used car, 8.99% over 84:", JSON.stringify(used));
 const m = money(used.monthly), bw = money(used.biweekly), wk = money(used.weekly);
 if (!(bw < m * 12 / 26 && bw > m * 12 / 26 * 0.985)) fail("bi-weekly should sit just under half the monthly: " + JSON.stringify(used));
 if (!(wk < m * 12 / 52 && wk > m * 12 / 52 * 0.985)) fail("weekly should sit just under a quarter of the monthly: " + JSON.stringify(used));
 const calc = await p.evaluate(async () => {
   const c = await import("/js/views/calculator.js");
-  const d = c.computeDeal({ price: 18500, down: 1000, feesTaxable: 499, taxRate: 15, apr: 8.99, term: 84 });
-  const l = c.computeLease({ price: 32000, term: 48, residualPct: 50, taxRate: 15, apr: 4.9 });
+  const d = c.computeDeal({ price: 18500, down: 1000, feesTaxable: 499, taxRate: 14, apr: 8.99, term: 84 });
+  const l = c.computeLease({ price: 32000, term: 48, residualPct: 50, taxRate: 14, apr: 4.9 });
   return { biweekly: d.biweekly, weekly: d.weekly, monthly: d.monthly, lease: l };
 });
 if (Math.abs(calc.biweekly - bw) > 0.01 || Math.abs(calc.weekly - wk) > 0.01) fail("the page should show the module's figures: " + JSON.stringify({ calc, used }));
@@ -74,7 +74,7 @@ if (Math.abs(calc.lease.biweekly - calc.lease.monthly * 12 / 26) > 0.01 || Math.
 // --- Lease mode shows the same two rows under its payment.
 await p.click('[data-method="lease"]');
 await p.waitForSelector("#c-res");
-const lease = await quote({ price: 32000, down: 0, trade: 0, payoff: 0, feestax: 0, tax: 15, apr: 4.9, term: 48, res: 50 });
+const lease = await quote({ price: 32000, down: 0, trade: 0, payoff: 0, feestax: 0, tax: 14, apr: 4.9, term: 48, res: 50 });
 console.log("lease:", JSON.stringify(lease));
 if (!lease.biweekly || !lease.weekly || !(money(lease.biweekly) < money(lease.monthly))) fail("the lease should also quote bi-weekly and weekly: " + JSON.stringify(lease));
 
