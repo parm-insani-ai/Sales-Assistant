@@ -123,6 +123,16 @@ export function renderCalculator(view) {
     return typeof row === "object" ? { apr: Number(row.apr), res: Number(row.res) } : { apr: Number(row), res: null };
   };
 
+  // Protection products with a set price, one tap to add. Taxed with the
+  // vehicle and rolled into the amount financed (or the cap cost).
+  const ADDONS = [
+    { id: "walkaway", label: "Walkaway", amount: 549 },
+    { id: "rust", label: "10-yr rust protection", amount: 799 },
+  ];
+  const addons = new Set(Array.isArray(pfVal("addons", null)) ? pf.addons : []);
+  const addonTotal = () => ADDONS.filter((a) => addons.has(a.id)).reduce((t, a) => t + a.amount, 0);
+  const addonNames = () => ADDONS.filter((a) => addons.has(a.id)).map((a) => a.label.toLowerCase()).join(" + ");
+
   const el = document.createElement("div");
   const draw = () => {
     const isLease = method === "lease";
@@ -148,6 +158,10 @@ export function renderCalculator(view) {
           <div class="field"><label>Tax rate %</label><input id="c-tax" type="number" inputmode="decimal" step="0.01" value="${esc(s.taxRate)}"></div>
         </div>
         <div class="hint" style="margin-bottom:6px">Added to the price to make the subtotal, then the whole subtotal is taxed once (less the trade). ${currency(num(s.docFee))} doc fee${pf && pf.feesBreakdown ? " + " + esc(pf.feesBreakdown) : " (+ AVP, freight, air tax and tire levy on a new vehicle)"}.</div>
+        <div class="btn-row" style="margin-bottom:4px">
+          ${ADDONS.map((a) => `<button class="btn btn-sm ${addons.has(a.id) ? "btn-primary" : "btn-ghost"}" data-addon="${a.id}" aria-pressed="${addons.has(a.id)}" style="flex:1">${esc(a.label)} · ${currency(a.amount)}</button>`).join("")}
+        </div>
+        <div class="hint" style="margin-bottom:6px">Tap to add. Taxed with the vehicle and ${isLease ? "built into the lease" : "rolled into the amount financed"}.</div>
         <div class="field-inline">
           <div class="field"><label>${isLease ? "Lease rate %" : "APR %"}</label><input id="c-apr" type="number" inputmode="decimal" step="0.01" value="${esc(pfVal("apr", s.defaultApr))}"></div>
           <div class="field"><label>Term (months)</label><input id="c-term" type="number" inputmode="numeric" value="${esc(pfVal("term", isLease ? (s.leaseTerm || 36) : s.defaultTerm))}"></div>
@@ -178,6 +192,8 @@ export function renderCalculator(view) {
     const frequencies = (d) => d.monthly > 0 ? `
       <div class="kv kv-freq"><span class="k">Bi-weekly</span><span class="v mono" data-biweekly>${currency2(d.biweekly)}<span class="muted small">/2 wk</span></span></div>
       <div class="kv kv-freq"><span class="k">Weekly</span><span class="v mono" data-weekly>${currency2(d.weekly)}<span class="muted small">/wk</span></span></div>` : "";
+    const addonLine = () => addons.size
+      ? `<div class="kv"><span class="k">Add-ons: ${esc(addonNames())}</span><span class="v mono" data-addons>${currency(addonTotal())}</span></div>` : "";
     function comparisons(monthly) {
       const rows = [
         theirPayment != null ? line("vs their payment", paymentDelta(monthly - theirPayment)) : "",
@@ -194,7 +210,7 @@ export function renderCalculator(view) {
         tradeAllowance: get("trade").value,
         tradePayoff: get("payoff").value,
         fees: plateFee,
-        feesTaxable: get("feestax").value,
+        feesTaxable: num(get("feestax").value) + addonTotal(),
         taxRate: get("tax").value,
         apr: get("apr").value,
         term: get("term").value,
@@ -207,6 +223,7 @@ export function renderCalculator(view) {
           ${comparisons(l.monthly)}
           ${l.surplus ? `<div class="kv"><span class="k">Equity beyond the lease</span><span class="v mono" style="color:var(--success)">${currency(l.surplus)} back</span></div>` : ""}
           <hr class="divider" />
+          ${addonLine()}
           <div class="kv"><span class="k">Residual value</span><span class="v mono">${currency(l.residual)}</span></div>
           <div class="kv"><span class="k">Term</span><span class="v mono">${l.term} mo</span></div>
           <div class="kv"><span class="k">Total of payments</span><span class="v mono">${currency(l.monthly * l.term)}</span></div>
@@ -219,7 +236,8 @@ export function renderCalculator(view) {
           ${frequencies(d)}
           ${comparisons(d.monthly)}
           <hr class="divider" />
-          <div class="kv"><span class="k">Price + fees</span><span class="v mono">${currency(d.price + d.feesTaxable)}</span></div>
+          ${addonLine()}
+          <div class="kv"><span class="k">Price + fees${addons.size ? " + add-ons" : ""}</span><span class="v mono">${currency(d.price + d.feesTaxable)}</span></div>
           <div class="kv"><span class="k">Less trade allowance</span><span class="v mono">− ${currency(d.price + d.feesTaxable - d.taxableBase)}</span></div>
           <div class="kv"><span class="k">Taxable subtotal</span><span class="v mono">${currency(d.taxableBase)}</span></div>
           <div class="kv"><span class="k">Sales tax</span><span class="v mono">${currency(d.tax)}</span></div>
@@ -253,6 +271,13 @@ export function renderCalculator(view) {
     el.querySelectorAll("[data-term]").forEach((b) =>
       b.addEventListener("click", () => applyTerm(Number(b.dataset.term))));
     get("term").addEventListener("change", () => applyTerm(Number(get("term").value)));
+    el.querySelectorAll("[data-addon]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const on = !addons.has(b.dataset.addon);
+        if (on) addons.add(b.dataset.addon); else addons.delete(b.dataset.addon);
+        b.classList.toggle("btn-primary", on); b.classList.toggle("btn-ghost", !on); b.setAttribute("aria-pressed", String(on));
+        rerender();
+      }));
     // Switching method keeps whatever is already typed in the shared fields.
     el.querySelectorAll("[data-method]").forEach((b) =>
       b.addEventListener("click", () => {
