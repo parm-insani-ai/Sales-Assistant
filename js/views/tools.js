@@ -26,7 +26,6 @@ export const TOOL_LINKS = [
   { icon: "check", label: "Delivered", fn: () => navigate("/delivered") },
   { icon: "calendar", label: "Calendar", fn: () => navigate("/calendar") },
   { icon: "file", label: "Import", fn: () => navigate("/import") },
-  { icon: "settings", label: "Settings", fn: () => navigate("/settings") },
 ];
 
 // The tools for this person. A manager or admin who also sells can step

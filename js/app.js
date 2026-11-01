@@ -336,14 +336,15 @@ document.getElementById("quick-add").addEventListener("click", () => {
     referral: { icon: "megaphone", label: "Referral", fn: () => openReferralCapture() },
     task: { icon: "check", label: "To-do", fn: () => openTaskForm() },
     appt: { icon: "calendar", label: "Appointment", fn: () => openAppointmentForm() },
-    sale: { icon: "dollar", label: "Sale", fn: () => openSaleForm() },
-    soldlog: { icon: "checkline", label: "Full deal", fn: () => openDealForm(null, () => navigate("/soldlog")) },
+    // One way to log a sale: the full deal form (the Sold Tracker's). The
+    // short "Sale" form still exists for the voice assistant and Goals.
+    sale: { icon: "dollar", label: "Sale", fn: () => openDealForm(null, () => navigate("/soldlog")) },
     vehicle: { icon: "car", label: "Vehicle", fn: () => openVehicleForm() },
     delivery: { icon: "box", label: "Delivery", fn: () => openDeliveryForm() },
   };
   // The most relevant add-action for the current tab goes first.
-  const primaryFor = { "/leads": "lead", "/log": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/soldlog": "soldlog" };
-  const order = ["lead", "referral", "task", "appt", "sale", "soldlog", "vehicle", "delivery"];
+  const primaryFor = { "/leads": "lead", "/log": "lead", "/": "task", "/inventory": "vehicle", "/deliveries": "delivery", "/calendar": "appt", "/soldlog": "sale" };
+  const order = ["lead", "referral", "task", "appt", "sale", "vehicle", "delivery"];
   const first = primaryFor[base];
   const keys = first ? [first, ...order.filter((k) => k !== first)] : order;
 
@@ -360,7 +361,8 @@ document.getElementById("quick-add").addEventListener("click", () => {
     };
     section("Add new", keys.map((k) => byKey[k]));
     section("Tools", tools.toolLinks());
-    if (backend.isSignedIn()) section("Account", [passwordTile(close), signOutTile()]);
+    // Settings lives with the account, not among the day's tools.
+    section("Account", [{ icon: "settings", label: "Settings", fn: () => navigate("/settings") }, ...(backend.isSignedIn() ? [passwordTile(close), signOutTile()] : [])]);
     return wrap;
   }));
 });
