@@ -90,6 +90,49 @@ export async function signIn(email, password) {
   return saveTokens(json);
 }
 
+// A new password for the signed-in account.
+export async function changePassword(password) {
+  const { url, anonKey } = cfg();
+  const t = await token();
+  const res = await fetch(`${url}/auth/v1/user`, {
+    method: "PUT",
+    headers: { apikey: anonKey, Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(authError(json, res));
+  return true;
+}
+
+// Forgotten: Supabase emails a link that opens the app signed in for one
+// purpose — choosing a new password (the link lands with #access_token=…&
+// type=recovery; see recoverySession). The app's own address is the way
+// back, so the project's allowed redirect list has to include it.
+export async function requestPasswordReset(email) {
+  const { url, anonKey } = cfg();
+  const redirect = `${location.origin}${location.pathname}`;
+  const res = await fetch(`${url}/auth/v1/recover?redirect_to=${encodeURIComponent(redirect)}`, {
+    method: "POST",
+    headers: { apikey: anonKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(authError(json, res));
+  return true;
+}
+
+// The recovery link's landing: the tokens Supabase put in the hash become
+// the session, the hash is cleared, and the caller shows the new-password
+// screen. Null when this isn't a recovery landing.
+export function recoverySession() {
+  const h = String(location.hash || "");
+  if (!/[#&]type=recovery/.test(h) || !/access_token=/.test(h)) return null;
+  const q = new URLSearchParams(h.replace(/^#/, ""));
+  const sess = saveTokens({ access_token: q.get("access_token"), refresh_token: q.get("refresh_token") || "", expires_in: Number(q.get("expires_in")) || 3600 });
+  try { history.replaceState(null, "", location.pathname + "#/"); } catch { location.hash = "#/"; }
+  return sess;
+}
+
 async function refresh() {
   const sess = getSession();
   if (!sess?.refresh_token) throw new Error("Not signed in");

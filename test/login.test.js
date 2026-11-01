@@ -70,6 +70,25 @@ if (!/p@e\.com/.test(d.note || "")) fail("the email you typed isn't shown on the
 if (d.button !== "Sign in") fail(`the button under the password box says ${JSON.stringify(d.button)}`);
 if (d.focused !== "login-box") fail("the password box didn't take focus");
 
+// --- Forgot it: a link under the password box sends a reset email to the
+// address typed, with the app's own address as the way back.
+{
+  const link = await p.evaluate(() => document.querySelector("#login .login-forgot")?.textContent.trim());
+  if (link !== "Forgot password?") fail("the password step has no way out of a forgotten password: " + JSON.stringify(link));
+  await p.click("#login .login-forgot");
+  await p.waitForTimeout(300);
+  const after = await p.evaluate(() => document.querySelector("#login .login-note")?.textContent.trim());
+  const sent = await (await fetch(APP + "/__auth")).json();
+  console.log("  forgot:", JSON.stringify({ after, sent }));
+  if (!/Check p@e\.com for a link/.test(after || "")) fail("no word that the reset link was sent: " + after);
+  const r = sent.find((a) => a.kind === "recover");
+  if (!r || r.email !== "p@e.com" || !/^http:\/\/127\.0\.0\.1:8137\//.test(r.redirect)) fail("the reset should go to the typed email with the app as the way back: " + JSON.stringify(sent));
+  await p.click("#login .login-back");
+  await p.waitForTimeout(100);
+  d = await door();
+  if (d.boxType !== "password") fail("Back should return to the password step: " + JSON.stringify(d));
+}
+
 // --- Password, the button, and the app is there. (Enter works too — the
 // not-an-email step above went through it.)
 await p.keyboard.type("secret");
@@ -91,6 +110,69 @@ d = await door();
 console.log("reopened, signed in:", JSON.stringify({ shown: d.shown, appDrawn: d.appDrawn }));
 if (d.shown) fail("a signed-in install got the door again");
 if (!d.appDrawn) fail("a signed-in install didn't open on Home");
+
+// --- Change password, from the "+" sheet: the same cover, one box, a way to
+// keep the current one; saving sends the new one with the session.
+{
+  await p.evaluate(() => { location.hash = "#/"; });
+  await p.waitForTimeout(300);
+  const changed = await p.evaluate(async () => {
+    const mod = await import("/js/login.js");
+    const pending = mod.showNewPassword({ email: "p@e.com", reason: "change" });
+    await new Promise((r) => setTimeout(r, 100));
+    const cover = document.querySelector("#login");
+    const out = { shown: !!cover, button: cover?.querySelector(".login-go")?.textContent.trim(), keep: cover?.querySelector(".login-switch")?.textContent.trim(), note: cover?.querySelector(".login-note")?.textContent.trim() };
+    cover.querySelector('[name="password"]').value = "abc";
+    cover.querySelector(".login-go").click();
+    await new Promise((r) => setTimeout(r, 100));
+    out.short = cover.querySelector(".login-note").textContent.trim();
+    cover.querySelector('[name="password"]').value = "newsecret1";
+    cover.querySelector(".login-go").click();
+    out.result = await pending;
+    await new Promise((r) => setTimeout(r, 350));
+    out.gone = !document.querySelector("#login");
+    return out;
+  });
+  const saved = (await (await fetch(APP + "/__auth")).json()).find((a) => a.kind === "password");
+  console.log("change password:", JSON.stringify({ ...changed, saved }));
+  if (!changed.shown || changed.button !== "Save password" || !/Keep the one I have/.test(changed.keep || "") || !/p@e\.com/.test(changed.note || "")) fail("the change-password cover is wrong: " + JSON.stringify(changed));
+  if (!/6\+ characters/.test(changed.short)) fail("a short password wasn't refused");
+  if (changed.result !== true || !changed.gone) fail("saving should close the cover: " + JSON.stringify(changed));
+  if (!saved || saved.password !== "newsecret1" || saved.bearer !== "t") fail("the new password should reach the account with its session: " + JSON.stringify(saved));
+  const tile = await p.evaluate(async () => {
+    document.querySelector("#quick-add").click();
+    await new Promise((r) => setTimeout(r, 400));
+    const labels = [...document.querySelectorAll(".modal, [role=dialog], .sheet, body")].flatMap((m) => [...m.querySelectorAll("button, .tool, .tool-tile")]).map((b) => b.textContent.trim());
+    return { has: labels.some((l) => /Change password/.test(l)), signout: labels.some((l) => /Sign out/.test(l)) };
+  });
+  console.log("  on the + sheet:", JSON.stringify(tile));
+  if (!tile.has || !tile.signout) fail("the + sheet's Account section should offer Change password beside Sign out: " + JSON.stringify(tile));
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
+}
+
+// --- The reset link's landing: signed in by the link, the door asks for the
+// new password first, saves it, and opens the app on Home with a clean hash.
+{
+  const ctxR = await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+  const r = await ctxR.newPage();
+  await r.addInitScript(() => {
+    if (sessionStorage.getItem("seeded")) return;
+    sessionStorage.setItem("seeded", "1");
+    localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [],
+      settings: { salesperson: "Parm", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));
+  });
+  await r.goto(APP + "/#access_token=t&refresh_token=r&expires_in=3600&token_type=bearer&type=recovery");
+  await r.waitForSelector('#login [name="password"]', { timeout: 10000 });
+  const landing = await r.evaluate(() => ({ button: document.querySelector("#login .login-go")?.textContent.trim(), boxes: [...document.querySelectorAll("#login input")].filter((i) => !i.hidden).map((i) => i.type), hash: location.hash, signedIn: !!JSON.parse(localStorage.getItem("viniva:auth") || "null")?.access_token }));
+  console.log("reset link landing:", JSON.stringify(landing));
+  if (landing.button !== "Save password" || landing.boxes.join() !== "password" || landing.hash !== "#/" || !landing.signedIn) fail("the reset link should land on the new-password door, signed in, with the tokens off the address: " + JSON.stringify(landing));
+  await r.evaluate(() => { document.querySelector('#login [name="password"]').value = "fromthelink"; document.querySelector("#login .login-go").click(); });
+  await r.waitForFunction(() => !document.querySelector("#login") && !!document.querySelector("#view .stat-grid"), null, { timeout: 10000 }).catch(() => fail("after saving, the app didn't open"));
+  const viaLink = (await (await fetch(APP + "/__auth")).json()).filter((a) => a.kind === "password").pop();
+  if (!viaLink || viaLink.password !== "fromthelink") fail("the password from the link's door wasn't saved: " + JSON.stringify(viaLink));
+  await ctxR.close();
+}
 
 // --- A phone from before the rename: its session was stored under the old
 // name. It must open on the app, not the door.

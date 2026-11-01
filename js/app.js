@@ -69,6 +69,12 @@ await store.ready;
 // Signed out means the front door, not the app. Everything after this line
 // runs only for someone who is signed in — a session already on the device,
 // or one just made at the door.
+// Opened from a password-reset email: the link signs the phone in for one
+// job, and the door asks for the new password before anything else.
+if (backend.recoverySession()) {
+  const { showNewPassword } = await import("./login.js");
+  if (await showNewPassword({ email: backend.currentUser()?.email || "" })) { const { toast } = await import("./components.js"); toast("Password saved", "success"); }
+}
 if (!backend.isSignedIn()) await showLogin();
 
 // The book on this phone belongs to whoever is signed in. A different
@@ -350,10 +356,20 @@ document.getElementById("quick-add").addEventListener("click", () => {
     };
     section("Add new", keys.map((k) => byKey[k]));
     section("Tools", tools.toolLinks());
-    if (backend.isSignedIn()) section("Account", [signOutTile()]);
+    if (backend.isSignedIn()) section("Account", [passwordTile(close), signOutTile()]);
     return wrap;
   }));
 });
+
+// A new password, from the "+" sheet: the same cover the reset link shows,
+// with a way to keep the current one.
+function passwordTile() {
+  return { icon: "lock", label: "Change password", fn: async () => {
+    const { showNewPassword } = await import("./login.js");
+    const ok = await showNewPassword({ email: backend.currentUser()?.email || "", reason: "change" });
+    if (ok) { const { toast } = await import("./components.js"); toast("Password changed", "success"); }
+  } };
+}
 
 // Sign out, from the "+" sheet: asked once, since a tile is easy to brush.
 // Back in (as the same account), the page starts fresh.

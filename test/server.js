@@ -48,6 +48,7 @@ const emails = [];
 // Targets managers set, and the nudges (pushes) managers sent.
 const targets = new Map();
 const nudges = [];
+const auths = []; // password changes and reset links asked for (/__auth)
 const dealreads = [];
 // Google token exchanges the app asked for (test hook /__gauths).
 const gauths = [];
@@ -78,7 +79,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "*",
-      "Access-Control-Allow-Methods": "GET,POST,HEAD,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,HEAD,OPTIONS",
       "Access-Control-Expose-Headers": "Content-Range",
     });
     return res.end();
@@ -98,6 +99,26 @@ const server = http.createServer((req, res) => {
         user: { id: second ? "00000000-0000-4000-8000-000000000002" : "00000000-0000-4000-8000-000000000001", email: j.email || "p@e.com" } });
     });
   }
+  // A new password for the signed-in account, and a reset link asked for:
+  // both recorded for the test to read back (/__auth).
+  if (url.pathname === "/auth/v1/user" && req.method === "PUT") {
+    let body = ""; req.on("data", (c) => (body += c));
+    return req.on("end", () => {
+      let j = {}; try { j = JSON.parse(body || "{}"); } catch {}
+      if (!String(j.password || "").length) return json(res, 422, { msg: "Password should be at least 6 characters" });
+      auths.push({ kind: "password", password: j.password, bearer: String(req.headers["authorization"] || "").replace(/^Bearer\s+/i, "") });
+      json(res, 200, { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" });
+    });
+  }
+  if (url.pathname === "/auth/v1/recover") {
+    let body = ""; req.on("data", (c) => (body += c));
+    return req.on("end", () => {
+      let j = {}; try { j = JSON.parse(body || "{}"); } catch {}
+      auths.push({ kind: "recover", email: j.email || "", redirect: url.searchParams.get("redirect_to") || "" });
+      json(res, 200, {});
+    });
+  }
+  if (url.pathname === "/__auth") return json(res, 200, auths);
   if (url.pathname === "/auth/v1/token") {
     // Any refresh or password grant succeeds and yields a long-lived token for
     // a fixed test user, so a test can drive the real sign-in button.
@@ -624,7 +645,7 @@ const server = http.createServer((req, res) => {
     return json(res, 200, checkReply);
   }
   if (url.pathname === "/__reset") {
-    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; dealreads.length = 0; storeVehicles.clear(); storeCustomers.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
+    records.clear(); pushes.length = 0; stores.clear(); targets.clear(); nudges.length = 0; auths.length = 0; dealreads.length = 0; storeVehicles.clear(); storeCustomers.clear(); storeConfig.clear(); welcomes.length = 0; emails.length = 0; mtexts.length = 0;
     links.clear(); seq = 0; sent.length = 0; failNextSend = false; relays.length = 0; toolNext = null; objects.clear();
     return json(res, 200, { ok: true });
   }

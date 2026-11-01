@@ -57,11 +57,32 @@ export function showLogin() {
       emailBox.hidden = true;
       passBox.hidden = false;
       button.textContent = label();
-      // The email you gave, as the way back to it.
-      say(`<button type="button" class="login-back">${esc(emailBox.value.trim())}</button>${creating ? " · choose a password of 6+ characters" : ""}`);
+      // The email you gave, as the way back to it — and, signing in, the way
+      // out of a forgotten password.
+      say(`<button type="button" class="login-back">${esc(emailBox.value.trim())}</button>${creating ? " · choose a password of 6+ characters" : ` · <button type="button" class="login-forgot">Forgot password?</button>`}`);
       note.querySelector(".login-back").addEventListener("click", askEmail);
+      const forgot = note.querySelector(".login-forgot");
+      if (forgot) forgot.addEventListener("click", sendReset);
       passBox.focus();
     };
+    // A reset link to the email in the box; the link opens the app on a
+    // new-password screen (app.js, backend.recoverySession).
+    async function sendReset() {
+      if (busy) return;
+      const email = emailBox.value.trim();
+      busy = true; root.classList.add("busy"); button.disabled = true;
+      say("Sending a reset link…");
+      try {
+        await backend.requestPasswordReset(email);
+        say(`Check ${esc(email)} for a link to choose a new password. <button type="button" class="login-back">Back</button>`);
+      } catch (err) {
+        say(`${esc(navigator.onLine === false ? "You're offline" : (err && err.message) || "Couldn't send the link")} · <button type="button" class="login-back">Back</button>`);
+      } finally {
+        busy = false; root.classList.remove("busy"); button.disabled = false;
+        const back = note.querySelector(".login-back");
+        if (back) back.addEventListener("click", askPassword);
+      }
+    }
 
     // The button, or Enter (the keyboard's Go). Wired directly rather than
     // through the form's own submission so a stray Enter can't double-fire.
@@ -113,5 +134,50 @@ export function showLogin() {
     }
 
     setTimeout(() => emailBox.focus(), 60);
+  });
+}
+
+/**
+ * The same door, for one job: a new password. Shown when the app opens from
+ * a reset link (already signed in by it) — and reused by Change password
+ * from the "+" sheet. Resolves once the password is saved; the cover goes.
+ */
+export function showNewPassword({ email = "", reason = "reset" } = {}) {
+  return new Promise((resolve) => {
+    const root = document.createElement("div");
+    root.id = "login";
+    root.innerHTML = `
+      <form class="login-form" novalidate>
+        <div class="login-word">viniva</div>
+        <input class="login-box" name="password" type="password" autocomplete="new-password"
+          enterkeyhint="go" placeholder="New password" aria-label="New password" />
+        <button type="submit" class="login-go">Save password</button>
+        <div class="login-note" aria-live="polite">${email ? `${esc(email)} · ` : ""}choose a password of 6+ characters</div>
+        ${reason === "change" ? `<button type="button" class="login-switch">Keep the one I have</button>` : ""}
+      </form>`;
+    document.body.appendChild(root);
+    const form = root.querySelector("form"), box = root.querySelector('[name="password"]'), note = root.querySelector(".login-note"), button = root.querySelector(".login-go");
+    const say = (html) => { note.innerHTML = html; };
+    const done = (ok) => { root.classList.add("login-out"); setTimeout(() => root.remove(), 260); resolve(ok); };
+    const keep = root.querySelector(".login-switch");
+    if (keep) keep.addEventListener("click", () => done(false));
+    let busy = false;
+    async function go() {
+      if (busy) return;
+      const password = box.value;
+      if (password.length < 6) { say("Use a password of 6+ characters"); box.focus(); return; }
+      busy = true; root.classList.add("busy"); button.disabled = true;
+      say("Saving…");
+      try {
+        await backend.changePassword(password);
+        done(true);
+      } catch (err) {
+        say(esc(navigator.onLine === false ? "You're offline" : (err && err.message) || "Couldn't save the password"));
+        box.focus(); box.select();
+      } finally { busy = false; root.classList.remove("busy"); button.disabled = false; }
+    }
+    form.addEventListener("submit", (e) => { e.preventDefault(); go(); });
+    form.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+    setTimeout(() => box.focus(), 60);
   });
 }
