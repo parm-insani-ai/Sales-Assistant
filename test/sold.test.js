@@ -10,6 +10,7 @@ const b = await launch();
 const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" })).newPage();
 const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
+await fetch(APP + "/__reset"); // the stub's bucket, emptied of other tests' files
 
 const pad = (n) => String(n).padStart(2, "0");
 const d = new Date();

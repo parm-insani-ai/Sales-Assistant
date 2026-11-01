@@ -23,6 +23,7 @@ export const TOOL_LINKS = [
   { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
   { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },
   { icon: "box", label: "Deliveries", fn: () => navigate("/deliveries") },
+  { icon: "check", label: "Delivered", fn: () => navigate("/delivered") },
   { icon: "calendar", label: "Calendar", fn: () => navigate("/calendar") },
   { icon: "file", label: "Import", fn: () => navigate("/import") },
   { icon: "settings", label: "Settings", fn: () => navigate("/settings") },

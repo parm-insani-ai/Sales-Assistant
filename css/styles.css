@@ -1992,6 +1992,18 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .sd-thumb-wait { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); color: var(--warning); display: inline-flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); }
 .sd-thumb-wait .ico { width: 12px; height: 12px; }
 .sd-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Delivered: the search box, and how to reach the customer inside a card. */
+.dv-search { margin: 0 0 12px; }
+.dv-q { width: 100%; box-sizing: border-box; padding: 11px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font-size: 0.95rem; }
+.dv-q:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.dv-contact { display: grid; gap: 6px; margin-bottom: 10px; }
+.dv-line { align-items: center; gap: 10px; }
+.dv-k { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.82rem; flex: none; min-width: 72px; }
+.dv-k .ico { width: 14px; height: 14px; }
+.dv-v { font-size: 0.92rem; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.dv-actions { flex-wrap: wrap; margin-bottom: 4px; }
+.dv-actions .btn { flex: 1 1 auto; }
+.dv-sub { margin-top: 10px; }
 .sd-addbtn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .sd-viewer-body img { width: 100%; height: auto; border-radius: 12px; display: block; max-height: 70vh; object-fit: contain; background: var(--surface-2); }
 .sd-pdf { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 24px 12px; background: var(--surface-2); border-radius: 12px; text-align: center; }

@@ -29,6 +29,7 @@ const LOADERS = {
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), stats: () => import("./views/stats.js"), daylog: () => import("./views/daylog.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
   dealbuilder: () => import("./views/dealbuilder.js"),
   log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"), sold: () => import("./views/sold.js"),
+  delivered: () => import("./views/delivered.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -156,6 +157,9 @@ const PAGES = {
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
   "/sold": { title: "Sold", render: lazyView("sold", "renderSold") },
+  // Everyone delivered: their contact details and the pictures of their
+  // contract. From Delivered on the "+" sheet.
+  "/delivered": { title: "Delivered", render: lazyView("delivered", "renderDelivered") },
   "/floor": { title: "The Floor", render: lazyView("manage", "renderFloor") },
   "/reps": { title: "Reps", render: lazyView("manage", "renderReps") },
   "/team": { title: "Admin", render: lazyView("team", "renderTeam") },
