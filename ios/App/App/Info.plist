@@ -26,6 +26,10 @@
 	<string>viniva listens when you tap the microphone so you can talk to your assistant instead of typing.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>viniva turns what you say into text on the device so your assistant can act on it.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>viniva uses the camera to photograph a customer's contract and paperwork so they stay with the sale.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>viniva opens your photos so you can add a picture of a contract or paperwork to a sale.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchStoryboardName</key>

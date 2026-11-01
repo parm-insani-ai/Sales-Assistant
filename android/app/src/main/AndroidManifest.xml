@@ -36,9 +36,13 @@
     </application>
 
     <!-- Permissions. The microphone comes in with the speech plugin's own
-         manifest; notifications need asking for on Android 13 and up. -->
+         manifest; notifications need asking for on Android 13 and up; the
+         camera is for photographing paperwork (Take a photo on Sold and
+         Delivered), and isn't required to install. -->
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
