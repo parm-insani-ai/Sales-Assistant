@@ -1116,6 +1116,8 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .todo-card .row-sub { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .todo-card .row-sub .ico { width: 13px; height: 13px; }
 .todo-card .row-sub.todo-overdue { color: var(--danger); font-weight: 600; }
+/* The to-do a line on Home pointed at: lit for a moment so the eye lands on it. */
+.todo-card.todo-focus { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.6s ease; }
 .todo-card .todo-tick { width: 24px; height: 24px; flex: none; accent-color: var(--brand); cursor: pointer; margin: 0; }
 /* "Still open?" under Right now: three answers on the row. */
 .nudge-choices { display: flex; gap: 6px; margin: 8px 0 2px; }

@@ -87,9 +87,12 @@ export function renderLog(view) {
   setCount("todos", todoCount());
   // A screenful of to-dos, newest first, the rest behind a button — see
   // taskListEl. Opened from the overdue line on Home, it shows just those.
-  let lateOnly = false;
+  let lateOnly = false, focusId = "";
   try { lateOnly = sessionStorage.getItem("viniva:log:overdue") === "1"; sessionStorage.removeItem("viniva:log:overdue"); } catch { /* the whole list, then */ }
-  todoBody.appendChild(taskListEl({ limit: 12, showOverdue: lateOnly, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("todos", todoCount()) }));
+  // Opened from a line on Home about one to-do: that one is in view, however
+  // far down the list it would otherwise sit.
+  try { focusId = sessionStorage.getItem("viniva:log:focus") || ""; sessionStorage.removeItem("viniva:log:focus"); } catch { /* the list, then */ }
+  todoBody.appendChild(taskListEl({ limit: 12, showOverdue: lateOnly, focusId, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("todos", todoCount()) }));
   todoPanel.appendChild(todoBody);
   const note = document.createElement("div");
   note.className = "hint";

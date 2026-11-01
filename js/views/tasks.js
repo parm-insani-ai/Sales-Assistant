@@ -140,10 +140,13 @@ export function compactResult(name, input = {}, out) {
 // imported book with a follow-up cadence on every customer is six hundred open
 // tasks, and Home drew every one of them — the day's screen was mostly a task
 // list nobody scrolls, and it was most of what made Home slow to open.
-export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "todo", order = kind === "reminder" ? "soonest" : "newest", showOverdue = false, empty = "No open tasks. Tap + Add to create one." } = {}) {
+export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "todo", order = kind === "reminder" ? "soonest" : "newest", showOverdue = false, focusId = "", empty = "No open tasks. Tap + Add to create one." } = {}) {
   const container = document.createElement("div");
   let cap = limit;
   let lateOnly = !!showOverdue;
+  // One to-do to bring into view on the first draw (opened from its line on
+  // Home): drawn even past the cap, marked, and scrolled to.
+  let focus = String(focusId || "");
 
   function draw() {
     const tasks = store.all("tasks");
@@ -168,6 +171,7 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
     const late = kind === "reminder" ? [] : all.filter((t) => isLate(t)).sort((a, b) => taskDay(a).localeCompare(taskDay(b)));
     if (lateOnly && !late.length) lateOnly = false;
     const list = lateOnly ? late : all;
+    if (focus) { const i = list.findIndex((t) => t.id === focus); if (i >= cap) cap = i + 1; }
     const open = list.slice(0, cap);
     const hidden = list.length - open.length;
 
@@ -214,6 +218,12 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
       const card = document.createElement("div");
       card.className = "card todo-card";
       card.dataset.taskId = t.id;
+      if (focus && t.id === focus) {
+        card.classList.add("todo-focus");
+        focus = "";
+        setTimeout(() => { try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* in view already */ } }, 60);
+        setTimeout(() => card.classList.remove("todo-focus"), 4000);
+      }
       const rem = isReminder(t);
       const overdue = rem ? wallClock(t.remindAt) <= now : t.due && daysFromToday(t.due) < 0;
       const soon = !rem && t.due && daysFromToday(t.due) === 0;

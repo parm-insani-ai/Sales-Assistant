@@ -67,6 +67,23 @@ if (home.some((r) => /Wash the demo/.test(r.text) && /^Still open/.test(r.text))
 const poked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { t2: (s.get("pokes", "poke:task:t2") || {}).count, r1: (s.get("pokes", "poke:task:r1") || {}).count }; });
 if (poked.t2 !== 1 || poked.r1 !== 3) fail("seen overdue should count as the first reminder, and an existing count kept: " + JSON.stringify(poked));
 
+// --- Tapping the line itself lands on Log under To-dos with that to-do in view —
+// not on whichever chip Log was left on (it used to open on the Queue, where a
+// to-do never is).
+await p.evaluate(() => { localStorage.setItem("viniva:log:tab", "queue"); });
+await p.evaluate(() => { const row = [...document.querySelectorAll(".nudge-slot .nudge-row")].find((r) => /Order Ken's plates/.test(r.textContent)); row.querySelector(".row-title").click(); });
+await p.waitForSelector(".log-tabs [data-tab=todos].active", { timeout: 5000 }).catch(() => {});
+const landed = await p.evaluate(() => ({
+  hash: location.hash,
+  chip: document.querySelector(".log-tabs .active")?.dataset.tab,
+  shown: !!document.querySelector('.log-panel[data-panel="todos"]:not([hidden]) .todo-card[data-task-id="t2"]'),
+  lit: !!document.querySelector('.todo-card[data-task-id="t2"].todo-focus'),
+}));
+console.log("tapped the line:", JSON.stringify(landed));
+if (landed.hash !== "#/log" || landed.chip !== "todos" || !landed.shown || !landed.lit) fail("the still-open line should open Log on To-dos with that to-do in view: " + JSON.stringify(landed));
+await p.goto(APP + "/#/");
+await p.waitForTimeout(700);
+
 // --- Tomorrow: the reminder moves a day, same minute; the count starts over; the line goes.
 await p.evaluate(() => { const row = [...document.querySelectorAll(".nudge-slot .nudge-row")].find((r) => /Call the bank/.test(r.textContent)); [...row.querySelectorAll(".nudge-choices .btn")].find((b) => b.textContent === "Tomorrow").click(); });
 await p.waitForTimeout(300);

@@ -62,6 +62,16 @@ function localDayKey(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Log opens on the chip asked for, with one to-do brought into view (the
+// list is newest first and capped, so an old one would otherwise be behind
+// "Show more"). Same keys log.js reads; set just before navigating.
+function openLogOn(tab, taskId = "") {
+  try {
+    sessionStorage.setItem("viniva:log:open", tab);
+    if (taskId) sessionStorage.setItem("viniva:log:focus", String(taskId)); else sessionStorage.removeItem("viniva:log:focus");
+  } catch { /* the remembered chip, then */ }
+}
+
 // Appointment times are stored as local "YYYY-MM-DDTHH:MM" with no zone, so
 // they have to be read as local rather than handed to Date() as UTC.
 function apptTime(when) {
@@ -238,9 +248,12 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         title: `⏰ ${t.title}`,
         sub: t.source === "wrapup"
           ? "Today's conversation with the assistant is forgotten at 4am. Tap to go through it together."
-          : `Reminder for ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${mins >= 2 ? ` · ${human(mins)} ago` : ""} — tick it off on Today.`,
+          : `Reminder for ${new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${mins >= 2 ? ` · ${human(mins)} ago` : ""} — tick it off under To-dos.`,
         // The end-of-day check opens the sheet, where the assistant asks.
-        route: t.source === "wrapup" ? null : "/today",
+        // A reminder opens Log on To-dos with this one in view — not on
+        // whichever chip was open last, where it isn't.
+        route: t.source === "wrapup" ? null : "/log",
+        prep: t.source === "wrapup" ? null : () => openLogOn("todos", t.id),
         open: t.source === "wrapup" ? "voice" : null,
         at: new Date(at).toISOString(),
       });
@@ -324,6 +337,9 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       title: `Still open: ${c.title}`,
       sub: `${times >= ASK_AFTER ? `Reminded ${times} times` : "Overdue"} since ${since} — move it, or let it go.`,
       route: c.route,
+      // A to-do or reminder lives under To-dos on Log; land there with it
+      // in view, whatever chip Log was left on.
+      prep: c.kind === "task" || c.kind === "reminder" ? () => openLogOn("todos", c.id) : null,
       choices: [{ label: "Tomorrow", act: "tomorrow" }, { label: "Next week", act: "nextweek" }, { label: "Drop", act: "drop" }],
       at: new Date(c.due).toISOString(),
     });
