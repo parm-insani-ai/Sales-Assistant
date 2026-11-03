@@ -716,6 +716,8 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .row-reasons { color: var(--text-2, var(--text)); font-size: 0.8rem; margin-top: 5px; line-height: 1.35; }
 .row-contact { color: var(--success); font-size: 0.78rem; font-weight: 600; margin-top: 5px; display: flex; align-items: center; gap: 4px; }
 .row-contact .ico { width: 14px; height: 14px; }
+/* An attempt — a message left, no answer — reads as still open, not done. */
+.row-contact.row-contact-try { color: var(--warning); }
 /* The current contract as a banner across the bottom of a customer's card:
    the payment and the payments left, and nothing else. */
 .contract-banner { display: flex; gap: 0; margin: 12px -18px -18px; padding: 10px 18px; background: var(--surface-2); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); }

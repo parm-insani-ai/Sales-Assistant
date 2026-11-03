@@ -680,7 +680,7 @@ function cardHTML(l, { quick = false, hz = null } = {}) {
   const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
   // The last contact, on the card — so logging one is visibly registered.
   const contact = l.lastContacted
-    ? `<div class="row-contact">${icon("checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")} ${esc(formatDateTime(l.lastContacted))}</div>` : "";
+    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}</div>` : "";
   // Their current contract in one line under the vehicle: what they pay,
   // how many payments are left, when it matures — or that it's paid off.
   // The one thing to do from the list: a drafted opener to review, a call
@@ -774,13 +774,12 @@ function leadCard(l, onOpen, extra = {}) {
       // Tapping it turns the tray into the question — Call, Text or Email —
       // right there behind the card. No sheet, no field to focus, nothing
       // that a phone could put in front of the buttons.
-      onTap: (api) => api.expand(WAYS.map((w) => ({
-        label: w.label, icon: w.icon, kind: "ok",
-        onTap: () => {
-          const rec = logContactFor(l, w.via, redraw);
+      onTap: (api) => api.expand(WAYS.map((w) => {
+        // Logged. One more step in the same tray: say what happened, or
+        // done. The card already shows the contact behind it.
+        const logged = (outcome) => {
+          const rec = logContactFor(l, w.via, redraw, outcome);
           if (!rec) { api.close(); return; }
-          // Logged. One more step in the same tray: say what happened, or
-          // done. The card already shows the contact behind it.
           api.expand([
             { label: "Note", icon: "mic", kind: "note", onTap: () => {
               api.close();
@@ -790,8 +789,15 @@ function leadCard(l, onOpen, extra = {}) {
             } },
             { label: "Done", icon: "check", kind: "done", onTap: () => api.close() },
           ]);
-        },
-      }))),
+        };
+        return {
+          label: w.label, icon: w.icon, kind: "ok",
+          // A call asks how it went: spoke, left a message, or no answer —
+          // a message or no answer keeps them on Outreach with a follow-up
+          // for tomorrow, so they're contacted again.
+          onTap: () => (w.via === "call" ? api.expand(OUTCOMES.map((o) => ({ label: o.label, icon: o.icon, kind: o.kind, onTap: () => logged(o.outcome) }))) : logged("reached")),
+        };
+      })),
     }, {
       // Not now: off Best now (and the queue's prospects) for a month.
       label: "Not now", icon: "clock", kind: "later",
@@ -821,21 +827,29 @@ const WAYS = [
   { via: "email", label: "Email", icon: "mail" },
 ];
 const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
+// How a call went. Spoke is a conversation; the other two are attempts.
+const OUTCOMES = [
+  { outcome: "reached", label: "Spoke", icon: "check", kind: "ok" },
+  { outcome: "voicemail", label: "Left a message", icon: "message", kind: "later" },
+  { outcome: "no_answer", label: "No answer", icon: "phone", kind: "later" },
+];
+const OUTCOME_LABEL = { voicemail: "left a message", no_answer: "no answer" };
 // The "Last contacted" line: when and how, or that they haven't been. It
 // updates itself when Call, Text or Email is tapped; a tap on the line
 // logs a contact made some other way.
 function contactLine(l) {
   if (!l.lastContacted) return `<span class="muted">Not contacted yet</span>`;
-  return esc(formatDateTime(l.lastContacted)) + (l.lastContactVia ? ` <span class="muted small">· ${esc(l.lastContactVia)}</span>` : "");
+  const how = [l.lastContactVia, OUTCOME_LABEL[l.lastContactOutcome]].filter(Boolean).join(", ");
+  return esc(formatDateTime(l.lastContacted)) + (how ? ` <span class="muted small">· ${esc(how)}</span>` : "");
 }
 
 // Log that you reached them, now, this way. The date and time are the moment
 // of the tap. Says so, offers Undo, and calls back so the view can redraw.
-function logContactFor(l, via, onChange) {
-  const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia };
+function logContactFor(l, via, onChange, outcome = "reached") {
+  const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia, lastContactOutcome: l.lastContactOutcome, loggedAt: l.loggedAt, followUp: l.followUp };
   let rec;
   try {
-    rec = store.logContact(l.id, { via });
+    rec = store.logContact(l.id, { via, outcome });
   } catch (err) {
     toast(`Couldn't log it — ${(err && err.message) || "try again"}`, "danger");
     return null;
@@ -843,7 +857,8 @@ function logContactFor(l, via, onChange) {
   if (onChange) onChange(rec);
   // On disk before anyone walks away. A failed write is said out loud.
   store.flush().then(() => { const err = store.saveError(); if (err) toast(`Not saved — this phone's storage refused the write (${err.message || err}).`, "danger"); });
-  undoToast(`${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`, () => {
+  const said = outcome === "voicemail" ? `Left ${l.name.split(" ")[0]} a message — follow up tomorrow` : outcome === "no_answer" ? `No answer from ${l.name.split(" ")[0]} — follow up tomorrow` : `${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`;
+  undoToast(said, () => {
     store.undoContact(rec.id, l.id, prev);
     if (onChange) onChange(null);
   });
@@ -1019,11 +1034,19 @@ function contactWays(l, onDone) {
   row.className = "contact-ways";
   row.innerHTML = WAYS.map((w) => `<button type="button" class="btn btn-ghost" data-via="${w.via}">${icon(w.icon)}<span>${w.label}</span></button>`).join("")
     + `<button type="button" class="btn btn-ghost" data-act="cancel">Cancel</button>`;
-  row.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", () => {
-    const rec = logContactFor(l, b.dataset.via, null);
+  const logged = (via, outcome) => {
+    const rec = logContactFor(l, via, null, outcome);
     if (!rec) { row.remove(); return; }
     const panel = notePanel(l, rec, () => { if (onDone) onDone(rec); });
     row.replaceWith(panel);
+  };
+  row.querySelectorAll("[data-via]").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.via !== "call") { logged(b.dataset.via, "reached"); return; }
+    // A call: how did it go?
+    row.innerHTML = OUTCOMES.map((o) => `<button type="button" class="btn btn-ghost" data-outcome="${o.outcome}">${icon(o.icon)}<span>${o.label}</span></button>`).join("")
+      + `<button type="button" class="btn btn-ghost" data-act="cancel">Cancel</button>`;
+    row.querySelectorAll("[data-outcome]").forEach((x) => x.addEventListener("click", () => logged("call", x.dataset.outcome)));
+    row.querySelector('[data-act="cancel"]').addEventListener("click", () => row.remove());
   }));
   row.querySelector('[data-act="cancel"]').addEventListener("click", () => row.remove());
   return row;

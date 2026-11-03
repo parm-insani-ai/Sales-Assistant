@@ -146,6 +146,11 @@ await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act-ok");
 await p.waitForTimeout(300);
 await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act:has-text('Call')");
 await p.waitForTimeout(300);
+// A call asks how it went before anything else.
+const howWent = await p.evaluate(() => { const wrap = [...document.querySelectorAll(".swipe-wrap")].find((w) => w.textContent.includes("Ann Example")); return [...wrap.querySelectorAll(".swipe-act")].map((b) => b.textContent.trim()).join(); });
+if (howWent !== "Spoke,Left a message,No answer") fail(`after Call the tray shows ${howWent}, not Spoke, Left a message, No answer`);
+await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act:has-text('Spoke')");
+await p.waitForTimeout(300);
 await p.click(".swipe-wrap:has-text('Ann Example') .swipe-act:has-text('Note')");
 await p.waitForTimeout(900);
 const panel = await p.evaluate(() => {
@@ -268,6 +273,42 @@ await p.waitForTimeout(300);
 const gone = await p.evaluate(async () => !(await import("/js/store.js")).get("leads", "lead_bob"));
 console.log("delete still works:", gone);
 if (!gone) fail("Delete behind the slide stopped working");
+
+// --- Left a message: an attempt, not a conversation. Cal is an outreach
+// customer (from a file); a message leaves him on Outreach with a follow-up
+// for tomorrow, the card saying so, and no entry in the log.
+await p.evaluate(async () => { const store = await import("/js/store.js"); store.restore("leads", { id: "lead_cal", name: "Cal Example", phone: "9025550113", stage: "new", importedAt: "2026-09-01T12:00:00.000Z", createdAt: "2026-09-01T12:00:00.000Z", updatedAt: "2026-09-01T12:00:00.000Z" }); });
+await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(300);
+await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(500);
+await p.click('[data-filter="all"]'); await p.waitForTimeout(300);
+// A customer just added sends the book's read off again, and the list redraws
+// (new rows, first trays) when it lands — let it, before sliding.
+await p.waitForFunction(async () => (await import("/js/views/dealbuilder.js")).radarCurrent(), null, { timeout: 20000 }).catch(() => {});
+await p.waitForTimeout(500);
+await slide("Cal Example");
+// Taps on the tray, by label, scoped to Cal's row.
+const tapCal = (label) => p.evaluate((label) => { const w = [...document.querySelectorAll(".swipe-wrap")].find((w) => w.textContent.includes("Cal Example")); const b = [...w.querySelectorAll(".swipe-act")].find((x) => x.textContent.trim() === label); if (!b) throw new Error("no " + label + " in " + [...w.querySelectorAll(".swipe-act")].map((x) => x.textContent.trim()).join()); b.click(); }, label);
+await tapCal("Contacted"); await p.waitForTimeout(300);
+await tapCal("Call"); await p.waitForTimeout(300);
+await tapCal("Left a message");
+await p.waitForTimeout(400);
+const vm = await p.evaluate(async () => {
+  const store = await import("/js/store.js"); const lb = await import("/js/logbook.js");
+  const l = store.get("leads", "lead_cal");
+  const d = new Date(); d.setDate(d.getDate() + 1); const pad = (n) => String(n).padStart(2, "0");
+  const wrap = [...document.querySelectorAll(".swipe-wrap")].find((w) => w.textContent.includes("Cal Example"));
+  return { outcome: l.lastContactOutcome, call: store.callsFor("lead_cal").map((c) => c.outcome).join(), followUp: l.followUp, tomorrow: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, inLog: lb.inLog(l), card: wrap.querySelector(".row-contact")?.textContent.replace(/\s+/g, " ").trim() || "", tray: [...wrap.querySelectorAll(".swipe-act")].map((b) => b.textContent.trim()).join(), toast: [...document.querySelectorAll(".toast")].map((t) => t.textContent).join("|") };
+});
+console.log("left a message:", JSON.stringify(vm));
+if (vm.outcome !== "voicemail" || vm.call !== "voicemail") fail("the message should be recorded as the outcome: " + JSON.stringify(vm));
+if (vm.followUp !== vm.tomorrow) fail("a message should set a follow-up for tomorrow: " + JSON.stringify(vm));
+if (vm.inLog) fail("a message left shouldn't put an outreach customer on the log");
+if (!/Called · left a message/.test(vm.card) || !/again tomorrow/i.test(vm.card)) fail("the card should say a message was left and when to try again: " + vm.card);
+if (vm.tray !== "Note,Done" || !/Left Cal a message/.test(vm.toast)) fail("after the message the tray should offer Note / Done and the toast say so: " + JSON.stringify(vm));
+// Undo takes the attempt back, follow-up and all (the message's own toast, not an older one's).
+await p.evaluate(() => { const t = [...document.querySelectorAll(".toast")].find((x) => /Left Cal a message/.test(x.textContent)); t.querySelector("button").click(); }); await p.waitForTimeout(300);
+const undoneVm = await p.evaluate(async () => { const store = await import("/js/store.js"); const l = store.get("leads", "lead_cal"); return { followUp: l.followUp || null, outcome: l.lastContactOutcome || null, calls: store.callsFor("lead_cal").length }; });
+if (undoneVm.followUp || undoneVm.outcome || undoneVm.calls) fail("undo should take the message, the outcome and the follow-up back: " + JSON.stringify(undoneVm));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

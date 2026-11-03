@@ -1091,19 +1091,32 @@ export function callsFor(leadId) {
 // the same collection as tapped-to-call records so the customer's timeline
 // reads as one conversation, with `via` saying which channel it was.
 export const CONTACT_VIAS = ["call", "text", "email"];
-export function logContact(leadId, { via = "call", at = null, notes = "" } = {}) {
+// outcome: "reached" (spoke, or a text/email sent), "voicemail" (left a
+// message) or "no_answer". A message or no answer is an attempt, not a
+// conversation: it's stamped as the last contact so the card shows it, but
+// the customer stays on Outreach rather than joining the log, and gets a
+// follow-up for tomorrow (unless one is already sooner) so they come round
+// again under Follow up and Right now.
+export const CONTACT_OUTCOMES = ["reached", "voicemail", "no_answer"];
+export function logContact(leadId, { via = "call", at = null, notes = "", outcome = "reached" } = {}) {
   if (!CONTACT_VIAS.includes(via)) via = "call";
+  if (!CONTACT_OUTCOMES.includes(outcome)) outcome = "reached";
   const when = at && !isNaN(new Date(at)) ? new Date(at).toISOString() : new Date().toISOString();
   // Three records change; the listeners hear about it once.
   return bulk(() => {
-    const rec = create("calls", { leadId, dir: "out", via, at: when, outcome: "reached", notes, logged: true });
+    const rec = create("calls", { leadId, dir: "out", via, at: when, outcome, notes, logged: true });
     const lead = get("leads", leadId);
     // The newest contact is the last one, whichever order they were logged in.
     // A logged conversation puts an outreach customer in the log (logbook.js).
     if (lead) {
       const patch = {};
-      if (!lead.lastContacted || when >= lead.lastContacted) { patch.lastContacted = when; patch.lastContactVia = via; }
-      if (!lead.loggedAt) patch.loggedAt = when;
+      if (!lead.lastContacted || when >= lead.lastContacted) { patch.lastContacted = when; patch.lastContactVia = via; patch.lastContactOutcome = outcome; }
+      if (outcome === "reached") { if (!lead.loggedAt) patch.loggedAt = when; }
+      else {
+        const d = new Date(when); d.setDate(d.getDate() + 1);
+        const tomorrow = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        if (!lead.followUp || lead.followUp > tomorrow) patch.followUp = tomorrow;
+      }
       if (Object.keys(patch).length) update("leads", leadId, patch);
     }
     logActivity("touch");
@@ -1117,7 +1130,12 @@ export function undoContact(recId, leadId, prev = {}) {
   bulk(() => {
     if (get("calls", recId)) remove("calls", recId);
     if (get("leads", leadId)) {
-      update("leads", leadId, { lastContacted: prev.lastContacted || null, lastContactVia: prev.lastContactVia || null });
+      const back = { lastContacted: prev.lastContacted || null, lastContactVia: prev.lastContactVia || null, lastContactOutcome: prev.lastContactOutcome || null };
+      // What the log changed besides: joining the log, or the follow-up a
+      // message set — only when the caller snapshotted them.
+      if ("loggedAt" in prev) back.loggedAt = prev.loggedAt || null;
+      if ("followUp" in prev) back.followUp = prev.followUp || null;
+      update("leads", leadId, back);
     }
   });
 }
