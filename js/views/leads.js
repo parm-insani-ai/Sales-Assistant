@@ -194,6 +194,45 @@ export function renderLeads(view, { param }) {
   // takes it up where it stands.
   if (staleBook) warmBook().then(() => { if (wrap.isConnected) renderList({ keep: true }); }, () => {});
 
+  // Pick up where you left off. Scrolling a long list, the customer last
+  // acted on from it (contacted, put off, opened, reviewed) is a pill at the
+  // foot of the screen: a tap scrolls back to their card and lights it, or
+  // opens their page when the card isn't in this list. It shows only while
+  // that card is off screen, and a × keeps it away for the visit.
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "resume-pill";
+  pill.hidden = true;
+  view.appendChild(pill); // beside the list, not in it: draw() rewrites the list's markup
+  let pillOff = false;
+  try { pillOff = sessionStorage.getItem("viniva:outreach:resume-off") === "1"; } catch { /* shown, then */ }
+  const pillCheck = () => {
+    if (!wrap.isConnected) { view.removeEventListener("scroll", pillCheck); return; }
+    const last = pillOff ? null : lastWorked();
+    const lead = last ? store.get("leads", last.id) : null;
+    if (!lead || selecting) { pill.hidden = true; return; }
+    const card = wrap.querySelector(`.swipe-card[data-lead-id="${CSS.escape(lead.id)}"]`);
+    const vr = view.getBoundingClientRect();
+    const r = card ? card.getBoundingClientRect() : null;
+    const inView = r && r.bottom > vr.top + 40 && r.top < vr.bottom - 40;
+    const show = view.scrollTop > 160 && !inView;
+    if (!show) { pill.hidden = true; return; }
+    pill.innerHTML = `${icon("back")}<span>Pick up at ${esc(properName(lead.name).slice(0, 24))}</span><span class="resume-x" aria-label="Not now">×</span>`;
+    pill.dataset.lead = lead.id;
+    pill.hidden = false;
+  };
+  pill.addEventListener("click", (e) => {
+    if (e.target.closest(".resume-x")) { pillOff = true; try { sessionStorage.setItem("viniva:outreach:resume-off", "1"); } catch { /* this visit */ } pill.hidden = true; return; }
+    const id = pill.dataset.lead;
+    const card = wrap.querySelector(`.swipe-card[data-lead-id="${CSS.escape(id)}"]`);
+    pill.hidden = true;
+    if (!card) { rememberSpot(); navigate(`/leads/${id}`); return; }
+    try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { card.scrollIntoView(); }
+    card.classList.add("card-resume");
+    setTimeout(() => card.classList.remove("card-resume"), 2600);
+  });
+  view.addEventListener("scroll", pillCheck, { passive: true });
+
   const hzOf = (l) => (timingReady() ? hz.byId.get(l.id) || null : null);
   // The ranked list under the lens, when it's on: { redraw } from renderDeals.
   let lens = null;
@@ -753,6 +792,7 @@ function leadCard(l, onOpen, extra = {}) {
     const act = e.target.closest(".lc-act");
     if (act) {
       e.stopPropagation();
+      noteWorked(l.id, act.dataset.lc || "acted");
       if (act.dataset.lc === "call") { store.logActivity("touch"); return; }
       e.preventDefault();
       if (onOpen) onOpen();
@@ -761,6 +801,7 @@ function leadCard(l, onOpen, extra = {}) {
       reviewProspect(l.id).finally(() => { if (act.isConnected) { act.disabled = false; act.innerHTML = was; } });
       return;
     }
+    noteWorked(l.id, "opened");
     if (onOpen) onOpen();
     navigate(`/leads/${l.id}`);
   });
@@ -780,6 +821,7 @@ function leadCard(l, onOpen, extra = {}) {
         const logged = (outcome) => {
           const rec = logContactFor(l, w.via, redraw, outcome);
           if (!rec) { api.close(); return; }
+          noteWorked(l.id, "contacted");
           api.expand([
             { label: "Note", icon: "mic", kind: "note", onTap: () => {
               api.close();
@@ -804,6 +846,7 @@ function leadCard(l, onOpen, extra = {}) {
       onTap: (api) => {
         const was = l.prospectSnoozedUntil || null;
         const until = snoozeProspect(l.id);
+        noteWorked(l.id, "not now");
         api.close();
         if (extra.onListChange) extra.onListChange();
         undoToast(`Not now — back ${relativeDay(until)}`, () => {
@@ -827,6 +870,17 @@ const WAYS = [
   { via: "email", label: "Email", icon: "mail" },
 ];
 const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
+// Where you left off on Outreach: the last customer acted on from the list
+// or their page, kept on the phone for a day and a half. The list offers a
+// way back to them (renderLeads).
+const LAST_KEY = "viniva:outreach:last";
+export function noteWorked(leadId, what = "") {
+  if (!leadId) return;
+  try { localStorage.setItem(LAST_KEY, JSON.stringify({ id: leadId, what, at: Date.now() })); } catch { /* a convenience */ }
+}
+export function lastWorked() {
+  try { const x = JSON.parse(localStorage.getItem(LAST_KEY) || "null"); return x && x.id && Date.now() - Number(x.at || 0) < 36 * 3600 * 1000 ? x : null; } catch { return null; }
+}
 // How a call went. Spoke is a conversation; the other two are attempts.
 const OUTCOMES = [
   { outcome: "reached", label: "Spoke", icon: "check", kind: "ok" },
@@ -846,6 +900,7 @@ function contactLine(l) {
 // Log that you reached them, now, this way. The date and time are the moment
 // of the tap. Says so, offers Undo, and calls back so the view can redraw.
 function logContactFor(l, via, onChange, outcome = "reached") {
+  noteWorked(l.id, "contacted");
   const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia, lastContactOutcome: l.lastContactOutcome, loggedAt: l.loggedAt, followUp: l.followUp };
   let rec;
   try {
@@ -1367,6 +1422,7 @@ function renderLeadDetail(view, id) {
   // or emailing — and say so on the name box right away, no tap needed.
   const logTouch = (via) => {
     store.logActivity("touch");
+    noteWorked(l.id, via);
     store.update("leads", l.id, { lastContacted: new Date().toISOString(), lastContactVia: via });
     const line = el.querySelector('.lead-head [data-act="contacted"] .v');
     if (line) line.innerHTML = contactLine(store.get("leads", l.id) || l);
