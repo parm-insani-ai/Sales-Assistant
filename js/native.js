@@ -392,12 +392,18 @@ export async function nativePushUnregister() {
 
 // A tap on a notification: go where it points. Payloads carry the same
 // url the web push does ("./#/inbox/<id>"); only the hash matters here.
-export function openPushUrl(url) {
+// The tap is noted for the event log (app.js reads it, at boot when the tap
+// launched the app) and for the Storage check's trail, so "it opened on
+// Home" can be told from "the tap never reached the page".
+export function openPushUrl(url, tag = "", action = "") {
   const s = String(url || "");
   const i = s.indexOf("#");
   const hash = i >= 0 ? s.slice(i) : (s.startsWith("/") ? "#" + s : "");
+  trail(`push tap → ${hash || "(no url)"}${tag ? ` · ${tag}` : ""}`);
+  try { sessionStorage.setItem("viniva:pushopen", JSON.stringify({ tag: String(tag || ""), action: String(action || ""), url: hash, at: new Date().toISOString() })); } catch { /* no storage */ }
   if (hash && hash !== location.hash) location.hash = hash;
   else if (hash) window.dispatchEvent(new HashChangeEvent("hashchange"));
+  window.dispatchEvent(new CustomEvent("viniva-push-open", { detail: { tag, action, url: hash } }));
 }
 
 if (isNative()) {
@@ -410,7 +416,8 @@ if (isNative()) {
   listen("PushNotifications", "pushNotificationActionPerformed", (a) => {
     const n = (a && a.notification) || {};
     const d = n.data || {};
-    openPushUrl(d.url || n.link || "");
+    const act = a && a.actionId && a.actionId !== "tap" ? String(a.actionId) : "";
+    openPushUrl(d.url || n.link || "", d.tag || "", act);
   }).catch(() => {});
   // Opening the app clears what's piled up in the notification tray.
   document.addEventListener("visibilitychange", () => {

@@ -202,9 +202,16 @@ if (off.records || off.enabled || !off.unregistered) fail("turning them off shou
 // --- A tap on a notification opens the page it names.
 await p.evaluate(() => window.__cap.emit("PushNotifications", "pushNotificationActionPerformed", { actionId: "tap", notification: { id: "1", data: { url: "./#/log", tag: "rem:x" } } }));
 await p.waitForTimeout(400);
-const where = await p.evaluate(() => ({ hash: location.hash, title: document.getElementById("page-title").textContent }));
+const where = await p.evaluate(async () => { const s = await import("/js/store.js"); const n = await import("/js/native.js"); return { hash: location.hash, title: document.getElementById("page-title").textContent, logged: s.all("events").filter((e) => e.kind === "push_open").map((e) => e.prompt), trail: n.nativeDiag.trail.filter((t) => /push tap/.test(t)).length }; });
 console.log("tap:", JSON.stringify(where));
 if (where.hash !== "#/log") fail("a tapped notification should open the page in its url: " + JSON.stringify(where));
+if (where.logged.join() !== "rem:x" || !where.trail) fail("the tap should be logged as a push opened, and noted in the trail: " + JSON.stringify(where));
+// A to-do's reminder lands on the To-dos chip; the day's plays on the Queue —
+// not on whichever chip Log was left on.
+await p.evaluate(() => { localStorage.setItem("viniva:log:tab", "logged"); window.__cap.emit("PushNotifications", "pushNotificationActionPerformed", { actionId: "tap", notification: { id: "2", data: { url: "./#/todos", tag: "rem:bundle:x" } } }); });
+await p.waitForFunction(() => location.hash === "#/log" && document.querySelector(".log-tabs .active")?.dataset.tab === "todos", null, { timeout: 5000 }).catch(() => fail("#/todos should open Log on the To-dos chip"));
+await p.evaluate(() => { window.__cap.emit("PushNotifications", "pushNotificationActionPerformed", { actionId: "tap", notification: { id: "3", data: { url: "./#/queue", tag: "plays" } } }); });
+await p.waitForFunction(() => location.hash === "#/log" && document.querySelector(".log-tabs .active")?.dataset.tab === "queue", null, { timeout: 5000 }).catch(() => fail("#/queue should open Log on the Queue chip"));
 
 // --- The same shell on Android: the token is Google's, saved as kind "fcm",
 // and the app's notification channel is created before registering.

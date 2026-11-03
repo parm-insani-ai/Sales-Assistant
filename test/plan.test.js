@@ -57,13 +57,15 @@ const plan = await p.evaluate(async () => {
 });
 console.log("plan:", JSON.stringify({ ...plan.result, people: plan.result.people.slice(0, 2) }).slice(0, 700));
 const r = plan.result;
-if (!(r.month.behind > 0) && new Date().getDate() > 2) fail("four set this month on a 30-a-month goal should read as behind: " + JSON.stringify(r.month));
+// Four set reads as behind once the month expects more than four (day 5 on a 30-a-month goal).
+const BEHIND = new Date().getDate() > 4;
+if (!(r.month.behind > 0) && BEHIND) fail("four set this month on a 30-a-month goal should read as behind: " + JSON.stringify(r.month));
 if (!(r.today.appointmentsToSet >= 1) || r.today.callsToMake !== r.today.appointmentsToSet * r.today.callsPerAppointment) fail("today's calls should be appointments × the ratio: " + JSON.stringify(r.today));
 if (r.today.callsPerAppointment !== 4 || r.today.ratioAssumed) fail("the ratio should be this rep's own, four to one: " + JSON.stringify(r.today));
 // Everyone on the book is a month or more from their last call, so all forty
 // are fair game; late in the month the day can need every one of them.
 if (r.people.length !== Math.min(r.today.callsToMake, 40) || !r.people[0].reason) fail("the plan should name as many people as calls, each with a reason: " + r.people.length + " for " + r.today.callsToMake);
-if (!/behind where the month should be/.test(r.answer) || !/to one, so that's \d+ calls today/.test(r.answer) || !/best first: Owner/.test(r.answer)) fail("the spoken answer should reason from the month to the calls to the names: " + r.answer);
+if (!(BEHIND ? /behind where the month should be/ : /on pace for appointments/).test(r.answer) || !/to one, so that's \d+ calls today/.test(r.answer) || !/best first: Owner/.test(r.answer)) fail("the spoken answer should reason from the month to the calls to the names: " + r.answer);
 // The reasons are the salesperson's own (a payment figure is fine in their
 // ear — nothing here goes to a customer), and each name has one.
 if (r.people.some((x) => !x.reason)) fail("someone on the plan has no reason: " + JSON.stringify(r.people.filter((x) => !x.reason)));
@@ -71,7 +73,7 @@ if (plan.hash !== "#/log") fail("the plan should land on the queue: " + plan.has
 
 // --- Said the floor's way, into the blast tool by mistake: the plan answers.
 const asBlast = await p.evaluate(async () => { const m = await import("/js/agent.js"); return (await m.execTool("mass_outreach", { sentence: "find me some people I can reach out to so I can set some appointments, I'm falling behind on appointments, I need more" })).result; });
-if (!asBlast.notABlast || !asBlast.answer || !/behind/.test(asBlast.answer)) fail("the blast tool should hand a goal sentence to the plan: " + JSON.stringify(asBlast).slice(0, 200));
+if (!asBlast.notABlast || !asBlast.answer || !(BEHIND ? /behind/ : /on pace|needs/).test(asBlast.answer)) fail("the blast tool should hand a goal sentence to the plan: " + JSON.stringify(asBlast).slice(0, 200));
 
 // --- Home keeps count: the card, then a call made against it.
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(600);

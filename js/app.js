@@ -148,6 +148,10 @@ const PAGES = {
   // the doing. (It was "Today"; old links still land.)
   "/log": { title: "Log", render: lazyView("log", "renderLog") },
   "/today": { title: "Log", render: () => navigate("/log") },
+  // Log on a named chip — where a notification about a to-do or the day's
+  // queue lands, rather than on whichever chip was open last.
+  "/todos": { title: "Log", render: () => { try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* the chip you were on */ } navigate("/log"); } },
+  "/queue": { title: "Log", render: () => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* the chip you were on */ } navigate("/log"); } },
   // The Goals page is folded into the Sales target on Home.
   "/goals": { title: "Sales target", render: () => navigate("/", ".target-slot") },
   // The Tools tab is gone: everything on it is under "+". An old link lands
@@ -402,6 +406,12 @@ function drainPushEvents() {
       history.replaceState(null, "", location.pathname + location.hash);
     }
   } catch { /* nothing to log */ }
+  // The phone app's notification taps (native.js): noted there, logged here —
+  // at boot for a tap that launched the app, and as they come while it's open.
+  try {
+    const raw = sessionStorage.getItem("viniva:pushopen");
+    if (raw) { sessionStorage.removeItem("viniva:pushopen"); const t = JSON.parse(raw); if (t && t.tag) store.logEvent("push_open", { prompt: t.tag, meta: { action: t.action || "" } }); }
+  } catch { /* nothing to log */ }
   cacheGet("push:received").then((arr) => {
     if (!Array.isArray(arr) || !arr.length) return;
     arr.forEach((e) => store.logEvent("push_received", { prompt: (e && e.tag) || "", at: new Date((e && e.at) || Date.now()).toISOString() }));
@@ -410,6 +420,7 @@ function drainPushEvents() {
 }
 drainPushEvents();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) drainPushEvents(); });
+window.addEventListener("viniva-push-open", drainPushEvents);
 
 // Who this account is, from the cloud: an admin or a manager runs the
 // store and gets the store's app. Re-read each launch so an appointment or

@@ -1356,12 +1356,12 @@ async function handleSweep(body: any): Promise<Response> {
       const stamp = new Date().toISOString();
       if (due.length === 1) {
         const t = due[0];
-        remindersPushed += await sendPush(uid, { title: "Reminder", body: String(t.title || "").slice(0, 120), tag: `rem:${t.id}`, url: "./#/log" });
+        remindersPushed += await sendPush(uid, { title: "Reminder", body: String(t.title || "").slice(0, 120), tag: `rem:${t.id}`, url: `./#/todo/${t.id}` });
         already[`rem:${t.id}`] = stamp;
       } else if (due.length > 1) {
         // Bundled: one push, one coherent thought.
         const names = due.map((t: any) => String(t.title || "").slice(0, 40));
-        remindersPushed += await sendPush(uid, { title: `${due.length} things due now`, body: `${names.slice(0, 3).join(" · ")}${names.length > 3 ? ` · +${names.length - 3}` : ""}`, tag: `rem:bundle:${stamp.slice(0, 13)}`, url: "./#/log" });
+        remindersPushed += await sendPush(uid, { title: `${due.length} things due now`, body: `${names.slice(0, 3).join(" · ")}${names.length > 3 ? ` · +${names.length - 3}` : ""}`, tag: `rem:bundle:${stamp.slice(0, 13)}`, url: "./#/todos" });
         for (const t of due) already[`rem:${t.id}`] = stamp;
       }
       // Two hours on, still open: once more, and the count goes to two.
@@ -1369,7 +1369,7 @@ async function handleSweep(body: any): Promise<Response> {
         const at = wallClockMs(t.remindAt, tzOffset);
         if (!isFinite(at) || now - at < 2 * 3600 * 1000 || now - at > 26 * 3600 * 1000) continue;
         if (!already[`rem:${t.id}`] || already[`rem2:${t.id}`]) continue;
-        repoked += await sendPush(uid, { title: `Still open: ${String(t.title || "").slice(0, 80)}`, body: "Second reminder — tick it off, or it comes up again at the next check-in.", tag: `rem2:${t.id}`, url: "./#/log" });
+        repoked += await sendPush(uid, { title: `Still open: ${String(t.title || "").slice(0, 80)}`, body: "Second reminder — tick it off, or it comes up again at the next check-in.", tag: `rem2:${t.id}`, url: `./#/todo/${t.id}` });
         already[`rem2:${t.id}`] = stamp;
         await bumpPoke(`task:${t.id}`, 2);
       }
@@ -1497,7 +1497,7 @@ async function handleSweep(body: any): Promise<Response> {
           urgency: 60,
           title: `${dueTexts.length} follow-up text${dueTexts.length === 1 ? " is" : "s are"} ready for your OK`,
           body: "Each one is written for the customer it's going to. Read, then send.",
-          url: "./#/",
+          url: "./#/queue",
         });
       }
     }
@@ -2052,7 +2052,7 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
           }
         }
         out.service += service;
-        if ((picks.length || service) && canPush.has(uid)) await sendPush(uid, { title: `Your morning: ${picks.length} reach-out${picks.length === 1 ? "" : "s"}${service ? ` · ${service} in service today` : ""}`, body: picks.slice(0, 2).map((x) => `${x.l.name}: ${x.r.reasons[0] || ""}`).join(" · ") || "On your list, with the reason on each.", tag: `agent:handout:${L.day}`, url: "./#/log" });
+        if ((picks.length || service) && canPush.has(uid)) await sendPush(uid, { title: `Your morning: ${picks.length} reach-out${picks.length === 1 ? "" : "s"}${service ? ` · ${service} in service today` : ""}`, body: picks.slice(0, 2).map((x) => `${x.l.name}: ${x.r.reasons[0] || ""}`).join(" · ") || "On your list, with the reason on each.", tag: `agent:handout:${L.day}`, url: "./#/queue" });
         already[`agent:handout:${L.day}`] = new Date().toISOString(); changed = true;
       }
       if (changed) await rememberNudges(uid, already);
@@ -2968,7 +2968,7 @@ async function handleMorningPlays(body: any): Promise<Response> {
       title: "Your plays today",
       body: bits.join(" · "),
       tag: "plays",
-      url: "./#/",
+      url: "./#/queue",
     });
   }
   return json({ users: users.length, pushed });
@@ -3042,7 +3042,7 @@ async function handleResolve(code: string): Promise<Response> {
       title: `👀 ${label} was just opened`,
       body: `Opened ${tracked.opens}× so far — they're looking right now. Strike while it's warm.`,
       tag: `link-${code}`,
-      url: "./#/comms",
+      url: d.leadId || d.meta?.leadId || d.payload?.leadId ? `./#/inbox/${d.leadId || d.meta?.leadId || d.payload?.leadId}` : "./#/comms",
     }).catch(() => {});
   }
   return json(d);
@@ -3115,7 +3115,7 @@ async function handleBook(body: any): Promise<Response> {
       title: "📅 New booking!",
       body: `${name} booked ${date} at ${time}${vehicle ? ` — ${vehicle}` : ""}. It's on your calendar.`,
       tag: "booking",
-      url: "./#/calendar",
+      url: `./#/calendar/${id}`,
     }).catch(() => {});
     return json({ booked: true, when: data.when });
   } catch (e) {
@@ -3804,7 +3804,7 @@ Deno.serve(async (req: Request) => {
       title: "viniva is live 🎉",
       body: "This is what a play will look like. The agent can reach you now.",
       tag: "test",
-      url: "./#/",
+      url: "./#/settings",
     }, errs);
     return json({ sent, errors: errs });
   }
