@@ -1209,6 +1209,13 @@ function renderLeadDetail(view, id) {
   const toLog = el.querySelector('[data-act="to-log"]');
   if (toLog) toLog.addEventListener("click", () => { logCustomer(l.id); toast(`${l.name} is on your Log`, "success"); renderRefresh(view, id); });
 
+  // --- Best deal, first: the vehicle this customer would move into and what
+  // it costs them a month, against what they pay now — the answer to "what
+  // do I offer this person" before anything else on the page. Filled in
+  // below once priced; the read of why now sits inside it.
+  const dealFold = fold({ key: "lead:deals", title: "Best deal", open: true, body: `<div id="deal-slot"></div>` });
+  el.appendChild(dealFold);
+
   // --- Context: what we know about them. Every text in the plan is written from this.
   const lines = profileLines(l);
   el.appendChild(fold({ key: "lead:context", title: "Context", open: true, body: `
@@ -1223,26 +1230,22 @@ function renderLeadDetail(view, id) {
   // --- Next moves: the customer's own to-do list, from their context and the plan.
   el.appendChild(fold({ key: "lead:moves", title: "Next moves", open: true, body: `<div id="moves-slot"></div>` }));
 
-  // --- Why now: the read of this customer in full, and the next move.
+  // --- Why now: the read of this customer, drawn inside the Best deal card.
   const a = assessment(l.id);
-  if (a) {
+  const whyHTML = () => {
+    if (!a) return "";
     const tier = a.tier ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : `<span class="badge badge-delivered">No reason yet</span>`;
-    el.appendChild(fold({ key: "lead:why", title: "Why now", sub: `score ${a.score}`, open: false, body: `
-    <div class="card why-card">
-      <div class="row" style="margin-bottom:${a.why.length ? 10 : 0}px"><div class="row-main"><div class="strong">${tier} ${a.next ? esc(a.next.label) : ""}</div></div></div>
-      ${a.why.length ? `<ul class="why-list">${a.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : `<div class="muted small">Add their payment, payoff and vehicle under Their numbers and this fills in.</div>`}
+    return `
+    <div class="why-card bd-why">
+      <div class="row" style="margin-bottom:${a.why.length ? 8 : 0}px"><div class="row-main"><div class="strong">${tier} ${a.next ? esc(a.next.label) : ""}</div></div><span class="small muted" style="flex:none">score ${a.score}</span></div>
+      ${a.why.length ? `<ul class="why-list">${a.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>${a.why.length > 3 ? `<button type="button" class="bd-more" data-act="why-more">+ ${a.why.length - 3} more reason${a.why.length - 3 === 1 ? "" : "s"}</button>` : ""}` : `<div class="muted small">Add their payment, payoff and vehicle under Their numbers and this fills in.</div>`}
       ${a.next && a.next.kind === "opener" && l.phone ? `
-      <div class="btn-row" style="margin-top:12px">
-        <button class="btn btn-primary" data-act="opener" style="flex:1">${icon("message")} Review the opener</button>
-        <button class="btn btn-ghost" data-act="snooze" style="flex:0 0 auto">Not now</button>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn btn-primary btn-sm" data-act="opener" style="flex:1">${icon("message")} Review the opener</button>
+        <button class="btn btn-ghost btn-sm" data-act="snooze" style="flex:0 0 auto">Not now</button>
       </div>` : ""}
-    </div>` }));
-  }
-
-  // --- Replacement options: filled in below once priced; hidden when there's nothing to price.
-  const dealFold = fold({ key: "lead:deals", title: "Replacement options", open: false, body: `<div id="deal-slot"></div>` });
-  dealFold.hidden = true;
-  el.appendChild(dealFold);
+    </div>`;
+  };
 
   // --- Follow-up plan.
   {
@@ -1302,18 +1305,26 @@ function renderLeadDetail(view, id) {
   };
   window.addEventListener("viniva-sync", onSynced);
 
-  const openerBtn = el.querySelector('[data-act="opener"]');
-  if (openerBtn) openerBtn.addEventListener("click", async () => {
-    openerBtn.disabled = true; openerBtn.textContent = "Drafting…";
-    try { await reviewProspect(l.id); }
-    finally { openerBtn.disabled = false; openerBtn.innerHTML = `${icon("message")} Review the opener`; }
-  });
-  const snoozeBtn = el.querySelector('[data-act="snooze"]');
-  if (snoozeBtn) snoozeBtn.addEventListener("click", () => {
-    const until = snoozeProspect(l.id);
-    toast(`Parked until ${until}`);
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-  });
+  // The read's two buttons, wherever the why block was drawn (in the Best deal card).
+  function wireWhy(root) {
+    // The first three reasons show; the rest behind a tap.
+    const more = root.querySelector('[data-act="why-more"]');
+    if (more) more.addEventListener("click", (ev) => { ev.stopPropagation(); more.closest(".bd-why").classList.add("bd-why-all"); more.remove(); });
+    const openerBtn = root.querySelector('[data-act="opener"]');
+    if (openerBtn) openerBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      openerBtn.disabled = true; openerBtn.textContent = "Drafting…";
+      try { await reviewProspect(l.id); }
+      finally { openerBtn.disabled = false; openerBtn.innerHTML = `${icon("message")} Review the opener`; }
+    });
+    const snoozeBtn = root.querySelector('[data-act="snooze"]');
+    if (snoozeBtn) snoozeBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const until = snoozeProspect(l.id);
+      toast(`Parked until ${until}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+  }
 
   // Typed context goes the same way as spoken context: onto the record whole,
   // and if nobody has started working this person yet, that starts now.
@@ -1362,8 +1373,21 @@ function renderLeadDetail(view, id) {
     const fresh = store.get("leads", l.id) || l;
     const vname = (v) => [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
     const all = pitchList(fresh, 0);
-    if (!all.length) { slot.innerHTML = ""; dealFold.hidden = true; return; }
-    dealFold.hidden = false;
+    if (!all.length) {
+      // Nothing to price yet: say what's missing, and keep the read of why now.
+      const hasNumbers = fresh.currentPayment != null || fresh.payoff != null;
+      slot.innerHTML = `
+        <div class="card bd-card">
+          <div class="small muted">${hasNumbers ? "Nothing on the lot or in the lineup prices against their numbers yet — add a vehicle under Inventory, or pick one below." : "No numbers on file to price a deal against. Add their payment, payoff and what they drive and the best deal appears here."}</div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn btn-primary btn-sm" data-act="deal-numbers" style="flex:1">${icon("dollar")} ${hasNumbers ? "Update their numbers" : "Add their numbers"}</button>
+          </div>
+          ${whyHTML()}
+        </div>`;
+      slot.querySelector('[data-act="deal-numbers"]').addEventListener("click", () => openMoneyForm(fresh));
+      wireWhy(slot);
+      return;
+    }
     const byKey = new Map(all.map((m) => [vehicleKey(m.vehicle), m]));
     const picked = (fresh.shortlist || []).map((k) => byKey.get(k)).filter(Boolean);
     const pickedKeys = new Set(picked.map((m) => vehicleKey(m.vehicle)));
@@ -1372,27 +1396,36 @@ function renderLeadDetail(view, id) {
     const deltaLine = (m) => (paymentDelta(m.delta) || { text: "" }).text;
     const deltaColor = (m) => (paymentDelta(m.delta) || { color: "var(--muted)" }).color;
     const first = rows[0].m;
+    // The top option is the headline: the vehicle, the payment, the
+    // difference from today, and the offer one tap away. The next two sit
+    // under it as alternates.
     const rowHTML = ({ m, picked }, i) => `
-      <div class="row ro-row" data-deal-open="${i}" style="cursor:pointer">
+      <div class="row ro-row${i === 0 ? " bd-hero" : ""}" data-deal-open="${i}" style="cursor:pointer">
         <div class="row-main" style="min-width:0">
+          ${i === 0 ? `<div class="bd-label">${picked ? "Your pick" : "Best deal"}</div>` : ""}
           <div class="row-title">${esc(vname(m.vehicle))}${picked ? ` <span class="badge badge-working" style="margin-left:4px">picked</span>` : i === 0 ? ` <span class="badge badge-sold" style="margin-left:4px">best fit</span>` : ""}</div>
           <div class="row-sub">${m.vehicle.price != null ? currency(m.vehicle.price) : ""}${m.vehicle.lineup ? " · new — order/allocate" : m.vehicle.stock ? " · #" + esc(m.vehicle.stock) : ""} · ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷 " + esc(m.special) : ""}</div>
         </div>
         <div class="row-meta" style="flex:none;text-align:right">
-          <div class="strong mono" style="font-size:1.15rem">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.75rem">/mo</span></div>
+          <div class="strong mono bd-pay">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.75rem">/mo</span></div>
           <div class="small strong" style="color:${deltaColor(m)}">${deltaLine(m)}</div>
         </div>
         ${picked ? `<button class="modal-close ro-remove" data-unpick="${esc(vehicleKey(m.vehicle))}" aria-label="Remove" title="Remove from the list">&times;</button>` : ""}
       </div>`;
     slot.innerHTML = `
-      <div class="card">
-        ${fresh.currentPayment != null ? `<div class="small muted" style="margin-bottom:6px">They pay ${currency(fresh.currentPayment)}/mo now${fresh.vehicleInterest ? " on the " + esc(fresh.vehicleInterest) : ""}.</div>` : `<div class="small muted" style="margin-bottom:6px">No current payment on file — payments shown, not compared.</div>`}
-        <div class="ro-list">${rows.map(rowHTML).join("")}</div>
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn btn-primary btn-sm" data-act="pick-vehicle" style="flex:1.2">${icon("car")} Pick a vehicle</button>
-          ${fresh.phone ? `<a class="btn btn-ghost btn-sm" data-act="deal-offer" style="flex:1" href="${smsHref(fresh.phone, offerText(fresh, first))}">${icon("message")} Text the top one</a>` : ""}
+      <div class="card bd-card">
+        ${fresh.currentPayment != null ? "" : `<div class="small muted bd-now">No current payment on file — payments shown, not compared.</div>`}
+        <div class="ro-list">${rowHTML(rows[0], 0)}</div>
+        <div class="btn-row bd-actions">
+          ${fresh.phone ? `<a class="btn btn-primary btn-sm" data-act="deal-offer" style="flex:1.3" href="${smsHref(fresh.phone, offerText(fresh, first))}">${icon("message")} Text this offer</a>` : ""}
+          <button class="btn btn-ghost btn-sm" data-act="deal-breakdown" style="flex:1">${icon("calculator")} Breakdown</button>
         </div>
-        <button class="btn btn-ghost btn-sm btn-block" data-act="deal-more" style="margin-top:8px">Every option, with cash down</button>
+        ${rows.length > 1 ? `<div class="bd-sub">Also close</div><div class="ro-list bd-alts">${rows.slice(1).map((r, k) => rowHTML(r, k + 1)).join("")}</div>` : ""}
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn-ghost btn-sm" data-act="pick-vehicle" style="flex:1">${icon("car")} Pick a vehicle</button>
+          <button class="btn btn-ghost btn-sm" data-act="deal-more" style="flex:1">Every option</button>
+        </div>
+        ${whyHTML()}
         ${(() => {
           // What this deal stands on — every input with its provenance, and a
           // one-tap way to replace an estimate with the real number.
@@ -1422,6 +1455,8 @@ function renderLeadDetail(view, id) {
     });
     slot.querySelectorAll("[data-deal-open]").forEach((n) =>
       n.addEventListener("click", (ev) => { if (ev.target.closest("[data-unpick]")) return; openDealDetail(fresh, rows[Number(n.dataset.dealOpen)].m); }));
+    slot.querySelector('[data-act="deal-breakdown"]').addEventListener("click", () => openDealDetail(fresh, first));
+    wireWhy(slot);
     slot.querySelectorAll("[data-unpick]").forEach((n) => n.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const cur = store.get("leads", l.id);

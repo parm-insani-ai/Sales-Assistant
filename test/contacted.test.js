@@ -196,15 +196,17 @@ const row = () => p.evaluate(() => {
   const kv = [...document.querySelectorAll(".kv")].find((k) => /Last contacted/.test(k.textContent));
   return { value: kv ? kv.querySelector(".v").textContent.trim() : null, ways: [...document.querySelectorAll(".contact-ways [data-via]")].map((b) => b.dataset.via).join(), sheet: !!document.querySelector(".modal") };
 });
-// Context comes first: under the name, on the first screen, before Why now.
+// Best deal comes first under the name; Context follows, still on the first screen.
 const first = await p.evaluate(() => {
   const titles = [...document.querySelectorAll(".section-title")].map((t) => t.textContent.trim().split(" ")[0]);
   const ctx = [...document.querySelectorAll(".section-title")].find((t) => /^Context/.test(t.textContent));
-  return { titles: titles.slice(0, 3), top: ctx ? Math.round(ctx.getBoundingClientRect().top) : null, addBtn: !!document.querySelector('[data-act="add-context"]') };
+  const deal = document.querySelector('[data-fold="lead:deals"]');
+  return { titles: titles.slice(0, 3), top: ctx ? Math.round(ctx.getBoundingClientRect().top) : null, dealTop: deal ? Math.round(deal.getBoundingClientRect().top) : null, addBtn: !!document.querySelector('[data-act="add-context"]') };
 });
 console.log("page order:", JSON.stringify(first));
-if (first.titles[0] !== "Context") fail(`the first section is ${first.titles[0]}, not Context`);
-if (first.top == null || first.top > 400) fail(`Context sits ${first.top}px down — it should be visible without scrolling`);
+if (first.titles[0] !== "Best" || first.titles[1] !== "Context") fail(`the sections open as ${first.titles.join(", ")}, not Best deal then Context`);
+if (first.dealTop == null || first.dealTop > 500) fail(`the Best deal sits ${first.dealTop}px down — it should be on the first screen`);
+if (first.top == null) fail("Context is missing from the page");
 // Add context is the same listening panel; saving adds a dated note.
 await p.click('[data-act="add-context"]');
 await p.waitForTimeout(900);

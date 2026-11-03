@@ -739,6 +739,25 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .ro-row { position: relative; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center; gap: 10px; }
 .ro-row:last-child { border-bottom: 0; }
 .ro-row .ro-remove { flex: none; font-size: 1.1rem; }
+/* Best deal, at the top of a customer's page: the headline option, the
+   offer under it, the alternates smaller, the read of why now at the foot. */
+.bd-now { margin-bottom: 4px; }
+.bd-now b { color: var(--text); font-weight: 700; }
+.ro-row.bd-hero { border-bottom: 0; padding: 6px 0 4px; }
+.bd-label { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--brand-strong); margin-bottom: 2px; }
+.bd-hero .row-title { font-size: 1.12rem; }
+.bd-hero .bd-pay { font-size: 1.5rem; line-height: 1.1; }
+.ro-row .bd-pay { font-size: 1.15rem; }
+.bd-actions { margin-top: 8px; }
+.bd-sub { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: 12px 0 0; }
+.bd-alts .row-title { font-size: 0.95rem; }
+.bd-why { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+/* The reasons as a row of pills rather than a list, so the read stays short. */
+.bd-why .why-list { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; margin: 0; padding: 0; }
+.bd-why .why-list li { font-size: 0.74rem; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); }
+.bd-why .why-list li + li { margin-top: 0; }
+.bd-why:not(.bd-why-all) .why-list li:nth-child(n+4) { display: none; }
+.bd-more { margin-top: 6px; background: none; border: 0; padding: 2px 0; color: var(--brand); font-size: 0.78rem; font-weight: 600; cursor: pointer; }
 .vp-row { padding: 9px 0; border-bottom: 1px solid var(--border); align-items: center; gap: 10px; cursor: pointer; }
 .vp-row:last-child { border-bottom: 0; }
 .vp-row:active { background: var(--surface-2); }

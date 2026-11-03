@@ -37,14 +37,14 @@ const page = await p.evaluate(() => ({
 console.log("page:", JSON.stringify(page));
 const open = Object.fromEntries(page.folds);
 if (page.info) fail("the i button is still on the name box — its sections are drop-downs now");
-if (!["Context", "Next moves", "Details", "Stage", "Contact history", "Actions"].every((t) => page.titles.includes(t))) fail("a section is missing: " + JSON.stringify(page.titles));
-if (!open["lead:context"] || !open["lead:moves"]) fail("the context and the next moves should start open");
+if (!["Best deal", "Context", "Next moves", "Details", "Stage", "Contact history", "Actions"].every((t) => page.titles.includes(t))) fail("a section is missing: " + JSON.stringify(page.titles));
+if (!open["lead:deals"] || !open["lead:context"] || !open["lead:moves"]) fail("the best deal, the context and the next moves should start open");
 if (open["lead:details"] || open["lead:stage"] || open["lead:history"] || open["lead:actions"] || open["lead:plan"]) fail("the record's sections should start closed: " + JSON.stringify(page.folds));
 if (page.badge) fail("a badge is on the name box — the stage lives in its own section: " + page.badge);
 if (!/555-1111/.test(page.phone || "")) fail("the details aren't on the page");
 if (page.hist.length !== 2 || !/Can I come by Saturday/.test(page.hist[0]) || !/Logged call.*asked about the SV/.test(page.hist[1])) fail("the contact history isn't newest first with the text and the logged call: " + JSON.stringify(page.hist));
 if (page.stages < 5 || page.actions !== 10) fail("stage chips or actions are missing: " + JSON.stringify(page));
-if (page.visibleBodies !== 2) fail(`${page.visibleBodies} drop-downs are open on arrival, not the two (context, next moves) — the page should read at a glance`);
+if (page.visibleBodies !== 3) fail(`${page.visibleBodies} drop-downs are open on arrival, not the three (best deal, context, next moves) — the page should read at a glance`);
 
 // Opening the Stage drop-down and changing the stage from it moves the
 // customer, and the page redraws with the drop-down still open.
