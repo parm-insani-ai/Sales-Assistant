@@ -1180,11 +1180,12 @@ function renderLeadDetail(view, id) {
   const el = document.createElement("div");
   el.innerHTML = `
     <div class="card lead-head">
-      <div class="row">
+      <div class="row" style="align-items:center">
         <div class="row-main" data-edit="name" style="cursor:pointer">
           <div class="row-title" style="font-size:1.35rem">${esc(properName(l.name))}</div>
           <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted — tap to add"}</div>
         </div>
+        ${inLog(l) ? "" : `<button class="btn btn-primary btn-sm" data-act="to-log" style="flex:none" title="Move to Log — I'm working this customer">${icon("checkline")} Log</button>`}
       </div>
 
       <div class="btn-row" style="margin-top:14px">
@@ -1199,7 +1200,6 @@ function renderLeadDetail(view, id) {
           : `<button class="btn btn-ghost btn-sm" data-add="email" style="flex:1">${icon("mail")} Email</button>`}
       </div>
       <div class="kv" data-act="contacted" style="cursor:pointer;margin-top:4px;padding:4px 0"><span class="k">Last contacted</span><span class="v">${contactLine(l)}</span></div>
-      ${inLog(l) ? "" : `<button class="btn btn-primary btn-sm btn-block" data-act="to-log" style="margin-top:8px">${icon("checkline")} Move to Log — I'm working this customer</button>`}
       ${contractBanner(l, { tap: true })}
     </div>
   `;
