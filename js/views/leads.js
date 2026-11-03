@@ -209,7 +209,7 @@ export function renderLeads(view, { param }) {
   const pillCheck = () => {
     if (!wrap.isConnected) { view.removeEventListener("scroll", pillCheck); return; }
     const last = pillOff ? null : lastWorked();
-    const lead = last ? store.get("leads", last.id) : null;
+    const lead = workedLead(last);
     if (!lead || selecting) { pill.hidden = true; return; }
     const card = wrap.querySelector(`.swipe-card[data-lead-id="${CSS.escape(lead.id)}"]`);
     const vr = view.getBoundingClientRect();
@@ -226,7 +226,13 @@ export function renderLeads(view, { param }) {
     const id = pill.dataset.lead;
     const card = wrap.querySelector(`.swipe-card[data-lead-id="${CSS.escape(id)}"]`);
     pill.hidden = true;
-    if (!card) { rememberSpot(); navigate(`/leads/${id}`); return; }
+    if (!card) {
+      // Their page — once their record is confirmed still here, so the tap
+      // never lands on "Lead not found".
+      const lead = workedLead(lastWorked()) || store.get("leads", id);
+      if (!lead) { forgetWorked(); toast("That customer isn't on this phone any more — they may have been deleted or re-imported.", "warn"); return; }
+      rememberSpot(); navigate(`/leads/${lead.id}`); return;
+    }
     try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { card.scrollIntoView(); }
     card.classList.add("card-resume");
     setTimeout(() => card.classList.remove("card-resume"), 2600);
@@ -876,10 +882,25 @@ const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
 const LAST_KEY = "viniva:outreach:last";
 export function noteWorked(leadId, what = "") {
   if (!leadId) return;
-  try { localStorage.setItem(LAST_KEY, JSON.stringify({ id: leadId, what, at: Date.now() })); } catch { /* a convenience */ }
+  // The name and number travel with the id, so the customer can still be
+  // found if the record is replaced (a re-import, a merge) and the id changes.
+  const l = store.get("leads", leadId);
+  try { localStorage.setItem(LAST_KEY, JSON.stringify({ id: leadId, name: l ? l.name || "" : "", phone: l ? l.phone || "" : "", what, at: Date.now() })); } catch { /* a convenience */ }
 }
 export function lastWorked() {
   try { const x = JSON.parse(localStorage.getItem(LAST_KEY) || "null"); return x && x.id && Date.now() - Number(x.at || 0) < 36 * 3600 * 1000 ? x : null; } catch { return null; }
+}
+export function forgetWorked() { try { localStorage.removeItem(LAST_KEY); } catch { /* fine */ } }
+// The remembered customer's record now: by id, else by phone, else by name.
+export function workedLead(last) {
+  if (!last) return null;
+  const byId = store.get("leads", last.id);
+  if (byId) return byId;
+  const digits = String(last.phone || "").replace(/\D/g, "").slice(-10);
+  const byPhone = digits.length === 10 ? store.all("leads").find((l) => String(l.phone || "").replace(/\D/g, "").slice(-10) === digits) : null;
+  if (byPhone) return byPhone;
+  const name = String(last.name || "").trim().toLowerCase();
+  return name ? store.all("leads").find((l) => String(l.name || "").trim().toLowerCase() === name) || null : null;
 }
 // How a call went. Spoke is a conversation; the other two are attempts.
 const OUTCOMES = [

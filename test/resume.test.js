@@ -96,6 +96,23 @@ if (!absent || !gone) fail("with the customer off this list the pill should stil
 await p.click(".resume-pill");
 await p.waitForFunction(() => location.hash === "#/leads/o2", null, { timeout: 5000 }).catch(() => fail("the pill should open the customer's page when their card isn't in the list"));
 
+// --- The remembered customer is gone (deleted, re-imported): the pill says so
+// instead of landing on "Lead not found" — and finds them by number when only
+// the id changed.
+await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(500);
+await p.evaluate(async () => { const m = await import("/js/views/leads.js"); const st = await import("/js/store.js"); st.remove("leads", "o2"); localStorage.setItem("viniva:outreach:last", JSON.stringify({ id: "o2", name: "Owner 02 Example", phone: "9025510002", what: "opened", at: Date.now() })); void m; });
+await p.click('[data-filter="contacted"]'); await p.waitForTimeout(500);
+await scrollTo(1500); await p.waitForTimeout(200);
+const noRecord = await p.evaluate(() => ({ pill: document.querySelector(".resume-pill")?.hidden === false }));
+if (noRecord.pill) fail("with the customer gone from the book the pill shouldn't show");
+// Re-imported under a new id, same number: found by the number.
+await p.evaluate(async () => { const st = await import("/js/store.js"); st.restore("leads", { id: "o2new", name: "Owner 02 Example", phone: "9025510002", stage: "delivered", loggedAt: new Date().toISOString(), lastContacted: new Date().toISOString(), createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", importedAt: "2026-01-01T00:00:00.000Z" }); });
+await scrollTo(1600); await p.waitForTimeout(250);
+const again = await p.evaluate(() => document.querySelector(".resume-pill")?.hidden === false);
+if (!again) fail("re-imported under a new id, the customer should be found by their number");
+await p.click(".resume-pill");
+await p.waitForFunction(() => location.hash === "#/leads/o2new", null, { timeout: 5000 }).catch(() => fail("the pill should open the re-imported record: " + "landed elsewhere"));
+
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
 console.log(process.exitCode ? "\nresume.test.js FAILED" : "\nresume.test.js passed");

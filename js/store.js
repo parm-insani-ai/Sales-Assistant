@@ -965,8 +965,12 @@ export function all(name) {
   return collection(name).slice();
 }
 
+// Ids are compared as text: an id that arrived as a number (an import, a
+// cloud row) is the same record when it comes back off the address bar.
 export function get(name, id) {
-  return collection(name).find((x) => x.id === id) || null;
+  if (id == null) return null;
+  const key = String(id);
+  return collection(name).find((x) => x.id === id || String(x.id) === key) || null;
 }
 
 export function create(name, data) {
