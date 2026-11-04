@@ -713,6 +713,7 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .lead-chips .btn-primary { box-shadow: none; }
 /* Dig: the cuts of the book, one scrolling line under the chips. */
 .dig-row { margin-top: -2px; margin-bottom: 8px; }
+.dig-row[hidden] { display: none; }
 .dig-chip { font-size: 0.76rem; padding: 5px 10px; }
 .dig-chip .dig-count { opacity: 0.75; font-weight: 600; margin-left: 2px; }
 /* Today's batch at the top of Best now: fresh each morning, worked through. */

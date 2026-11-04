@@ -103,11 +103,30 @@ await p.fill(".searchbar input", ""); await p.waitForTimeout(300);
 await p.click('.dig-chip[data-dig="equity"]'); await p.waitForTimeout(500);
 const cleared = await p.evaluate(() => ({ on: document.querySelector('.dig-chip[data-dig="equity"]')?.getAttribute("aria-pressed"), today: !!document.querySelector(".today-block") }));
 if (cleared.on !== "false" || !cleared.today) fail("tapping the chip again should clear the dig and bring the batch back: " + JSON.stringify(cleared));
-// The No number cut finds the two without a phone, on All.
+// The No number cut finds the two without a phone, on All. It's the last
+// chip, scrolled to: the tap mustn't snap the row back to its first chip.
 await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
+await p.evaluate(() => { document.querySelector(".dig-row").scrollLeft = 9999; }); await p.waitForTimeout(150);
+const scrolledTo = await p.evaluate(() => document.querySelector(".dig-row").scrollLeft);
 await p.click('.dig-chip[data-dig="nonumber"]'); await p.waitForTimeout(500);
 const nonum = await p.evaluate(() => [...document.querySelectorAll(".lead-list .swipe-card .row-title")].map((n) => n.textContent.trim()).sort());
 if (nonum.join() !== "Nonum One,Nonum Two") fail("No number should find exactly the two without a phone: " + JSON.stringify(nonum));
+const held = await p.evaluate(() => { const r = document.querySelector(".dig-row"), b = r.querySelector('.dig-chip[data-dig="nonumber"]'); return { x: r.scrollLeft, on: b.getAttribute("aria-pressed"), inView: b.offsetLeft - r.offsetLeft + b.offsetWidth <= r.scrollLeft + r.clientWidth + 1 }; });
+console.log("dig row after tapping the last chip:", JSON.stringify({ scrolledTo, ...held }));
+if (!(scrolledTo > 0) || held.x !== scrolledTo || held.on !== "true" || !held.inView) fail("tapping a dig chip you scrolled to should keep it on the screen, not snap the row back: " + JSON.stringify({ scrolledTo, ...held }));
+// The main chip changes what the cuts count: on Contacted, with nobody
+// reached, the row shows only the cut still on (at 0) — and the dig stays.
+await p.click('[data-filter="contacted"]'); await p.waitForTimeout(400);
+const onContacted = await p.evaluate(() => ({ chips: [...document.querySelectorAll(".dig-chip")].map((c) => c.textContent.replace(/\s+/g, " ").trim()), active: document.querySelector(".lead-seg .btn-primary")?.dataset.filter }));
+console.log("on Contacted:", JSON.stringify(onContacted));
+if (onContacted.active !== "contacted") fail("the chip tapped should stay the chip on: " + JSON.stringify(onContacted));
+if (onContacted.chips.join() !== "No number 0") fail("the dig counts should follow the chip: " + JSON.stringify(onContacted.chips));
+// Timing has no Dig row; back on All it returns with its counts.
+await p.click('[data-filter="timing"]'); await p.waitForTimeout(400);
+if (await p.evaluate(() => { const r = document.querySelector(".dig-row"); return r && r.offsetParent !== null; })) fail("Timing shouldn't show the dig row");
+await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
+const backOnAll = await p.evaluate(() => ({ shown: document.querySelector(".dig-row")?.offsetParent !== null, n: document.querySelectorAll(".dig-chip").length, nonum: document.querySelector('.dig-chip[data-dig="nonumber"]')?.textContent.replace(/\s+/g, " ").trim() }));
+if (!backOnAll.shown || backOnAll.n < 3 || backOnAll.nonum !== "No number 2") fail("All should bring the dig row back with its counts: " + JSON.stringify(backOnAll));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

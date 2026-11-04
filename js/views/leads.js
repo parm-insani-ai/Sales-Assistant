@@ -288,20 +288,83 @@ export function renderLeads(view, { param }) {
     return true;
   };
 
-  function draw() {
+  // The list, or the ranked list under the lens, re-narrowed in place.
+  function refreshList() {
+    if (!lens) return renderList();
+    const n = lens.redraw();
+    const cnt = wrap.querySelector(".aud-count"); if (cnt) cnt.textContent = String(n);
+  }
+
+  // The Dig row's chips, for the people the chip showing (and the filter and
+  // search) leave: each cut with its count, only the cuts that have anyone.
+  const digChipsHTML = (base) => DIGS.map((d) => {
+    const n = base.filter((l) => digPass(d.key, l)).length;
+    return n || dig === d.key ? `<button type="button" class="btn btn-sm ${dig === d.key ? "btn-primary" : "btn-ghost"} dig-chip" data-dig="${d.key}" aria-pressed="${dig === d.key}">${esc(d.label)} <span class="dig-count">${n.toLocaleString()}</span></button>` : "";
+  }).join("");
+  // The row is a scrolling line: the chip you're on stays in view, which a
+  // rewrite of the row (or a tap on a chip you scrolled to) would otherwise
+  // undo by snapping the row back to its first chip.
+  const showDigChip = (row) => {
+    const b = row && dig ? row.querySelector(`.dig-chip[data-dig="${dig}"]`) : null;
+    if (!b) return;
+    const left = b.offsetLeft - row.offsetLeft, right = left + b.offsetWidth;
+    if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 12);
+    else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 12;
+  };
+  // A dig chip, on or off again: the chips change in place and the list is
+  // re-narrowed; the row keeps its scroll and the page its place.
+  const wireDigChips = () => {
+    wrap.querySelectorAll("[data-dig]").forEach((b) => b.addEventListener("click", () => {
+      dig = dig === b.dataset.dig ? null : b.dataset.dig;
+      keepDig();
+      wrap.querySelectorAll("[data-dig]").forEach((x) => {
+        const active = x.dataset.dig === dig;
+        x.classList.toggle("btn-primary", active);
+        x.classList.toggle("btn-ghost", !active);
+        x.setAttribute("aria-pressed", String(active));
+      });
+      refreshList();
+    }));
+  };
+  // The main chip changed: the Dig row's counts are over a different set now,
+  // and the row isn't drawn at all on Timing. Redone in place, scroll kept.
+  const refreshDigRow = () => {
+    const row = wrap.querySelector(".dig-row");
+    if (!row) return;
+    const hide = selecting || filter === "timing";
+    row.hidden = hide;
+    if (hide) return;
+    const x = row.scrollLeft;
+    row.innerHTML = digChipsHTML(digBaseList());
+    wireDigChips();
+    row.scrollLeft = x;
+    showDigChip(row);
+  };
+  // Everyone the chip, the search and the filter leave — before the dig
+  // itself narrows them, so each cut's count says what it would show.
+  function digBaseList() {
     const q = search.toLowerCase();
-    let list = store.all("leads"); // read fresh so swipe-deletes/undos stay accurate
+    let list = store.all("leads");
     if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted && !snoozed(l));
     else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
     else if (filter === "due") list = list.filter(dueNow);
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
+    return list;
+  }
+
+  function draw() {
+    let list = digBaseList(); // read fresh so swipe-deletes/undos stay accurate
     // The dig chips' counts: over the chip showing (and the filter), before
     // the search and the dig itself narrow it.
     const digBase = list.slice();
-    const digCount = (key) => digBase.filter((l) => digPass(key, l)).length;
     if (dig) list = list.filter((l) => digPass(dig, l));
+    // A redraw (a dig, the audience filter, Select) keeps the page where it
+    // was and the Dig row on the chip you were looking at.
+    const wasRow = wrap.querySelector(".dig-row");
+    const rowX = wasRow ? wasRow.scrollLeft : 0;
+    const pageY = wrap.childElementCount ? view.scrollTop : 0;
 
     // Sort: overdue follow-ups first, then by follow-up date, then newest.
     list = list.slice().sort((a, b) => {
@@ -354,9 +417,7 @@ export function renderLeads(view, { param }) {
       ${`<div class="lead-seg" role="tablist">
         ${chips.map((c) => `<button class="btn btn-sm lead-seg-btn ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" role="tab" aria-selected="${filter === c.id}"><span class="seg-name">${esc(c.name)}</span> <span class="seg-count">${esc(c.count)}</span></button>`).join("")}
       </div>
-      ${selecting || filter === "timing" ? "" : `<div class="lead-chips dig-row" aria-label="Dig into the book">
-        ${DIGS.map((d) => { const n = digCount(d.key); return n || dig === d.key ? `<button type="button" class="btn btn-sm ${dig === d.key ? "btn-primary" : "btn-ghost"} dig-chip" data-dig="${d.key}" aria-pressed="${dig === d.key}">${esc(d.label)} <span class="dig-count">${n.toLocaleString()}</span></button>` : ""; }).join("")}
-      </div>`}
+      <div class="lead-chips dig-row" aria-label="Dig into the book"${selecting || filter === "timing" ? " hidden" : ""}>${digChipsHTML(digBase)}</div>
       ${aud ? `<div class="card lead-audience" style="padding:10px 12px;margin-bottom:10px">
         <div class="row" style="align-items:center">
           <span class="small" style="min-width:0"><span class="strong aud-count">${list.length.toLocaleString()}</span> match · ${esc(audienceLabel(aud))}</span>
@@ -378,8 +439,10 @@ export function renderLeads(view, { param }) {
     on('[data-act="aud-clear"]', () => { aud = null; keepAud(); draw(); });
     on('[data-act="aud-text"]', () => blast("text"));
     on('[data-act="aud-email"]', () => blast("email"));
-    // A dig chip: on, or off again with a second tap.
-    wrap.querySelectorAll("[data-dig]").forEach((b) => b.addEventListener("click", () => { dig = dig === b.dataset.dig ? null : b.dataset.dig; keepDig(); draw(); }));
+    wireDigChips();
+    const digRow = wrap.querySelector(".dig-row");
+    if (digRow) { digRow.scrollLeft = rowX; showDigChip(digRow); }
+    if (pageY) requestAnimationFrame(() => { if (wrap.isConnected && !spot) view.scrollTop = pageY; });
 
     const listEl = wrap.querySelector(".lead-list");
     // The Timing count, when it isn't already known: read the book in the
@@ -420,13 +483,6 @@ export function renderLeads(view, { param }) {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => { if (wrap.isConnected) refreshList(); }, 90);
     });
-    // The list, or the ranked list under the lens, re-narrowed in place.
-    function refreshList() {
-      if (!lens) return renderList();
-      const n = lens.redraw();
-      const cnt = wrap.querySelector(".aud-count"); if (cnt) cnt.textContent = String(n);
-    }
-
     // Switching filters re-renders only the list and updates the active chip in
     // place — rebuilding the whole view would snap the scrollable filter row
     // (and the page) back to the top.
@@ -439,7 +495,9 @@ export function renderLeads(view, { param }) {
             const active = x === b;
             x.classList.toggle("btn-primary", active);
             x.classList.toggle("btn-ghost", !active);
+            x.setAttribute("aria-selected", String(active));
           });
+          refreshDigRow();
           refreshList();
         }));
     }
