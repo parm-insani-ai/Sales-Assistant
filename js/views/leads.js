@@ -122,7 +122,7 @@ export function renderLeads(view, { param }) {
   };
   // Leaving by any door — a card, a tab, the assistant — keeps the spot, so
   // coming back by any door lands on it.
-  const onLeaving = () => { window.removeEventListener("viniva-leaving", onLeaving); if (wrap.isConnected) rememberSpot(); };
+  const onLeaving = () => { window.removeEventListener("viniva-leaving", onLeaving); if (wrap.isConnected) { rememberSpot(); keepLeftOff(); } };
   window.addEventListener("viniva-leaving", onLeaving);
   let search = sessionStorage.getItem("leads-search") || "";
   sessionStorage.removeItem("leads-search");
@@ -200,50 +200,61 @@ export function renderLeads(view, { param }) {
   // takes it up where it stands.
   if (staleBook) warmBook().then(() => { if (wrap.isConnected) renderList({ keep: true }); }, () => {});
 
-  // Pick up where you left off. Scrolling a long list, the customer last
-  // acted on from it (contacted, put off, opened, reviewed) is a pill at the
-  // foot of the screen: a tap scrolls back to their card and lights it, or
-  // opens their page when the card isn't in this list. It shows only while
-  // that card is off screen, and a × keeps it away for the visit.
+  // Pick up where you left off. Outreach opens fresh on today's batch, so
+  // where the last scroll dropped off — the chip, the cut, how far down the
+  // list — is kept on the phone as you go, and coming back a pill at the foot
+  // of the screen offers the way back to that place in the list. A tap puts
+  // the same chip and cards back and scrolls to the spot; × declines this
+  // one, and the next place you leave off is a new offer. Only a place worth
+  // going back to is kept: a list left near its top is nothing to pick up.
   const pill = document.createElement("button");
   pill.type = "button";
   pill.className = "resume-pill";
   pill.hidden = true;
   view.appendChild(pill); // beside the list, not in it: draw() rewrites the list's markup
-  let pillOff = false;
-  try { pillOff = sessionStorage.getItem("viniva:outreach:resume-off") === "1"; } catch { /* shown, then */ }
+  const leftOff = back ? null : readLeftOff();
+  let leftOffShown = !!leftOff && !selecting;
+  try { if (leftOff && sessionStorage.getItem("viniva:outreach:resume-off") === String(leftOff.at)) leftOffShown = false; } catch { /* shown, then */ }
   const pillCheck = () => {
     if (!wrap.isConnected) { view.removeEventListener("scroll", pillCheck); return; }
-    const last = pillOff ? null : lastWorked();
-    const lead = workedLead(last);
-    if (!lead || selecting) { pill.hidden = true; return; }
-    const card = wrap.querySelector(`.swipe-card[data-lead-id="${CSS.escape(lead.id)}"]`);
-    const vr = view.getBoundingClientRect();
-    const r = card ? card.getBoundingClientRect() : null;
-    const inView = r && r.bottom > vr.top + 40 && r.top < vr.bottom - 40;
-    const show = view.scrollTop > 160 && !inView;
-    if (!show) { pill.hidden = true; return; }
-    pill.innerHTML = `${icon("back")}<span>Pick up at ${esc(properName(lead.name).slice(0, 24))}</span><span class="resume-x" aria-label="Not now">×</span>`;
-    pill.dataset.lead = lead.id;
+    if (!leftOffShown || selecting) { pill.hidden = true; return; }
+    // Already there, or past it, on the same chip and cut: nothing to offer.
+    const same = leftOff.filter === filter && (leftOff.dig || null) === dig && (leftOff.search || "") === search;
+    if (same && view.scrollTop > leftOff.top - 80) { leftOffShown = false; pill.hidden = true; return; }
+    const where = leftOff.filter !== filter ? ` · ${CHIP_NAME[leftOff.filter] || ""}` : "";
+    pill.innerHTML = `${icon("back")}<span>Pick up where you left off${esc(where)}</span><span class="resume-x" aria-label="Not now">×</span>`;
     pill.hidden = false;
   };
   pill.addEventListener("click", (e) => {
-    if (e.target.closest(".resume-x")) { pillOff = true; try { sessionStorage.setItem("viniva:outreach:resume-off", "1"); } catch { /* this visit */ } pill.hidden = true; return; }
-    const id = pill.dataset.lead;
-    const card = wrap.querySelector(`.swipe-card[data-lead-id="${CSS.escape(id)}"]`);
+    leftOffShown = false;
     pill.hidden = true;
-    if (!card) {
-      // Their page — once their record is confirmed still here, so the tap
-      // never lands on "Lead not found".
-      const lead = workedLead(lastWorked()) || store.get("leads", id);
-      if (!lead) { forgetWorked(); toast("That customer isn't on this phone any more — they may have been deleted or re-imported.", "warn"); return; }
-      rememberSpot(); navigate(`/leads/${lead.id}`); return;
-    }
-    try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { card.scrollIntoView(); }
-    card.classList.add("card-resume");
-    setTimeout(() => card.classList.remove("card-resume"), 2600);
+    if (e.target.closest(".resume-x")) { try { sessionStorage.setItem("viniva:outreach:resume-off", String(leftOff.at)); } catch { /* this visit */ } return; }
+    if (!wrap.querySelector(".lead-list")) return;
+    // The chip and the cut you were on, lit in place; the search you had typed.
+    if (CHIPS.includes(leftOff.filter) && leftOff.filter !== filter) { filter = leftOff.filter; remember(REMEMBER, filter); lightChips(); refreshDigRow(); }
+    if ((leftOff.dig || null) !== dig) { dig = leftOff.dig || null; keepDig(); lightDigChips(); }
+    if ((leftOff.search || "") !== search) { search = leftOff.search || ""; const sb = wrap.querySelector('input[type="search"]'); if (sb) sb.value = search; }
+    // The same cards back at once, then the same scroll — a position can't
+    // be restored onto cards that don't exist yet.
+    if (lens) refreshList(); else renderList({ restore: leftOff.shown });
+    const top = leftOff.top;
+    requestAnimationFrame(() => { view.scrollTop = top; requestAnimationFrame(() => { if (Math.abs(view.scrollTop - top) > 2) view.scrollTop = top; }); });
   });
   view.addEventListener("scroll", pillCheck, { passive: true });
+  // Where you are, kept as you scroll (so a phone put away mid-list still
+  // knows) and when you leave by any door.
+  const keepLeftOff = () => {
+    if (!wrap.isConnected || selecting || (opp && !selecting)) return;
+    if (view.scrollTop < LEFT_OFF_MIN) { forgetLeftOff(); return; }
+    writeLeftOff({ filter, dig, search, top: view.scrollTop, shown, at: Date.now() });
+  };
+  let leftOffTimer = null;
+  view.addEventListener("scroll", () => {
+    if (!wrap.isConnected) return;
+    clearTimeout(leftOffTimer);
+    leftOffTimer = setTimeout(keepLeftOff, 180);
+  }, { passive: true });
+  requestAnimationFrame(pillCheck);
 
   const hzOf = (l) => (timingReady() ? hz.byId.get(l.id) || null : null);
   // The ranked list under the lens, when it's on: { redraw } from renderDeals.
@@ -325,15 +336,23 @@ export function renderLeads(view, { param }) {
     wrap.querySelectorAll("[data-dig]").forEach((b) => b.addEventListener("click", () => {
       dig = dig === b.dataset.dig ? null : b.dataset.dig;
       keepDig();
-      wrap.querySelectorAll("[data-dig]").forEach((x) => {
-        const active = x.dataset.dig === dig;
-        x.classList.toggle("btn-primary", active);
-        x.classList.toggle("btn-ghost", !active);
-        x.setAttribute("aria-pressed", String(active));
-      });
+      lightDigChips();
       refreshList();
     }));
   };
+  // The chips, lit for the filter and the cut as they stand.
+  const lightChips = () => wrap.querySelectorAll("[data-filter]").forEach((x) => {
+    const active = x.dataset.filter === filter;
+    x.classList.toggle("btn-primary", active);
+    x.classList.toggle("btn-ghost", !active);
+    x.setAttribute("aria-selected", String(active));
+  });
+  const lightDigChips = () => wrap.querySelectorAll("[data-dig]").forEach((x) => {
+    const active = x.dataset.dig === dig;
+    x.classList.toggle("btn-primary", active);
+    x.classList.toggle("btn-ghost", !active);
+    x.setAttribute("aria-pressed", String(active));
+  });
   // The main chip changed: the Dig row's counts are over a different set now,
   // and the row isn't drawn at all on Timing. Redone in place, scroll kept.
   const refreshDigRow = () => {
@@ -499,12 +518,7 @@ export function renderLeads(view, { param }) {
         b.addEventListener("click", () => {
           filter = b.dataset.filter;
           remember(REMEMBER, filter);
-          wrap.querySelectorAll("[data-filter]").forEach((x) => {
-            const active = x === b;
-            x.classList.toggle("btn-primary", active);
-            x.classList.toggle("btn-ghost", !active);
-            x.setAttribute("aria-selected", String(active));
-          });
+          lightChips();
           refreshDigRow();
           refreshList();
         }));
@@ -957,7 +971,6 @@ function leadCard(l, onOpen, extra = {}) {
     const act = e.target.closest(".lc-act");
     if (act) {
       e.stopPropagation();
-      noteWorked(l.id, act.dataset.lc || "acted");
       if (act.dataset.lc === "call") { store.logActivity("touch"); return; }
       e.preventDefault();
       if (onOpen) onOpen();
@@ -966,7 +979,6 @@ function leadCard(l, onOpen, extra = {}) {
       reviewProspect(l.id).finally(() => { if (act.isConnected) { act.disabled = false; act.innerHTML = was; } });
       return;
     }
-    noteWorked(l.id, "opened");
     if (onOpen) onOpen();
     navigate(`/leads/${l.id}`);
   });
@@ -986,7 +998,6 @@ function leadCard(l, onOpen, extra = {}) {
         const logged = (outcome) => {
           const rec = logContactFor(l, w.via, redraw, outcome);
           if (!rec) { api.close(); return; }
-          noteWorked(l.id, "contacted");
           // The day's count moves at once (the batch block above the list).
           if (extra.onWorked) { try { extra.onWorked(); } catch { /* the block redraws next time */ } }
           api.expand([
@@ -1013,7 +1024,6 @@ function leadCard(l, onOpen, extra = {}) {
       onTap: (api) => {
         const was = l.prospectSnoozedUntil || null;
         const until = snoozeProspect(l.id);
-        noteWorked(l.id, "not now");
         if (extra.onWorked) { try { extra.onWorked(); } catch { /* fine */ } }
         api.close();
         if (extra.onListChange) extra.onListChange();
@@ -1038,32 +1048,22 @@ const WAYS = [
   { via: "email", label: "Email", icon: "mail" },
 ];
 const VIA_LABEL = { call: "Called", text: "Texted", email: "Emailed" };
-// Where you left off on Outreach: the last customer acted on from the list
-// or their page, kept on the phone for a day and a half. The list offers a
-// way back to them (renderLeads).
-const LAST_KEY = "viniva:outreach:last";
-export function noteWorked(leadId, what = "") {
-  if (!leadId) return;
-  // The name and number travel with the id, so the customer can still be
-  // found if the record is replaced (a re-import, a merge) and the id changes.
-  const l = store.get("leads", leadId);
-  try { localStorage.setItem(LAST_KEY, JSON.stringify({ id: leadId, name: l ? l.name || "" : "", phone: l ? l.phone || "" : "", what, at: Date.now() })); } catch { /* a convenience */ }
+// Where the last scroll on Outreach dropped off: the chip, the cut, the
+// search, how far down and how many cards were showing — kept on the phone
+// for a day and a half. The list offers the way back there (renderLeads).
+const LEFT_OFF_KEY = "viniva:outreach:leftoff";
+const LEFT_OFF_MIN = 240; // less than a screen down is nothing to pick up
+const CHIP_NAME = { tocontact: "Best now", timing: "Timing", due: "Follow up", contacted: "Contacted", all: "All" };
+export function writeLeftOff(where) {
+  try { localStorage.setItem(LEFT_OFF_KEY, JSON.stringify(where)); } catch { /* a convenience */ }
 }
-export function lastWorked() {
-  try { const x = JSON.parse(localStorage.getItem(LAST_KEY) || "null"); return x && x.id && Date.now() - Number(x.at || 0) < 36 * 3600 * 1000 ? x : null; } catch { return null; }
+export function readLeftOff() {
+  try {
+    const x = JSON.parse(localStorage.getItem(LEFT_OFF_KEY) || "null");
+    return x && x.top >= LEFT_OFF_MIN && Date.now() - Number(x.at || 0) < 36 * 3600 * 1000 ? x : null;
+  } catch { return null; }
 }
-export function forgetWorked() { try { localStorage.removeItem(LAST_KEY); } catch { /* fine */ } }
-// The remembered customer's record now: by id, else by phone, else by name.
-export function workedLead(last) {
-  if (!last) return null;
-  const byId = store.get("leads", last.id);
-  if (byId) return byId;
-  const digits = String(last.phone || "").replace(/\D/g, "").slice(-10);
-  const byPhone = digits.length === 10 ? store.all("leads").find((l) => String(l.phone || "").replace(/\D/g, "").slice(-10) === digits) : null;
-  if (byPhone) return byPhone;
-  const name = String(last.name || "").trim().toLowerCase();
-  return name ? store.all("leads").find((l) => String(l.name || "").trim().toLowerCase() === name) || null : null;
-}
+export function forgetLeftOff() { try { localStorage.removeItem(LEFT_OFF_KEY); } catch { /* fine */ } }
 // How a call went. Spoke is a conversation; the other two are attempts.
 const OUTCOMES = [
   { outcome: "reached", label: "Spoke", icon: "check", kind: "ok" },
@@ -1083,7 +1083,6 @@ function contactLine(l) {
 // Log that you reached them, now, this way. The date and time are the moment
 // of the tap. Says so, offers Undo, and calls back so the view can redraw.
 function logContactFor(l, via, onChange, outcome = "reached") {
-  noteWorked(l.id, "contacted");
   const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia, lastContactOutcome: l.lastContactOutcome, loggedAt: l.loggedAt, followUp: l.followUp };
   let rec;
   try {
@@ -1605,7 +1604,6 @@ function renderLeadDetail(view, id) {
   // or emailing — and say so on the name box right away, no tap needed.
   const logTouch = (via) => {
     store.logActivity("touch");
-    noteWorked(l.id, via);
     store.update("leads", l.id, { lastContacted: new Date().toISOString(), lastContactVia: via });
     const line = el.querySelector('.lead-head [data-act="contacted"] .v');
     if (line) line.innerHTML = contactLine(store.get("leads", l.id) || l);

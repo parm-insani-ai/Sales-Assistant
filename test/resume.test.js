@@ -1,8 +1,10 @@
-// Pick up where you left off: on a long Outreach list, the customer last
-// acted on — contacted from the tray, opened, reviewed, put off — is a pill
-// at the foot of the screen once the list is scrolled and their card is off
-// screen. A tap scrolls back to the card and lights it; when the card isn't
-// in the list, it opens their page. × keeps it away for the visit.
+// Pick up where you left off: Outreach opens fresh on today's batch, so the
+// place the last scroll dropped off — the chip, the Dig cut, how far down the
+// list — is kept, and coming back a pill at the foot of the screen offers the
+// way back there. A tap puts the same chip and cards back and scrolls to the
+// spot. × declines this one; the next place left off is a new offer. A list
+// left near its top is nothing to pick up, and a step back from a customer
+// already lands on the spot, so no pill then.
 const { launch } = require("./browser.js");
 (async () => {
 const APP = "http://127.0.0.1:8137";
@@ -14,104 +16,117 @@ const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await p.addInitScript(() => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const x = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", importedAt: "2026-01-01T00:00:00.000Z" };
-  // Sixty owners from a file, all still to contact; the eighth is the one worked.
+  // Sixty owners from a file, all still to contact.
   const leads = Array.from({ length: 60 }, (_, i) => ({ id: "o" + i, name: `Owner ${String(i).padStart(2, "0")} Example`, phone: "90255" + String(10000 + i), stage: "delivered", vehicleInterest: "2021 Nissan Rogue SV", currentPayment: 400 + i, purchaseDate: "2023-03-10", ...x }));
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads, settings: { salesperson: "Parm", cloudAutoSync: false, supabaseUrl: "http://127.0.0.1:8137", supabaseAnonKey: "k" } }));
 });
 await p.goto(APP + "/#/leads");
 await p.waitForSelector('[data-filter="all"]', { timeout: 20000 });
-await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
-await p.waitForFunction(() => document.querySelectorAll(".lead-list .swipe-card").length >= 20, null, { timeout: 15000 }).catch(() => fail("the list didn't draw"));
 
 const state = () => p.evaluate(() => {
   const pill = document.querySelector(".resume-pill");
-  const card = document.querySelector('.swipe-card[data-lead-id="o7"]');
-  const v = document.getElementById("view").getBoundingClientRect();
-  const r = card ? card.getBoundingClientRect() : null;
-  return { pill: pill && !pill.hidden ? pill.textContent.replace(/\s+/g, " ").trim() : null, cardInView: !!(r && r.bottom > v.top && r.top < v.bottom), lit: !!(card && card.classList.contains("card-resume")), top: document.getElementById("view").scrollTop };
+  return {
+    pill: pill && !pill.hidden ? pill.textContent.replace(/\s+/g, " ").trim() : null,
+    chip: document.querySelector(".lead-seg .btn-primary")?.dataset.filter,
+    dig: document.querySelector(".dig-chip.btn-primary")?.dataset.dig || null,
+    top: document.getElementById("view").scrollTop,
+    cards: document.querySelectorAll(".lead-list .swipe-card").length,
+    kept: JSON.parse(localStorage.getItem("viniva:outreach:leftoff") || "null"),
+  };
 });
 const scrollTo = (y) => p.evaluate((y) => { const v = document.getElementById("view"); v.scrollTop = y; v.dispatchEvent(new Event("scroll")); }, y);
+const toHomeAndBack = async () => {
+  await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(300);
+  await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(600);
+};
 
-// --- Nothing worked yet: scrolling shows no pill.
-await scrollTo(1500); await p.waitForTimeout(150);
+// --- Nothing left off yet: no pill on a fresh visit.
 let s = await state();
-console.log("no one worked yet:", JSON.stringify(s));
-if (s.pill) fail("a pill showed before anyone was acted on: " + s.pill);
+console.log("first visit:", JSON.stringify({ pill: s.pill, chip: s.chip }));
+if (s.pill) fail("a pill showed before anywhere was left off: " + s.pill);
 
-// --- Open the eighth owner, come back: scrolled past them, the pill offers the way back.
-await scrollTo(0); await p.waitForTimeout(150);
-await p.evaluate(() => document.querySelector('.swipe-card[data-lead-id="o7"]').click());
-await p.waitForFunction(() => location.hash === "#/leads/o7", null, { timeout: 5000 });
+// --- Scroll a long way down All, go to Home, come back: Outreach opens fresh
+// on Best now, and the pill offers the place left off on All.
+await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
+await p.waitForFunction(() => document.querySelectorAll(".lead-list .swipe-card").length >= 20, null, { timeout: 15000 }).catch(() => fail("the list didn't draw"));
+await scrollTo(1800); await p.waitForTimeout(400);
+s = await state();
+console.log("scrolled on All:", JSON.stringify({ top: s.top, kept: s.kept && { filter: s.kept.filter, top: s.kept.top, shown: s.kept.shown } }));
+if (!s.kept || s.kept.filter !== "all" || Math.abs(s.kept.top - 1800) > 2) fail("the place should be kept as you scroll: " + JSON.stringify(s.kept));
+await toHomeAndBack();
+s = await state();
+console.log("back from Home:", JSON.stringify({ pill: s.pill, chip: s.chip, top: s.top }));
+if (s.chip !== "tocontact" || s.top > 5) fail("a visit from Home should open fresh on Best now at the top: " + JSON.stringify(s));
+if (!s.pill || !/Pick up where you left off · All/.test(s.pill)) fail("the pill should offer the place left off, naming the chip: " + JSON.stringify(s.pill));
+
+// --- Tap it: All, the same cards back, the same scroll; the pill goes.
+await p.click(".resume-pill"); await p.waitForTimeout(500);
+s = await state();
+console.log("tapped:", JSON.stringify({ pill: s.pill, chip: s.chip, top: s.top, cards: s.cards }));
+if (s.chip !== "all" || Math.abs(s.top - 1800) > 40 || s.pill) fail("the pill should put All back and scroll to where you left off: " + JSON.stringify(s));
+
+// --- Left near the top: nothing to pick up.
+await scrollTo(0); await p.waitForTimeout(300);
+await toHomeAndBack();
+s = await state();
+console.log("left at the top:", JSON.stringify({ pill: s.pill, kept: s.kept }));
+if (s.pill || s.kept) fail("a list left at its top is nothing to pick up: " + JSON.stringify({ pill: s.pill, kept: s.kept }));
+
+// --- A step back from a customer lands on the spot itself: no pill.
+await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
+await scrollTo(1500); await p.waitForTimeout(300);
+await p.evaluate(() => document.querySelectorAll(".lead-list .swipe-card")[12].click());
+await p.waitForFunction(() => /^#\/leads\/o\d+$/.test(location.hash), null, { timeout: 5000 });
 await p.waitForTimeout(300);
-await p.goBack(); await p.waitForTimeout(600);
-await p.waitForFunction(() => document.querySelectorAll(".lead-list .swipe-card").length >= 20, null, { timeout: 15000 });
-await scrollTo(1800); await p.waitForTimeout(200);
+await p.goBack(); await p.waitForTimeout(800);
 s = await state();
-console.log("scrolled past them:", JSON.stringify(s));
-if (!s.pill || !/Pick up at Owner/.test(s.pill)) fail("the pill should offer the last customer acted on: " + JSON.stringify(s));
-if (s.cardInView) fail("the test should have scrolled their card off screen");
+console.log("step back from a customer:", JSON.stringify({ pill: s.pill, chip: s.chip, top: s.top }));
+if (s.chip !== "all" || Math.abs(s.top - 1500) > 40) fail("a step back should land on the spot: " + JSON.stringify(s));
+if (s.pill) fail("no pill when the step back already landed on the spot");
 
-// --- Tap it: back to the card, lit; the pill goes.
-await p.click(".resume-pill");
-await p.waitForTimeout(700);
+// --- × declines this place; it stays declined until a new place is left off.
+await toHomeAndBack();
 s = await state();
-console.log("tapped:", JSON.stringify(s));
-if (!s.cardInView || !s.lit || s.pill) fail("the pill should scroll back to the card and light it: " + JSON.stringify(s));
-
-// --- While the card is on screen there's no pill; scrolled away again, it's back.
-await scrollTo(s.top); await p.waitForTimeout(150);
-if ((await state()).pill) fail("the pill shouldn't show while the card is on screen");
-await scrollTo(2400); await p.waitForTimeout(200);
-s = await state();
-if (!s.pill) fail("scrolled away again, the pill should come back");
-
-// --- A contact logged from the tray makes that customer the one to pick up at.
-await scrollTo(0); await p.waitForTimeout(200);
-await p.evaluate(async () => {
-  const m = await import("/js/views/leads.js");
-  m.noteWorked("o2", "contacted");
-});
-await scrollTo(2000); await p.waitForTimeout(200);
-s = await p.evaluate(() => document.querySelector(".resume-pill")?.textContent.replace(/\s+/g, " ").trim());
-if (!/Owner 02/.test(s || "")) fail("the pill should follow the latest action: " + s);
-
-// --- × keeps it away for the visit.
+if (!s.pill) fail("back from Home the pill should offer the place again: " + JSON.stringify(s));
 await p.click(".resume-pill .resume-x"); await p.waitForTimeout(100);
-await scrollTo(2600); await p.waitForTimeout(200);
-if ((await state()).pill) fail("× should keep the pill away");
+if ((await state()).pill) fail("× should hide the pill");
+await toHomeAndBack();
+s = await state();
+console.log("after ×, back again:", JSON.stringify({ pill: s.pill }));
+if (s.pill) fail("the place declined shouldn't be offered again: " + s.pill);
+await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
+await scrollTo(2200); await p.waitForTimeout(400);
+await toHomeAndBack();
+s = await state();
+if (!s.pill) fail("a new place left off is a new offer");
 
-// --- Not in this list (a different chip): the pill opens their page instead.
-// Owner 02 joins the log (off the Contacted chip); fifty others were reached,
-// so the Contacted list is long enough to scroll.
-await p.evaluate(() => sessionStorage.removeItem("viniva:outreach:resume-off"));
-await p.evaluate(async () => { const st = await import("/js/store.js"); const now = new Date().toISOString(); st.update("leads", "o2", { lastContacted: now, loggedAt: now }); for (let i = 10; i < 60; i++) st.update("leads", "o" + i, { lastContacted: now, lastContactVia: "text" }); });
-await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(300);
-await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(500);
-await p.click('[data-filter="contacted"]'); await p.waitForTimeout(600);
-await p.waitForFunction(() => document.querySelectorAll(".lead-list .swipe-card").length >= 20, null, { timeout: 15000 }).catch(() => fail("the Contacted list didn't draw"));
-const absent = await p.evaluate(() => !document.querySelector('.swipe-card[data-lead-id="o2"]'));
-await scrollTo(1500); await p.waitForTimeout(200);
-const gone = await p.evaluate(() => document.querySelector(".resume-pill")?.hidden === false);
-if (!absent || !gone) fail("with the customer off this list the pill should still show: " + JSON.stringify({ absent, gone }));
-await p.click(".resume-pill");
-await p.waitForFunction(() => location.hash === "#/leads/o2", null, { timeout: 5000 }).catch(() => fail("the pill should open the customer's page when their card isn't in the list"));
+// --- The Dig cut comes back with the place. Owners all quiet: the Quiet cut
+// on All, scrolled, left, and picked up again lights the cut and lands.
+await p.click(".resume-pill"); await p.waitForTimeout(400);
+await p.click('.dig-chip[data-dig="quiet"]'); await p.waitForTimeout(400);
+await scrollTo(1200); await p.waitForTimeout(400);
+s = await state();
+if (s.dig !== "quiet" || !s.kept || s.kept.dig !== "quiet") fail("the cut should be kept with the place: " + JSON.stringify({ dig: s.dig, kept: s.kept }));
+await toHomeAndBack();
+s = await state();
+console.log("fresh again:", JSON.stringify({ pill: s.pill, chip: s.chip, dig: s.dig }));
+if (s.dig) fail("a fresh visit shouldn't carry the cut");
+await p.click(".resume-pill"); await p.waitForTimeout(500);
+s = await state();
+console.log("picked up with the cut:", JSON.stringify({ chip: s.chip, dig: s.dig, top: s.top }));
+if (s.chip !== "all" || s.dig !== "quiet" || Math.abs(s.top - 1200) > 40) fail("picking up should bring back the chip, the cut and the place: " + JSON.stringify(s));
 
-// --- The remembered customer is gone (deleted, re-imported): the pill says so
-// instead of landing on "Lead not found" — and finds them by number when only
-// the id changed.
-await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(500);
-await p.evaluate(async () => { const m = await import("/js/views/leads.js"); const st = await import("/js/store.js"); st.remove("leads", "o2"); localStorage.setItem("viniva:outreach:last", JSON.stringify({ id: "o2", name: "Owner 02 Example", phone: "9025510002", what: "opened", at: Date.now() })); void m; });
-await p.click('[data-filter="contacted"]'); await p.waitForTimeout(500);
-await scrollTo(1500); await p.waitForTimeout(200);
-const noRecord = await p.evaluate(() => ({ pill: document.querySelector(".resume-pill")?.hidden === false }));
-if (noRecord.pill) fail("with the customer gone from the book the pill shouldn't show");
-// Re-imported under a new id, same number: found by the number.
-await p.evaluate(async () => { const st = await import("/js/store.js"); st.restore("leads", { id: "o2new", name: "Owner 02 Example", phone: "9025510002", stage: "delivered", loggedAt: new Date().toISOString(), lastContacted: new Date().toISOString(), createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", importedAt: "2026-01-01T00:00:00.000Z" }); });
-await scrollTo(1600); await p.waitForTimeout(250);
-const again = await p.evaluate(() => document.querySelector(".resume-pill")?.hidden === false);
-if (!again) fail("re-imported under a new id, the customer should be found by their number");
-await p.click(".resume-pill");
-await p.waitForFunction(() => location.hash === "#/leads/o2new", null, { timeout: 5000 }).catch(() => fail("the pill should open the re-imported record: " + "landed elsewhere"));
+// --- Reaching the place yourself takes the offer away.
+await scrollTo(0); await p.waitForTimeout(300);
+await scrollTo(900); await p.waitForTimeout(400);
+await toHomeAndBack();
+await p.click('[data-filter="all"]'); await p.waitForTimeout(300);
+await p.click('.dig-chip[data-dig="quiet"]'); await p.waitForTimeout(300);
+if (!(await state()).pill) fail("the pill should still show on the way there");
+await scrollTo(950); await p.waitForTimeout(300);
+s = await state();
+console.log("got there yourself:", JSON.stringify({ pill: s.pill, top: s.top }));
+if (s.pill) fail("at the place already, there's nothing to offer: " + s.pill);
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
