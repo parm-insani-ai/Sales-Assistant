@@ -19,7 +19,7 @@ import * as store from "./store.js";
 import { getProspects } from "./prospects.js";
 import { hasCadence, addDaysISO } from "./cadence.js";
 import { slotOn, toReadyAt } from "./schedule.js";
-import { categoryOf } from "./assess.js";
+import { categoryOf, assessment } from "./assess.js";
 import { orderForNow, retrySlot } from "./reachtime.js";
 
 const KEY = "viniva:session";
@@ -150,6 +150,10 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
   if (!lead) return null;
   const fn = firstName(lead.name);
   const canText = (() => { try { return !!lead.phone && !store.optedOut(lead); } catch { return false; } })();
+  // Why the call was made and which opener it led with — so Coach can say,
+  // in a few weeks, which reasons and which phrasings book (outcomes.js).
+  const a = (() => { try { return assessment(leadId); } catch { return null; } })();
+  const why = a ? callScript(a) : { cat: "other", variant: "a" };
   let rec = null, line = "", tasks = [];
   store.bulk(() => {
     if (key === "reached" || key === "appointment") {
@@ -185,7 +189,7 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
       store.update("leads", leadId, { badPhone: true, badPhoneAt: at });
       line = `Wrong number — ${fn} is off the lists until there's a new one.`;
     } else return;
-    store.logEvent("session_outcome", { leadId, meta: { outcome: key } });
+    store.logEvent("session_outcome", { leadId, meta: { outcome: key, reason: why.cat, opener: why.variant } });
   });
   if (!rec) return null;
   advance(leadId, key, { recId: rec.id });
@@ -228,22 +232,33 @@ export function callScript(c, settings = store.getSettings()) {
   const reasons = (c.reasons || []).filter((r) => r && !/No texting consent|No phone|Upside down/i.test(r));
   const cat = reasons.length ? categoryOf(reasons[0]) : "other";
   const safe = (c.whySafe || c.why || []).find((w) => typeof w === "string" && !/\$|%/.test(w)) || "";
-  const because = ({
-    payment: `it looks like you could be in something newer for about what you're paying now`,
-    equity: `the market's done well by your ${vehicle || "vehicle"} — you're likely sitting on some equity`,
-    ending: `your contract's coming up on its end and you've got options before it does`,
-    cycle: `you've had the ${vehicle || "car"} a few years now and it's at the point where it's worth the most`,
-    rate: `rates have moved since you bought and there may be room to do better`,
-    warranty: `the warranty on your ${vehicle || "vehicle"} is coming to its end`,
-    service: `you're in for service shortly and I'd like to have the numbers ready while it's in`,
-    engaged: `you'd been looking at something I sent`,
-  })[cat] || (safe ? safe.replace(/\.$/, "") : `I'm working through the ${vehicle ? vehicle + " owners" : "customers"} I look after and wanted to check in`);
+  // Two phrasings of every reason, rotated by customer, so the readout can
+  // say which one books (outcomes.js) — and retire the other.
+  const variant = variantFor(l.id);
+  const phrasings = {
+    payment: [`it looks like you could be in something newer for about what you're paying now`, `I think I can get you into a newer ${vehicle || "car"} without moving your payment`],
+    equity: [`the market's done well by your ${vehicle || "vehicle"} — you're likely sitting on some equity`, `your ${vehicle || "vehicle"} is worth more right now than most people expect, and that's worth knowing`],
+    ending: [`your contract's coming up on its end and you've got options before it does`, `you're getting close to the end of your term, and the best choices are the ones made before it`],
+    cycle: [`you've had the ${vehicle || "car"} a few years now and it's at the point where it's worth the most`, `a lot of people with a ${vehicle || "car"} your age are trading right now while it's worth the most`],
+    rate: [`rates have moved since you bought and there may be room to do better`, `the rate you're carrying is higher than what we're seeing now, and that's money every month`],
+    warranty: [`the warranty on your ${vehicle || "vehicle"} is coming to its end`, `you're coming up on the end of the warranty, and that's the moment repairs become yours`],
+    service: [`you're in for service shortly and I'd like to have the numbers ready while it's in`, `you're booked in for service and I'd like to put something together for while you wait`],
+    engaged: [`you'd been looking at something I sent`, `I saw you'd had a look at what I sent over and wanted to follow up`],
+  };
+  const pair = phrasings[cat];
+  const because = pair ? pair[variant === "b" ? 1 : 0] : (safe ? safe.replace(/\.$/, "") : `I'm working through the ${vehicle ? vehicle + " owners" : "customers"} I look after and wanted to check in`);
   const opener = `Hi ${fn}, it's ${me} at ${dealer}. I'll be quick — I'm calling because ${because}.`;
   const bridge = cat === "service"
     ? `Would it be all right if I had something put together for when you're in?`
     : `Would ten minutes this week to see what it looks like be worth your while — no pressure either way?`;
   const objections = [...(OBJECTIONS[cat] || []), ...OBJECTIONS.any].slice(0, 4);
-  return { opener, bridge, objections, reason: reasons[0] || "", cat };
+  return { opener, bridge, objections, reason: reasons[0] || "", cat, variant };
+}
+// Which phrasing a customer gets: steady for them, half the book each way.
+export function variantFor(id) {
+  let h = 0;
+  for (const ch of String(id || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 2 ? "b" : "a";
 }
 
 // The day's calling, for Home and Coach: today's sessions' outcomes.

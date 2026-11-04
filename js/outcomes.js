@@ -10,6 +10,7 @@
 // weeks it says which reasons actually get replies and which openers book.
 
 import * as store from "./store.js";
+import { categoryOf, WHY_CATEGORIES } from "./assess.js";
 
 const DAY = 86400000;
 const PENDING = "viniva:outreach-pending";
@@ -131,4 +132,89 @@ export function outreachReport({ weeks = 4, now = Date.now() } = {}) {
     if (plan && pro && plan.sent >= 5 && pro.sent >= 5) insights.push(`Plan texts reply at ${plan.replyRate}%, prospect openers at ${pro.replyRate}%.`);
   }
   return { weeks: weekRows, byReason, byKind, total: { ...total, replyRate: rate(total) }, insights };
+}
+
+// ---- Calls, and what the two together say ----
+//
+// Every call from a session is on the event log with why it was made (the
+// reason's category) and which phrasing of the opener it led with. Read
+// back against the calendar the same way the texts are: a conversation is
+// a reach; an appointment inside two weeks is a booking.
+
+const REACHED = new Set(["reached", "appointment", "not_interested"]);
+const catLabel = (key) => (WHY_CATEGORIES.find((c) => c.key === key) || { label: key }).label;
+
+/** { byReason:[{key, label, dials, reached, booked, reachRate, bookRate}], byOpener:[…], total, insights } */
+export function callReport({ weeks = 4, now = Date.now() } = {}) {
+  const idx = index();
+  const since = now - weeks * 7 * DAY;
+  const rows = store.all("events").filter((e) => e.kind === "session_outcome" && e.leadId && new Date(e.at).getTime() >= since);
+  const tally = () => ({ dials: 0, reached: 0, booked: 0 });
+  const bump = (t, e) => { t.dials++; if (REACHED.has(e.meta && e.meta.outcome)) t.reached++; if (outcomesFor({ at: e.at, leadId: e.leadId }, idx).booked) t.booked++; };
+  const byR = new Map(), byO = new Map();
+  rows.forEach((e) => {
+    const k = (e.meta && e.meta.reason) || "other";
+    if (!byR.has(k)) byR.set(k, tally()); bump(byR.get(k), e);
+    const o = `${k}/${(e.meta && e.meta.opener) || "a"}`;
+    if (!byO.has(o)) byO.set(o, tally()); bump(byO.get(o), e);
+  });
+  const finish = (t) => ({ ...t, reachRate: t.dials ? t.reached / t.dials : 0, bookRate: t.dials ? t.booked / t.dials : 0 });
+  const byReason = [...byR.entries()].map(([key, t]) => ({ key, label: catLabel(key), ...finish(t) })).sort((a, b) => b.dials - a.dials);
+  const byOpener = [...byO.entries()].map(([k, t]) => { const [key, opener] = k.split("/"); return { key, label: catLabel(key), opener, ...finish(t) }; }).sort((a, b) => a.key.localeCompare(b.key) || a.opener.localeCompare(b.opener));
+  const total = finish(rows.reduce((t, e) => { bump(t, e); return t; }, tally()));
+  const insights = [];
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  if (total.dials && total.dials < 10) insights.push(`${total.dials} call${total.dials === 1 ? "" : "s"} from sessions in ${weeks} weeks — a few more and the reasons start to separate.`);
+  else if (total.dials) {
+    insights.push(`${total.dials} calls → ${total.reached} reached (${pct(total.reachRate)}), ${total.booked} appointment${total.booked === 1 ? "" : "s"}.`);
+    const enough = byReason.filter((r) => r.dials >= 8);
+    const best = enough.slice().sort((a, b) => b.bookRate - a.bookRate)[0];
+    if (best && best.booked) insights.push(`"${best.label}" books best on the phone: ${best.booked} of ${best.dials}.`);
+    const pairs = new Map();
+    byOpener.forEach((o) => { if (o.dials >= 8) pairs.set(o.key, [...(pairs.get(o.key) || []), o]); });
+    pairs.forEach((list, key) => {
+      if (list.length < 2) return;
+      const [a, b] = list;
+      const [hi, lo] = a.bookRate >= b.bookRate ? [a, b] : [b, a];
+      if (hi.bookRate >= lo.bookRate + 0.1) insights.push(`On "${catLabel(key)}", phrasing ${hi.opener.toUpperCase()} books at ${pct(hi.bookRate)} against ${pct(lo.bookRate)} — lead with it.`);
+    });
+  }
+  return { byReason, byOpener, total, insights };
+}
+
+/**
+ * How much each reason earns, in this store, from everything tried so far:
+ * texts and calls together, a booking being the thing that counts. A
+ * reason with enough behind it (MIN_TRIES) is weighted up or down from the
+ * book's average, inside a band — a nudge on the ranking, never a
+ * takeover. { key: weight } for the reasons known; the rest are 1.
+ */
+export const MIN_TRIES = 8, MIN_ALL = 20, BAND = [0.85, 1.25];
+export function reasonWeights({ weeks = 12, now = Date.now() } = {}) {
+  const idx = index();
+  const since = now - weeks * 7 * DAY;
+  const tries = new Map();
+  const add = (key, booked) => { const t = tries.get(key) || { n: 0, booked: 0 }; t.n++; if (booked) t.booked++; tries.set(key, t); };
+  store.all("outreach").filter((r) => new Date(r.at).getTime() >= since).forEach((r) => add(categoryOf((r.reasons || [])[0]), outcomesFor(r, idx).booked));
+  store.all("events").filter((e) => e.kind === "session_outcome" && e.leadId && new Date(e.at).getTime() >= since)
+    .forEach((e) => add((e.meta && e.meta.reason) || "other", outcomesFor({ at: e.at, leadId: e.leadId }, idx).booked));
+  const all = [...tries.values()].reduce((s, t) => ({ n: s.n + t.n, booked: s.booked + t.booked }), { n: 0, booked: 0 });
+  if (all.n < MIN_ALL) return {};
+  const avg = all.booked / all.n;
+  const w = {};
+  tries.forEach((t, key) => {
+    if (t.n < MIN_TRIES) return;
+    const rate = t.booked / t.n;
+    const lift = 1 + 0.5 * ((rate - avg) / Math.max(avg, 0.03));
+    w[key] = Math.max(BAND[0], Math.min(BAND[1], Math.round(lift * 100) / 100));
+  });
+  return w;
+}
+
+/** The list re-ordered by score × the reason's weight; ties keep their order. */
+export function applyWeights(list, weights = reasonWeights(), { catOf = (x) => x.cat, scoreOf = (x) => x.score } = {}) {
+  const keys = Object.keys(weights || {});
+  if (!keys.length) return list;
+  return list.map((x, i) => ({ x, i, s: (scoreOf(x) || 0) * (weights[catOf(x)] || 1) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i).map((r) => r.x);
 }

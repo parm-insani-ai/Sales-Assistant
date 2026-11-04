@@ -18,6 +18,7 @@
 import * as store from "./store.js";
 import { ranked } from "./assess.js";
 import { hasCadence } from "./cadence.js";
+import { reasonWeights, applyWeights } from "./outcomes.js";
 
 const COOLDOWN_DAYS = 21;   // surfaced → not again for this long
 const CONTACT_DAYS = 14;    // contacted this recently → someone's on it
@@ -49,10 +50,13 @@ export function eligible(lead) {
 // Everyone with a reason, best first — the same read of the book the Leads
 // page is sorted by (assess.js), so Home and Leads never disagree about who
 // is worth a call. `why` is the message-writer's version: never a figure.
+// What the store has learned nudges the order: a reason that books here is
+// weighted up, one that doesn't down, inside a band (outcomes.js).
 export function candidates() {
-  return ranked()
-    .filter((a) => a.score > 0 && !a.flags.excluded)
-    .map((a) => ({ lead: a.lead, score: a.score, tier: a.tier ? a.tier.label : "", reasons: a.reasons, why: a.whySafe, best: a.best, next: a.next, consent: a.flags.consent }));
+  let w = {};
+  try { w = reasonWeights(); } catch { w = {}; }
+  return applyWeights(ranked().filter((a) => a.score > 0 && !a.flags.excluded), w)
+    .map((a) => ({ lead: a.lead, score: a.score, tier: a.tier ? a.tier.label : "", reasons: a.reasons, why: a.whySafe, best: a.best, next: a.next, consent: a.flags.consent, cat: a.cat }));
 }
 
 export function candidateFor(leadId) {

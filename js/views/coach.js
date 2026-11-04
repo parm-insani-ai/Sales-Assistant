@@ -9,7 +9,7 @@ import { icon } from "../icons.js";
 import { emptyState } from "../components.js";
 import { dealTotal, dealFront, dealBO } from "./soldlog.js";
 import { monthSummary } from "./goals.js";
-import { outreachReport } from "../outcomes.js";
+import { outreachReport, callReport, reasonWeights } from "../outcomes.js";
 
 // ---- Week math ----
 export function weekStart(d = new Date()) {
@@ -193,17 +193,28 @@ export function renderCoach(view) {
     // replies and bookings say otherwise.
     const worked = (() => {
       const r = outreachReport({ weeks: 4 });
-      if (!store.all("outreach").length) return "";
+      const c = callReport({ weeks: 4 });
+      if (!store.all("outreach").length && !c.total.dials) return "";
       const pct = (t) => (t.sent ? `${t.replyRate}%` : "—");
+      const p100 = (x) => `${Math.round(x * 100)}%`;
+      // What the store has learned, when it has: the reasons weighted up
+      // or down in the batch's order.
+      const w = (() => { try { return reasonWeights(); } catch { return {}; } })();
+      const learned = Object.entries(w).filter(([, v]) => v !== 1).sort((a, b) => b[1] - a[1]);
       return `
       <div class="section-title" style="margin-top:0">What's working <span class="muted">· last 4 weeks</span></div>
       <div class="card worked-card">
-        ${r.insights.map((t) => `<div class="small" style="line-height:1.45;padding:4px 0">${esc(t)}</div>`).join("")}
-        <table class="worked-table" style="width:100%;margin-top:8px;border-collapse:collapse;font-size:0.82rem">
+        ${[...r.insights, ...c.insights].map((t) => `<div class="small" style="line-height:1.45;padding:4px 0">${esc(t)}</div>`).join("")}
+        ${store.all("outreach").length ? `<table class="worked-table" style="width:100%;margin-top:8px;border-collapse:collapse;font-size:0.82rem">
           <thead><tr class="muted"><th style="text-align:left;font-weight:600">Opener led with</th><th>Sent</th><th>Replied</th><th>Booked</th><th>Sold</th></tr></thead>
           <tbody>${r.byReason.slice(0, 8).map((x) => `<tr><td style="padding:4px 0">${esc(x.reason)}</td><td style="text-align:center">${x.sent}</td><td style="text-align:center">${x.replied} <span class="muted">(${pct(x)})</span></td><td style="text-align:center">${x.booked}</td><td style="text-align:center">${x.sold}</td></tr>`).join("")}</tbody>
         </table>
-        <div class="small muted" style="margin-top:8px">${r.weeks.map((w) => `${w.start.slice(5)}: ${w.sent} sent, ${w.replied} replied`).join(" · ")}</div>
+        <div class="small muted" style="margin-top:8px">${r.weeks.map((w) => `${w.start.slice(5)}: ${w.sent} sent, ${w.replied} replied`).join(" · ")}</div>` : ""}
+        ${c.total.dials ? `<table class="worked-table calls-table" style="width:100%;margin-top:10px;border-collapse:collapse;font-size:0.82rem">
+          <thead><tr class="muted"><th style="text-align:left;font-weight:600">Calls led with</th><th>Dials</th><th>Reached</th><th>Booked</th></tr></thead>
+          <tbody>${c.byReason.slice(0, 8).map((x) => `<tr><td style="padding:4px 0">${esc(x.label)}</td><td style="text-align:center">${x.dials}</td><td style="text-align:center">${x.reached} <span class="muted">(${p100(x.reachRate)})</span></td><td style="text-align:center">${x.booked}</td></tr>`).join("")}</tbody>
+        </table>` : ""}
+        ${learned.length ? `<div class="small" style="margin-top:10px"><span class="strong">Learned:</span> ${learned.map(([k, v]) => `${esc((c.byReason.find((x) => x.key === k) || r.byReason.find((x) => x.key === k) || { label: k }).label || k)} ${v > 1 ? "up" : "down"} ${Math.round(Math.abs(v - 1) * 100)}%`).join(" · ")} — the batch leads with what books here.</div>` : ""}
       </div>`;
     })();
 
