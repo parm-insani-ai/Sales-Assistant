@@ -10,7 +10,7 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await p.addInitScript(() => {
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
-  localStorage.setItem("viniva:leads-filter", "all"); // every customer, not just Best now
+  sessionStorage.setItem("leads-filter", "all"); // every customer, not just Best now
   // "26 left" stated 3.5 months ago reads as 23 left today, whatever today is.
   const asOf = new Date(Date.now() - 3.5 * 30.44 * 86400000).toISOString().slice(0, 10);
   localStorage.setItem("sales-assistant:v1", JSON.stringify({

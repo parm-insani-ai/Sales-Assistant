@@ -107,6 +107,7 @@ await p.goto(APP + "/#/leads");
 await p.waitForSelector('[data-act="aud-clear"]');
 await p.click('[data-act="aud-clear"]');
 await p.waitForTimeout(300);
+await p.click('[data-filter="all"]'); await p.waitForTimeout(250); // a fresh visit opens on Best now
 if ((await names()) !== "Civic Owner,Dana Muise,Frontier Owner,Lee Wong,Pat Roy,Rogue Owner") fail("clearing the filter: " + (await names()));
 if (await p.evaluate(() => !!document.querySelector(".lead-audience") || !!sessionStorage.getItem("viniva:leads-audience"))) fail("the filter bar or memory lingered after clearing");
 

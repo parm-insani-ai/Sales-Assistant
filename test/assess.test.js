@@ -94,7 +94,7 @@ if (r.warranty.tier === "Hot" || r.lease.tier === "Hot") fail("a single modest s
 console.log("\nLeads page:");
 await p.evaluate(() => { localStorage.removeItem("viniva:leads-filter"); location.hash = "#/leads"; }); await p.waitForTimeout(400);
 const page = await p.evaluate(() => {
-  const cards = [...document.querySelectorAll(".lead-list .card")].slice(0, 5).map((c) => ({
+  const cards = [...document.querySelectorAll(".lead-list .card:not(.today-block)")].slice(0, 5).map((c) => ({
     name: c.querySelector(".row-title")?.textContent, tier: c.querySelector(".row-meta .badge")?.textContent, reasons: c.querySelector(".row-reasons")?.textContent || "" }));
   return { summary: document.querySelector(".lead-summary")?.textContent || "", cards };
 });
@@ -117,10 +117,12 @@ if (!detail.has || detail.items < 3) fail("the page doesn't explain why in full"
 if (!/equity/.test(detail.text)) fail("the explanation leaves out the equity");
 if (!detail.opener || !detail.snooze) fail("no way to act on the read from the page");
 
-// --- 4. Home's prospects come from the same read.
+// --- 4. Home's prospects come from the same read. (Today's picks were
+// stamped as surfaced when Outreach drew them, which is what keeps them off
+// tomorrow's list — so the stamp is set aside to compare.)
 const agree = await p.evaluate(async () => {
   const a = await import("/js/assess.js"); const pr = await import("/js/prospects.js");
-  const top = a.ranked().filter((x) => pr.eligible(x.lead)).slice(0, 10).map((x) => x.lead.name);
+  const top = a.ranked().filter((x) => pr.eligible({ ...x.lead, lastProspectedAt: null })).slice(0, 10).map((x) => x.lead.name);
   const picks = pr.getProspects().map((c) => c.lead.name);
   return { top, picks, same: JSON.stringify(top) === JSON.stringify(picks) };
 });

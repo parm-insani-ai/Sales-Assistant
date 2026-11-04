@@ -13,7 +13,7 @@ const page = async (seed) => {
   p.on("pageerror", (e) => fail("page error: " + e.message));
   await p.addInitScript((s) => {
     localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
-    localStorage.setItem("viniva:leads-filter", "contacted");
+    sessionStorage.setItem("leads-filter", "contacted"); // Outreach opens fresh on Best now; the preset lands on Contacted
     localStorage.setItem("sales-assistant:v1", JSON.stringify(s));
   }, seed);
   await p.goto(APP + "/#/leads");

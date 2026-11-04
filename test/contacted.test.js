@@ -267,6 +267,7 @@ if (!thread.some((x) => /You emailed them \(logged\)/.test(x) && /Sent the broch
 // --- Delete behind the same slide still works.
 await p.evaluate(() => { location.hash = "#/leads"; });
 await p.waitForTimeout(500);
+await p.click('[data-filter="all"]'); await p.waitForTimeout(300); // a fresh visit opens on Best now
 await slide("Bob Example");
 await p.click(".swipe-wrap:has-text('Bob Example') .swipe-del");
 await p.waitForTimeout(300);

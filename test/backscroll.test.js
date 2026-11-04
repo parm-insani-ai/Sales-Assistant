@@ -13,7 +13,7 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 const fail = (m) => { console.error("FAIL: " + m); process.exitCode = 1; };
 await p.addInitScript(() => {
   localStorage.setItem("viniva:log:tab", "queue"); // the long list, for the scroll test
-  localStorage.setItem("viniva:leads-filter", "all"); // Best now is short by design; the scroll test needs the long list
+  sessionStorage.setItem("leads-filter", "all"); // Best now is short by design; the scroll test needs the long list
   localStorage.setItem("viniva:auth", JSON.stringify({ access_token: "t", refresh_token: "r", user: { id: "00000000-0000-4000-8000-000000000001", email: "p@e.com" } }));
   const leads = []; for (let i = 0; i < 120; i++) leads.push({ id: "l" + i, name: "Customer " + i, phone: "902555" + String(1000 + i), stage: ["new", "working", "delivered"][i % 3], vehicleInterest: ["2019 Nissan Rogue", "2021 Nissan Sentra", "2020 Kicks"][i % 3], followUp: i % 5 === 0 ? "2026-10-" + String(1 + (i % 28)).padStart(2, "0") : "", createdAt: "2025-01-01T00:00:00.000Z", updatedAt: "2025-01-01T00:00:00.000Z" });
   // Thirty plan steps due today, so the queue is long and every card has Do it.
@@ -55,7 +55,9 @@ after = await top();
 console.log("browser back →", after);
 if (Math.abs(after - before) > 40) fail(`the browser's back didn't land where you were: ${before} → ${after}`);
 
-// --- Today scrolled, Leads by the tab, Today by the tab: the same place.
+// --- Today scrolled, Outreach by the tab, Today by the tab. Outreach is a
+// daily tool: its tab is a fresh start on today's batch, at the top, not the
+// long list where it was; Today comes back to the same place.
 await p.click('.tabbar a[data-route="/log"]');
 await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
 await settle(400);
@@ -66,8 +68,9 @@ await p.click('.tabbar a[data-route="/leads"]');
 await p.waitForSelector(".lead-list [data-lead-id]", { timeout: 10000 });
 await settle();
 const leadsAgain = await top();
-console.log("leads by tab →", leadsAgain, "(was", before + ")");
-if (Math.abs(leadsAgain - before) > 40) fail(`the Leads tab didn't come back where it was: ${before} → ${leadsAgain}`);
+const onBest = await p.evaluate(() => document.querySelector(".lead-seg .btn-primary")?.dataset.filter);
+console.log("outreach by tab →", leadsAgain, "on", onBest);
+if (leadsAgain > 5 || onBest !== "tocontact") fail(`the Outreach tab should open fresh on Best now at the top: ${leadsAgain} on ${onBest}`);
 await p.click('.tabbar a[data-route="/log"]');
 await p.waitForSelector(".plays-slot .pl-card", { timeout: 10000 });
 await settle();

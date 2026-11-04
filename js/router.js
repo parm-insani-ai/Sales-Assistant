@@ -56,6 +56,17 @@ let lastMove = { dir: "new", fromTab: false };
 export function isReturn() {
   return lastMove.dir === "back" || lastMove.dir === "forward" || (lastMove.fromTab && lastMove.dir !== "same");
 }
+// A step back (or forward) through history only — not a tab tapped from
+// elsewhere. A screen that is a fresh start from its tab (Outreach opens on
+// today's batch) picks up where it was only on a true step back, from the
+// customer it opened.
+export function isStepBack() {
+  return lastMove.dir === "back" || lastMove.dir === "forward";
+}
+// A screen that drew itself fresh asks not to be scrolled back to where it
+// was: the place that was kept belongs to the list it has replaced.
+let freshNext = false;
+export function drawnFresh() { freshNext = true; }
 
 function remember() {
   const v = viewEl();
@@ -178,6 +189,8 @@ function render() {
   const { base, param, parts } = parse();
   const handler = routes.get(base) || notFound;
   if (handler) handler({ param, parts });
+  const fresh = freshNext; freshNext = false;
+  if (fresh) positions.delete(hash);
   lastHash = hash;
   // Anything that moves the app announces itself here, including a re-entry
   // that hashchange wouldn't report. The voice panel docks on this.
@@ -185,7 +198,7 @@ function render() {
 
   // Back where you were: a step back or forward through history, or a tab
   // tapped again from elsewhere. Not a jump to something on the screen.
-  if (!reveal) {
+  if (!reveal && !fresh) {
     if ((dir === "back" || dir === "forward" || (fromTab && dir !== "same")) && positions.has(hash)) restoreScroll(positions.get(hash));
   }
   if (reveal) {

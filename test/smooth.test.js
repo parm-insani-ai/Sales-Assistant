@@ -260,8 +260,9 @@ console.log("\nback from a customer:");
 }
 
 // --- The filter: "To contact" first and by default (Outreach is the book
-// still to be reached), and the chip you tapped last is the one you're on
-// when you come back — a jump from Home doesn't change it.
+// still to be reached). Outreach is a daily tool: arriving from Home (or any
+// other screen) opens it on Best now and today's batch; the chip you were on
+// comes back only when you step back from the customer you opened.
 console.log("\nLeads filter memory:");
 {
   const chips = () => p.evaluate(() => ({
@@ -279,8 +280,16 @@ console.log("\nLeads filter memory:");
   await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(150);
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
   const back = await chips();
-  console.log("  after tapping Contacted, leaving and returning:", JSON.stringify(back));
-  if (back.on !== "contacted") fail(`came back on ${back.on}, not the Contacted chip that was tapped`);
+  console.log("  after tapping Contacted, leaving for Home and returning:", JSON.stringify(back));
+  if (back.on !== "tocontact") fail(`a visit from Home should open on Best now (today's batch), not ${back.on}`);
+
+  // Into a customer and a step back: the chip you were on.
+  await p.evaluate(() => document.querySelector('[data-filter="contacted"]').click()); await p.waitForTimeout(150);
+  await p.evaluate(async () => { const st = await import("/js/store.js"); location.hash = "#/leads/" + st.all("leads")[0].id; }); await p.waitForTimeout(300);
+  await p.goBack(); await p.waitForTimeout(400);
+  const stepped = await chips();
+  console.log("  into a customer and back:", JSON.stringify(stepped));
+  if (stepped.on !== "contacted") fail(`a step back from a customer should return to the Contacted chip, not ${stepped.on}`);
 
   // A stat card on Home presets "due" for one visit only.
   await p.evaluate(() => { sessionStorage.setItem("leads-filter", "due"); location.hash = "#/"; }); await p.waitForTimeout(100);
@@ -291,7 +300,7 @@ console.log("\nLeads filter memory:");
   const after = await chips();
   console.log("  jump from Home to Due:", jump.on, "| next visit:", after.on);
   if (jump.on !== "due") fail("a preset from Home didn't land on Due");
-  if (after.on !== "contacted") fail(`the jump overwrote the remembered filter (now ${after.on})`);
+  if (after.on !== "tocontact") fail(`the next visit should be a fresh Best now (now ${after.on})`);
 }
 
 // --- The layout: one row of search and Filter, no buttons beyond it (the +

@@ -4,7 +4,7 @@ import * as store from "../store.js";
 import { LEAD_STAGES, stageMeta } from "../store.js";
 import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swipeable } from "../components.js";
 import { watchesFor, createWatch, cancelWatch, closeWatch, parseWant, isUseful, describeWant, vehicleFits } from "../watch.js";
-import { navigate, goBack, isReturn } from "../router.js";
+import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
@@ -145,10 +145,12 @@ export function renderLeads(view, { param }) {
   };
   // all | active | due | <stage>.
   //
-  // The chip you tapped last is the one you're on next time — a preset from a
-  // stat card or the voice agent is a one-off jump to a particular set and
-  // doesn't change that. "All" is the default: the whole book, with Active
-  // beside it for the people still in play.
+  // Outreach is a daily tool: arriving from anywhere else in the app — Home,
+  // the tab, a notification — opens it on Best now and today's batch, with no
+  // Dig cut on and the list at its top. The chip you were on, the cut and the
+  // spot come back only when you step back from the customer you opened. A
+  // preset from a stat card or the voice agent is a one-off jump to a
+  // particular set.
   const REMEMBER = "viniva:leads-filter";
   const OPP_KEY = "viniva:leads-opp";
   const recall = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -165,13 +167,17 @@ export function renderLeads(view, { param }) {
   if (preset === "opportunity") preset = "tocontact";
   remember(OPP_KEY, null);
   const CHIPS = ["tocontact", "timing", "due", "contacted", "all"];
-  const rem = recall(REMEMBER);
+  // A step back from a customer: the chip you were on (the spot has it; the
+  // remembered chip stands in when the spot is gone). Otherwise a fresh start.
+  const back = isStepBack();
+  const rem = back ? recall(REMEMBER) : null;
   let filter = [preset, rem].find((f) => CHIPS.includes(f)) || "tocontact";
-  // Back from a customer: the chip you were on, even one a shortcut picked.
-  if (spot && !preset && isReturn() && CHIPS.includes(spot.filter)) filter = spot.filter;
+  if (spot && !preset && back && CHIPS.includes(spot.filter)) filter = spot.filter;
   // A jump from elsewhere (a preset) is a new list; the spot only applies to
   // the list it was saved on.
-  if (spot && (preset || !isReturn() || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
+  if (spot && (preset || !back || spot.filter !== filter || !!spot.opp !== !!opp)) spot = null;
+  // Fresh: the router mustn't scroll the list back to where the last one was.
+  if (!back) drawnFresh();
   // The search you had typed comes back with the spot — and only with it.
   if (spot && !search && spot.search) search = spot.search;
   // Which "why" groups on Best now are showing everyone (the rest show three).
@@ -251,11 +257,13 @@ export function renderLeads(view, { param }) {
   // Dig: one-tap cuts of the book by what the read found — equity, a
   // contract ending, a payment match, years in the car — and by silence.
   // Each is a lens over the chip showing, with its count, combinable with
-  // the search and the filter. Remembered for the visit.
+  // the search and the filter. Kept across a step into a customer and back;
+  // off again when Outreach is opened fresh from elsewhere.
   const DIG_KEY = "viniva:leads-dig";
   let dig = null;
-  try { dig = sessionStorage.getItem(DIG_KEY) || null; } catch { dig = null; }
   const keepDig = () => { try { if (dig) sessionStorage.setItem(DIG_KEY, dig); else sessionStorage.removeItem(DIG_KEY); } catch { /* fine */ } };
+  try { dig = back ? sessionStorage.getItem(DIG_KEY) || null : null; } catch { dig = null; }
+  if (!back) keepDig();
   const DIGS = [
     { key: "payment", label: "Same payment", cat: "payment" },
     { key: "equity", label: "Equity", cat: "equity" },
