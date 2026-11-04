@@ -7,6 +7,7 @@ import { watchesFor, createWatch, cancelWatch, closeWatch, parseWant, isUseful, 
 import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { currentSession, startSession } from "../session.js";
+import { reachLine } from "../reachtime.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
@@ -905,7 +906,8 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
   const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
   // The last contact, on the card — so logging one is visibly registered.
   const contact = l.lastContacted
-    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}</div>` : "";
+    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</div>`
+    : reachLine(l.id) ? `<div class="row-contact">${icon("clock")} ${esc(reachLine(l.id))}</div>` : "";
   // Their current contract in one line under the vehicle: what they pay,
   // how many payments are left, when it matures — or that it's paid off.
   // The one thing to do from the list: a drafted opener to review, a call

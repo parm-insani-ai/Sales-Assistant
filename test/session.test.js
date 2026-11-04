@@ -82,7 +82,7 @@ const secondId = await idOf(c.name);
 await p.click('[data-outcome="no_answer"]'); await p.waitForTimeout(500);
 after = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).map((t) => t.title) }; }, secondId);
 console.log("no answer:", JSON.stringify(after));
-if (after.out !== "no_answer" || after.tasks.length !== 1 || !/Call Owner again — try the (morning|afternoon)/.test(after.tasks[0])) fail("no answer should set one retry at the other half of the day: " + JSON.stringify(after));
+if (after.out !== "no_answer" || after.tasks.length !== 1 || !/Call Owner again — (try the|they tend to pick up) (mornings|afternoons|around midday|evenings)/.test(after.tasks[0])) fail("no answer should set one retry at the other half of the day: " + JSON.stringify(after));
 
 // --- Not interested: a contact, parked six months, not on the log.
 c = await card(); const thirdId = await idOf(c.name);

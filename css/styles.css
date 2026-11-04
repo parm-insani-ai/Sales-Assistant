@@ -727,6 +727,8 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cs-who { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .cs-name { font-size: 1.35rem; font-weight: 750; line-height: 1.2; text-wrap: balance; }
 .cs-sub { color: var(--muted); font-size: 0.88rem; margin-top: 3px; }
+.cs-when { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 0.82rem; font-weight: 650; color: var(--brand-strong); }
+.cs-when .ico { width: 14px; height: 14px; }
 .cs-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .cs-reason { font-size: 0.78rem; font-weight: 650; padding: 4px 9px; border-radius: 999px; background: var(--brand-tint); color: var(--brand-strong); }
 .cs-script { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); }

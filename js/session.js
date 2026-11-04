@@ -20,6 +20,7 @@ import { getProspects } from "./prospects.js";
 import { hasCadence, addDaysISO } from "./cadence.js";
 import { slotOn, toReadyAt } from "./schedule.js";
 import { categoryOf } from "./assess.js";
+import { orderForNow, retrySlot } from "./reachtime.js";
 
 const KEY = "viniva:session";
 const DAY = 86400000;
@@ -32,10 +33,10 @@ function read() { try { return JSON.parse(localStorage.getItem(KEY) || "null"); 
 function write(s) { try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* a convenience */ } }
 
 // Who's up for a session: today's batch, still open, with a number that
-// works. The order is the batch's — best first — until the best-time read
-// has something to say (reachtime.js reorders it).
-export function sessionQueue() {
-  return getProspects().filter((c) => c.lead.phone && !c.lead.badPhone);
+// works — the people likely to pick up in this part of the day first
+// (reachtime.js), and in the batch's order, best first, among equals.
+export function sessionQueue(now = new Date()) {
+  return orderForNow(getProspects().filter((c) => c.lead.phone && !c.lead.badPhone), { now });
 }
 
 /** Start a session over these customers (today's batch by default). */
@@ -128,11 +129,11 @@ export const OUTCOMES = [
   { key: "wrong_number", label: "Wrong number", icon: "alert", kind: "off", hint: "Off every list until a new number" },
 ];
 
-// The hour to try someone again who didn't pick up: the other half of the
-// working day from the attempt. (The best-time read refines this once it
-// knows them — reachtime.js.)
-export function otherHalf(now = new Date()) {
-  return now.getHours() < 13 ? { hh: 16, mm: 0, word: "afternoon" } : { hh: 10, mm: 30, word: "morning" };
+// The hour to try someone again who didn't pick up: the part of the day
+// that works for them when it's known, else the other half of the day
+// from the attempt (reachtime.js).
+export function otherHalf(leadId, now = new Date()) {
+  return retrySlot(leadId, now);
 }
 
 function followUpTask(lead, { days, hh, mm = 0, channel, intent, title, priority = "normal" }) {
@@ -165,9 +166,9 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
       line = `Left ${fn} a message — ${canText ? "a text tomorrow" : "a call tomorrow"}, a call in three days.`;
     } else if (key === "no_answer") {
       rec = store.logContact(leadId, { via: "call", outcome: "no_answer", notes });
-      const oh = otherHalf(now);
-      if (!hasCadence(leadId)) tasks.push(followUpTask(lead, { days: 1, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — try the ${oh.word}` }));
-      line = `No answer — again tomorrow ${oh.word}.`;
+      const oh = otherHalf(leadId, now);
+      if (!hasCadence(leadId)) tasks.push(followUpTask(lead, { days: 1, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}` }));
+      line = `No answer — again tomorrow, ${oh.known ? "when they tend to pick up: " : ""}${oh.word}.`;
     } else if (key === "not_interested") {
       // They spoke, and said no: a contact, not a customer for the log.
       const at = now.toISOString();

@@ -18,6 +18,7 @@ import { contractSummary } from "../contract.js";
 import { consentStatus } from "../consent.js";
 import { openAppointmentForm } from "./calendar.js";
 import { notePanel } from "./leads.js";
+import { reachLine } from "../reachtime.js";
 import { currentSession, currentCustomer, recordOutcome, skipCurrent, endSession, summarize, callScript, OUTCOMES, startSession, sessionQueue } from "../session.js";
 
 export function renderSession(view) {
@@ -70,6 +71,7 @@ export function renderSession(view) {
           <div>
             <div class="cs-name">${esc(l.name)}</div>
             <div class="cs-sub">${esc(l.vehicleInterest || "No vehicle noted")}${c && c.line ? ` · ${esc(c.line)}` : ""}</div>
+            ${reachLine(l.id) ? `<div class="cs-when">${icon("clock")} ${esc(reachLine(l.id))}</div>` : ""}
           </div>
           ${a.tier ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : ""}
         </div>
