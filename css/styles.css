@@ -762,6 +762,17 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cs-stat-n { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .cs-stat-l { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
 .today-actions { margin-top: 10px; }
+/* The import report: which reasons a file supports, and what to ask for. */
+.ir-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.ir-row { display: flex; align-items: center; gap: 7px; font-size: 0.84rem; min-width: 0; }
+.ir-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ir-n { font-variant-numeric: tabular-nums; color: var(--muted); }
+.ir-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--surface-3); }
+.ir-good { background: var(--brand); }
+.ir-partial { background: var(--warning); }
+.ir-missing { background: var(--surface-3); box-shadow: inset 0 0 0 1.5px var(--border); }
+.ir-ask { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+@media (max-width: 360px) { .ir-grid { grid-template-columns: 1fr; } }
 /* Today's batch at the top of Best now: fresh each morning, worked through. */
 .today-block { padding: 12px 14px; margin-bottom: 10px; border-color: var(--brand); }
 .today-block .today-bar { height: 6px; border-radius: 3px; background: var(--border); margin-top: 8px; overflow: hidden; }

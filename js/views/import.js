@@ -3,6 +3,7 @@
 // de-duplication. No backend or credentials needed.
 
 import * as store from "../store.js";
+import { fileReport } from "../importreport.js";
 import { toast, emptyState } from "../components.js";
 import { navigate, goBack } from "../router.js";
 import { parseCSV, autoMap, parseNumber, parseDateLoose, normalizeHeader } from "../csv.js";
@@ -161,6 +162,8 @@ function showMapping(stage, type, parsed, opts = {}) {
     </div>
     <div class="section-title">Preview <span class="muted small">(first 3 rows)</span></div>
     <div class="card" id="imp-preview"></div>
+    ${type === "leads" ? `<div class="section-title">What this file gives you</div>
+    <div class="card" id="imp-report"></div>` : ""}
     <button class="btn btn-success btn-block" data-act="run" style="margin-top:6px">Import ${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"}</button>
     <div class="fab-note">Rows missing required info (${type === "vehicles" ? "make & model" : "a name"}) are skipped. Rows that match an existing ${type === "vehicles" ? "vehicle (by VIN or stock #)" : "customer (by phone or email)"} are <b>merged</b> into that record — so each file you import deepens the profile instead of creating duplicates.</div>
   `;
@@ -195,8 +198,22 @@ function showMapping(stage, type, parsed, opts = {}) {
       return `<div class="kv"><span class="k">${esc(rec.name || "—")}</span><span class="v small">${esc(rec.phone || rec.email || "")}</span></div>`;
     }).join("") || `<div class="muted small">Nothing to preview.</div>`;
   };
-  drawPreview();
-  mapRows.querySelectorAll("select").forEach((s) => s.addEventListener("change", drawPreview));
+  // Which reasons to call this file can support, on what share of its
+  // rows, and what to ask the dealer for — read from the mapping as it
+  // stands, so fixing a column fixes the report.
+  const drawReport = () => {
+    const box = stage.querySelector("#imp-report");
+    if (!box) return;
+    const r = fileReport(parsed.rows, readMapping());
+    const dot = (st) => `<span class="ir-dot ir-${st}"></span>`;
+    box.innerHTML = `
+      <div class="strong">${esc(r.headline)}</div>
+      <div class="small muted" style="margin:2px 0 10px">${r.rows.toLocaleString()} row${r.rows === 1 ? "" : "s"} · ${r.vehicle.toLocaleString()} with a vehicle · ${(r.rows - r.unreachable).toLocaleString()} reachable</div>
+      <div class="ir-grid">${r.reasons.filter((x) => x.key !== "reach").map((x) => `<div class="ir-row">${dot(x.state)}<span class="ir-label">${esc(x.label)}</span><span class="ir-n mono">${x.state === "missing" ? "—" : `${Math.round(x.share * 100)}%`}</span></div>`).join("")}</div>
+      ${r.asks.length ? `<div class="ir-ask"><div class="small strong" style="margin-bottom:4px">Ask the dealer for</div>${r.asks.map((a) => `<div class="small">· ${esc(a)}</div>`).join("")}</div>` : `<div class="small muted" style="margin-top:8px">Every reason the read looks for is here.</div>`}`;
+  };
+  drawPreview(); drawReport();
+  mapRows.querySelectorAll("select").forEach((s) => s.addEventListener("change", () => { drawPreview(); drawReport(); }));
 
   stage.querySelector('[data-act="run"]').addEventListener("click", async () => {
     const m = readMapping();
