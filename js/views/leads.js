@@ -17,7 +17,7 @@ import { nextMoves, undoMove } from "../moves.js";
 import { openTaskForm } from "./tasks.js";
 import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect, reviewTouch } from "../touches.js";
-import { snoozeProspect } from "../prospects.js";
+import { snoozeProspect, getProspects, morePicks, pickProgress } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
 import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals, pitchList, vehicleKey } from "./dealbuilder.js";
 import { icon } from "../icons.js";
@@ -248,6 +248,34 @@ export function renderLeads(view, { param }) {
   // Put off with "Not now": off Best now until the date passes.
   const todayK = todayISO();
   const snoozed = (l) => !!l.prospectSnoozedUntil && l.prospectSnoozedUntil > todayK;
+  // Dig: one-tap cuts of the book by what the read found — equity, a
+  // contract ending, a payment match, years in the car — and by silence.
+  // Each is a lens over the chip showing, with its count, combinable with
+  // the search and the filter. Remembered for the visit.
+  const DIG_KEY = "viniva:leads-dig";
+  let dig = null;
+  try { dig = sessionStorage.getItem(DIG_KEY) || null; } catch { dig = null; }
+  const keepDig = () => { try { if (dig) sessionStorage.setItem(DIG_KEY, dig); else sessionStorage.removeItem(DIG_KEY); } catch { /* fine */ } };
+  const DIGS = [
+    { key: "payment", label: "Same payment", cat: "payment" },
+    { key: "equity", label: "Equity", cat: "equity" },
+    { key: "ending", label: "Contract ending", cat: "ending" },
+    { key: "cycle", label: "Owned 3+ yrs", cat: "cycle" },
+    { key: "rate", label: "High rate", cat: "rate" },
+    { key: "warranty", label: "Warranty ending", cat: "warranty" },
+    { key: "service", label: "In service", cat: "service" },
+    { key: "engaged", label: "Reached out", cat: "engaged" },
+    { key: "quiet", label: "Quiet 6+ mo" },
+    { key: "nonumber", label: "No number" },
+  ];
+  const digPass = (key, l) => {
+    const d = DIGS.find((x) => x.key === key);
+    if (!d) return true;
+    if (d.key === "quiet") { const t = l.lastContacted ? new Date(l.lastContacted).getTime() : 0; return !t || Date.now() - t > 180 * 86400000; }
+    if (d.key === "nonumber") return !l.phone;
+    const a = assessAll().byId.get(l.id);
+    return !!(a && (a.reasons || []).some((r) => categoryOf(r) === d.cat));
+  };
   const passes = (l) => {
     if (filter === "tocontact" && (inLog(l) || l.lastContacted || snoozed(l))) return false;
     if (filter === "contacted" && (inLog(l) || !l.lastContacted)) return false;
@@ -256,6 +284,7 @@ export function renderLeads(view, { param }) {
     const q = search.toLowerCase();
     if (q && !haystack(l).includes(q)) return false;
     if (aud && !inAudience(aud, l)) return false;
+    if (dig && !digPass(dig, l)) return false;
     return true;
   };
 
@@ -268,6 +297,11 @@ export function renderLeads(view, { param }) {
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
+    // The dig chips' counts: over the chip showing (and the filter), before
+    // the search and the dig itself narrow it.
+    const digBase = list.slice();
+    const digCount = (key) => digBase.filter((l) => digPass(key, l)).length;
+    if (dig) list = list.filter((l) => digPass(dig, l));
 
     // Sort: overdue follow-ups first, then by follow-up date, then newest.
     list = list.slice().sort((a, b) => {
@@ -320,6 +354,9 @@ export function renderLeads(view, { param }) {
       ${`<div class="lead-seg" role="tablist">
         ${chips.map((c) => `<button class="btn btn-sm lead-seg-btn ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" role="tab" aria-selected="${filter === c.id}"><span class="seg-name">${esc(c.name)}</span> <span class="seg-count">${esc(c.count)}</span></button>`).join("")}
       </div>
+      ${selecting || filter === "timing" ? "" : `<div class="lead-chips dig-row" aria-label="Dig into the book">
+        ${DIGS.map((d) => { const n = digCount(d.key); return n || dig === d.key ? `<button type="button" class="btn btn-sm ${dig === d.key ? "btn-primary" : "btn-ghost"} dig-chip" data-dig="${d.key}" aria-pressed="${dig === d.key}">${esc(d.label)} <span class="dig-count">${n.toLocaleString()}</span></button>` : ""; }).join("")}
+      </div>`}
       ${aud ? `<div class="card lead-audience" style="padding:10px 12px;margin-bottom:10px">
         <div class="row" style="align-items:center">
           <span class="small" style="min-width:0"><span class="strong aud-count">${list.length.toLocaleString()}</span> match · ${esc(audienceLabel(aud))}</span>
@@ -341,6 +378,8 @@ export function renderLeads(view, { param }) {
     on('[data-act="aud-clear"]', () => { aud = null; keepAud(); draw(); });
     on('[data-act="aud-text"]', () => blast("text"));
     on('[data-act="aud-email"]', () => blast("email"));
+    // A dig chip: on, or off again with a second tap.
+    wrap.querySelectorAll("[data-dig]").forEach((b) => b.addEventListener("click", () => { dig = dig === b.dataset.dig ? null : b.dataset.dig; keepDig(); draw(); }));
 
     const listEl = wrap.querySelector(".lead-list");
     // The Timing count, when it isn't already known: read the book in the
@@ -475,7 +514,14 @@ export function renderLeads(view, { param }) {
   function renderList({ keep = false, restore = 0 } = {}) {
     const el = wrap.querySelector(".lead-list");
     if (!el) return;
-    const filtered = applyFilter();
+    let filtered = applyFilter();
+    // Today's batch, at the top of Best now: the handful the book brings up
+    // this morning (prospects.js — fresh each day, nobody twice in three
+    // weeks, best first), held for the day and worked through. They come
+    // out of the groups below so nobody is listed twice.
+    const todayMode = filter === "tocontact" && !selecting && !search && !aud && !dig && !(opp && !selecting);
+    const todayPicks = todayMode ? getProspects() : [];
+    if (todayPicks.length) { const ids = new Set(todayPicks.map((c) => c.lead.id)); filtered = filtered.filter((l) => !ids.has(l.id)); }
     const token = ++renderToken;
     if (watcher) { watcher.disconnect(); watcher = null; }
     el.innerHTML = "";
@@ -489,9 +535,9 @@ export function renderLeads(view, { param }) {
       warmTiming().then(() => { if (wrap.isConnected && filter === "timing") renderList(); });
       return;
     }
-    if (!filtered.length) {
+    if (!filtered.length && !todayPicks.length) {
       shown = 0;
-      el.innerHTML = emptyState("users", filter === "timing" ? "Nobody to time yet" : "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : filter === "timing" ? "Owners with a trade value, a payment or a lease end on file get a month here — the month it starts to make sense." : "Nothing in this filter yet.");
+      el.innerHTML = emptyState("users", filter === "timing" ? "Nobody to time yet" : "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : dig ? "Nobody on this chip fits that cut. Tap the chip again to clear it." : filter === "timing" ? "Owners with a trade value, a payment or a lease end on file get a month here — the month it starts to make sense." : "Nothing in this filter yet.");
       return;
     }
     // Timing: a line above the list saying what it is.
@@ -615,6 +661,51 @@ export function renderLeads(view, { param }) {
     const first = restore ? Math.max(FIRST, Math.min(restore, filtered.length)) : FIRST;
     const target = keep ? Math.max(FIRST, Math.min(shown, filtered.length)) : first;
     const frag = document.createDocumentFragment();
+    // Today's batch: the count against the day, a bar, the next handful on
+    // tap; then the picks themselves, new ones marked; then the rest of the
+    // book under its reasons.
+    if (todayMode) {
+      const pr = pickProgress();
+      const n = Math.max(1, Number(store.getSettings().dailyProspects ?? 10));
+      const block = document.createElement("div");
+      block.className = `card today-block${pr.total && !pr.left ? " today-done" : ""}`;
+      const head = !pr.total
+        ? "Nobody new to bring up today"
+        : pr.left ? `Today's ${pr.total} · ${pr.reached} reached` : `All ${pr.total} reached today`;
+      const sub = !pr.total
+        ? "Everyone with a reason has been reached or put off lately — tomorrow brings the next in line."
+        : pr.left ? `Fresh each morning, best first, nobody twice in three weeks. ${pr.left} to go${pr.behind ? ` · ${pr.behind.toLocaleString()} more ready behind them` : ""}.`
+        : pr.behind ? `Nice. ${pr.behind.toLocaleString()} more are ready — take the next ${Math.min(n, pr.behind)}?` : "That's everyone the book has a reason for right now.";
+      block.innerHTML = `
+        <div class="row" style="align-items:center">
+          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div></div>
+          ${pr.behind ? `<button type="button" class="btn btn-sm ${pr.left ? "btn-ghost" : "btn-primary"}" data-act="more-today" style="flex:none">${pr.total ? `${Math.min(n, pr.behind)} more` : `Bring up ${Math.min(n, pr.behind)}`}</button>` : ""}
+        </div>
+        ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}`;
+      const more = block.querySelector('[data-act="more-today"]');
+      if (more) more.addEventListener("click", () => { const added = morePicks(n); if (!added.length) { toast("Nobody else is ready to bring up right now", ""); return; } toast(`${added.length} more brought up`, "success"); renderList({ keep: true }); });
+      frag.appendChild(block);
+      // A pick reached or put off from its tray: the count and the bar move
+      // now; the card leaves the batch on the next draw.
+      const refreshToday = () => {
+        if (!block.isConnected) return;
+        const q = pickProgress();
+        const strong = block.querySelector(".strong"), bar = block.querySelector(".today-bar > span");
+        if (strong && q.total) strong.textContent = q.left ? `Today's ${q.total} · ${q.reached} reached` : `All ${q.total} reached today`;
+        if (bar && q.total) bar.style.width = `${Math.round((q.reached / q.total) * 100)}%`;
+        block.classList.toggle("today-done", !!q.total && !q.left);
+      };
+      const list = document.createElement("div");
+      list.className = "today-list";
+      todayPicks.forEach((c) => list.appendChild(leadCard(c.lead, rememberSpot, { freshToday: !!c.fresh, onLongPress: startSelect, onListChange: () => renderList({ keep: true }), onWorked: refreshToday })));
+      frag.appendChild(list);
+      if (filtered.length) {
+        const h = document.createElement("div");
+        h.className = "section-title today-rest";
+        h.innerHTML = `The rest of the book <span class="muted">· ${filtered.length.toLocaleString()}</span>`;
+        frag.appendChild(h);
+      }
+    }
     // What the read of the book found, in one line above it.
     if (!selecting && !search && !aud && (filter === "all" || filter === "tocontact")) {
       const b = bookSummary();
@@ -682,6 +773,7 @@ export function renderLeads(view, { param }) {
     else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
+    if (dig) list = list.filter((l) => digPass(dig, l));
     // Timing keeps its own order: the month the window opens, soonest first.
     if (filter === "timing") return list;
     // Best deals first. The list's job is to read the whole book and put the
@@ -705,13 +797,14 @@ export function renderLeads(view, { param }) {
 // What a customer's card says. Drawn once on the way in and again in place
 // when something about them changes — a contact logged, a note added —
 // without rebuilding the card or the swipe behind it.
-function cardHTML(l, { quick = false, hz = null } = {}) {
+function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
   const st = stageMeta(l.stage);
   const fuDays = l.followUp ? daysFromToday(l.followUp) : null;
-  let fuBadge = "";
+  // In today's batch for the first time ever: say so.
+  let fuBadge = freshToday ? `<span class="badge badge-new" style="margin-left:6px">New to you</span>` : "";
   if (l.followUp && !["delivered", "lost"].includes(l.stage)) {
     const cls = fuDays < 0 ? "badge-due" : fuDays === 0 ? "badge-due" : fuDays <= 2 ? "badge-soon" : "";
-    fuBadge = `<span class="badge ${cls}" style="margin-left:6px">${esc(relativeDay(l.followUp))}</span>`;
+    fuBadge += `<span class="badge ${cls}" style="margin-left:6px">${esc(relativeDay(l.followUp))}</span>`;
   }
   // Under the Timing chip: the month the window opens, and why.
   const timing = hz ? `<div class="row-reasons hz-line">${hz.m === 0 ? '<span class="badge badge-due">Now</span>' : `<span class="badge badge-soon">${esc(monthLabel(hz.at))}</span>`} ${esc(hz.why)}</div>` : "";
@@ -828,6 +921,8 @@ function leadCard(l, onOpen, extra = {}) {
           const rec = logContactFor(l, w.via, redraw, outcome);
           if (!rec) { api.close(); return; }
           noteWorked(l.id, "contacted");
+          // The day's count moves at once (the batch block above the list).
+          if (extra.onWorked) { try { extra.onWorked(); } catch { /* the block redraws next time */ } }
           api.expand([
             { label: "Note", icon: "mic", kind: "note", onTap: () => {
               api.close();
@@ -853,6 +948,7 @@ function leadCard(l, onOpen, extra = {}) {
         const was = l.prospectSnoozedUntil || null;
         const until = snoozeProspect(l.id);
         noteWorked(l.id, "not now");
+        if (extra.onWorked) { try { extra.onWorked(); } catch { /* fine */ } }
         api.close();
         if (extra.onListChange) extra.onListChange();
         undoToast(`Not now — back ${relativeDay(until)}`, () => {

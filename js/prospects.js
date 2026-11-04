@@ -82,22 +82,58 @@ export function getProspects() {
   if (saved && saved.day === day) {
     return saved.ids
       .map((id) => all.find((c) => c.lead.id === id))
-      .filter((c) => c && stillOpen(c.lead, day));
+      .filter((c) => c && stillOpen(c.lead, day))
+      .map((c) => ({ ...c, fresh: isFresh(c.lead, day) }));
   }
   const n = Math.max(0, Number(store.getSettings().dailyProspects ?? 10));
   const picks = all.filter((c) => eligible(c.lead)).slice(0, n);
   writePicks({ day, ids: picks.map((c) => c.lead.id) });
-  // Stamp them as surfaced, so tomorrow moves on to the next handful. After
-  // the current paint: this runs inside Home's render, and a store write
-  // there would re-enter it.
+  stampSurfaced(picks);
+  return picks.map((c) => ({ ...c, fresh: !c.lead.firstProspectedAt }));
+}
+
+// Never brought up before today: the first time this customer has had a turn.
+const isFresh = (l, day) => !l.firstProspectedAt || String(l.firstProspectedAt).slice(0, 10) === day;
+
+// Stamp them as surfaced, so tomorrow moves on to the next handful — and the
+// first time ever, so "new to you" can be said. After the current paint:
+// this runs inside a render, and a store write there would re-enter it.
+function stampSurfaced(picks) {
   const now = new Date().toISOString();
   setTimeout(() => {
     store.bulk(() => picks.forEach((c) => {
       const l = store.get("leads", c.lead.id);
-      if (l && l.lastProspectedAt !== now) store.update("leads", l.id, { lastProspectedAt: now });
+      if (!l || l.lastProspectedAt === now) return;
+      store.update("leads", l.id, { lastProspectedAt: now, ...(l.firstProspectedAt ? {} : { firstProspectedAt: now }) });
     }));
   }, 0);
-  return picks;
+}
+
+// The day's batch, worked through: the next handful, added to today's picks
+// and stamped like the rest. Returns the ones added.
+export function morePicks(n = Number(store.getSettings().dailyProspects ?? 10)) {
+  const day = todayK();
+  const saved = readPicks() && readPicks().day === day ? readPicks() : { day, ids: [] };
+  const have = new Set(saved.ids);
+  const next = candidates().filter((c) => !have.has(c.lead.id) && eligible(c.lead)).slice(0, Math.max(0, n));
+  if (!next.length) return [];
+  writePicks({ day, ids: [...saved.ids, ...next.map((c) => c.lead.id)] });
+  stampSurfaced(next);
+  return next.map((c) => ({ ...c, fresh: !c.lead.firstProspectedAt }));
+}
+
+// Today's batch against the day: how many were picked, how many have been
+// reached or put off since, how many are still to do — and how many more
+// the book has ready behind them.
+export function pickProgress() {
+  const day = todayK();
+  const saved = readPicks();
+  const ids = saved && saved.day === day ? saved.ids : [];
+  let reached = 0;
+  ids.forEach((id) => { const l = store.get("leads", id); if (!l || !stillOpen(l, day)) reached++; });
+  const have = new Set(ids);
+  const behind = candidates().filter((c) => !have.has(c.lead.id) && eligible(c.lead)).length;
+  return { total: ids.length, reached, left: ids.length - reached, behind };
 }
 
 // "Not now." A month off the list, and off today's.

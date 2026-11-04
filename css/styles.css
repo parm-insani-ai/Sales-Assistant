@@ -711,6 +711,17 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
    chip carried a rectangular smudge under a rounded shape. No shadow here:
    the fill is the highlight. */
 .lead-chips .btn-primary { box-shadow: none; }
+/* Dig: the cuts of the book, one scrolling line under the chips. */
+.dig-row { margin-top: -2px; margin-bottom: 8px; }
+.dig-chip { font-size: 0.76rem; padding: 5px 10px; }
+.dig-chip .dig-count { opacity: 0.75; font-weight: 600; margin-left: 2px; }
+/* Today's batch at the top of Best now: fresh each morning, worked through. */
+.today-block { padding: 12px 14px; margin-bottom: 10px; border-color: var(--brand); }
+.today-block .today-bar { height: 6px; border-radius: 3px; background: var(--border); margin-top: 8px; overflow: hidden; }
+.today-block .today-bar > span { display: block; height: 100%; background: var(--brand); border-radius: 3px; }
+.today-block.today-done { border-color: var(--success); }
+.today-block.today-done .today-bar > span { background: var(--success); }
+.badge-new { color: var(--brand-strong); background: var(--brand-tint); }
 
 /* Why this customer, on the card and on their page. */
 .row-reasons { color: var(--text-2, var(--text)); font-size: 0.8rem; margin-top: 5px; line-height: 1.35; }

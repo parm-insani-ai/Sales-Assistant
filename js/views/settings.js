@@ -99,7 +99,7 @@ export function renderSettings(view) {
     ${fold("plan", "Follow-up plan", `${n(s.cadence)} touch${n(s.cadence) === 1 ? "" : "es"} · ${s.dailyProspects ?? 10} a day`, `
       <div class="field-inline">
         <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
-        <div class="field"><label>Prospects a day</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
+        <div class="field"><label>Today's batch (Outreach and Home)</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
       </div>
       <label class="switch" style="margin-bottom:14px"><input id="s-autocad" type="checkbox" ${s.autoCadence ? "checked" : ""}><span>Start a plan on every new lead</span></label>
       <div class="small muted" style="margin:0 0 6px">The touches on each new lead</div>

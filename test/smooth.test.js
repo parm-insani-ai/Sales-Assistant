@@ -346,7 +346,9 @@ console.log("\nOutreach layout:");
     if (!closed) fail("Show fewer should close the group back to three");
   }
 
-  // Long press: selecting, with that card picked.
+  // Long press: selecting, with that card picked. (Show fewer scrolled the
+  // group's heading into view; the first card — today's batch — sits above it.)
+  await p.evaluate(() => { document.getElementById("view").scrollTop = 0; }); await p.waitForTimeout(150);
   const box = await p.locator(".lead-list .card-tap").first().boundingBox();
   await p.mouse.move(box.x + 40, box.y + 20); await p.mouse.down(); await p.waitForTimeout(800); await p.mouse.up(); await p.waitForTimeout(300);
   const sel = await p.evaluate(() => ({ hash: location.hash, bar: !!document.querySelector('[data-act="sel-del"]'), count: document.querySelector("#sel-count")?.textContent }));
