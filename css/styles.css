@@ -732,6 +732,9 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .row-contact.row-contact-try { color: var(--warning); }
 /* Pick up where you left off: a pill at the foot of a scrolled Outreach list. */
 .resume-pill { position: fixed; left: 50%; bottom: calc(86px + var(--safe-bottom)); transform: translateX(-50%); z-index: 15; display: inline-flex; align-items: center; gap: 7px; padding: 9px 10px 9px 14px; border: 0; border-radius: 999px; background: var(--text); color: var(--surface); font-size: 0.86rem; font-weight: 650; box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.22)); cursor: pointer; animation: resume-in 0.22s ease; }
+/* Its own display beats the browser's rule for [hidden]: without this the
+   empty pill sat on the screen as a black dot, and a tapped one never went. */
+.resume-pill[hidden] { display: none !important; }
 .resume-pill .ico { width: 16px; height: 16px; }
 .resume-pill .resume-x { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.14); font-size: 1rem; line-height: 1; margin-left: 2px; }
 @keyframes resume-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }

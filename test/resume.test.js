@@ -25,8 +25,11 @@ await p.waitForSelector('[data-filter="all"]', { timeout: 20000 });
 
 const state = () => p.evaluate(() => {
   const pill = document.querySelector(".resume-pill");
+  // Shown means drawn: an attribute the stylesheet ignores is no use.
+  const drawn = pill && getComputedStyle(pill).display !== "none" && pill.getBoundingClientRect().width > 0;
   return {
-    pill: pill && !pill.hidden ? pill.textContent.replace(/\s+/g, " ").trim() : null,
+    pill: drawn ? pill.textContent.replace(/\s+/g, " ").trim() : null,
+    dot: !!drawn && !pill.textContent.trim(),
     chip: document.querySelector(".lead-seg .btn-primary")?.dataset.filter,
     dig: document.querySelector(".dig-chip.btn-primary")?.dataset.dig || null,
     top: document.getElementById("view").scrollTop,
@@ -42,8 +45,8 @@ const toHomeAndBack = async () => {
 
 // --- Nothing left off yet: no pill on a fresh visit.
 let s = await state();
-console.log("first visit:", JSON.stringify({ pill: s.pill, chip: s.chip }));
-if (s.pill) fail("a pill showed before anywhere was left off: " + s.pill);
+console.log("first visit:", JSON.stringify({ pill: s.pill, dot: s.dot, chip: s.chip }));
+if (s.pill !== null || s.dot) fail("a pill (or an empty dot of one) showed before anywhere was left off: " + JSON.stringify({ pill: s.pill, dot: s.dot }));
 
 // --- Scroll a long way down All, go to Home, come back: Outreach opens fresh
 // on Best now, and the pill offers the place left off on All.
