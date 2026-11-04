@@ -148,7 +148,7 @@ const catLabel = (key) => (WHY_CATEGORIES.find((c) => c.key === key) || { label:
 export function callReport({ weeks = 4, now = Date.now() } = {}) {
   const idx = index();
   const since = now - weeks * 7 * DAY;
-  const rows = store.all("events").filter((e) => e.kind === "session_outcome" && e.leadId && new Date(e.at).getTime() >= since);
+  const rows = store.all("events").filter((e) => e.kind === "session_outcome" && e.leadId && !(e.meta && e.meta.undone) && new Date(e.at).getTime() >= since);
   const tally = () => ({ dials: 0, reached: 0, booked: 0 });
   const bump = (t, e) => { t.dials++; if (REACHED.has(e.meta && e.meta.outcome)) t.reached++; if (outcomesFor({ at: e.at, leadId: e.leadId }, idx).booked) t.booked++; };
   const byR = new Map(), byO = new Map();
@@ -196,7 +196,7 @@ export function reasonWeights({ weeks = 12, now = Date.now() } = {}) {
   const tries = new Map();
   const add = (key, booked) => { const t = tries.get(key) || { n: 0, booked: 0 }; t.n++; if (booked) t.booked++; tries.set(key, t); };
   store.all("outreach").filter((r) => new Date(r.at).getTime() >= since).forEach((r) => add(categoryOf((r.reasons || [])[0]), outcomesFor(r, idx).booked));
-  store.all("events").filter((e) => e.kind === "session_outcome" && e.leadId && new Date(e.at).getTime() >= since)
+  store.all("events").filter((e) => e.kind === "session_outcome" && e.leadId && !(e.meta && e.meta.undone) && new Date(e.at).getTime() >= since)
     .forEach((e) => add((e.meta && e.meta.reason) || "other", outcomesFor({ at: e.at, leadId: e.leadId }, idx).booked));
   const all = [...tries.values()].reduce((s, t) => ({ n: s.n + t.n, booked: s.booked + t.booked }), { n: 0, booked: 0 });
   if (all.n < MIN_ALL) return {};

@@ -52,41 +52,113 @@ export function startSession(ids = null) {
 export function currentSession() {
   const s = read();
   if (!s || s.day !== todayK() || s.endedAt) return null;
-  return { ...s, total: s.ids.length, left: s.ids.length - s.idx };
+  return { ...s, total: s.ids.length, left: s.ids.filter((id) => !doneFor(s, id)).length };
 }
 
-/** The customer up now, with their read — or null when the queue is done. */
+/**
+ * The customer on the screen, with what's been recorded for them in this
+ * session, if anything: { lead, i, of, done }. Null when there's nobody at
+ * the position (an empty session). A record deleted under the session is
+ * stepped over.
+ */
 export function currentCustomer() {
   const s = currentSession();
-  if (!s) return null;
-  for (let i = s.idx; i < s.ids.length; i++) {
+  if (!s || !s.ids.length) return null;
+  for (let step = 0; step < s.ids.length; step++) {
+    const i = (s.idx + step) % s.ids.length;
     const lead = store.get("leads", s.ids[i]);
-    if (lead && lead.phone && !lead.badPhone) {
-      if (i !== s.idx) { s.idx = i; write({ ...read(), idx: i }); }
-      return { lead, i, of: s.ids.length };
+    if (lead) {
+      if (i !== s.idx) write({ ...read(), idx: i });
+      return { lead, i, of: s.ids.length, done: doneFor(s, lead.id) };
     }
   }
   return null;
 }
 
-/** Skip the one up: they come back at the end of the queue, once. */
-export function skipCurrent() {
-  const s = read();
-  if (!s || s.idx >= s.ids.length) return;
-  const id = s.ids[s.idx];
-  const already = s.done.some((d) => d.id === id && d.outcome === "skipped");
-  const ids = s.ids.slice();
-  ids.splice(s.idx, 1);
-  if (!already) { ids.push(id); s.done.push({ id, outcome: "skipped", at: new Date().toISOString() }); }
-  write({ ...s, ids });
+/** What's been recorded for a customer in this session, or null. */
+export function doneFor(s, leadId) {
+  return (s && s.done || []).find((d) => d.id === leadId) || null;
 }
 
-function advance(id, outcome, extra = {}) {
+/** Everyone in the session, in order, with their state: [{ id, name, outcome, i }]. */
+export function roster() {
+  const s = currentSession();
+  if (!s) return [];
+  return s.ids.map((id, i) => { const l = store.get("leads", id); const d = doneFor(s, id); return { id, i, name: l ? l.name : "", outcome: d ? d.outcome : null, current: i === s.idx }; });
+}
+
+/** Move to a position, or by a step — back and forth, around the ends. */
+export function goTo(i) {
+  const s = read();
+  if (!s || !s.ids.length) return;
+  const n = s.ids.length;
+  write({ ...s, idx: ((Number(i) % n) + n) % n });
+}
+export function goNext() { const s = read(); if (s) goTo(s.idx + 1); }
+export function goPrev() { const s = read(); if (s) goTo(s.idx - 1); }
+
+/** The next position after `from` with no outcome yet, or -1 when everyone has one. */
+export function nextOpen(from = null) {
+  const s = read();
+  if (!s || !s.ids.length) return -1;
+  const start = from == null ? s.idx : from;
+  for (let step = 1; step <= s.ids.length; step++) {
+    const i = (start + step) % s.ids.length;
+    if (!doneFor(s, s.ids[i])) return i;
+  }
+  return -1;
+}
+
+/** Skip: on to the next one. (Kept for the old name; nothing is reordered.) */
+export function skipCurrent() { goNext(); }
+
+/** A session under way picks up anyone the batch has brought up since it started. */
+export function extendSession() {
+  const s = read();
+  if (!s || s.day !== todayK() || s.endedAt) return 0;
+  const have = new Set(s.ids);
+  const more = sessionQueue().map((c) => c.lead.id).filter((id) => !have.has(id));
+  if (more.length) write({ ...s, ids: [...s.ids, ...more] });
+  return more.length;
+}
+
+function recordDone(id, entry) {
   const s = read();
   if (!s) return;
-  s.done.push({ id, outcome, at: new Date().toISOString(), ...extra });
-  if (s.ids[s.idx] === id) s.idx++;
+  s.done = s.done.filter((d) => d.id !== id);
+  s.done.push({ id, at: new Date().toISOString(), ...entry });
+  // On to the next one without an answer; with everyone answered, stay.
+  const next = nextOpen(s.ids.indexOf(id) >= 0 ? s.ids.indexOf(id) : s.idx);
+  if (next >= 0) s.idx = next;
   write(s);
+}
+
+/**
+ * Take back what was recorded for a customer in this session — the contact
+ * record, the follow-ups it put on the queue, the park, the retired number
+ * — so a different answer can be given. An appointment booked stays on the
+ * calendar (it's theirs to cancel). Returns true when something was undone.
+ */
+export function revertOutcome(leadId) {
+  const s = read();
+  const d = s && doneFor(s, leadId);
+  if (!d) return false;
+  const prev = d.prev || {};
+  store.bulk(() => {
+    if (d.recId && store.get("calls", d.recId)) store.remove("calls", d.recId);
+    (d.taskIds || []).forEach((tid) => { if (store.get("tasks", tid)) store.remove("tasks", tid); });
+    if (store.get("leads", leadId)) {
+      const back = {};
+      ["lastContacted", "lastContactVia", "lastContactOutcome", "loggedAt", "followUp", "prospectSnoozedUntil", "notInterestedAt", "badPhone", "badPhoneAt"].forEach((k) => { if (k in prev) back[k] = prev[k] == null ? null : prev[k]; });
+      if (Object.keys(back).length) store.update("leads", leadId, back);
+    }
+    // The call stays on the event log, marked undone, so the readout
+    // doesn't count it (outcomes.js).
+    if (d.eventId && store.get("events", d.eventId)) { const e = store.get("events", d.eventId); store.update("events", d.eventId, { meta: { ...(e.meta || {}), undone: true } }); }
+  });
+  s.done = s.done.filter((x) => x.id !== leadId);
+  write(s);
+  return true;
 }
 
 /** Close the session. Returns the summary. */
@@ -114,7 +186,7 @@ export function summarize(s = read()) {
     voicemail: count("voicemail"), noAnswer: count("no_answer"), wrongNumber: count("wrong_number"), notInterested: count("not_interested"),
     appointments,
     minutes: Math.max(1, Math.round((end - since) / 60000)),
-    total: s.ids.length, left: Math.max(0, s.ids.length - s.idx),
+    total: s.ids.length, left: s.ids.filter((id) => !doneFor(s, id)).length,
   };
 }
 
@@ -154,7 +226,11 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
   // in a few weeks, which reasons and which phrasings book (outcomes.js).
   const a = (() => { try { return assessment(leadId); } catch { return null; } })();
   const why = a ? callScript(a) : { cat: "other", variant: "a" };
-  let rec = null, line = "", tasks = [];
+  // A second answer for the same customer takes the first one back first.
+  const changed = revertOutcome(leadId);
+  const was = store.get("leads", leadId);
+  const prev = { lastContacted: was.lastContacted || null, lastContactVia: was.lastContactVia || null, lastContactOutcome: was.lastContactOutcome || null, loggedAt: was.loggedAt || null, followUp: was.followUp || null, prospectSnoozedUntil: was.prospectSnoozedUntil || null, notInterestedAt: was.notInterestedAt || null, badPhone: !!was.badPhone, badPhoneAt: was.badPhoneAt || null };
+  let rec = null, line = "", tasks = [], ev = null;
   store.bulk(() => {
     if (key === "reached" || key === "appointment") {
       rec = store.logContact(leadId, { via: "call", outcome: "reached", notes });
@@ -189,11 +265,11 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
       store.update("leads", leadId, { badPhone: true, badPhoneAt: at });
       line = `Wrong number — ${fn} is off the lists until there's a new one.`;
     } else return;
-    store.logEvent("session_outcome", { leadId, meta: { outcome: key, reason: why.cat, opener: why.variant } });
+    ev = store.logEvent("session_outcome", { leadId, meta: { outcome: key, reason: why.cat, opener: why.variant } });
   });
   if (!rec) return null;
-  advance(leadId, key, { recId: rec.id });
-  return { rec, line, tasks };
+  recordDone(leadId, { outcome: key, recId: rec.id, taskIds: tasks.map((t) => t.id), eventId: ev ? ev.id : null, prev });
+  return { rec, line: changed ? `Changed. ${line}` : line, tasks, changed };
 }
 
 // ---- The script ----

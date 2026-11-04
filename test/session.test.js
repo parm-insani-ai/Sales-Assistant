@@ -84,6 +84,30 @@ after = await p.evaluate(async (id) => { const st = await import("/js/store.js")
 console.log("no answer:", JSON.stringify(after));
 if (after.out !== "no_answer" || after.tasks.length !== 1 || !/Call Owner again — (try the|they tend to pick up) (mornings|afternoons|around midday|evenings)/.test(after.tasks[0])) fail("no answer should set one retry at the other half of the day: " + JSON.stringify(after));
 
+// --- Back and forth. ‹ Back twice lands on the first, their answer lit and
+// said; another outcome changes it (the message's follow-ups go, a retry
+// comes); Undo clears it; the answer given again stands. Then on to the
+// next one without an answer.
+await p.click('[data-act="prev"]'); await p.waitForTimeout(200);
+await p.click('[data-act="prev"]'); await p.waitForTimeout(300);
+let lit = await p.evaluate(() => ({ name: document.querySelector(".cs-name")?.textContent.trim(), picked: document.querySelector(".cs-out-picked")?.dataset.outcome, recorded: document.querySelector(".cs-recorded")?.textContent.replace(/\s+/g, " ").trim(), chips: [...document.querySelectorAll(".cs-chip")].map((c) => [...c.classList].filter((k) => k !== "cs-chip").join(" ")), now: document.querySelector(".cs-chip-now")?.textContent.trim() }));
+console.log("back on the first:", JSON.stringify(lit));
+if (lit.name !== first || lit.picked !== "voicemail" || !/Recorded: Left a message/.test(lit.recorded || "")) fail("going back should show the first with their answer lit: " + JSON.stringify(lit));
+if (lit.chips.length !== 6 || !/cs-chip-later/.test(lit.chips[0]) || !/cs-chip-later/.test(lit.chips[1]) || !/cs-chip-now/.test(lit.chips[0])) fail("the strip should show each person's state: " + JSON.stringify(lit.chips));
+await p.click('[data-outcome="no_answer"]'); await p.waitForTimeout(500);
+let changed = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, calls: st.all("calls").filter((x) => x.leadId === id).map((x) => x.outcome), tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).map((t) => t.title), progress: document.querySelector(".cs-progress")?.textContent.replace(/\s+/g, " ").trim() }; }, firstId);
+console.log("changed to no answer:", JSON.stringify(changed));
+if (changed.out !== "no_answer" || changed.calls.join() !== "no_answer" || changed.tasks.length !== 1 || !/^Call Owner again/.test(changed.tasks[0])) fail("changing the answer should take the message's paperwork back and do the new one: " + JSON.stringify(changed));
+if (!/3 of 6/.test(changed.progress || "")) fail("after a change the next one without an answer is up: " + changed.progress);
+await p.click('.cs-chip[data-go="0"]'); await p.waitForTimeout(300);
+await p.click('[data-act="undo"]'); await p.waitForTimeout(400);
+const cleared = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, last: l.lastContacted, calls: st.all("calls").filter((x) => x.leadId === id).length, tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).length, picked: document.querySelector(".cs-out-picked")?.dataset.outcome || null, name: document.querySelector(".cs-name")?.textContent.trim() }; }, firstId);
+console.log("undone:", JSON.stringify(cleared));
+if (cleared.name !== first || cleared.out || cleared.last || cleared.calls || cleared.tasks || cleared.picked) fail("Undo should clear the answer and its paperwork: " + JSON.stringify(cleared));
+await p.click('[data-outcome="voicemail"]'); await p.waitForTimeout(500);
+const again = await p.evaluate(async (id) => { const st = await import("/js/store.js"); return { calls: st.all("calls").filter((x) => x.leadId === id).map((x) => x.outcome), tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).length, progress: document.querySelector(".cs-progress")?.textContent.replace(/\s+/g, " ").trim() }; }, firstId);
+if (again.calls.join() !== "voicemail" || again.tasks !== 2 || !/3 of 6/.test(again.progress || "")) fail("the answer given again should stand, and the third be up: " + JSON.stringify(again));
+
 // --- Not interested: a contact, parked six months, not on the log.
 c = await card(); const thirdId = await idOf(c.name);
 await p.click('[data-outcome="not_interested"]'); await p.waitForTimeout(500);
@@ -113,8 +137,7 @@ await p.click('.cs-slot .note-panel [data-act="cancel"]'); await p.waitForTimeou
 c = await card();
 if (!/6 of 6/.test(c.progress || "")) fail("after the note the last customer should be up: " + c.progress);
 
-// --- Skip: they go to the back; with one left that's the same card, so End.
-// Appointment: the booking form opens; booking carries the session on.
+// --- Appointment: the booking form opens; booking carries the session on.
 const sixthId = await idOf(c.name);
 await p.click('[data-outcome="appointment"]'); await p.waitForTimeout(500);
 const form = await p.evaluate(() => ({ modal: !!document.querySelector(".modal-backdrop"), name: document.querySelector('.modal [name="customerName"]')?.value }));
@@ -124,14 +147,24 @@ await p.click('.modal button[type="submit"]'); await p.waitForTimeout(900);
 after = await p.evaluate(async (id) => { const st = await import("/js/store.js"); return { appts: st.all("appointments").filter((a) => a.leadId === id).length, logged: !!st.get("leads", id).loggedAt }; }, sixthId);
 if (after.appts !== 1 || !after.logged) fail("the appointment should be booked and the contact logged: " + JSON.stringify(after));
 
-// --- The queue is done: the summary.
-await p.waitForSelector(".cs-summary", { timeout: 5000 }).catch(() => fail("the summary should follow the last customer"));
+// --- Everyone answered: the summary, with the session still open to go
+// back through; End session closes it.
+await p.waitForSelector(".cs-summary", { timeout: 5000 }).catch(() => fail("the summary should follow the last answer"));
+const openSum = await p.evaluate(() => ({ head: document.querySelector(".cs-summary .strong")?.textContent.trim(), review: !!document.querySelector('[data-act="review"]'), finish: !!document.querySelector('[data-act="finish"]') }));
+if (openSum.head !== "Everyone's answered" || !openSum.review || !openSum.finish) fail("the summary over an open session should offer the way back and the end: " + JSON.stringify(openSum));
+await p.click('[data-act="review"]'); await p.waitForTimeout(300);
+if (!(await p.evaluate(() => !!document.querySelector(".cs-card")))) fail("Go back through them should show a customer again");
+await p.click('[data-act="end"]'); await p.waitForTimeout(300);
+await p.click('[data-act="finish"]'); await p.waitForTimeout(300);
+if ((await p.evaluate(() => document.querySelector(".cs-summary .strong")?.textContent.trim())) !== "Session done") fail("End session should close it");
 const sum = await p.evaluate(() => ({ stats: [...document.querySelectorAll(".cs-stat")].map((s) => `${s.querySelector(".cs-stat-n").textContent.trim()} ${s.querySelector(".cs-stat-l").textContent.trim()}`), text: document.querySelector(".cs-summary")?.textContent.replace(/\s+/g, " ") }));
 console.log("summary:", JSON.stringify(sum.stats));
 if (sum.stats[0] !== "6 dials" || sum.stats[1] !== "3 reached" || sum.stats[2] !== "1 appointment") fail("the summary should count the session: " + JSON.stringify(sum.stats));
 if (!/1 message left · 1 no answer · 1 not interested · 1 wrong number/.test(sum.text || "")) fail("the summary should break the misses down: " + sum.text);
 const ev = await p.evaluate(async () => { const st = await import("/js/store.js"); return st.all("events").filter((e) => /^session_/.test(e.kind)).map((e) => e.kind); });
-if (ev.filter((k) => k === "session_outcome").length !== 6 || !ev.includes("session_start") || !ev.includes("session_end")) fail("the session should be on the event log: " + ev.join());
+if (ev.filter((k) => k === "session_outcome").length !== 8 || !ev.includes("session_start") || !ev.includes("session_end")) fail("every answer, changed ones too, should be on the event log: " + ev.join());
+const live = await p.evaluate(async () => { const st = await import("/js/store.js"); return st.all("events").filter((e) => e.kind === "session_outcome" && !(e.meta && e.meta.undone)).length; });
+if (live !== 6) fail("the answers taken back should be marked undone, leaving six that count: " + live);
 
 // --- Back on Outreach: the batch moved on (five reached or parked, the
 // wrong number gone), and a fresh session is offered for the rest tomorrow.
@@ -146,12 +179,20 @@ await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(300);
 await p.evaluate(() => { location.hash = "#/session"; }); await p.waitForTimeout(600);
 c = await card();
 if (!/1 of 2/.test(c.progress || "")) fail("a session started should come back where it was: " + c.progress);
-await p.click('[data-act="skip"]'); await p.waitForTimeout(300);
+await p.click('[data-act="next"]'); await p.waitForTimeout(300);
 c = await card();
-console.log("after a skip:", c.progress, c.name);
-if (!/1 of 2/.test(c.progress || "") || c.name !== "Owner 11 Example") fail("skip should bring the next one up and send the skipped to the back: " + JSON.stringify({ progress: c.progress, name: c.name }));
+console.log("after Next:", c.progress, c.name);
+if (!/2 of 2/.test(c.progress || "") || c.name !== "Owner 11 Example") fail("Next should bring the next one up: " + JSON.stringify({ progress: c.progress, name: c.name }));
+await p.click('[data-act="next"]'); await p.waitForTimeout(300);
+c = await card();
+if (!/1 of 2/.test(c.progress || "")) fail("Next past the end comes round to the first: " + c.progress);
+await p.click('[data-act="prev"]'); await p.waitForTimeout(300);
+c = await card();
+if (!/2 of 2/.test(c.progress || "")) fail("Back from the first comes round to the last: " + c.progress);
 await p.click('[data-act="end"]'); await p.waitForTimeout(300);
-if (!(await p.evaluate(() => !!document.querySelector(".cs-summary")))) fail("End should show the summary");
+if (!(await p.evaluate(() => !!document.querySelector(".cs-summary") && !!document.querySelector('[data-act="finish"]')))) fail("End should show the summary over the open session");
+await p.click('[data-act="finish"]'); await p.waitForTimeout(300);
+if (!(await p.evaluate(() => /Session done/.test(document.querySelector(".cs-summary")?.textContent || "")))) fail("End session should close it");
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
