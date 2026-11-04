@@ -29,7 +29,7 @@ const LOADERS = {
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), stats: () => import("./views/stats.js"), daylog: () => import("./views/daylog.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
   dealbuilder: () => import("./views/dealbuilder.js"),
   log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"), sold: () => import("./views/sold.js"),
-  delivered: () => import("./views/delivered.js"),
+  delivered: () => import("./views/delivered.js"), session: () => import("./views/session.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
 let mountToken = 0;
@@ -160,6 +160,7 @@ const PAGES = {
   "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
+  "/session": { title: "Calling", render: lazyView("session", "renderSession") },
   "/sold": { title: "Sold", render: lazyView("sold", "renderSold") },
   // Everyone delivered: their contact details and the pictures of their
   // contract. From Delivered on the "+" sheet.
@@ -246,6 +247,7 @@ function parentOf(base, param, roots) {
   if (param && roots.includes(base)) return base;
   if (param && base === "/inbox") return "/comms";
   if (base === "/todo") return "/log"; // the work page says which chip (a plan step is the queue's)
+  if (base === "/session") return "/leads"; // the calling session backs out to Outreach
   if (base === "/calendar" && param) return "/appts"; // an appointment's page backs out to the list
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
   return "/";

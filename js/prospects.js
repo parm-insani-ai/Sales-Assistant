@@ -36,7 +36,8 @@ export function eligible(lead) {
   if (!lead || store.optedOut(lead)) return false;
   // Just bought, gone, or already at the table.
   if (["sold", "lost", "appointment", "negotiating"].includes(lead.stage)) return false;
-  if (!lead.phone && !lead.email) return false;
+  // A number that turned out wrong (a calling session said so) is no number.
+  if ((!lead.phone || lead.badPhone) && !lead.email) return false;
   if (within(lead.lastContacted, CONTACT_DAYS)) return false;
   if (within(lead.lastCampaignAt, CAMPAIGN_DAYS)) return false;
   if (lead.prospectSnoozedUntil && lead.prospectSnoozedUntil > todayK()) return false;
@@ -67,6 +68,7 @@ function stillOpen(lead, day) {
   if (["sold", "lost", "appointment", "negotiating"].includes(lead.stage)) return false;
   if (lead.prospectSnoozedUntil && lead.prospectSnoozedUntil > day) return false;
   if (lead.lastContacted && String(lead.lastContacted).slice(0, 10) >= day) return false;
+  if (lead.badPhone && !lead.email) return false;
   return true;
 }
 

@@ -716,6 +716,50 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .dig-row[hidden] { display: none; }
 .dig-chip { font-size: 0.76rem; padding: 5px 10px; }
 .dig-chip .dig-count { opacity: 0.75; font-weight: 600; margin-left: 2px; }
+/* The calling session: one customer at a time, the script, the number, the
+   outcomes. Big targets — this is used one-handed between calls. */
+.cs-page { padding-bottom: 12px; }
+.cs-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 10px; margin: 2px 2px 12px; }
+.cs-progress { font-size: 0.92rem; }
+.cs-bar { grid-column: 1 / -1; height: 5px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.cs-bar > span { display: block; height: 100%; background: var(--brand); border-radius: 999px; transition: width 0.3s ease; }
+.cs-card { padding: 16px; }
+.cs-who { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.cs-name { font-size: 1.35rem; font-weight: 750; line-height: 1.2; text-wrap: balance; }
+.cs-sub { color: var(--muted); font-size: 0.88rem; margin-top: 3px; }
+.cs-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.cs-reason { font-size: 0.78rem; font-weight: 650; padding: 4px 9px; border-radius: 999px; background: var(--brand-tint); color: var(--brand-strong); }
+.cs-script { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.cs-label { font-size: 0.72rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.cs-line { margin: 0; font-size: 1.02rem; line-height: 1.45; }
+.cs-ask { margin-top: 8px; color: var(--brand-strong); font-weight: 600; }
+.cs-obj { margin-top: 10px; }
+.cs-obj summary { cursor: pointer; font-size: 0.88rem; font-weight: 650; color: var(--muted); padding: 6px 0; }
+.cs-obj-row { padding: 8px 0; border-top: 1px solid var(--border); }
+.cs-obj-say { font-size: 0.86rem; color: var(--muted); font-style: italic; }
+.cs-obj-back { font-size: 0.94rem; margin-top: 3px; line-height: 1.4; }
+.cs-note { margin-top: 10px; color: var(--warning); display: flex; gap: 6px; align-items: flex-start; }
+.cs-note .ico { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.cs-dial { display: flex; width: 100%; justify-content: center; margin-top: 14px; padding: 15px; font-size: 1.05rem; border-radius: 14px; }
+.cs-dialed .cs-dial { opacity: 0.85; }
+.cs-outcomes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cs-out { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 11px 6px; border-radius: 14px; font-size: 0.86rem; font-weight: 650; background: var(--surface-2); border-color: transparent; box-shadow: none; }
+.cs-out .ico { width: 20px; height: 20px; }
+.cs-out-ok { background: var(--brand-tint); color: var(--brand-strong); }
+.cs-out-later { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning); }
+.cs-out-off { color: var(--muted); }
+.cs-out-picked { outline: 2px solid var(--brand); }
+.cs-out:disabled { opacity: 0.55; }
+.cs-slot:not(:empty) { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.cs-foot { display: flex; justify-content: space-between; gap: 8px; margin: 12px 2px 0; }
+.cs-start { text-align: center; padding: 26px 18px; }
+.cs-start-n { font-size: 3rem; font-weight: 800; line-height: 1; color: var(--brand); }
+.cs-summary { padding: 18px 16px; }
+.cs-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0 10px; }
+.cs-stat { text-align: center; padding: 10px 4px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.cs-stat-n { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cs-stat-l { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+.today-actions { margin-top: 10px; }
 /* Today's batch at the top of Best now: fresh each morning, worked through. */
 .today-block { padding: 12px 14px; margin-bottom: 10px; border-color: var(--brand); }
 .today-block .today-bar { height: 6px; border-radius: 3px; background: var(--border); margin-top: 8px; overflow: hidden; }

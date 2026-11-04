@@ -6,6 +6,7 @@ import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swip
 import { watchesFor, createWatch, cancelWatch, closeWatch, parseWant, isUseful, describeWant, vehicleFits } from "../watch.js";
 import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
+import { currentSession, startSession } from "../session.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
@@ -291,7 +292,7 @@ export function renderLeads(view, { param }) {
     const d = DIGS.find((x) => x.key === key);
     if (!d) return true;
     if (d.key === "quiet") { const t = l.lastContacted ? new Date(l.lastContacted).getTime() : 0; return !t || Date.now() - t > 180 * 86400000; }
-    if (d.key === "nonumber") return !l.phone;
+    if (d.key === "nonumber") return !l.phone || !!l.badPhone;
     const a = assessAll().byId.get(l.id);
     return !!(a && (a.reasons || []).some((r) => categoryOf(r) === d.cat));
   };
@@ -746,6 +747,7 @@ export function renderLeads(view, { param }) {
     // book under its reasons.
     if (todayMode) {
       const pr = pickProgress();
+      const sess = currentSession();
       const n = Math.max(1, Number(store.getSettings().dailyProspects ?? 10));
       const block = document.createElement("div");
       block.className = `card today-block${pr.total && !pr.left ? " today-done" : ""}`;
@@ -761,7 +763,12 @@ export function renderLeads(view, { param }) {
           <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div></div>
           ${pr.behind ? `<button type="button" class="btn btn-sm ${pr.left ? "btn-ghost" : "btn-primary"}" data-act="more-today" style="flex:none">${pr.total ? `${Math.min(n, pr.behind)} more` : `Bring up ${Math.min(n, pr.behind)}`}</button>` : ""}
         </div>
-        ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}`;
+        ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}
+        ${pr.left && todayPicks.some((c) => c.lead.phone && !c.lead.badPhone) ? `<div class="btn-row today-actions"><button type="button" class="btn btn-success btn-sm" data-act="start-session" style="flex:1">${icon("phone")} ${sess ? `Continue calling · ${sess.left} left` : "Start calling"}</button></div>` : ""}`;
+      // The session: today's batch one at a time, with the script and the
+      // outcomes (views/session.js). A session under way carries on.
+      const start = block.querySelector('[data-act="start-session"]');
+      if (start) start.addEventListener("click", () => { if (!sess) startSession(); navigate("/session"); });
       const more = block.querySelector('[data-act="more-today"]');
       if (more) more.addEventListener("click", () => { const added = morePicks(n); if (!added.length) { toast("Nobody else is ready to bring up right now", ""); return; } toast(`${added.length} more brought up`, "success"); renderList({ keep: true }); });
       frag.appendChild(block);
@@ -903,12 +910,14 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
   // how many payments are left, when it matures — or that it's paid off.
   // The one thing to do from the list: a drafted opener to review, a call
   // when there's no consent to text, or adding the number they lack.
-  const canText = !!l.phone && consentStatus(l).ok;
+  const canText = !!l.phone && !l.badPhone && consentStatus(l).ok;
   const act = canText
     ? `<button type="button" class="btn btn-primary btn-sm lc-act" data-lc="review">${icon("message")} Review</button>`
-    : l.phone
+    : l.phone && !l.badPhone
     ? `<a class="btn btn-primary btn-sm lc-act" data-lc="call" href="${telHref(l.phone)}">${icon("phone")} Call</a>`
-    : `<button type="button" class="btn btn-ghost btn-sm lc-act" data-lc="add">Add number</button>`;
+    : `<button type="button" class="btn btn-ghost btn-sm lc-act" data-lc="add">${l.badPhone ? "New number" : "Add number"}</button>`;
+  // A number a call found wrong: said on the card, until a new one is added.
+  if (l.badPhone) fuBadge += `<span class="badge badge-due" style="margin-left:6px">Wrong number</span>`;
   return `
     <div class="row lc-row">
       <div class="row-main">
@@ -1108,7 +1117,7 @@ function logContactFor(l, via, onChange, outcome = "reached") {
 // profile as a dated note and on the contact itself, so the thread shows
 // what the call was about. No engine, a blocked mic, a bad signal: the box
 // is there to type into, and the keyboard's own mic key still dictates.
-function notePanel(l, rec, onDone) {
+export function notePanel(l, rec, onDone) {
   const panel = document.createElement("div");
   panel.className = "note-panel";
   panel.innerHTML = `

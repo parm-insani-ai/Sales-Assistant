@@ -18,6 +18,7 @@ const PER_ACCOUNT_KEYS = [
   "viniva:sync", "viniva:prospects", "viniva:leads-spot", "viniva:leads-filter", "viniva:leads-opp",
   "viniva:outreach-pending", "viniva:playdismiss", "viniva:played", "viniva:sms-prefill", "viniva:autoemail-warned",
   "viniva:outreach:leftoff", // where the last account's scroll left off on Outreach
+  "viniva:session", // the last account's calling session
   // Who the last account was to the store: its team, whether it was an admin,
   // and which app it had chosen. Left behind, a rep signing in after the
   // admin inherits the admin's app — the board, no Leads, and "no previous
