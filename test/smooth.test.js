@@ -273,7 +273,7 @@ console.log("\nLeads filter memory:");
   await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(150);
   const fresh = await chips();
   console.log("  fresh:", JSON.stringify(fresh));
-  if (fresh.order.join(",") !== "tocontact,timing,due") fail(`chips are ordered ${fresh.order.join(", ")}`);
+  if (fresh.order.join(",") !== "tocontact,due,contacted") fail(`chips are ordered ${fresh.order.join(", ")}`);
   if (fresh.on !== "tocontact") fail(`the default filter is ${fresh.on}, not To contact`);
 
   await p.evaluate(() => document.querySelector('[data-filter="contacted"]').click()); await p.waitForTimeout(100);
@@ -316,7 +316,8 @@ console.log("\nOutreach layout:");
     const chips = [...document.querySelectorAll(".lead-seg [data-filter]")];
     return {
       buttons: [...document.querySelectorAll('[data-act="add-lead"], [data-act="select"], [data-act="opp"]')].length,
-      filter: !!document.querySelector('.lead-search-row [data-act="audience"]'),
+      filter: !!document.querySelector('.cut-row [data-act="audience"]'),
+      sort: [...document.querySelectorAll("[data-sort] option")].map((o) => o.value).join(","),
       chips: chips.map((c) => c.querySelector(".seg-name")?.textContent),
       fit: chips.every((c) => { const r = c.getBoundingClientRect(); return r.left >= vw.left && r.right <= vw.right + 1; }),
       acts: [...document.querySelectorAll(".lead-list .lc-act")].slice(0, 3).map((b) => b.textContent.trim()),
@@ -325,11 +326,12 @@ console.log("\nOutreach layout:");
   });
   console.log("  " + JSON.stringify(lay));
   if (lay.buttons) fail("Add customer / Select / By opportunity buttons are still above the list");
-  if (!lay.filter) fail("Filter should sit beside the search");
-  if (lay.chips.join(",") !== "Best now,Timing,Follow up,Contacted,All") fail("the chips are " + lay.chips.join(", "));
+  if (!lay.filter) fail("More… should sit at the end of the Cut row");
+  if (lay.sort !== "best,timing,quiet,equity") fail("the order select beside the search: " + lay.sort);
+  if (lay.chips.join(",") !== "Best now,Follow up,Contacted,All") fail("the chips are " + lay.chips.join(", "));
   if (!lay.fit) fail("a chip runs off the screen");
   if (!lay.acts.length) fail("the cards carry no action");
-  if (lay.banners) fail("the payment banner is still on the list cards");
+  if (!lay.banners) fail("the contract strip should be across the foot of the list cards, as on the customer's page");
 
   // Best now is grouped by why: known reason headings, at most three cards
   // under each, and "Show all" opens the rest of that group.

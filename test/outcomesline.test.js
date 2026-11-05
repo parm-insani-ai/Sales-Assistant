@@ -48,7 +48,9 @@ if (!/^Last 4 weeks: 3 texts sent · 1 replied · 1 booked\./.test(line.text)) f
 if (line.href !== "#/coach" || !/What's working/.test(line.text)) fail("the line doesn't lead to the readout: " + JSON.stringify(line));
 // The link lands on the readout.
 await p.click(".lead-outcomes a");
-await p.waitForFunction(() => location.hash === "#/coach" && /What's working/.test(document.body.textContent), null, { timeout: 10000 });
+await p.waitForFunction(() => location.hash === "#/coach", null, { timeout: 10000 });
+// (The page loads lazily: wait for the readout itself, not the hash.)
+await p.waitForSelector(".worked-card", { timeout: 10000 }).catch(() => fail("Coach's readout didn't draw"));
 const coach = await p.evaluate(() => document.querySelector(".worked-card")?.textContent.replace(/\s+/g, " ").trim().slice(0, 160));
 console.log("coach:", coach);
 if (!coach || !/3 opener/.test(coach)) fail("Coach's readout doesn't show the same three openers: " + coach);

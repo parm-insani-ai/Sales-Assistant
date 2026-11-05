@@ -24,13 +24,16 @@ await p.addInitScript(() => {
 });
 await p.goto(APP + "/#/leads");
 await p.waitForFunction(() => document.querySelectorAll("[data-lead-id]").length >= 3, null, { timeout: 15000 });
-// --- The list: compact cards, no contract figures on any of them.
+// --- The list: the card is laid out like the customer's page now, so the
+// contract strip — payment, payments left, rate — runs across its foot.
 const cards = await p.evaluate(() => [...document.querySelectorAll("[data-lead-id]")].map((c) => [c.querySelector(".row-title").textContent.trim(), !!c.querySelector(".contract-banner")]));
 console.log("cards:", JSON.stringify(cards));
+// (Lynn has nothing about a contract on file, so her card has no strip.)
 for (const who of ["Dana Muise", "Ravi Anand", "Lynn Chu"]) {
   const c = cards.find((x) => x[0] === who);
+  const should = who !== "Lynn Chu";
   if (!c) fail(who + " isn't on the list");
-  else if (c[1]) fail(who + "'s list card carries the contract banner — that belongs on their page");
+  else if (c[1] !== should) fail(who + (should ? "'s list card should carry the contract strip, as their page does" : "'s card has a contract strip with nothing on file"));
 }
 
 // --- Her page: the banner under the name box, no Current contract card.

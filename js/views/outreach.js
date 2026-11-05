@@ -42,6 +42,9 @@ export function renderOutreach(view) {
   let manual = null;
   try { manual = JSON.parse(sessionStorage.getItem(MANUAL) || "null"); sessionStorage.removeItem(MANUAL); } catch { manual = null; }
   let spec = sentence ? parseOutreach(sentence) : manual && manual.audience ? { channel: manual.channel || "text", audience: { ...emptyAudience(), ...manual.audience, unknown: [] }, message: "", raw: "" } : null;
+  // Handed over from Outreach as the people themselves (a cut, a saved
+  // list): only they are in, whatever else the audience would say.
+  const only = manual && Array.isArray(manual.ids) ? new Set(manual.ids) : null;
   let channel = spec ? spec.channel : "text";
   let message = spec ? spec.message : "";
   // With only who said, the message is written for them: the template at
@@ -72,10 +75,12 @@ export function renderOutreach(view) {
 
   function draw() {
     const s = store.getSettings();
-    const leads = store.all("leads");
+    // Handed over as the people themselves: the book is just them here —
+    // nobody outside the cut is in, or left out.
+    const leads = only ? store.all("leads").filter((l) => only.has(l.id)) : store.all("leads");
     const live = spec ? { ...spec, channel, message } : null;
     const aud = live ? audienceFor(live, leads, { channel, includeRecent, reach }) : { included: [], excluded: [] };
-    const recipients = aud.included.filter((l) => !skipped.has(l.id));
+    const recipients = aud.included.filter((l) => !skipped.has(l.id) && (!only || only.has(l.id)));
     const figures = figuresIn(message);
     const ready = channel === "text" ? smsReady() : emailSendConfigured();
     el.innerHTML = `

@@ -29,7 +29,9 @@ import {
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
-import { inAudience } from "../outreach.js";
+import { inAudience, emptyAudience } from "../outreach.js";
+import { classify } from "../segments.js";
+import { equityOf } from "../reach.js";
 import { outreachReport } from "../outcomes.js";
 import { openAudienceFilter, audienceLabel } from "./audience.js";
 import { horizonFor, monthLabel } from "../horizon.js";
@@ -56,7 +58,6 @@ let hz = { key: "", rows: null, byId: null, warming: null };
 const hzKey = () => ["leads", "vehicles", "settings"].map((n) => store.generation(n)).join("|");
 function timingReady() { return !!hz.rows && hz.key === hzKey(); }
 function timingRows() { return timingReady() ? hz.rows : null; }
-function timingLabel() { return timingReady() ? `Timing ${hz.rows.length.toLocaleString()}` : "Timing …"; }
 function warmTiming() {
   if (timingReady()) return Promise.resolve(hz.rows);
   if (hz.warming) return hz.warming;
@@ -136,13 +137,15 @@ export function renderLeads(view, { param }) {
   let aud = null;
   try { aud = JSON.parse(sessionStorage.getItem(AUD) || "null"); } catch { aud = null; }
   const keepAud = () => { try { if (aud) sessionStorage.setItem(AUD, JSON.stringify(aud)); else sessionStorage.removeItem(AUD); } catch {} };
-  const editAud = () => openAudienceFilter(aud, (a) => { aud = a; keepAud(); draw(); });
+  const editAud = () => openAudienceFilter(aud, (a) => { aud = a && !isEveryoneAud(a) ? a : null; listId = null; keepAud(); keepCuts(); refreshCutRow(); refreshList(); });
+  const isEveryoneAud = (a) => !a || !audienceLabel(a);
   // Hand the filtered people to Mass outreach. The stage chip rides along as
   // a stage rule; the search box doesn't, so what's shown is what's blasted
   // only when it's empty — the count on the screen says so either way.
   const blast = (channel) => {
-    const a = { ...aud };
-    try { sessionStorage.setItem("outreach-audience", JSON.stringify({ channel, audience: a })); } catch {}
+    const a = { ...(aud || emptyAudience()) };
+    const ids = applyFilter().map((l) => l.id);
+    try { sessionStorage.setItem("outreach-audience", JSON.stringify({ channel, audience: a, ids, label: cutLabel() })); } catch {}
     navigate("/outreach");
   };
   // all | active | due | <stage>.
@@ -168,7 +171,7 @@ export function renderLeads(view, { param }) {
   const opp = false;
   if (preset === "opportunity") preset = "tocontact";
   remember(OPP_KEY, null);
-  const CHIPS = ["tocontact", "timing", "due", "contacted", "all"];
+  const CHIPS = ["tocontact", "due", "contacted", "all"];
   // A step back from a customer: the chip you were on (the spot has it; the
   // remembered chip stands in when the spot is gone). Otherwise a fresh start.
   const back = isStepBack();
@@ -221,7 +224,8 @@ export function renderLeads(view, { param }) {
     if (!wrap.isConnected) { view.removeEventListener("scroll", pillCheck); return; }
     if (!leftOffShown || selecting) { pill.hidden = true; return; }
     // Already there, or past it, on the same chip and cut: nothing to offer.
-    const same = leftOff.filter === filter && (leftOff.dig || null) === dig && (leftOff.search || "") === search;
+    const sameCuts = JSON.stringify((leftOff.cuts || []).slice().sort()) === JSON.stringify([...cuts].sort());
+    const same = leftOff.filter === filter && sameCuts && (leftOff.search || "") === search;
     if (same && view.scrollTop > leftOff.top - 80) { leftOffShown = false; pill.hidden = true; return; }
     const where = leftOff.filter !== filter ? ` · ${CHIP_NAME[leftOff.filter] || ""}` : "";
     pill.innerHTML = `${icon("back")}<span>Pick up where you left off${esc(where)}</span><span class="resume-x" aria-label="Not now">×</span>`;
@@ -233,8 +237,10 @@ export function renderLeads(view, { param }) {
     if (e.target.closest(".resume-x")) { try { sessionStorage.setItem("viniva:outreach:resume-off", String(leftOff.at)); } catch { /* this visit */ } return; }
     if (!wrap.querySelector(".lead-list")) return;
     // The chip and the cut you were on, lit in place; the search you had typed.
-    if (CHIPS.includes(leftOff.filter) && leftOff.filter !== filter) { filter = leftOff.filter; remember(REMEMBER, filter); lightChips(); refreshDigRow(); }
-    if ((leftOff.dig || null) !== dig) { dig = leftOff.dig || null; keepDig(); lightDigChips(); }
+    if (CHIPS.includes(leftOff.filter) && leftOff.filter !== filter) { filter = leftOff.filter; remember(REMEMBER, filter); lightChips(); }
+    cuts = new Set(leftOff.cuts || []); listId = leftOff.listId || null; keepCuts();
+    if (leftOff.sort && SORTS.some((x) => x.key === leftOff.sort) && leftOff.sort !== sort) { sort = leftOff.sort; remember(SORT_KEY, sort); const sel = wrap.querySelector("[data-sort]"); if (sel) sel.value = sort; }
+    refreshCutRow();
     if ((leftOff.search || "") !== search) { search = leftOff.search || ""; const sb = wrap.querySelector('input[type="search"]'); if (sb) sb.value = search; }
     // The same cards back at once, then the same scroll — a position can't
     // be restored onto cards that don't exist yet.
@@ -248,7 +254,7 @@ export function renderLeads(view, { param }) {
   const keepLeftOff = () => {
     if (!wrap.isConnected || selecting || (opp && !selecting)) return;
     if (view.scrollTop < LEFT_OFF_MIN) { forgetLeftOff(); return; }
-    writeLeftOff({ filter, dig, search, top: view.scrollTop, shown, at: Date.now() });
+    writeLeftOff({ filter, cuts: [...cuts], listId, sort, search, top: view.scrollTop, shown, at: Date.now() });
   };
   let leftOffTimer = null;
   view.addEventListener("scroll", () => {
@@ -267,17 +273,32 @@ export function renderLeads(view, { param }) {
   // Put off with "Not now": off Best now until the date passes.
   const todayK = todayISO();
   const snoozed = (l) => !!l.prospectSnoozedUntil && l.prospectSnoozedUntil > todayK;
-  // Dig: one-tap cuts of the book by what the read found — equity, a
-  // contract ending, a payment match, years in the car — and by silence.
-  // Each is a lens over the chip showing, with its count, combinable with
-  // the search and the filter. Kept across a step into a customer and back;
-  // off again when Outreach is opened fresh from elsewhere.
-  const DIG_KEY = "viniva:leads-dig";
-  let dig = null;
-  const keepDig = () => { try { if (dig) sessionStorage.setItem(DIG_KEY, dig); else sessionStorage.removeItem(DIG_KEY); } catch { /* fine */ } };
-  try { dig = back ? sessionStorage.getItem(DIG_KEY) || null : null; } catch { dig = null; }
-  if (!back) keepDig();
-  const DIGS = [
+  // Cuts. One row under the chips, in place of the old Dig row and the
+  // Filter sheet: the book's own vehicles first (its models, its body
+  // styles), then what the read found — a payment match, equity, a
+  // contract ending, years in the car, a rate, a warranty, a service visit
+  // — and silence. Any number on at once, AND-ed, each with the count it
+  // would leave. "More…" opens the sheet for ranges (years, lease dates…),
+  // which sits in the row as a cut of its own. Kept across a step into a
+  // customer and back; off again when Outreach is opened fresh.
+  const CUTS_KEY = "viniva:leads-cuts";
+  let cuts = new Set();
+  let listId = null; // the saved list the cuts came from, if any
+  const keepCuts = () => { try { if (cuts.size || listId) sessionStorage.setItem(CUTS_KEY, JSON.stringify({ cuts: [...cuts], listId })); else sessionStorage.removeItem(CUTS_KEY); } catch { /* fine */ } };
+  try { if (back) { const c = JSON.parse(sessionStorage.getItem(CUTS_KEY) || "null"); if (c) { cuts = new Set(c.cuts || []); listId = c.listId || null; } } } catch { cuts = new Set(); }
+  if (!back) keepCuts();
+  // The order within any cut: best first, or by when the window opens, or
+  // longest since contact, or most equity. A preference, kept.
+  const SORT_KEY = "viniva:leads-sort";
+  const SORTS = [
+    { key: "best", label: "Best first" },
+    { key: "timing", label: "Soonest window" },
+    { key: "quiet", label: "Longest quiet" },
+    { key: "equity", label: "Most equity" },
+  ];
+  let sort = recall(SORT_KEY) || "best";
+  if (!SORTS.some((x) => x.key === sort)) sort = "best";
+  const REASON_CUTS = [
     { key: "payment", label: "Same payment", cat: "payment" },
     { key: "equity", label: "Equity", cat: "equity" },
     { key: "ending", label: "Contract ending", cat: "ending" },
@@ -285,27 +306,67 @@ export function renderLeads(view, { param }) {
     { key: "rate", label: "High rate", cat: "rate" },
     { key: "warranty", label: "Warranty ending", cat: "warranty" },
     { key: "service", label: "In service", cat: "service" },
-    { key: "engaged", label: "Reached out", cat: "engaged" },
     { key: "quiet", label: "Quiet 6+ mo" },
-    { key: "nonumber", label: "No number" },
   ];
-  const digPass = (key, l) => {
-    const d = DIGS.find((x) => x.key === key);
+  const BODY_LABEL = { suv: "SUVs", truck: "Trucks", car: "Sedans", van: "Vans", sports: "Sports cars" };
+  // The book's vehicles, as cuts: every model with a few owners (most
+  // first), then the body styles. Read once per change to the book.
+  let vehCache = { key: "", cuts: [] };
+  const vehicleCuts = () => {
+    const key = String(store.generation("leads"));
+    if (vehCache.key === key) return vehCache.cuts;
+    const models = new Map(), bodies = new Map();
+    store.all("leads").forEach((l) => {
+      const c = classify(String(l.vehicleInterest || ""));
+      if (c.model) models.set(c.model, (models.get(c.model) || 0) + 1);
+      if (c.body) bodies.set(c.body, (bodies.get(c.body) || 0) + 1);
+    });
+    const cap = (w) => String(w).replace(/\b\w/g, (ch) => ch.toUpperCase());
+    const out = [
+      ...[...models.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([m]) => ({ key: `model:${m}`, label: cap(m), kind: "vehicle", spec: { models: [m] } })),
+      ...[...bodies.entries()].filter(([b, n]) => n >= 3 && BODY_LABEL[b]).sort((a, b) => b[1] - a[1]).map(([b]) => ({ key: `body:${b}`, label: BODY_LABEL[b], kind: "vehicle", spec: { body: b } })),
+    ];
+    vehCache = { key, cuts: out };
+    return out;
+  };
+  const cutDef = (key) => vehicleCuts().find((c) => c.key === key) || REASON_CUTS.find((c) => c.key === key) || (key === "nonumber" ? { key, label: "No number", kind: "fix" } : null);
+  const cutPass = (key, l) => {
+    const d = cutDef(key);
     if (!d) return true;
+    if (d.kind === "vehicle") return inAudience({ ...emptyAudience(), ...d.spec }, l);
     if (d.key === "quiet") { const t = l.lastContacted ? new Date(l.lastContacted).getTime() : 0; return !t || Date.now() - t > 180 * 86400000; }
     if (d.key === "nonumber") return !l.phone || !!l.badPhone;
     const a = assessAll().byId.get(l.id);
     return !!(a && (a.reasons || []).some((r) => categoryOf(r) === d.cat));
   };
+  const passesCuts = (l) => { for (const k of cuts) if (!cutPass(k, l)) return false; return true; };
+  // What the cuts and the sheet say, in words: "Rogue · Equity · 2018–2021".
+  const cutLabel = () => [...[...cuts].map((k) => (cutDef(k) || { label: k }).label), aud ? audienceLabel(aud) : ""].filter(Boolean).join(" · ");
+  // Saved lists: a set of cuts with a name, kept on the phone. A list is a
+  // chip at the front of the row; it can be called as a session or blasted.
+  const LISTS_KEY = "viniva:leads-lists";
+  const lists = () => { try { return JSON.parse(localStorage.getItem(LISTS_KEY) || "[]"); } catch { return []; } };
+  const writeLists = (arr) => { try { localStorage.setItem(LISTS_KEY, JSON.stringify(arr)); } catch { /* fine */ } };
+  const saveList = (name) => {
+    const id = "list_" + Date.now().toString(36);
+    writeLists([...lists(), { id, name: String(name || "").trim() || cutLabel() || "My list", cuts: [...cuts], aud: aud || null, at: new Date().toISOString() }]);
+    listId = id; keepCuts();
+    return id;
+  };
+  const forgetList = (id) => { writeLists(lists().filter((x) => x.id !== id)); if (listId === id) { listId = null; keepCuts(); } };
+  const applyList = (id) => {
+    const x = lists().find((y) => y.id === id);
+    if (!x) return;
+    cuts = new Set(x.cuts || []); aud = x.aud || null; listId = id; keepCuts(); keepAud();
+  };
   const passes = (l) => {
     if (filter === "tocontact" && (inLog(l) || l.lastContacted || snoozed(l))) return false;
     if (filter === "contacted" && (inLog(l) || !l.lastContacted)) return false;
     if (filter === "due" && !dueNow(l)) return false;
-    if (filter === "timing" && !(timingReady() && hz.byId.has(l.id))) return false;
     const q = search.toLowerCase();
     if (q && !haystack(l).includes(q)) return false;
     if (aud && !inAudience(aud, l)) return false;
-    if (dig && !digPass(dig, l)) return false;
+    if (!passesCuts(l)) return false;
     return true;
   };
 
@@ -316,82 +377,137 @@ export function renderLeads(view, { param }) {
     const cnt = wrap.querySelector(".aud-count"); if (cnt) cnt.textContent = String(n);
   }
 
-  // The Dig row's chips, for the people the chip showing (and the filter and
-  // search) leave: each cut with its count, only the cuts that have anyone.
-  const digChipsHTML = (base) => DIGS.map((d) => {
-    const n = base.filter((l) => digPass(d.key, l)).length;
-    return n || dig === d.key ? `<button type="button" class="btn btn-sm ${dig === d.key ? "btn-primary" : "btn-ghost"} dig-chip" data-dig="${d.key}" aria-pressed="${dig === d.key}">${esc(d.label)} <span class="dig-count">${n.toLocaleString()}</span></button>` : "";
-  }).join("");
-  // The row is a scrolling line: the chip you're on stays in view, which a
-  // rewrite of the row (or a tap on a chip you scrolled to) would otherwise
-  // undo by snapping the row back to its first chip.
-  const showDigChip = (row) => {
-    const b = row && dig ? row.querySelector(`.dig-chip[data-dig="${dig}"]`) : null;
+  // The Cut row: the saved lists, the vehicles, the reasons, More…. Each
+  // cut carries the count it would leave on top of the cuts already on;
+  // a cut with nobody behind it isn't drawn unless it's on.
+  const cutChipsHTML = (base) => {
+    const narrowed = base.filter(passesCuts);
+    const count = (key) => (cuts.has(key) ? narrowed.length : narrowed.filter((l) => cutPass(key, l)).length);
+    const chip = (d) => {
+      const on = cuts.has(d.key);
+      const n = count(d.key);
+      if (!n && !on) return "";
+      return `<button type="button" class="btn btn-sm ${on ? "btn-primary" : "btn-ghost"} cut-chip cut-${d.kind || "reason"}" data-cut="${esc(d.key)}" aria-pressed="${on}">${esc(d.label)} <span class="cut-count">${n.toLocaleString()}</span></button>`;
+    };
+    const saved = lists().map((x) => `<button type="button" class="btn btn-sm ${listId === x.id ? "btn-primary" : "btn-ghost"} cut-chip cut-list" data-list="${esc(x.id)}" aria-pressed="${listId === x.id}">${icon("tag")} ${esc(x.name)}</button>`).join("");
+    const more = `<button type="button" class="btn btn-sm ${aud ? "btn-primary" : "btn-ghost"} cut-chip cut-more" data-act="audience" aria-pressed="${!!aud}">${icon("sliders")} ${aud ? esc(audienceLabel(aud)) : "More…"}</button>`;
+    return saved + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "") + more;
+  };
+  // The row is a scrolling line: the first cut that's on stays in view.
+  const showCutChip = (row) => {
+    const b = row ? row.querySelector(".cut-chip.btn-primary") : null;
     if (!b) return;
     const left = b.offsetLeft - row.offsetLeft, right = left + b.offsetWidth;
     if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 12);
     else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 12;
   };
-  // A dig chip, on or off again: the chips change in place and the list is
-  // re-narrowed; the row keeps its scroll and the page its place.
-  const wireDigChips = () => {
-    wrap.querySelectorAll("[data-dig]").forEach((b) => b.addEventListener("click", () => {
-      dig = dig === b.dataset.dig ? null : b.dataset.dig;
-      keepDig();
-      lightDigChips();
-      refreshList();
+  // A cut on or off, a list on or off: the row and the bar redraw in
+  // place and the list re-narrows; the row keeps its scroll.
+  const wireCutChips = () => {
+    wrap.querySelectorAll("[data-cut]").forEach((b) => b.addEventListener("click", () => {
+      const k = b.dataset.cut;
+      if (cuts.has(k)) cuts.delete(k); else cuts.add(k);
+      listId = null; keepCuts();
+      refreshCutRow(); refreshList();
     }));
+    wrap.querySelectorAll("[data-list]").forEach((b) => b.addEventListener("click", () => {
+      if (listId === b.dataset.list) { cuts = new Set(); aud = null; listId = null; keepCuts(); keepAud(); }
+      else applyList(b.dataset.list);
+      refreshCutRow(); refreshList();
+    }));
+    const more = wrap.querySelector('.cut-row [data-act="audience"]');
+    if (more) more.addEventListener("click", editAud);
   };
-  // The chips, lit for the filter and the cut as they stand.
   const lightChips = () => wrap.querySelectorAll("[data-filter]").forEach((x) => {
     const active = x.dataset.filter === filter;
     x.classList.toggle("btn-primary", active);
     x.classList.toggle("btn-ghost", !active);
     x.setAttribute("aria-selected", String(active));
   });
-  const lightDigChips = () => wrap.querySelectorAll("[data-dig]").forEach((x) => {
-    const active = x.dataset.dig === dig;
-    x.classList.toggle("btn-primary", active);
-    x.classList.toggle("btn-ghost", !active);
-    x.setAttribute("aria-pressed", String(active));
-  });
-  // The main chip changed: the Dig row's counts are over a different set now,
-  // and the row isn't drawn at all on Timing. Redone in place, scroll kept.
-  const refreshDigRow = () => {
-    const row = wrap.querySelector(".dig-row");
+  // The main chip or a cut changed: the row's counts, the bar and the
+  // hygiene line are over a different set now. Redone in place.
+  const refreshCutRow = () => {
+    const row = wrap.querySelector(".cut-row");
     if (!row) return;
-    const hide = selecting || filter === "timing";
-    row.hidden = hide;
-    if (hide) return;
+    row.hidden = selecting;
+    if (selecting) return;
     const x = row.scrollLeft;
-    row.innerHTML = digChipsHTML(digBaseList());
-    wireDigChips();
+    const base = cutBaseList();
+    row.innerHTML = cutChipsHTML(base);
+    wireCutChips();
     row.scrollLeft = x;
-    showDigChip(row);
+    showCutChip(row);
+    const bar = wrap.querySelector(".cut-bar-slot");
+    if (bar) { bar.innerHTML = cutBarHTML(base.filter(passesCuts).length); wireCutBar(); }
+    const hyg = wrap.querySelector(".lead-hygiene-slot");
+    if (hyg) { hyg.innerHTML = hygieneHTML(base); wireHygiene(); }
   };
-  // Everyone the chip, the search and the filter leave — before the dig
-  // itself narrows them, so each cut's count says what it would show.
-  function digBaseList() {
+  // Everyone the chip, the search and the sheet leave — before the cuts
+  // narrow them, so each cut's count says what it would leave.
+  function cutBaseList() {
     const q = search.toLowerCase();
     let list = store.all("leads");
     if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted && !snoozed(l));
     else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
     else if (filter === "due") list = list.filter(dueNow);
-    else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
     return list;
   }
+  // The bar under the row when a cut is on: how many, what, and what to
+  // do with them — call them as a session, text or email them, keep them
+  // as a list. (The same hooks the audience bar had, so the sheet's
+  // Text these and Email these still work the same way.)
+  const cutBarHTML = (n) => {
+    if (!cuts.size && !aud) return "";
+    const saved = listId ? lists().find((x) => x.id === listId) : null;
+    return `<div class="card lead-audience cut-bar" style="padding:10px 12px;margin-bottom:10px">
+      <div class="row" style="align-items:center">
+        <span class="small" style="min-width:0"><span class="strong aud-count">${n.toLocaleString()}</span> match · ${esc(saved ? saved.name : cutLabel())}</span>
+        <button class="modal-close" data-act="aud-clear" aria-label="Clear" title="Clear">&times;</button>
+      </div>
+      ${selecting ? "" : `<div class="btn-row cut-actions" style="margin-top:8px">
+        <button class="btn btn-success btn-sm" data-act="cut-call" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px" title="Call these as a session">${icon("phone")} Call</button>
+        <button class="btn btn-primary btn-sm" data-act="aud-text" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("message")} Text</button>
+        <button class="btn btn-primary btn-sm" data-act="aud-email" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("mail")} Email</button>
+        ${saved ? `<button class="btn btn-ghost btn-sm" data-act="list-forget" style="flex:0 0 auto" title="Forget this list">${icon("trash")}</button>` : `<button class="btn btn-ghost btn-sm" data-act="list-save" style="flex:0 0 auto" title="Save as a list">${icon("tag")} Save</button>`}
+      </div>`}
+    </div>`;
+  };
+  const wireCutBar = () => {
+    const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
+    on('[data-act="aud-clear"]', () => { cuts = new Set(); aud = null; listId = null; keepCuts(); keepAud(); refreshCutRow(); refreshList(); });
+    on('[data-act="aud-text"]', () => blast("text"));
+    on('[data-act="aud-email"]', () => blast("email"));
+    on('[data-act="cut-call"]', () => {
+      const ids = applyFilter().filter((l) => l.phone && !l.badPhone).map((l) => l.id);
+      if (!ids.length) { toast("Nobody here has a number to call", "warn"); return; }
+      rememberSpot(); startSession(ids, { name: cutLabel() || "this cut" }); navigate("/session");
+    });
+    on('[data-act="list-save"]', () => openModal("Save as a list", (close) => {
+      const { element } = buildForm([{ name: "name", label: "Name", value: cutLabel(), required: true, placeholder: "Rogue owners with equity" }], { submitLabel: "Save", onSubmit: (d) => { saveList(d.name); close(); toast("Saved — it's a chip on the row now", "success"); refreshCutRow(); } });
+      return element;
+    }));
+    on('[data-act="list-forget"]', () => { const x = lists().find((y) => y.id === listId); forgetList(listId); toast(x ? `Forgot "${x.name}"` : "Forgotten", ""); refreshCutRow(); });
+  };
+  // Hygiene: people with no number (or a wrong one) can't be called at
+  // all. Said in one line on Best now and All, with the way to fix them.
+  const hygieneHTML = (base) => {
+    if (selecting || cuts.has("nonumber") || !["tocontact", "all"].includes(filter)) return "";
+    const n = base.filter((l) => !l.phone || l.badPhone).length;
+    return n ? `<div class="lead-hygiene small muted">${icon("alert")} <span>${n.toLocaleString()} with no number</span><button type="button" class="btn btn-ghost btn-sm" data-act="fix-numbers">Fix</button></div>` : "";
+  };
+  const wireHygiene = () => { const b = wrap.querySelector('[data-act="fix-numbers"]'); if (b) b.addEventListener("click", () => { cuts = new Set(["nonumber"]); listId = null; keepCuts(); refreshCutRow(); refreshList(); }); };
 
   function draw() {
-    let list = digBaseList(); // read fresh so swipe-deletes/undos stay accurate
-    // The dig chips' counts: over the chip showing (and the filter), before
-    // the search and the dig itself narrow it.
-    const digBase = list.slice();
-    if (dig) list = list.filter((l) => digPass(dig, l));
-    // A redraw (a dig, the audience filter, Select) keeps the page where it
-    // was and the Dig row on the chip you were looking at.
-    const wasRow = wrap.querySelector(".dig-row");
+    let list = cutBaseList(); // read fresh so swipe-deletes/undos stay accurate
+    // The cut row's counts: over the chip showing (and the sheet), before
+    // the cuts themselves narrow it.
+    const cutBase = list.slice();
+    list = list.filter(passesCuts);
+    // A redraw (the sheet, Select) keeps the page where it was and the
+    // Cut row on the chip you were looking at.
+    const wasRow = wrap.querySelector(".cut-row");
     const rowX = wasRow ? wasRow.scrollLeft : 0;
     const pageY = wrap.childElementCount ? view.scrollTop : 0;
 
@@ -414,11 +530,9 @@ export function renderLeads(view, { param }) {
       due: everyone.filter(dueNow).length,
       all: everyone.length,
     };
-    // Five chips, each its name over its count, that fit the screen's width.
-    const tl = timingLabel().replace(/^Timing\s*/, "");
+    // Four chips — the work states — each its name over its count.
     const chips = [
       { id: "tocontact", name: "Best now", count: n.tocontact.toLocaleString() },
-      { id: "timing", name: "Timing", count: tl },
       { id: "due", name: "Follow up", count: n.due.toLocaleString() },
       { id: "contacted", name: "Contacted", count: n.contacted.toLocaleString() },
       { id: "all", name: "All", count: n.all.toLocaleString() },
@@ -434,7 +548,7 @@ export function renderLeads(view, { param }) {
         <div class="searchbar">
           <input type="search" placeholder="Search customers…" value="${esc(search)}" />
         </div>
-        <button class="btn lead-filter-btn ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}" aria-label="Filter" title="Filter">${icon("sliders")}${aud ? '<span class="lead-filter-dot"></span>' : ""}</button>
+        <label class="lead-sort" title="Order"><span class="lead-sort-ico">${icon("sliders")}</span><select data-sort aria-label="Order">${SORTS.map((x) => `<option value="${x.key}" ${sort === x.key ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
       </div>
       ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
@@ -446,42 +560,25 @@ export function renderLeads(view, { param }) {
       ${`<div class="lead-seg" role="tablist">
         ${chips.map((c) => `<button class="btn btn-sm lead-seg-btn ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" role="tab" aria-selected="${filter === c.id}"><span class="seg-name">${esc(c.name)}</span> <span class="seg-count">${esc(c.count)}</span></button>`).join("")}
       </div>
-      <div class="lead-chips dig-row" aria-label="Dig into the book"${selecting || filter === "timing" ? " hidden" : ""}>${digChipsHTML(digBase)}</div>
-      ${aud ? `<div class="card lead-audience" style="padding:10px 12px;margin-bottom:10px">
-        <div class="row" style="align-items:center">
-          <span class="small" style="min-width:0"><span class="strong aud-count">${list.length.toLocaleString()}</span> match · ${esc(audienceLabel(aud))}</span>
-          <button class="modal-close" data-act="aud-clear" aria-label="Clear filter" title="Clear filter">&times;</button>
-        </div>
-        ${selecting ? "" : `<div class="btn-row" style="margin-top:8px">
-          <button class="btn btn-ghost btn-sm" data-act="aud-edit" style="flex:0 0 auto;padding-left:10px;padding-right:10px">Edit</button>
-          <button class="btn btn-primary btn-sm" data-act="aud-text" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("message")} Text these</button>
-          <button class="btn btn-primary btn-sm" data-act="aud-email" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("mail")} Email these</button>
-        </div>`}
-      </div>` : ""}`}
+      <div class="lead-chips cut-row" aria-label="Cut the book"${selecting ? " hidden" : ""}>${cutChipsHTML(cutBase)}</div>
+      <div class="cut-bar-slot">${cutBarHTML(list.length)}</div>
+      <div class="lead-hygiene-slot">${hygieneHTML(cutBase)}</div>`}
       <div class="lead-list"></div>
     `;
 
     const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="opp"]', () => { opp = !opp; remember(OPP_KEY, opp ? "1" : null); draw(); });
-    on('[data-act="audience"]', editAud);
-    on('[data-act="aud-edit"]', editAud);
-    on('[data-act="aud-clear"]', () => { aud = null; keepAud(); draw(); });
-    on('[data-act="aud-text"]', () => blast("text"));
-    on('[data-act="aud-email"]', () => blast("email"));
-    wireDigChips();
-    const digRow = wrap.querySelector(".dig-row");
-    if (digRow) { digRow.scrollLeft = rowX; showDigChip(digRow); }
+    wireCutChips(); wireCutBar(); wireHygiene();
+    const sortSel = wrap.querySelector("[data-sort]");
+    if (sortSel) sortSel.addEventListener("change", () => { sort = sortSel.value; remember(SORT_KEY, sort); refreshList(); });
+    const cutRow = wrap.querySelector(".cut-row");
+    if (cutRow) { cutRow.scrollLeft = rowX; showCutChip(cutRow); }
     if (pageY) requestAnimationFrame(() => { if (wrap.isConnected && !spot) view.scrollTop = pageY; });
 
     const listEl = wrap.querySelector(".lead-list");
-    // The Timing count, when it isn't already known: read the book in the
-    // background and fill the chip in place — and the list, if it's on.
-    if (!timingReady()) warmTiming().then(() => {
-      if (!wrap.isConnected) return;
-      const tb = wrap.querySelector('[data-filter="timing"] .seg-count');
-      if (tb) tb.textContent = timingLabel().replace(/^Timing\s*/, "");
-      if (filter === "timing") renderList();
-    });
+    // The timing read, when it isn't already known: in the background, and
+    // the list again if it's ordered by it.
+    if (!timingReady()) warmTiming().then(() => { if (wrap.isConnected && sort === "timing") renderList(); });
     // Under the lens the same chips, search and filter narrow the ranked
     // list, and the lit button is the way back to the plain one.
     lens = null;
@@ -521,7 +618,7 @@ export function renderLeads(view, { param }) {
           filter = b.dataset.filter;
           remember(REMEMBER, filter);
           lightChips();
-          refreshDigRow();
+          refreshCutRow();
           refreshList();
         }));
     }
@@ -601,7 +698,7 @@ export function renderLeads(view, { param }) {
     // this morning (prospects.js — fresh each day, nobody twice in three
     // weeks, best first), held for the day and worked through. They come
     // out of the groups below so nobody is listed twice.
-    const todayMode = filter === "tocontact" && !selecting && !search && !aud && !dig && !(opp && !selecting);
+    const todayMode = filter === "tocontact" && !selecting && !search && !aud && !cuts.size && sort === "best" && !(opp && !selecting);
     const todayPicks = todayMode ? getProspects() : [];
     if (todayPicks.length) { const ids = new Set(todayPicks.map((c) => c.lead.id)); filtered = filtered.filter((l) => !ids.has(l.id)); }
     const token = ++renderToken;
@@ -611,19 +708,19 @@ export function renderLeads(view, { param }) {
     if (cnt) cnt.textContent = filtered.length.toLocaleString();
     // Timing before the book has been read for it: a moment, then the list
     // (the warm-up above redraws when it lands).
-    if (filter === "timing" && !timingReady()) {
+    if (sort === "timing" && !timingReady()) {
       shown = 0;
       el.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Reading the book for timing…</div></div>`;
-      warmTiming().then(() => { if (wrap.isConnected && filter === "timing") renderList(); });
+      warmTiming().then(() => { if (wrap.isConnected && sort === "timing") renderList(); });
       return;
     }
     if (!filtered.length && !todayPicks.length) {
       shown = 0;
-      el.innerHTML = emptyState("users", filter === "timing" ? "Nobody to time yet" : "No leads here", search ? "Try a different search." : aud ? "Nobody matches the filter with this chip. Edit the filter or pick another chip." : dig ? "Nobody on this chip fits that cut. Tap the chip again to clear it." : filter === "timing" ? "Owners with a trade value, a payment or a lease end on file get a month here — the month it starts to make sense." : "Nothing in this filter yet.");
+      el.innerHTML = emptyState("users", "No leads here", search ? "Try a different search." : aud || cuts.size ? "Nobody on this chip fits the cut. Tap a cut again to clear it, or pick another chip." : "Nothing in this filter yet.");
       return;
     }
     // Timing: a line above the list saying what it is.
-    if (filter === "timing" && !selecting && !search && !aud) {
+    if (sort === "timing" && !selecting && !search && !aud && !cuts.size) {
       const rows = timingRows() || [];
       const now = rows.filter((r) => r.hz.m === 0).length, six = rows.filter((r) => r.hz.m > 0 && r.hz.m <= 6).length;
       const summary = document.createElement("div");
@@ -645,14 +742,16 @@ export function renderLeads(view, { param }) {
     }
     // A long press on a card starts selecting, with that card picked.
     const startSelect = (id) => { selecting = true; selected.clear(); selected.add(id); draw(); };
-    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, { ...(filter === "timing" ? { hz: hzOf(x) } : {}), onLongPress: startSelect, onListChange: () => renderList({ keep: true }) }));
+    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, { ...(sort === "timing" ? { hz: hzOf(x) } : {}), onLongPress: startSelect, onListChange: () => renderList({ keep: true }) }));
     // Grouped by when to reach them — Ready now, Opening up in the next
     // three months, Everyone else — on the lists the book's timing applies
     // to. Inside each group the order stays best first.
     // Best now is grouped by why: each customer under their strongest
     // reason, the top three of each showing and the rest a tap away.
     // Searching or filtering shows every match instead.
-    const byWhy = filter === "tocontact" && !selecting;
+    // The reason groups and the timing groups are an order of their own;
+    // under another order the list is plain.
+    const byWhy = filter === "tocontact" && !selecting && sort === "best";
     const CAP = (search || aud) ? Infinity : 3;
     const whyCount = new Map(), whyShown = new Map(), whyLast = new Map(), whyOf = new Map();
     if (byWhy) {
@@ -678,7 +777,7 @@ export function renderLeads(view, { param }) {
       filtered.length = 0; kept.forEach((x) => filtered.push(x));
       filtered.forEach((x) => { whyOf.set(x.id, catOf(x)); });
     }
-    const grouped = !byWhy && ["contacted", "all"].includes(filter) && timingReady();
+    const grouped = !byWhy && ["contacted", "all"].includes(filter) && timingReady() && (sort === "best" || sort === "timing");
     // Ready now: the timing says so, or the read of the book calls them hot.
     const book = assessAll().byId;
     const groupOf = (x) => { const h = hzOf(x); const a = book.get(x.id); return (h && h.m === 0) || (a && a.tier && a.tier.key === "hot") ? 0 : h && h.m <= 3 ? 1 : 2; };
@@ -688,8 +787,10 @@ export function renderLeads(view, { param }) {
       const order = new Map(filtered.map((x, k) => [x.id, k]));
       filtered.sort((a, b) => groupOf(a) - groupOf(b) || order.get(a.id) - order.get(b.id));
       filtered.forEach((x) => { groupCounts[groupOf(x)]++; });
-    } else if (!byWhy && ["contacted", "all"].includes(filter)) {
-      // The groups need the book read for timing; draw now, regroup when it lands.
+    } else if (!byWhy && !timingReady() && ["contacted", "all"].includes(filter) && (sort === "best" || sort === "timing")) {
+      // The groups need the book read for timing; draw now, regroup when it
+      // lands. (Only while it isn't read yet — asking again once it is would
+      // draw the list without end.)
       warmTiming().then(() => { if (wrap.isConnected && ["contacted", "all"].includes(filter)) renderList({ keep: true }); });
     }
     let lastGroup = -1;
@@ -858,12 +959,20 @@ export function renderLeads(view, { param }) {
     if (filter === "tocontact") list = list.filter((l) => !inLog(l) && !l.lastContacted && !snoozed(l));
     else if (filter === "contacted") list = list.filter((l) => !inLog(l) && l.lastContacted);
     else if (filter === "due") list = list.filter(dueNow);
-    else if (filter === "timing") list = (timingRows() || []).map((r) => r.lead);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
-    if (dig) list = list.filter((l) => digPass(dig, l));
-    // Timing keeps its own order: the month the window opens, soonest first.
-    if (filter === "timing") return list;
+    list = list.filter(passesCuts);
+    // Soonest window: the month it opens, soonest first; people with no
+    // window at all come after, best first.
+    if (sort === "timing") {
+      const h = (l) => hzOf(l);
+      const rank0 = assessAll().byId;
+      return list.slice().sort((a, b) => { const ha = h(a), hb = h(b); if (ha && hb) return ha.m - hb.m || String(a.name || "").localeCompare(String(b.name || "")); if (ha) return -1; if (hb) return 1; return ((rank0.get(b.id) || {}).score || 0) - ((rank0.get(a.id) || {}).score || 0); });
+    }
+    // Longest quiet: never contacted first, then the oldest contact.
+    if (sort === "quiet") return list.slice().sort((a, b) => String(a.lastContacted || "").localeCompare(String(b.lastContacted || "")));
+    // Most equity: known equity, biggest first; unknown last.
+    if (sort === "equity") { const eq = (l) => { const e = equityOf(l); return e && e.v != null ? e.v : -Infinity; }; return list.slice().sort((a, b) => eq(b) - eq(a)); }
     // Best deals first. The list's job is to read the whole book and put the
     // people a car can be sold to at the top, with the reason on the card —
     // see assess.js. Ties go to the nearest follow-up, then the newest.
@@ -894,22 +1003,23 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
     const cls = fuDays < 0 ? "badge-due" : fuDays === 0 ? "badge-due" : fuDays <= 2 ? "badge-soon" : "";
     fuBadge += `<span class="badge ${cls}" style="margin-left:6px">${esc(relativeDay(l.followUp))}</span>`;
   }
-  // Under the Timing chip: the month the window opens, and why.
+  // A number a call found wrong: said on the card, until a new one is added.
+  if (l.badPhone) fuBadge += `<span class="badge badge-due" style="margin-left:6px">Wrong number</span>`;
+  // Ordered by the window: the month it opens, and why.
   const timing = hz ? `<div class="row-reasons hz-line">${hz.m === 0 ? '<span class="badge badge-due">Now</span>' : `<span class="badge badge-soon">${esc(monthLabel(hz.at))}</span>`} ${esc(hz.why)}</div>` : "";
-  // The read of this customer: how strong, and the reasons, right on the
-  // card. A quick redraw re-reads this one customer rather than the book.
-  // Under Timing the card answers WHEN, and its badge is the month — the
-  // tier ("Worth a call") answers how strong, and next to "Now" the two
-  // read as one contradictory verdict. The reasons still say the strength.
+  // The read of this customer: how strong, and the reasons as pills, the
+  // way the customer's page shows them. A quick redraw re-reads this one
+  // customer rather than the book. Under the timing order the badge is the
+  // month, so the tier stays off the card there (the reasons still say it).
   const a = quick ? assessQuick(l.id) : assessment(l.id);
   const tier = a && a.tier && !hz ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : "";
-  const reasons = a && a.reasons.length ? `<div class="row-reasons">${a.reasons.map(esc).join(" · ")}</div>` : "";
-  // The last contact, on the card — so logging one is visibly registered.
+  const caution = (r) => /^(Upside down|No texting consent|No phone|Contacted \d|In a campaign)/.test(r);
+  const reasons = a && a.reasons.length ? `<ul class="row-reasons lc-why">${a.reasons.map((r) => `<li${caution(r) ? ' class="lc-caution"' : ""}>${esc(r)}</li>`).join("")}</ul>` : "";
+  // The last contact — so logging one is visibly registered — and when
+  // they tend to pick up, once that's known.
   const contact = l.lastContacted
-    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} ${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</div>`
-    : reachLine(l.id) ? `<div class="row-contact">${icon("clock")} ${esc(reachLine(l.id))}</div>` : "";
-  // Their current contract in one line under the vehicle: what they pay,
-  // how many payments are left, when it matures — or that it's paid off.
+    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} <span>${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</span></div>`
+    : reachLine(l.id) ? `<div class="row-contact">${icon("clock")} <span>${esc(reachLine(l.id))}</span></div>` : `<span class="lc-none">Not contacted yet</span>`;
   // The one thing to do from the list: a drafted opener to review, a call
   // when there's no consent to text, or adding the number they lack.
   const canText = !!l.phone && !l.badPhone && consentStatus(l).ok;
@@ -918,19 +1028,23 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
     : l.phone && !l.badPhone
     ? `<a class="btn btn-primary btn-sm lc-act" data-lc="call" href="${telHref(l.phone)}">${icon("phone")} Call</a>`
     : `<button type="button" class="btn btn-ghost btn-sm lc-act" data-lc="add">${l.badPhone ? "New number" : "Add number"}</button>`;
-  // A number a call found wrong: said on the card, until a new one is added.
-  if (l.badPhone) fuBadge += `<span class="badge badge-due" style="margin-left:6px">Wrong number</span>`;
+  // Top to bottom, as on their page: who and what they drive with the
+  // verdict beside; the reasons; the last contact with the one action; and
+  // their contract — payment, payments left, rate — across the foot.
   return `
-    <div class="row lc-row">
-      <div class="row-main">
-        <div class="row-title">${esc(l.name)}</div>
-        <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${fuBadge}</div>
-        ${timing}${reasons}${contact}
+    <div class="lc">
+      <div class="row lc-row">
+        <div class="row-main">
+          <div class="row-title">${esc(l.name)}</div>
+          <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${fuBadge}</div>
+        </div>
+        <div class="row-meta lc-meta">
+          ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}
+        </div>
       </div>
-      <div class="row-meta lc-meta">
-        ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}
-        ${act}
-      </div>
+      ${timing}${reasons}
+      <div class="lc-foot">${contact}${act}</div>
+      ${contractBanner(l, { compact: true })}
     </div>
   `;
 }
@@ -947,8 +1061,8 @@ function contractBanner(l, opts = {}) {
   // months left when it isn't on file (marked ≈).
   let rate = "—";
   if (c.apr != null) rate = pct(c.apr);
-  else { try { const a = dealInputs(l).apr; if (a && a.v != null && a.src !== "default") rate = `<span class="cb-approx">≈</span>${Math.round(Number(a.v) * 10) / 10}%`; } catch { /* no rate to show */ } }
-  return `<div class="contract-banner${c.paidOff ? " contract-banner-done" : ""}"${opts.tap ? ' data-act="money" style="cursor:pointer"' : ""}>
+  else if (!opts.compact) { try { const a = dealInputs(l).apr; if (a && a.v != null && a.src !== "default") rate = `<span class="cb-approx">≈</span>${Math.round(Number(a.v) * 10) / 10}%`; } catch { /* no rate to show */ } }
+  return `<div class="contract-banner${c.paidOff ? " contract-banner-done" : ""}${opts.compact ? " lc-contract" : ""}"${opts.tap ? ' data-act="money" style="cursor:pointer"' : ""}>
       <div class="cb-cell"><span class="cb-label">Payment</span><span class="cb-value">${pay}</span></div>
       <div class="cb-cell"><span class="cb-label">Payments left</span><span class="cb-value">${esc(left)}</span></div>
       <div class="cb-cell"><span class="cb-label">Rate</span><span class="cb-value">${rate}</span></div>

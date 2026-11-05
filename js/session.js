@@ -40,11 +40,13 @@ export function sessionQueue(now = new Date()) {
 }
 
 /** Start a session over these customers (today's batch by default). */
-export function startSession(ids = null) {
+export function startSession(ids = null, { name = "" } = {}) {
   const list = ids || sessionQueue().map((c) => c.lead.id);
-  const s = { day: todayK(), startedAt: new Date().toISOString(), ids: list, idx: 0, done: [], endedAt: null };
+  // A session over a cut or a saved list is its own thing: today's batch
+  // doesn't flow into it.
+  const s = { day: todayK(), startedAt: new Date().toISOString(), ids: list, idx: 0, done: [], endedAt: null, kind: ids ? "list" : "batch", name };
   write(s);
-  store.logEvent("session_start", { meta: { count: list.length } });
+  store.logEvent("session_start", { meta: { count: list.length, kind: s.kind, name } });
   return s;
 }
 
@@ -115,7 +117,7 @@ export function skipCurrent() { goNext(); }
 /** A session under way picks up anyone the batch has brought up since it started. */
 export function extendSession() {
   const s = read();
-  if (!s || s.day !== todayK() || s.endedAt) return 0;
+  if (!s || s.day !== todayK() || s.endedAt || s.kind === "list") return 0;
   const have = new Set(s.ids);
   const more = sessionQueue().map((c) => c.lead.id).filter((id) => !have.has(id));
   if (more.length) write({ ...s, ids: [...s.ids, ...more] });

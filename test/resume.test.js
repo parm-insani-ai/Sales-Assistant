@@ -31,7 +31,7 @@ const state = () => p.evaluate(() => {
     pill: drawn ? pill.textContent.replace(/\s+/g, " ").trim() : null,
     dot: !!drawn && !pill.textContent.trim(),
     chip: document.querySelector(".lead-seg .btn-primary")?.dataset.filter,
-    dig: document.querySelector(".dig-chip.btn-primary")?.dataset.dig || null,
+    dig: document.querySelector(".cut-chip.btn-primary[data-cut]")?.dataset.cut || null,
     top: document.getElementById("view").scrollTop,
     cards: document.querySelectorAll(".lead-list .swipe-card").length,
     kept: JSON.parse(localStorage.getItem("viniva:outreach:leftoff") || "null"),
@@ -103,13 +103,13 @@ await toHomeAndBack();
 s = await state();
 if (!s.pill) fail("a new place left off is a new offer");
 
-// --- The Dig cut comes back with the place. Owners all quiet: the Quiet cut
+// --- The cut comes back with the place. Owners all quiet: the Quiet cut
 // on All, scrolled, left, and picked up again lights the cut and lands.
 await p.click(".resume-pill"); await p.waitForTimeout(400);
-await p.click('.dig-chip[data-dig="quiet"]'); await p.waitForTimeout(400);
+await p.click('.cut-chip[data-cut="quiet"]'); await p.waitForTimeout(400);
 await scrollTo(1200); await p.waitForTimeout(400);
 s = await state();
-if (s.dig !== "quiet" || !s.kept || s.kept.dig !== "quiet") fail("the cut should be kept with the place: " + JSON.stringify({ dig: s.dig, kept: s.kept }));
+if (s.dig !== "quiet" || !s.kept || !(s.kept.cuts || []).includes("quiet")) fail("the cut should be kept with the place: " + JSON.stringify({ dig: s.dig, kept: s.kept }));
 await toHomeAndBack();
 s = await state();
 console.log("fresh again:", JSON.stringify({ pill: s.pill, chip: s.chip, dig: s.dig }));
@@ -124,7 +124,7 @@ await scrollTo(0); await p.waitForTimeout(300);
 await scrollTo(900); await p.waitForTimeout(400);
 await toHomeAndBack();
 await p.click('[data-filter="all"]'); await p.waitForTimeout(300);
-await p.click('.dig-chip[data-dig="quiet"]'); await p.waitForTimeout(300);
+await p.click('.cut-chip[data-cut="quiet"]'); await p.waitForTimeout(300);
 if (!(await state()).pill) fail("the pill should still show on the way there");
 await scrollTo(950); await p.waitForTimeout(300);
 s = await state();

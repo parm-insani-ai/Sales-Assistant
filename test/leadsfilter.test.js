@@ -53,7 +53,7 @@ shown = await p.evaluate(() => ({ names: [...document.querySelectorAll(".lead-li
 if (shown.names !== "Dana Muise,Pat Roy" || shown.count !== "2") fail("chip + filter: " + JSON.stringify(shown));
 
 // --- Edit: body style instead of a model.
-await p.click('[data-act="aud-edit"]');
+await p.click('.cut-row [data-act="audience"]');
 await p.waitForSelector("#af-models");
 const prefilled = await p.evaluate(() => ({ models: document.querySelector("#af-models").value, paid: document.querySelector("#af-paid").checked }));
 if (prefilled.models !== "sentra" || !prefilled.paid) fail("the sheet doesn't open on the current filter: " + JSON.stringify(prefilled));
@@ -67,7 +67,7 @@ const label = await p.evaluate(() => document.querySelector(".lead-audience")?.t
 if (!/1 match · SUV owners/.test(label || "")) fail("SUV label: " + label);
 
 // --- Years and a make.
-await p.click('[data-act="aud-edit"]');
+await p.click('.cut-row [data-act="audience"]');
 await p.waitForSelector("#af-models");
 await p.selectOption("#af-body", "");
 await p.fill("#af-makes", "Nissan");
