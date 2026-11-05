@@ -24,7 +24,7 @@ import { consentStatus } from "../consent.js";
 import { openAppointmentForm } from "./calendar.js";
 import { notePanel } from "./leads.js";
 import { reachLine } from "../reachtime.js";
-import { dayPlan, dayLine } from "../funnel.js";
+import { dayPlan, dayLine, callWindow } from "../funnel.js";
 import { openSlots, askLine } from "../slots.js";
 import { afterAppointmentBooked } from "../connections.js";
 import { morePicks } from "../prospects.js";
@@ -84,6 +84,7 @@ export function renderSession(view) {
       <div class="cs-start-n">${q.length}</div>
       <div class="strong">to call now</div>
       <div class="cs-day small" style="margin-top:6px">${esc(dayLine(plan))}</div>
+      <div class="small muted cs-window" style="margin-top:4px">${esc(callWindow().line)}</div>
       <div class="small muted" style="margin:6px 0 14px">Best first, one at a time: who, why, what to say, two times to offer — and what came of it. The batch keeps feeding until the day's booked.</div>
       <button type="button" class="btn btn-success btn-lg" data-act="start" style="width:100%">${icon("phone")} Start calling</button>`;
     el.querySelector('[data-act="start"]').addEventListener("click", () => { startSession(); draw(); });

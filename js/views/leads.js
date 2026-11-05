@@ -8,7 +8,7 @@ import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { currentSession, startSession, scheduleNextAttempt, attemptCount, ATTEMPTS } from "../session.js";
 import { reachLine } from "../reachtime.js";
-import { dayLine } from "../funnel.js";
+import { dayLine, callWindow } from "../funnel.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
@@ -718,7 +718,7 @@ export function renderLeads(view, { param }) {
     // weeks, best first), held for the day and worked through. They come
     // out of the groups below so nobody is listed twice.
     const todayMode = filter === "tocontact" && !selecting && !search && !aud && !cuts.size && sort === "best" && !(opp && !selecting);
-    const todayPicks = todayMode ? getProspects() : [];
+    let todayPicks = todayMode ? getProspects() : [];
     if (todayPicks.length) { const ids = new Set(todayPicks.map((c) => c.lead.id)); filtered = filtered.filter((l) => !ids.has(l.id)); }
     const token = ++renderToken;
     if (watcher) { watcher.disconnect(); watcher = null; }
@@ -867,6 +867,28 @@ export function renderLeads(view, { param }) {
     // tap; then the picks themselves, new ones marked; then the rest of the
     // book under its reasons.
     if (todayMode) {
+      // The drive comes first: people booked into service today (or
+      // tomorrow) are already coming in — a walk-over, not a cold call, and
+      // a service-lane conversation books at nearly double the rate.
+      const svcDay = (l) => (l.serviceAppt && /^\d{4}-\d{2}-\d{2}/.test(String(l.serviceAppt)) ? String(l.serviceAppt).slice(0, 10) : null);
+      const tomorrowK = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+      const drive = store.all("leads").filter((l) => { const d = svcDay(l); return d && (d === todayK || d === tomorrowK) && !store.optedOut(l) && !["sold", "lost"].includes(l.stage); })
+        .sort((a, b) => svcDay(a).localeCompare(svcDay(b)) || String(a.name || "").localeCompare(String(b.name || "")));
+      if (drive.length) {
+        const ids = new Set(drive.map((l) => l.id));
+        filtered = filtered.filter((l) => !ids.has(l.id));
+        const allToday = drive.every((l) => svcDay(l) === todayK);
+        const dcard = document.createElement("div");
+        dcard.className = "card drive-block";
+        dcard.innerHTML = `<div class="strong">${icon("store")} In the drive ${allToday ? "today" : "today and tomorrow"} · ${drive.length}</div>
+          <div class="small muted" style="margin-top:2px">They're already coming in — walk over. A service-lane conversation books at nearly double the rate of a cold call: say hello, have their numbers ready, no pitch.</div>`;
+        frag.appendChild(dcard);
+        const dl = document.createElement("div");
+        dl.className = "drive-list";
+        drive.forEach((l) => dl.appendChild(leadCard(l, rememberSpot, { onLongPress: startSelect, onListChange: () => renderList({ keep: true }) })));
+        frag.appendChild(dl);
+        todayPicks = todayPicks.filter((c) => !ids.has(c.lead.id));
+      }
       const pr = pickProgress();
       const sess = currentSession();
       // Warm first: a text in the morning lifts the afternoon's pickup, and
@@ -885,7 +907,7 @@ export function renderLeads(view, { param }) {
         : pr.behind ? `Nice. ${pr.behind.toLocaleString()} more are ready — take the next ${Math.min(n, pr.behind)}?` : "That's everyone the book has a reason for right now.";
       block.innerHTML = `
         <div class="row" style="align-items:center">
-          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div><div class="small today-day" style="margin-top:4px">${esc(dayLine())}</div></div>
+          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div><div class="small today-day" style="margin-top:4px">${esc(dayLine())}</div><div class="small muted today-window" style="margin-top:2px">${esc(callWindow().line)}</div></div>
           ${pr.behind ? `<button type="button" class="btn btn-sm ${pr.left ? "btn-ghost" : "btn-primary"}" data-act="more-today" style="flex:none">${pr.total ? `${Math.min(n, pr.behind)} more` : `Bring up ${Math.min(n, pr.behind)}`}</button>` : ""}
         </div>
         ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}

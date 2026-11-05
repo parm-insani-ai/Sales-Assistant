@@ -120,3 +120,26 @@ export function weekly({ now = Date.now(), weeks = 6 } = {}) {
   });
   return [...out.entries()].map(([start, w]) => ({ start, ...w, per100: w.dials ? Math.round((w.set / w.dials) * 100) : 0 }));
 }
+
+// ---- The call windows ----
+//
+// The 4–6 pm hour connects best, about double the worst; early morning
+// and 10–11 are next; Wednesday and Thursday beat the other days. The day
+// plans two blocks around that, inside this rep's hours.
+export const WINDOWS = [{ key: "morning", name: "morning", from: 8, to: 11 }, { key: "afternoon", name: "late-afternoon", from: 16, to: 18 }];
+const clock = (h) => (h === 12 ? "12" : h > 12 ? String(h - 12) : String(h));
+export function callWindow(now = new Date()) {
+  const s = store.getSettings();
+  const from = Number(s.hoursFrom ?? 9), to = Number(s.hoursTo ?? 18);
+  const h = now.getHours() + now.getMinutes() / 60;
+  const ws = WINDOWS.map((w) => ({ ...w, from: Math.max(w.from, from), to: Math.min(w.to, to) })).filter((w) => w.to > w.from);
+  const cur = ws.find((w) => h >= w.from && h < w.to) || null;
+  const next = ws.find((w) => w.from > h) || null;
+  const strong = [3, 4].includes(now.getDay());
+  const span = (w) => `${clock(w.from)}–${clock(w.to)}`;
+  const day = strong ? " · Wednesdays and Thursdays connect best" : "";
+  const line = cur ? `In the ${cur.name} window (${span(cur)}) — the best time to dial${day}`
+    : next ? `Next window ${span(next)}${ws[0] && next !== ws[0] ? "" : ""} — calls connect best then${day}`
+    : `Today's windows are done — tomorrow ${ws.map(span).join(" and ")}`;
+  return { inWindow: !!cur, window: cur, next, windows: ws, strongDay: strong, line };
+}

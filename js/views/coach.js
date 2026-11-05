@@ -10,6 +10,7 @@ import { emptyState } from "../components.js";
 import { dealTotal, dealFront, dealBO } from "./soldlog.js";
 import { monthSummary } from "./goals.js";
 import { outreachReport, callReport, reasonWeights } from "../outcomes.js";
+import { funnel, weekly } from "../funnel.js";
 
 // ---- Week math ----
 export function weekStart(d = new Date()) {
@@ -191,6 +192,36 @@ export function renderCoach(view) {
     // What's working: every opener sent, and what came of it. This is the
     // feedback loop — the reasons the app leads with are judgement until the
     // replies and bookings say otherwise.
+    // The scoreboard: this rep's funnel against the industry's — reached
+    // of attempted, set of reached, showed of set, sold of shown — with the
+    // benchmark standing in where there isn't enough of their own yet, and
+    // the weeks: dials, reached, set, appointments per hundred dials.
+    const board = (() => {
+      const f = funnel();
+      if (!f.dials && !f.appointments) return "";
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      const row = (st) => {
+        const b = st.bench;
+        const pos = Math.max(2, Math.min(98, (st.rate / (b.top * 1.25)) * 100));
+        const mark = (v, cls, label) => `<span class="sb-mark ${cls}" style="left:${Math.max(2, Math.min(98, (v / (b.top * 1.25)) * 100))}%" title="${label} ${pct(v)}"></span>`;
+        return `<div class="sb-row">
+          <div class="sb-head"><span class="sb-label">${esc(st.label)} <span class="muted">of ${esc(st.ofLabel)}</span></span><span class="sb-rate ${st.own ? `sb-${st.tier}` : "muted"}">${st.own ? pct(st.rate) : `${pct(st.rate)} avg`}</span></div>
+          <div class="sb-bar">${mark(b.avg, "sb-avg", "average")}${mark(b.strong, "sb-strong", "strong")}${mark(b.top, "sb-top", "top")}${st.own ? `<span class="sb-you" style="left:${pos}%"></span>` : ""}</div>
+          <div class="sb-sub small muted">${st.own ? `${st.n} of ${st.of} · ${st.tier === "below" ? "below average" : st.tier}` : `${st.n} of ${st.of} so far — the average stands in until there's more`}</div>
+        </div>`;
+      };
+      const wk = weekly();
+      return `
+      <div class="section-title" style="margin-top:0">Outreach scoreboard <span class="muted">· last ${f.weeks} weeks</span></div>
+      <div class="card sb-card">
+        ${["reach", "set", "show", "sold"].map((k) => row(f[k])).join("")}
+        <div class="sb-legend small muted"><span><i class="sb-mark sb-avg"></i> average</span><span><i class="sb-mark sb-strong"></i> strong</span><span><i class="sb-mark sb-top"></i> top</span><span><i class="sb-you"></i> you</span></div>
+        <table class="worked-table sb-weeks" style="width:100%;margin-top:10px;border-collapse:collapse;font-size:0.82rem">
+          <thead><tr class="muted"><th style="text-align:left;font-weight:600">Week</th><th>Dials</th><th>Reached</th><th>Set</th><th>Per 100</th></tr></thead>
+          <tbody>${wk.map((w) => `<tr><td style="padding:4px 0">${esc(w.start.slice(5))}</td><td style="text-align:center">${w.dials}</td><td style="text-align:center">${w.reached}</td><td style="text-align:center">${w.set}</td><td style="text-align:center">${w.per100}</td></tr>`).join("")}</tbody>
+        </table>
+      </div>`;
+    })();
     const worked = (() => {
       const r = outreachReport({ weeks: 4 });
       const c = callReport({ weeks: 4 });
@@ -219,7 +250,7 @@ export function renderCoach(view) {
     })();
 
     if (!store.all("sales").length && !store.all("appointments").length) {
-      body.innerHTML = worked + emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
+      body.innerHTML = board + worked + emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
       return;
     }
 
@@ -255,6 +286,7 @@ export function renderCoach(view) {
     const toneColor = { good: "var(--brand)", warn: "var(--danger)", info: "var(--muted)" };
 
     body.innerHTML = `
+      ${board}
       ${worked}
       ${insights.length ? `
       <div class="section-title" style="${worked ? "" : "margin-top:0"}">Coach says</div>
