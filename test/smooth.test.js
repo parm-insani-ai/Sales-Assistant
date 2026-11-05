@@ -316,8 +316,8 @@ console.log("\nOutreach layout:");
     const chips = [...document.querySelectorAll(".lead-seg [data-filter]")];
     return {
       buttons: [...document.querySelectorAll('[data-act="add-lead"], [data-act="select"], [data-act="opp"]')].length,
-      filter: !!document.querySelector('.cut-row [data-act="audience"]'),
-      sort: [...document.querySelectorAll("[data-sort] option")].map((o) => o.value).join(","),
+      filter: !!document.querySelector('.cut-line > [data-act="audience"]'),
+      sort: !!document.querySelector('.lead-seg [data-act="sort"]'),
       chips: chips.map((c) => c.querySelector(".seg-name")?.textContent),
       fit: chips.every((c) => { const r = c.getBoundingClientRect(); return r.left >= vw.left && r.right <= vw.right + 1; }),
       acts: [...document.querySelectorAll(".lead-list .lc-act")].slice(0, 3).map((b) => b.textContent.trim()),
@@ -326,8 +326,8 @@ console.log("\nOutreach layout:");
   });
   console.log("  " + JSON.stringify(lay));
   if (lay.buttons) fail("Add customer / Select / By opportunity buttons are still above the list");
-  if (!lay.filter) fail("More… should sit at the end of the Cut row");
-  if (lay.sort !== "best,timing,quiet,equity") fail("the order select beside the search: " + lay.sort);
+  if (!lay.filter) fail("the filter button should sit at the head of the Cut row");
+  if (!lay.sort) fail("the sort button should sit at the end of the chips");
   if (lay.chips.join(",") !== "Best now,Follow up,Contacted,All") fail("the chips are " + lay.chips.join(", "));
   if (!lay.fit) fail("a chip runs off the screen");
   if (!lay.acts.length) fail("the cards carry no action");

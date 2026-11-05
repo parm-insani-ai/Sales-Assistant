@@ -239,7 +239,7 @@ export function renderLeads(view, { param }) {
     // The chip and the cut you were on, lit in place; the search you had typed.
     if (CHIPS.includes(leftOff.filter) && leftOff.filter !== filter) { filter = leftOff.filter; remember(REMEMBER, filter); lightChips(); }
     cuts = new Set(leftOff.cuts || []); listId = leftOff.listId || null; keepCuts();
-    if (leftOff.sort && SORTS.some((x) => x.key === leftOff.sort) && leftOff.sort !== sort) { sort = leftOff.sort; remember(SORT_KEY, sort); const sel = wrap.querySelector("[data-sort]"); if (sel) sel.value = sort; }
+    if (leftOff.sort && SORTS.some((x) => x.key === leftOff.sort) && leftOff.sort !== sort) { sort = leftOff.sort; remember(SORT_KEY, sort); lightSort(); }
     refreshCutRow();
     if ((leftOff.search || "") !== search) { search = leftOff.search || ""; const sb = wrap.querySelector('input[type="search"]'); if (sb) sb.value = search; }
     // The same cards back at once, then the same scroll — a position can't
@@ -298,6 +298,16 @@ export function renderLeads(view, { param }) {
   ];
   let sort = recall(SORT_KEY) || "best";
   if (!SORTS.some((x) => x.key === sort)) sort = "best";
+  const lightSort = () => { const b = wrap.querySelector('[data-act="sort"]'); if (!b) return; b.dataset.sort = sort; b.classList.toggle("btn-primary", sort !== "best"); b.classList.toggle("btn-ghost", sort === "best"); b.title = (SORTS.find((x) => x.key === sort) || SORTS[0]).label; };
+  const setSort = (k) => { if (!SORTS.some((x) => x.key === k)) return; sort = k; remember(SORT_KEY, sort); lightSort(); refreshList(); };
+  // The order, picked from a small sheet off the sort button.
+  const openSortSheet = () => openModal("Order", (close) => {
+    const el = document.createElement("div");
+    el.className = "sort-sheet";
+    el.innerHTML = SORTS.map((x) => `<button type="button" class="btn btn-block ${sort === x.key ? "btn-primary" : "btn-ghost"}" data-sort-pick="${x.key}" aria-pressed="${sort === x.key}">${esc(x.label)}</button>`).join("");
+    el.querySelectorAll("[data-sort-pick]").forEach((b) => b.addEventListener("click", () => { setSort(b.dataset.sortPick); close(); }));
+    return el;
+  });
   const REASON_CUTS = [
     { key: "payment", label: "Same payment", cat: "payment" },
     { key: "equity", label: "Equity", cat: "equity" },
@@ -390,8 +400,9 @@ export function renderLeads(view, { param }) {
       return `<button type="button" class="btn btn-sm ${on ? "btn-primary" : "btn-ghost"} cut-chip cut-${d.kind || "reason"}" data-cut="${esc(d.key)}" aria-pressed="${on}">${esc(d.label)} <span class="cut-count">${n.toLocaleString()}</span></button>`;
     };
     const saved = lists().map((x) => `<button type="button" class="btn btn-sm ${listId === x.id ? "btn-primary" : "btn-ghost"} cut-chip cut-list" data-list="${esc(x.id)}" aria-pressed="${listId === x.id}">${icon("tag")} ${esc(x.name)}</button>`).join("");
-    const more = `<button type="button" class="btn btn-sm ${aud ? "btn-primary" : "btn-ghost"} cut-chip cut-more" data-act="audience" aria-pressed="${!!aud}">${icon("sliders")} ${aud ? esc(audienceLabel(aud)) : "More…"}</button>`;
-    return saved + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "") + more;
+    // The sheet's own cut, when it's on, as a lit chip that reopens it.
+    const sheet = aud ? `<button type="button" class="btn btn-sm btn-primary cut-chip cut-more" data-act="audience-chip" aria-pressed="true"><span>${esc(audienceLabel(aud))}</span></button>` : "";
+    return saved + sheet + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "");
   };
   // The row is a scrolling line: the first cut that's on stays in view.
   const showCutChip = (row) => {
@@ -415,8 +426,8 @@ export function renderLeads(view, { param }) {
       else applyList(b.dataset.list);
       refreshCutRow(); refreshList();
     }));
-    const more = wrap.querySelector('.cut-row [data-act="audience"]');
-    if (more) more.addEventListener("click", editAud);
+    const chipA = wrap.querySelector('.cut-row [data-act="audience-chip"]');
+    if (chipA) chipA.addEventListener("click", editAud);
   };
   const lightChips = () => wrap.querySelectorAll("[data-filter]").forEach((x) => {
     const active = x.dataset.filter === filter;
@@ -429,7 +440,8 @@ export function renderLeads(view, { param }) {
   const refreshCutRow = () => {
     const row = wrap.querySelector(".cut-row");
     if (!row) return;
-    row.hidden = selecting;
+    const line = wrap.querySelector(".cut-line");
+    if (line) line.hidden = selecting;
     if (selecting) return;
     const x = row.scrollLeft;
     const base = cutBaseList();
@@ -437,6 +449,8 @@ export function renderLeads(view, { param }) {
     wireCutChips();
     row.scrollLeft = x;
     showCutChip(row);
+    const fb = wrap.querySelector('.cut-line [data-act="audience"]');
+    if (fb) { fb.classList.toggle("btn-primary", !!aud); fb.classList.toggle("btn-ghost", !aud); fb.setAttribute("aria-pressed", String(!!aud)); }
     const bar = wrap.querySelector(".cut-bar-slot");
     if (bar) { bar.innerHTML = cutBarHTML(base.filter(passesCuts).length); wireCutBar(); }
     const hyg = wrap.querySelector(".lead-hygiene-slot");
@@ -548,7 +562,6 @@ export function renderLeads(view, { param }) {
         <div class="searchbar">
           <input type="search" placeholder="Search customers…" value="${esc(search)}" />
         </div>
-        <label class="lead-sort" title="Order"><span class="lead-sort-ico">${icon("sliders")}</span><select data-sort aria-label="Order">${SORTS.map((x) => `<option value="${x.key}" ${sort === x.key ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
       </div>
       ${selecting ? `
       <div class="btn-row" style="margin-bottom:12px">
@@ -559,8 +572,12 @@ export function renderLeads(view, { param }) {
       <div class="hint" style="margin-bottom:10px">Tap to select. Search or filter first to narrow Select all.</div>` : ""}
       ${`<div class="lead-seg" role="tablist">
         ${chips.map((c) => `<button class="btn btn-sm lead-seg-btn ${filter === c.id ? "btn-primary" : "btn-ghost"}" data-filter="${c.id}" role="tab" aria-selected="${filter === c.id}"><span class="seg-name">${esc(c.name)}</span> <span class="seg-count">${esc(c.count)}</span></button>`).join("")}
+        <button type="button" class="btn btn-sm lead-tool ${sort !== "best" ? "btn-primary" : "btn-ghost"}" data-act="sort" data-sort="${esc(sort)}" aria-label="Order" title="${esc((SORTS.find((x) => x.key === sort) || SORTS[0]).label)}">${icon("sort")}</button>
       </div>
-      <div class="lead-chips cut-row" aria-label="Cut the book"${selecting ? " hidden" : ""}>${cutChipsHTML(cutBase)}</div>
+      <div class="cut-line"${selecting ? " hidden" : ""}>
+        <button type="button" class="btn btn-sm lead-tool ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}" aria-label="Filter" title="Filter">${icon("sliders")}</button>
+        <div class="lead-chips cut-row" aria-label="Cut the book">${cutChipsHTML(cutBase)}</div>
+      </div>
       <div class="cut-bar-slot">${cutBarHTML(list.length)}</div>
       <div class="lead-hygiene-slot">${hygieneHTML(cutBase)}</div>`}
       <div class="lead-list"></div>
@@ -569,8 +586,8 @@ export function renderLeads(view, { param }) {
     const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
     on('[data-act="opp"]', () => { opp = !opp; remember(OPP_KEY, opp ? "1" : null); draw(); });
     wireCutChips(); wireCutBar(); wireHygiene();
-    const sortSel = wrap.querySelector("[data-sort]");
-    if (sortSel) sortSel.addEventListener("change", () => { sort = sortSel.value; remember(SORT_KEY, sort); refreshList(); });
+    on('.cut-line [data-act="audience"]', editAud);
+    on('[data-act="sort"]', openSortSheet);
     const cutRow = wrap.querySelector(".cut-row");
     if (cutRow) { cutRow.scrollLeft = rowX; showCutChip(cutRow); }
     if (pageY) requestAnimationFrame(() => { if (wrap.isConnected && !spot) view.scrollTop = pageY; });

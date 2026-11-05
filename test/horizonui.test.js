@@ -77,9 +77,9 @@ if (!leasesTab.months[0].startsWith(m2)) fail("the soonest lease comes first: " 
 // --- Soonest window on Leads: the same read as an order — the people with
 // a window first, soonest, with the month and why on each; the rest after.
 await rep.evaluate(() => { location.hash = "#/leads"; });
-await rep.waitForSelector("[data-sort]", { timeout: 15000 });
+await rep.waitForSelector('[data-act="sort"]', { timeout: 15000 });
 await rep.click('[data-filter="all"]'); await rep.waitForTimeout(300);
-await rep.selectOption("[data-sort]", "timing");
+await rep.click('[data-act="sort"]'); await rep.waitForSelector('.modal [data-sort-pick="timing"]', { timeout: 5000 }); await rep.click('.modal [data-sort-pick="timing"]');
 await rep.waitForFunction(() => document.querySelectorAll(".lead-list .hz-line").length >= 3, null, { timeout: 10000 }).catch(() => fail("the timing order didn't draw the month lines"));
 const chip = await rep.evaluate(() => ({
   summary: document.querySelector(".lead-summary")?.textContent.replace(/\s+/g, " ").trim(),

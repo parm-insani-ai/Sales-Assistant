@@ -714,7 +714,6 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 /* The Cut row: the book's vehicles, the reasons, the saved lists, More…,
    one scrolling line under the chips. Any number on at once. */
 .cut-row { margin-top: -2px; margin-bottom: 8px; }
-.cut-row[hidden] { display: none; }
 .cut-chip { font-size: 0.76rem; padding: 5px 10px; display: inline-flex; align-items: center; gap: 4px; }
 .cut-chip .cut-count { opacity: 0.75; font-weight: 600; margin-left: 2px; }
 .cut-chip .ico { width: 13px; height: 13px; }
@@ -722,12 +721,17 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cut-chip.cut-list.btn-ghost { background: var(--brand-tint); color: var(--brand-strong); }
 .cut-chip.cut-more { max-width: 200px; }
 .cut-chip.cut-more span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* The sort: a small select beside the search, dressed as a pill. */
-.lead-sort { flex: none; position: relative; display: inline-flex; align-items: center; height: 48px; padding: 0 12px 0 38px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-.lead-sort .lead-sort-ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; pointer-events: none; }
-.lead-sort .lead-sort-ico .ico { width: 18px; height: 18px; }
-.lead-sort select { appearance: none; -webkit-appearance: none; border: 0; background: transparent; color: inherit; font: inherit; font-size: 0.82rem; font-weight: 650; padding: 0 14px 0 0; max-width: 120px; outline: none; }
-.lead-sort::after { content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--muted); pointer-events: none; }
+/* Two small tools: the order, at the end of the chips; the sheet, at the
+   head of the Cut row — fixed, the row scrolls beside it. */
+.lead-tool { flex: none; width: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 14px; box-shadow: none; }
+.lead-tool.btn-ghost { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.lead-tool .ico { width: 18px; height: 18px; }
+.lead-seg .lead-tool { align-self: stretch; }
+.cut-line { display: flex; align-items: flex-start; gap: 6px; margin-top: -2px; margin-bottom: 8px; }
+.cut-line[hidden] { display: none; }
+.cut-line .lead-tool { height: 30px; width: 34px; border-radius: 999px; }
+.cut-line .cut-row { flex: 1; min-width: 0; margin: 0; padding-bottom: 0; }
+.sort-sheet { display: flex; flex-direction: column; gap: 8px; }
 /* The bar under the row when a cut is on, and the hygiene line. */
 .cut-bar .cut-actions .btn { min-width: 0; font-size: 0.8rem; }
 .lead-hygiene { display: flex; align-items: center; gap: 6px; margin: -2px 2px 10px; }

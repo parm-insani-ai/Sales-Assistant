@@ -50,7 +50,7 @@ const read = () => p.evaluate(() => ({
   cuts: [...document.querySelectorAll(".cut-row .cut-chip")].map((c) => ({ key: c.dataset.cut || c.dataset.list || "more", text: c.textContent.replace(/\s+/g, " ").trim(), on: c.classList.contains("btn-primary"), kind: [...c.classList].find((k) => /^cut-(vehicle|reason|list|more)$/.test(k)) })),
   bar2: document.querySelector(".cut-bar")?.textContent.replace(/\s+/g, " ").trim() || null,
   hygiene: document.querySelector(".lead-hygiene")?.textContent.replace(/\s+/g, " ").trim() || null,
-  sort: document.querySelector("[data-sort]")?.value,
+  sort: document.querySelector('[data-act="sort"]')?.dataset.sort,
 }));
 
 // --- Day one: ten picks, all new, the rest of the book under them, nobody twice.
@@ -71,7 +71,9 @@ console.log("cuts:", JSON.stringify(t.cuts.map((c) => `${c.kind}:${c.text}`)));
 if (t.chips.join() !== "tocontact,due,contacted,all") fail("four work-state chips: " + JSON.stringify(t.chips));
 if (t.sort !== "best") fail("the order should start on Best first: " + t.sort);
 const kinds = t.cuts.map((c) => c.kind);
-if (kinds[0] !== "cut-vehicle" || kinds.indexOf("cut-reason") < kinds.lastIndexOf("cut-vehicle") || kinds[kinds.length - 1] !== "cut-more") fail("the row should run vehicles, then reasons, then More…: " + JSON.stringify(kinds));
+if (kinds[0] !== "cut-vehicle" || kinds.indexOf("cut-reason") < kinds.lastIndexOf("cut-vehicle") || kinds.includes("cut-more")) fail("the row should run vehicles, then reasons: " + JSON.stringify(kinds));
+const tools = await p.evaluate(() => ({ sort: !!document.querySelector('.lead-seg [data-act="sort"]'), filter: !!document.querySelector('.cut-line > [data-act="audience"]'), w: document.querySelector('.lead-seg [data-act="sort"]')?.getBoundingClientRect().width }));
+if (!tools.sort || !tools.filter || !(tools.w < 48)) fail("a small sort button on the chips row and a small filter button at the head of the Cut row: " + JSON.stringify(tools));
 const texts = t.cuts.map((c) => c.text);
 if (!texts.some((x) => /^Rogue \d+$/.test(x)) || !texts.some((x) => /^SUVs \d+$/.test(x)) || !texts.some((x) => /^Trucks \d+$/.test(x))) fail("the book's vehicles should be cuts, with counts: " + JSON.stringify(texts));
 if (!texts.some((x) => /^Equity \d+$/.test(x)) || !texts.some((x) => /^Owned 3\+ yrs \d+$/.test(x))) fail("the reasons should be cuts with counts: " + JSON.stringify(texts));
@@ -173,7 +175,7 @@ await p.click(`.cut-chip[data-cut="${sentraChip}"]`); await p.waitForTimeout(400
 
 // --- The order: Soonest window puts the windowed people first with the
 // month on each; Longest quiet puts the never-contacted first.
-const setSort = (v) => p.evaluate((v) => { const s = document.querySelector("[data-sort]"); s.value = v; s.dispatchEvent(new Event("change")); }, v);
+const setSort = async (v) => { await p.click('[data-act="sort"]'); await p.waitForSelector(`.modal [data-sort-pick="${v}"]`, { timeout: 5000 }); await p.click(`.modal [data-sort-pick="${v}"]`); };
 await setSort("timing"); await p.waitForTimeout(900);
 const timing = await p.evaluate(() => ({ hz: document.querySelectorAll(".lead-list .hz-line").length, firstHz: !!document.querySelector(".lead-list .swipe-card .hz-line"), summary: document.querySelector(".lead-summary")?.textContent || "" }));
 console.log("soonest window:", JSON.stringify(timing));
