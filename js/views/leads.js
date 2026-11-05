@@ -6,7 +6,7 @@ import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swip
 import { watchesFor, createWatch, cancelWatch, closeWatch, parseWant, isUseful, describeWant, vehicleFits } from "../watch.js";
 import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
-import { currentSession, startSession } from "../session.js";
+import { currentSession, startSession, scheduleNextAttempt, attemptCount, ATTEMPTS } from "../session.js";
 import { reachLine } from "../reachtime.js";
 import { dayLine } from "../funnel.js";
 import { openSaleForm } from "./goals.js";
@@ -869,6 +869,10 @@ export function renderLeads(view, { param }) {
     if (todayMode) {
       const pr = pickProgress();
       const sess = currentSession();
+      // Warm first: a text in the morning lifts the afternoon's pickup, and
+      // a reply makes the call warm. The batch's people who can be texted
+      // go to Mass outreach as they stand; the session calls the rest.
+      const warmable = todayPicks.filter((c) => c.lead.phone && !c.lead.badPhone && consentStatus(c.lead).ok);
       const n = Math.max(1, Number(store.getSettings().dailyProspects ?? 10));
       const block = document.createElement("div");
       block.className = `card today-block${pr.total && !pr.left ? " today-done" : ""}`;
@@ -885,11 +889,16 @@ export function renderLeads(view, { param }) {
           ${pr.behind ? `<button type="button" class="btn btn-sm ${pr.left ? "btn-ghost" : "btn-primary"}" data-act="more-today" style="flex:none">${pr.total ? `${Math.min(n, pr.behind)} more` : `Bring up ${Math.min(n, pr.behind)}`}</button>` : ""}
         </div>
         ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}
-        ${pr.left && todayPicks.some((c) => c.lead.phone && !c.lead.badPhone) ? `<div class="btn-row today-actions"><button type="button" class="btn btn-success btn-sm" data-act="start-session" style="flex:1">${icon("phone")} ${sess ? `Continue calling · ${sess.left} left` : "Start calling"}</button></div>` : ""}`;
+        ${pr.left && todayPicks.some((c) => c.lead.phone && !c.lead.badPhone) ? `<div class="btn-row today-actions"><button type="button" class="btn btn-success btn-sm" data-act="start-session" style="flex:1">${icon("phone")} ${sess ? `Continue calling · ${sess.left} left` : "Start calling"}</button>${warmable.length >= 2 ? `<button type="button" class="btn btn-ghost btn-sm" data-act="warm-batch" style="flex:0 0 auto" title="Text them first — a text in the morning lifts the pickup on the afternoon call">${icon("message")} Text first · ${warmable.length}</button>` : ""}</div>` : ""}`;
       // The session: today's batch one at a time, with the script and the
       // outcomes (views/session.js). A session under way carries on.
       const start = block.querySelector('[data-act="start-session"]');
       if (start) start.addEventListener("click", () => { if (!sess) startSession(); navigate("/session"); });
+      const warm = block.querySelector('[data-act="warm-batch"]');
+      if (warm) warm.addEventListener("click", () => {
+        try { sessionStorage.setItem("outreach-audience", JSON.stringify({ channel: "text", audience: emptyAudience(), ids: warmable.map((c) => c.lead.id), label: "Today's batch" })); } catch { /* the screen still opens */ }
+        navigate("/outreach");
+      });
       const more = block.querySelector('[data-act="more-today"]');
       if (more) more.addEventListener("click", () => { const added = morePicks(n); if (!added.length) { toast("Nobody else is ready to bring up right now", ""); return; } toast(`${added.length} more brought up`, "success"); renderList({ keep: true }); });
       frag.appendChild(block);
@@ -1039,7 +1048,7 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
   // The last contact — so logging one is visibly registered — and when
   // they tend to pick up, once that's known.
   const contact = l.lastContacted
-    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} <span>${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</span></div>`
+    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} <span>${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · attempt ${Math.min(ATTEMPTS, attemptCount(l.id))} of ${ATTEMPTS}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</span></div>`
     : reachLine(l.id) ? `<div class="row-contact">${icon("clock")} <span>${esc(reachLine(l.id))}</span></div>` : `<span class="lc-none">Not contacted yet</span>`;
   // The one thing to do from the list: a drafted opener to review, a call
   // when there's no consent to text, or adding the number they lack.
@@ -1229,7 +1238,7 @@ function contactLine(l) {
 // Log that you reached them, now, this way. The date and time are the moment
 // of the tap. Says so, offers Undo, and calls back so the view can redraw.
 function logContactFor(l, via, onChange, outcome = "reached") {
-  const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia, lastContactOutcome: l.lastContactOutcome, loggedAt: l.loggedAt, followUp: l.followUp };
+  const prev = { lastContacted: l.lastContacted, lastContactVia: l.lastContactVia, lastContactOutcome: l.lastContactOutcome, loggedAt: l.loggedAt, followUp: l.followUp, prospectSnoozedUntil: l.prospectSnoozedUntil };
   let rec;
   try {
     rec = store.logContact(l.id, { via, outcome });
@@ -1237,12 +1246,17 @@ function logContactFor(l, via, onChange, outcome = "reached") {
     toast(`Couldn't log it — ${(err && err.message) || "try again"}`, "danger");
     return null;
   }
+  // A miss from here is an attempt like one from the session: the next of
+  // six goes on the queue (or the rest after the sixth).
+  let nx = null;
+  if (outcome === "voicemail" || outcome === "no_answer") { try { nx = scheduleNextAttempt(l.id); } catch { nx = null; } }
   if (onChange) onChange(rec);
   // On disk before anyone walks away. A failed write is said out loud.
   store.flush().then(() => { const err = store.saveError(); if (err) toast(`Not saved — this phone's storage refused the write (${err.message || err}).`, "danger"); });
-  const said = outcome === "voicemail" ? `Left ${l.name.split(" ")[0]} a message — follow up tomorrow` : outcome === "no_answer" ? `No answer from ${l.name.split(" ")[0]} — follow up tomorrow` : `${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`;
+  const said = outcome === "voicemail" ? `Left ${l.name.split(" ")[0]} a message — ${nx ? nx.line : "follow up tomorrow"}` : outcome === "no_answer" ? `No answer from ${l.name.split(" ")[0]} — ${nx ? nx.line : "follow up tomorrow"}` : `${VIA_LABEL[via]} ${l.name} · ${formatDateTime(rec.at)}`;
   undoToast(said, () => {
     store.undoContact(rec.id, l.id, prev);
+    if (nx && nx.task && store.get("tasks", nx.task.id)) store.remove("tasks", nx.task.id);
     if (onChange) onChange(null);
   });
   return rec;

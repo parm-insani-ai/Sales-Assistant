@@ -21,6 +21,7 @@ import { hasCadence, addDaysISO } from "./cadence.js";
 import { slotOn, toReadyAt } from "./schedule.js";
 import { categoryOf, assessment } from "./assess.js";
 import { orderForNow, retrySlot } from "./reachtime.js";
+import { consentStatus } from "./consent.js";
 
 const KEY = "viniva:session";
 const DAY = 86400000;
@@ -36,7 +37,12 @@ function write(s) { try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); e
 // works — the people likely to pick up in this part of the day first
 // (reachtime.js), and in the batch's order, best first, among equals.
 export function sessionQueue(now = new Date()) {
-  return orderForNow(getProspects().filter((c) => c.lead.phone && !c.lead.badPhone), { now });
+  const open = getProspects().filter((c) => c.lead.phone && !c.lead.badPhone);
+  // Anyone who texted back in the last three days is warm: they go first.
+  const since = now.getTime() - 3 * DAY;
+  const replied = new Set(store.all("texts").filter((t) => t.dir === "in" && t.leadId && new Date(t.at || t.createdAt || 0).getTime() >= since).map((t) => t.leadId));
+  const warm = open.filter((c) => replied.has(c.lead.id)), cold = open.filter((c) => !replied.has(c.lead.id));
+  return [...warm, ...orderForNow(cold, { now })];
 }
 
 /** Start a session over these customers (today's batch by default). */
@@ -210,9 +216,80 @@ export function otherHalf(leadId, now = new Date()) {
   return retrySlot(leadId, now);
 }
 
-function followUpTask(lead, { days, hh, mm = 0, channel, intent, title, priority = "normal" }) {
+function followUpTask(lead, { days, hh, mm = 0, channel, intent, title, priority = "normal", extra = {} }) {
   const at = slotOn(addDaysISO(days), hh, mm);
-  return store.create("tasks", { title, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority, done: false, leadId: lead.id, channel, intent, from: "session" });
+  return store.create("tasks", { title, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority, done: false, leadId: lead.id, channel, intent, from: "session", ...extra });
+}
+
+// ---- Six attempts, by rule ----
+//
+// About 93% of the people who ever convert are reached by the sixth
+// attempt, and most reps stop after one or two. So anyone not reached is
+// worked six times over two weeks, call and text alternating where consent
+// allows, and then rested ninety days: call · text the same day · call the
+// next day in the other half · text on day three · call on day six · call
+// on day ten. Each miss schedules the next touch; the card says which.
+export const ATTEMPTS = 6, ATTEMPT_WINDOW_DAYS = 21, REST_DAYS = 90;
+const TRY = new Set(["voicemail", "no_answer"]);
+// Attempts on this person in the window: unanswered calls, and texts sent.
+export function attemptCount(leadId, now = new Date()) {
+  const since = now.getTime() - ATTEMPT_WINDOW_DAYS * DAY;
+  const calls = store.all("calls").filter((c) => c && c.leadId === leadId && c.dir !== "in" && (c.via || "call") === "call" && TRY.has(c.outcome) && new Date(c.at).getTime() >= since).length;
+  const texts = store.all("texts").filter((t) => t && t.leadId === leadId && t.dir !== "in" && new Date(t.at || t.createdAt || 0).getTime() >= since).length;
+  return calls + texts;
+}
+// The next touch after a miss, by how many there have been. `other` is the
+// other half of the day (or when they tend to pick up).
+const NEXT = [null,
+  { channel: "text", days: 0, hours: 2 },           // after 1: a text the same day
+  { channel: "call", days: 1, other: true },        // after 2: tomorrow, the other half
+  { channel: "text", days: 2 },                     // after 3: a text in two days
+  { channel: "call", days: 3, other: true },        // after 4: a call in three
+  { channel: "call", days: 4, other: true },        // after 5: a call in four
+];
+const inPlan = (leadId) => store.all("tasks").some((t) => t.leadId === leadId && t.cadence && !t.sequence && !t.done);
+/**
+ * A miss just happened: put the next touch on the queue (or rest them after
+ * the sixth). Returns { n, task, rested, line }. The open sequence task for
+ * them, if any, is replaced.
+ */
+export function scheduleNextAttempt(leadId, { now = new Date() } = {}) {
+  const lead = store.get("leads", leadId);
+  if (!lead) return null;
+  const fn = firstName(lead.name);
+  const n = Math.max(1, attemptCount(leadId, now));
+  store.bulk(() => store.all("tasks").filter((t) => t.leadId === leadId && t.sequence && !t.done).forEach((t) => store.remove("tasks", t.id)));
+  // A plan already working them has its own touches.
+  if (inPlan(leadId)) return { n, task: null, rested: false, line: `attempt ${n} of ${ATTEMPTS} — their plan carries on.` };
+  if (n >= ATTEMPTS) {
+    const until = new Date(now.getTime() + REST_DAYS * DAY).toISOString().slice(0, 10);
+    store.update("leads", leadId, { prospectSnoozedUntil: until, restedAt: now.toISOString(), restedAfter: n });
+    return { n, task: null, rested: true, until, line: `attempt ${n} of ${ATTEMPTS} — that's six; resting them until ${until}.` };
+  }
+  const step = NEXT[n] || NEXT[NEXT.length - 1];
+  const canText = !!lead.phone && !lead.badPhone && consentStatus(lead).ok;
+  const next = n + 1;
+  let task;
+  if (step.channel === "text" && canText) {
+    const at = step.days === 0 ? localLater(now, step.hours || 2) : slotOn(addDaysISO(step.days), 10, 15);
+    task = store.create("tasks", { title: `Text ${fn} — attempt ${next} of ${ATTEMPTS}, after the call`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: "missed", cadence: true, sequence: true, attempt: next, of: ATTEMPTS, from: "session" });
+    return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a text ${step.days === 0 ? "in a couple of hours" : `in ${step.days} days`}.` };
+  }
+  // A call (or a text they can't be sent): the day's other half, or when
+  // they tend to pick up.
+  const days = step.channel === "text" ? Math.max(1, step.days) : step.days;
+  const oh = retrySlot(leadId, now);
+  task = followUpTask(lead, { days, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — attempt ${next} of ${ATTEMPTS} · ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}`, extra: { sequence: true, attempt: next, of: ATTEMPTS } });
+  return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a call ${days === 1 ? "tomorrow" : `in ${days} days`}, ${oh.known ? "when they tend to pick up: " : ""}${oh.word}.` };
+}
+// A clock time a few hours on, inside the working day (else the next slot).
+function localLater(now, hours) {
+  const d = new Date(now.getTime() + hours * 3600000);
+  const s = store.getSettings();
+  const to = Number(s.hoursTo ?? 18);
+  if (d.getHours() >= to) return slotOn(addDaysISO(1), 10, 15);
+  const pad = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /**
@@ -237,20 +314,12 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
     if (key === "reached" || key === "appointment") {
       rec = store.logContact(leadId, { via: "call", outcome: "reached", notes });
       line = key === "appointment" ? `Spoke with ${fn} — book them in.` : `Spoke with ${fn} — they're on the log now.`;
-    } else if (key === "voicemail") {
-      rec = store.logContact(leadId, { via: "call", outcome: "voicemail", notes });
-      // The plan is already working them: nothing to add. Otherwise a text
-      // tomorrow (a call when they can't be texted), and a call in three days.
-      if (!hasCadence(leadId)) {
-        tasks.push(followUpTask(lead, { days: 1, hh: 10, mm: 15, channel: canText ? "text" : "call", intent: "voicemail", title: canText ? `Text ${fn} — follow the voicemail with a line` : `Call ${fn} again — after the voicemail` }));
-        tasks.push(followUpTask(lead, { days: 3, hh: 11, channel: "call", intent: "retry", title: `Call ${fn} again` }));
-      }
-      line = `Left ${fn} a message — ${canText ? "a text tomorrow" : "a call tomorrow"}, a call in three days.`;
-    } else if (key === "no_answer") {
-      rec = store.logContact(leadId, { via: "call", outcome: "no_answer", notes });
-      const oh = otherHalf(leadId, now);
-      if (!hasCadence(leadId)) tasks.push(followUpTask(lead, { days: 1, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}` }));
-      line = `No answer — again tomorrow, ${oh.known ? "when they tend to pick up: " : ""}${oh.word}.`;
+    } else if (key === "voicemail" || key === "no_answer") {
+      rec = store.logContact(leadId, { via: "call", outcome: key, notes });
+      // The next of six, by rule (or the rest after the sixth).
+      const nx = scheduleNextAttempt(leadId, { now });
+      if (nx && nx.task) tasks.push(nx.task);
+      line = `${key === "voicemail" ? `Left ${fn} a message` : "No answer"} — ${nx ? nx.line : "logged."}`;
     } else if (key === "not_interested") {
       // They spoke, and said no: a contact, not a customer for the log.
       const at = now.toISOString();

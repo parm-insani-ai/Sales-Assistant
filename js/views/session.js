@@ -28,7 +28,7 @@ import { dayPlan, dayLine } from "../funnel.js";
 import { openSlots, askLine } from "../slots.js";
 import { afterAppointmentBooked } from "../connections.js";
 import { morePicks } from "../prospects.js";
-import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, startSession, sessionQueue, extendSession, roster, goTo, goNext, goPrev, nextOpen } from "../session.js";
+import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, startSession, sessionQueue, extendSession, roster, goTo, goNext, goPrev, nextOpen, attemptCount, ATTEMPTS } from "../session.js";
 
 const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "?";
 // Booking an appointment re-draws the whole screen from the router (the
@@ -124,7 +124,7 @@ export function renderSession(view) {
           <div>
             <div class="cs-name">${esc(l.name)}</div>
             <div class="cs-sub">${esc(l.vehicleInterest || "No vehicle noted")}${c && c.line ? ` · ${esc(c.line)}` : ""}</div>
-            ${reachLine(l.id) ? `<div class="cs-when">${icon("clock")} ${esc(reachLine(l.id))}</div>` : ""}
+            ${reachLine(l.id) || attemptCount(l.id) ? `<div class="cs-when">${icon("clock")} ${esc([attemptCount(l.id) ? `Attempt ${Math.min(ATTEMPTS, attemptCount(l.id) + (cur.done ? 0 : 1))} of ${ATTEMPTS}` : "", reachLine(l.id)].filter(Boolean).join(" · "))}</div>` : ""}
           </div>
           ${a.tier ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : ""}
         </div>

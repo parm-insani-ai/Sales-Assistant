@@ -70,10 +70,10 @@ await p.click('[data-outcome="voicemail"]'); await p.waitForTimeout(500);
 let after = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, fu: l.followUp, logged: !!l.loggedAt, calls: st.all("calls").filter((x) => x.leadId === id).map((x) => x.outcome), tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).map((t) => ({ title: t.title, due: t.due, channel: t.channel, from: t.from })).sort((a, b) => a.due.localeCompare(b.due)) }; }, firstId);
 console.log("voicemail:", JSON.stringify(after));
 if (after.out !== "voicemail" || after.logged || after.calls.join() !== "voicemail") fail("a message left should be an attempt, not a log entry: " + JSON.stringify(after));
-if (after.tasks.length !== 2 || after.tasks[0].channel !== "text" || !/^Text Owner/.test(after.tasks[0].title) || after.tasks[1].channel !== "call") fail("a voicemail should put a text tomorrow and a call later on the queue: " + JSON.stringify(after.tasks));
+// (No texting consent on this book — the next of six is a call tomorrow.)
+if (after.tasks.length !== 1 || after.tasks[0].channel !== "call" || !/^Call Owner again — attempt 2 of 6/.test(after.tasks[0].title)) fail("a voicemail should put the next of six on the queue: " + JSON.stringify(after.tasks));
 const d1 = new Date(); d1.setDate(d1.getDate() + 1);
 const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
-if (new Date(after.tasks[0].due + "T12:00") < addDays(0) || new Date(after.tasks[1].due + "T12:00") <= new Date(after.tasks[0].due + "T12:00")) fail("the text should be tomorrow-ish and the call after it: " + JSON.stringify(after.tasks));
 c = await card();
 if (!/2 of 6/.test(c.progress || "") || c.name === first) fail("the next customer should be up: " + JSON.stringify({ progress: c.progress, name: c.name }));
 
@@ -82,7 +82,7 @@ const secondId = await idOf(c.name);
 await p.click('[data-outcome="no_answer"]'); await p.waitForTimeout(500);
 after = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).map((t) => t.title) }; }, secondId);
 console.log("no answer:", JSON.stringify(after));
-if (after.out !== "no_answer" || after.tasks.length !== 1 || !/Call Owner again — (try the|they tend to pick up) (mornings|afternoons|around midday|evenings)/.test(after.tasks[0])) fail("no answer should set one retry at the other half of the day: " + JSON.stringify(after));
+if (after.out !== "no_answer" || after.tasks.length !== 1 || !/Call Owner again — attempt 2 of 6 · (try the|they tend to pick up) (mornings|afternoons|around midday|evenings)/.test(after.tasks[0])) fail("no answer should set one retry at the other half of the day: " + JSON.stringify(after));
 
 // --- Back and forth. ‹ Back twice lands on the first, their answer lit and
 // said; another outcome changes it (the message's follow-ups go, a retry
@@ -97,7 +97,7 @@ if (lit.chips.length !== 6 || !/cs-chip-later/.test(lit.chips[0]) || !/cs-chip-l
 await p.click('[data-outcome="no_answer"]'); await p.waitForTimeout(500);
 let changed = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, calls: st.all("calls").filter((x) => x.leadId === id).map((x) => x.outcome), tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).map((t) => t.title), progress: document.querySelector(".cs-progress")?.textContent.replace(/\s+/g, " ").trim() }; }, firstId);
 console.log("changed to no answer:", JSON.stringify(changed));
-if (changed.out !== "no_answer" || changed.calls.join() !== "no_answer" || changed.tasks.length !== 1 || !/^Call Owner again/.test(changed.tasks[0])) fail("changing the answer should take the message's paperwork back and do the new one: " + JSON.stringify(changed));
+if (changed.out !== "no_answer" || changed.calls.join() !== "no_answer" || changed.tasks.length !== 1 || !/^Call Owner again — attempt 2 of 6/.test(changed.tasks[0])) fail("changing the answer should take the message's paperwork back and do the new one: " + JSON.stringify(changed));
 if (!/3 of 6/.test(changed.progress || "")) fail("after a change the next one without an answer is up: " + changed.progress);
 await p.click('.cs-chip[data-go="0"]'); await p.waitForTimeout(300);
 await p.click('[data-act="undo"]'); await p.waitForTimeout(400);
@@ -106,7 +106,7 @@ console.log("undone:", JSON.stringify(cleared));
 if (cleared.name !== first || cleared.out || cleared.last || cleared.calls || cleared.tasks || cleared.picked) fail("Undo should clear the answer and its paperwork: " + JSON.stringify(cleared));
 await p.click('[data-outcome="voicemail"]'); await p.waitForTimeout(500);
 const again = await p.evaluate(async (id) => { const st = await import("/js/store.js"); return { calls: st.all("calls").filter((x) => x.leadId === id).map((x) => x.outcome), tasks: st.all("tasks").filter((t) => t.leadId === id && !t.done).length, progress: document.querySelector(".cs-progress")?.textContent.replace(/\s+/g, " ").trim() }; }, firstId);
-if (again.calls.join() !== "voicemail" || again.tasks !== 2 || !/3 of 6/.test(again.progress || "")) fail("the answer given again should stand, and the third be up: " + JSON.stringify(again));
+if (again.calls.join() !== "voicemail" || again.tasks !== 1 || !/3 of 6/.test(again.progress || "")) fail("the answer given again should stand, and the third be up: " + JSON.stringify(again));
 
 // --- Not interested: a contact, parked six months, not on the log.
 c = await card(); const thirdId = await idOf(c.name);

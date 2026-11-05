@@ -100,6 +100,7 @@ export function templateTouch(lead, task) {
       if (lease) return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Your lease is coming up, and it's worth knowing your options before the clock runs down. Want to grab ten minutes this week and go through them properly?`;
       return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Quick one — ${owned} may put you in a better spot to move than you'd think, and I'd rather show you real numbers than guess by text. Ten minutes in person, whenever suits?`;
     }
+    case "missed":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — just tried you about your ${lead.vehicleInterest || "vehicle"}. No rush at all: reply here, or tell me a good time and I'll call then.`;
     default:        return `Hi ${fn}, ${me} here. Just keeping in touch — when you're ready to look at a ${car}, I'm one text away.`;
   }
 }
