@@ -185,6 +185,11 @@ await setSort("quiet"); await p.waitForTimeout(500);
 // they're never near the top.)
 const quiet = await p.evaluate(async () => { const st = await import("/js/store.js"); const ids = [...document.querySelectorAll(".lead-list .swipe-card")].map((c) => c.dataset.leadId); return { firstContacted: !!st.get("leads", ids[0]).lastContacted, contactedAt: ids.findIndex((id) => !!st.get("leads", id).lastContacted), n: ids.length }; });
 if (quiet.firstContacted || (quiet.contactedAt >= 0 && quiet.contactedAt < quiet.n - 1)) fail("longest quiet: the never-contacted first, the reached last: " + JSON.stringify(quiet));
+await setSort("rate"); await p.waitForTimeout(500);
+const rates = await p.evaluate(async () => { const st = await import("/js/store.js"); return [...document.querySelectorAll(".lead-list .swipe-card")].map((c) => st.get("leads", c.dataset.leadId).currentApr ?? null); });
+const known = rates.filter((x) => x != null);
+console.log("highest rate:", JSON.stringify(rates.slice(0, 6)));
+if (known.length < 2 || known.some((x, i) => i && Number(x) > Number(known[i - 1])) || rates.findIndex((x) => x == null) >= 0 && rates.findIndex((x) => x == null) < known.length) fail("highest rate should run high to low with no-rate last: " + JSON.stringify(rates.slice(0, 8)));
 await setSort("best"); await p.waitForTimeout(400);
 
 // --- Hygiene: on All, the two with no number are a line with a fix; Fix

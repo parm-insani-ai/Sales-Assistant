@@ -295,6 +295,7 @@ export function renderLeads(view, { param }) {
     { key: "timing", label: "Soonest window" },
     { key: "quiet", label: "Longest quiet" },
     { key: "equity", label: "Most equity" },
+    { key: "rate", label: "Highest rate" },
   ];
   let sort = recall(SORT_KEY) || "best";
   if (!SORTS.some((x) => x.key === sort)) sort = "best";
@@ -990,6 +991,8 @@ export function renderLeads(view, { param }) {
     if (sort === "quiet") return list.slice().sort((a, b) => String(a.lastContacted || "").localeCompare(String(b.lastContacted || "")));
     // Most equity: known equity, biggest first; unknown last.
     if (sort === "equity") { const eq = (l) => { const e = equityOf(l); return e && e.v != null ? e.v : -Infinity; }; return list.slice().sort((a, b) => eq(b) - eq(a)); }
+    // Highest rate: the rate they carry, highest first; no rate on file last.
+    if (sort === "rate") { const r = (l) => { const v = Number(l.currentApr); return l.currentApr != null && l.currentApr !== "" && isFinite(v) ? v : -Infinity; }; return list.slice().sort((a, b) => r(b) - r(a)); }
     // Best deals first. The list's job is to read the whole book and put the
     // people a car can be sold to at the top, with the reason on the card —
     // see assess.js. Ties go to the nearest follow-up, then the newest.
