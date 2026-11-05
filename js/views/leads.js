@@ -8,6 +8,7 @@ import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
 import { currentSession, startSession } from "../session.js";
 import { reachLine } from "../reachtime.js";
+import { dayLine } from "../funnel.js";
 import { openSaleForm } from "./goals.js";
 import { openDealerSearch } from "./dealer.js";
 import { maybeStartCadence, startCadence, hasCadence, planSteps, planSummary } from "../cadence.js";
@@ -880,7 +881,7 @@ export function renderLeads(view, { param }) {
         : pr.behind ? `Nice. ${pr.behind.toLocaleString()} more are ready — take the next ${Math.min(n, pr.behind)}?` : "That's everyone the book has a reason for right now.";
       block.innerHTML = `
         <div class="row" style="align-items:center">
-          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div></div>
+          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div><div class="small today-day" style="margin-top:4px">${esc(dayLine())}</div></div>
           ${pr.behind ? `<button type="button" class="btn btn-sm ${pr.left ? "btn-ghost" : "btn-primary"}" data-act="more-today" style="flex:none">${pr.total ? `${Math.min(n, pr.behind)} more` : `Bring up ${Math.min(n, pr.behind)}`}</button>` : ""}
         </div>
         ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}

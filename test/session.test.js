@@ -58,7 +58,7 @@ if (!c.name || !c.reasons.length) fail("the card should carry who and why");
 if (!/^Hi Owner, it's Parm at O'Regan's Nissan\./.test(c.opener || "") || /\$|%/.test(c.opener || "")) fail("the opener should be in the rep's voice with no figure: " + c.opener);
 if (!c.ask || c.objections < 3) fail("the ask and the objections should be there: " + JSON.stringify({ ask: c.ask, objections: c.objections }));
 if (!/^tel:/.test(c.dial || "")) fail("the Call button should dial: " + c.dial);
-if (c.outcomes.join() !== "reached,appointment,voicemail,no_answer,not_interested,wrong_number") fail("the six outcomes: " + c.outcomes.join());
+if (c.outcomes.slice().sort().join() !== "appointment,no_answer,not_interested,reached,voicemail,wrong_number") fail("the six outcomes: " + c.outcomes.join());
 if (!c.back) fail("the session should have a way back");
 const first = c.name;
 const idOf = (name) => p.evaluate(async (name) => (await import("/js/store.js")).all("leads").find((l) => l.name === name)?.id, name);
@@ -128,12 +128,12 @@ if (!after.bad || after.eligible || after.calls.join() !== "wrong_number") fail(
 c = await card(); const fifthId = await idOf(c.name);
 if (!/5 of 6/.test(c.progress || "")) fail("should be on the fifth: " + c.progress);
 await p.click('[data-outcome="reached"]'); await p.waitForTimeout(400);
-const note = await p.evaluate(() => ({ panel: !!document.querySelector(".cs-slot .note-panel"), picked: document.querySelector(".cs-out-picked")?.dataset.outcome }));
+const note = await p.evaluate(() => ({ panel: !!document.querySelector(".cs-slot-panel .note-panel"), picked: document.querySelector(".cs-out-picked")?.dataset.outcome }));
 console.log("spoke:", JSON.stringify(note));
 if (!note.panel || note.picked !== "reached") fail("Spoke should log and open the note panel: " + JSON.stringify(note));
 after = await p.evaluate(async (id) => { const st = await import("/js/store.js"); const l = st.get("leads", id); return { out: l.lastContactOutcome, logged: !!l.loggedAt }; }, fifthId);
 if (after.out !== "reached" || !after.logged) fail("Spoke should put them on the log: " + JSON.stringify(after));
-await p.click('.cs-slot .note-panel [data-act="cancel"]'); await p.waitForTimeout(400);
+await p.click('.cs-slot-panel .note-panel [data-act="cancel"]'); await p.waitForTimeout(400);
 c = await card();
 if (!/6 of 6/.test(c.progress || "")) fail("after the note the last customer should be up: " + c.progress);
 

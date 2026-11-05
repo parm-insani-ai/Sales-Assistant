@@ -24,6 +24,10 @@ import { consentStatus } from "../consent.js";
 import { openAppointmentForm } from "./calendar.js";
 import { notePanel } from "./leads.js";
 import { reachLine } from "../reachtime.js";
+import { dayPlan, dayLine } from "../funnel.js";
+import { openSlots, askLine } from "../slots.js";
+import { afterAppointmentBooked } from "../connections.js";
+import { morePicks } from "../prospects.js";
 import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, startSession, sessionQueue, extendSession, roster, goTo, goNext, goPrev, nextOpen } from "../session.js";
 
 const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "?";
@@ -45,6 +49,17 @@ export function renderSession(view) {
   if (flagged()) { flag(false); if (nextOpen() < 0) showSummary = true; }
   draw();
 
+  // The batch feeds until the day's booked: with everyone answered and the
+  // goal not met, the next handful joins the session. Returns whether
+  // anyone did.
+  function feed() {
+    const s = currentSession();
+    if (!s || s.kind === "list") return false;
+    if (dayPlan().done) return false;
+    const added = morePicks();
+    if (!added.length) return false;
+    return extendSession() > 0;
+  }
   function draw() {
     let s = currentSession();
     if (!s) { page.replaceChildren(startCard()); return; }
@@ -64,10 +79,12 @@ export function renderSession(view) {
     const el = document.createElement("div");
     if (!q.length) { el.innerHTML = emptyState("phone", "Nobody to call right now", "Today's batch is worked through, or nobody on it has a number. Outreach brings up the next handful tomorrow."); const b = document.createElement("button"); b.className = "btn btn-ghost"; b.textContent = "Back to Outreach"; b.addEventListener("click", () => navigate("/leads")); el.appendChild(b); return el; }
     el.className = "card cs-start";
+    const plan = dayPlan();
     el.innerHTML = `
       <div class="cs-start-n">${q.length}</div>
-      <div class="strong">to call today</div>
-      <div class="small muted" style="margin:6px 0 14px">Best first. One at a time: who, why, what to say, the number — and what came of it.</div>
+      <div class="strong">to call now</div>
+      <div class="cs-day small" style="margin-top:6px">${esc(dayLine(plan))}</div>
+      <div class="small muted" style="margin:6px 0 14px">Best first, one at a time: who, why, what to say, two times to offer — and what came of it. The batch keeps feeding until the day's booked.</div>
       <button type="button" class="btn btn-success btn-lg" data-act="start" style="width:100%">${icon("phone")} Start calling</button>`;
     el.querySelector('[data-act="start"]').addEventListener("click", () => { startSession(); draw(); });
     return el;
@@ -88,10 +105,15 @@ export function renderSession(view) {
     const called = s.done.length;
     const reached = s.done.filter((d) => ["reached", "appointment", "not_interested"].includes(d.outcome)).length;
     const was = cur.done ? OUTCOMES.find((o) => o.key === cur.done.outcome) : null;
+    const plan = dayPlan();
+    // The ask: two open times from the calendar, in the script and as buttons.
+    const slots = openSlots();
+    const ask = askLine(slots);
     const el = document.createElement("div");
     el.className = "cs-wrap";
     el.innerHTML = `
       <div class="cs-head">
+        <div class="cs-day small"><span class="strong">${plan.done ? `${plan.booked} of ${plan.goal} booked — done for the day` : `${plan.booked} of ${plan.goal} booked`}</span><span class="muted">${plan.done ? "" : ` · about ${plan.dialsLeft} more dial${plan.dialsLeft === 1 ? "" : "s"} at ${plan.own ? "your" : "average"} rates`}</span></div>
         <div class="cs-progress"><span class="strong">${cur.i + 1} of ${cur.of}</span><span class="muted"> · ${called} called · ${reached} reached</span></div>
         <button type="button" class="btn btn-ghost btn-sm" data-act="end">${called >= cur.of ? "Finish" : "End"}</button>
         <div class="cs-bar"><span style="width:${Math.round((called / Math.max(1, cur.of)) * 100)}%"></span></div>
@@ -110,7 +132,7 @@ export function renderSession(view) {
         <div class="cs-script">
           <div class="cs-label">Say</div>
           <p class="cs-line">${esc(script.opener)}</p>
-          <p class="cs-line cs-ask">${esc(script.bridge)}</p>
+          <p class="cs-line cs-ask">${esc(ask)}</p>
         </div>
         <details class="cs-obj">
           <summary>If they say…</summary>
@@ -120,11 +142,16 @@ export function renderSession(view) {
         ${l.phone && !l.badPhone ? `<a class="btn btn-success btn-lg cs-dial" data-act="dial" href="${telHref(l.phone)}">${icon("phone")} Call ${esc(phoneDisplay(l.phone))}</a>`
           : `<div class="cs-dial cs-dial-off">${icon("alert")} ${l.badPhone ? "Wrong number on file" : "No number on file"}</div>`}
         <div class="cs-label" style="margin-top:14px">What came of it</div>
+        ${slots.length ? `<div class="cs-book">
+          <div class="cs-label">Book them in</div>
+          <div class="cs-book-row">${slots.map((x) => `<button type="button" class="btn btn-primary btn-sm cs-slot" data-slot="${esc(x.at)}">${icon("calendar")} ${esc(x.label)}</button>`).join("")}<button type="button" class="btn btn-ghost btn-sm cs-slot-other" data-outcome="appointment" title="Pick another time">Other…</button></div>
+        </div>` : ""}
+        <div class="cs-label" style="margin-top:12px">Or</div>
         <div class="cs-outcomes">
-          ${OUTCOMES.map((o) => `<button type="button" class="btn cs-out cs-out-${o.kind}${was && was.key === o.key ? " cs-out-picked" : ""}" data-outcome="${o.key}" title="${esc(o.hint)}">${icon(o.icon)}<span>${esc(o.label)}</span></button>`).join("")}
+          ${OUTCOMES.filter((o) => !slots.length || o.key !== "appointment").map((o) => `<button type="button" class="btn cs-out cs-out-${o.kind}${was && was.key === o.key ? " cs-out-picked" : ""}" data-outcome="${o.key}" title="${esc(o.hint)}">${icon(o.icon)}<span>${esc(o.label)}</span></button>`).join("")}
         </div>
         ${was ? `<div class="cs-recorded small">${icon("check")} <span>Recorded: <b>${esc(was.label)}</b> · tap another to change it</span><button type="button" class="btn btn-ghost btn-sm" data-act="undo">Undo</button></div>` : ""}
-        <div class="cs-slot"></div>
+        <div class="cs-slot-panel"></div>
       </div>
       <div class="cs-foot">
         <button type="button" class="btn btn-ghost btn-sm" data-act="prev" aria-label="Back one">‹ Back</button>
@@ -140,13 +167,25 @@ export function renderSession(view) {
     if (dial) dial.addEventListener("click", () => { store.logActivity("touch"); el.classList.add("cs-dialed"); });
     const undo = el.querySelector('[data-act="undo"]');
     if (undo) undo.addEventListener("click", () => { revertOutcome(l.id); toast(`${firstName(l.name)}'s answer cleared`, ""); draw(); });
-    const slot = el.querySelector(".cs-slot");
+    const slot = el.querySelector(".cs-slot-panel");
     const outcomes = el.querySelector(".cs-outcomes");
+    // One tap books the time: the appointment goes on the calendar, the
+    // contact is logged, and the confirmation text and reminders are set.
+    el.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => {
+      const at = b.dataset.slot;
+      const x = slots.find((y) => y.at === at);
+      el.querySelectorAll("[data-slot], [data-outcome]").forEach((y) => { y.disabled = true; });
+      const r = recordOutcome(l.id, "appointment");
+      if (!r) { after("Couldn't log that — try again", "danger"); return; }
+      const rec = store.create("appointments", { type: "appointment", title: "Appointment", customerName: l.name, when: at, vehicle: l.vehicleInterest || "", notes: "", status: "scheduled", leadId: l.id });
+      afterAppointmentBooked(l.id, at, rec.id);
+      after(`Booked ${x ? x.label : "it"} — confirmation text and reminders set`);
+    }));
     // After an answer: the next person without one — or, with everyone
     // answered, the summary.
     const after = (line, kind = "success") => {
       if (line) toast(line, kind);
-      if (nextOpen() < 0) showSummary = true;
+      if (nextOpen() < 0 && !feed()) showSummary = true;
       draw();
     };
     el.querySelectorAll("[data-outcome]").forEach((b) => b.addEventListener("click", () => {
@@ -192,6 +231,7 @@ export function renderSession(view) {
     el.innerHTML = `
       <div class="strong" style="font-size:1.1rem">${over ? "Session done" : sum.left ? `${sum.left} still to call` : "Everyone's answered"}</div>
       <div class="small muted" style="margin-top:2px">${sum.minutes} minute${sum.minutes === 1 ? "" : "s"} on the phone${sum.left && over ? ` · ${sum.left} left for later` : ""}</div>
+      <div class="cs-day small" style="margin-top:6px">${esc(dayLine(dayPlan()))}</div>
       <div class="cs-stats">
         ${stat(sum.dials, "dials")}${stat(sum.reached, "reached")}${stat(sum.appointments, sum.appointments === 1 ? "appointment" : "appointments")}${stat(`${rate}%`, "reach rate")}
       </div>
