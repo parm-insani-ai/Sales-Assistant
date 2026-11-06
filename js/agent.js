@@ -38,6 +38,8 @@ import { answerLot, lotSummary } from "./lot.js";
 import { modelsIn } from "./segments.js";
 import { styleBrief } from "./style.js";
 import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps, ownerList, ownerGaps, inAudience, AUDIENCE_HELP, isProspecting } from "./outreach.js";
+import { parseList, isListRequest, describeList } from "./listspeech.js";
+import { spokenMatches } from "./listmatch.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
@@ -526,10 +528,35 @@ export function lastUndoable() { return undoStack.length ? undoStack[undoStack.l
 // about who owns what. Shared by the agent's tools and the offline voice path.
 export function ownersOnScreen(text) {
   const own = ownerList(text);
-  if (!own) return null;
-  const a = own.audience;
   const rank = assessAll().byId;
   const sc = (l) => { const r = rank.get(l.id); return r ? r.score : 0; };
+  // More in the sentence than what they drive — a reason (equity, a high
+  // rate, a contract ending), a chip, an order, a name to save it under —
+  // or nothing the owner reading could place: the spoken-list reading
+  // (listspeech.js), the same one the mic on the Outreach row uses. Handed
+  // to Outreach whole and applied there; counted here the same way.
+  const spec = isListRequest(text) ? parseList(text) : null;
+  if (spec && (!own || spec.cuts.length || spec.chip || spec.sort || spec.save)) {
+    const list = spokenMatches(spec).sort((x, y) => sc(y) - sc(x));
+    const n = list.length;
+    const customers = list.slice(0, 15).map((l) => { const r = rank.get(l.id); return { name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", equity: equityOf(l), score: r ? r.score : 0, why: r ? r.reasons : [] }; });
+    try {
+      sessionStorage.setItem("viniva:leads-spoken", JSON.stringify(spec));
+      sessionStorage.setItem("leads-filter", spec.chip || "all");
+      sessionStorage.removeItem("leads-search");
+      sessionStorage.removeItem("viniva:leads-audience");
+    } catch { }
+    navigate("/leads");
+    const what = describeList(spec);
+    const missed = spec.unknown.length ? ` I didn't understand ${spec.unknown.map((u) => `"${u}"`).join(", ")} and left it out.` : "";
+    const saved = spec.save && n ? ` Saved as "${spec.name}" — a chip on the row.` : "";
+    const answer = n
+      ? `${n} match — ${what}. ${n === 1 ? "They're" : "They're all"} on the screen.${saved}${missed}`
+      : `Nobody on file matches ${what} yet.${missed}`;
+    return { result: { count: n, audience: what, customers, answer, screen: "Outreach, cut to these customers", saved: spec.save ? spec.name : "" }, note: n ? `${n} on screen · ${what}` : `nobody for ${what}` };
+  }
+  if (!own) return null;
+  const a = own.audience;
   const list = store.all("leads").filter((l) => inAudience(a, l)).sort((x, y) => sc(y) - sc(x));
   const customers = list.slice(0, 15).map((l) => { const r = rank.get(l.id); return { name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", equity: equityOf(l), score: r ? r.score : 0, why: r ? r.reasons : [] }; });
   try {

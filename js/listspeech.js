@@ -10,7 +10,7 @@
 // Pure functions over strings, so node can test them; the screen applies
 // the result.
 
-import { parseOutreach, isEveryone, listAudienceGaps, heard } from "./outreach.js";
+import { parseOutreach, isEveryone, listAudienceGaps, heard, isBlast, isProspecting, aboutPeople, aboutTheLot, describeAudience } from "./outreach.js";
 
 const norm = (s) => String(s || "").replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
 const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, ninety: 90, hundred: 100 };
@@ -90,6 +90,35 @@ export function parseList(text, now = Date.now()) {
   out.audience = isEveryone(a) ? null : { ...a, everyone: false, text: said };
   out.empty = !out.cuts.length && !out.audience && !out.chip && !out.sort;
   return out;
+}
+
+// The list in words, for the voice reply and a saved name: "Rogue owners ·
+// Equity · Quiet 6+ mo on Best now, highest rate first".
+const CUT_LABEL = { payment: "Same payment", equity: "Equity", ending: "Contract ending", cycle: "Owned 3+ yrs", rate: "High rate", warranty: "Warranty ending", service: "In service", quiet: "Quiet 6+ mo", nonumber: "No number" };
+const SORT_LABEL = { best: "best", timing: "soonest window", quiet: "longest quiet", equity: "most equity", rate: "highest rate" };
+const CHIP_LABEL = { tocontact: "Best now", due: "Follow up", contacted: "Contacted", all: "All" };
+export function describeList(spec) {
+  const bits = [spec.audience ? describeAudience(spec.audience) : "", ...spec.cuts.map((k) => CUT_LABEL[k] || k)].filter(Boolean);
+  let s = bits.length ? bits.join(" · ") : "everyone";
+  if (spec.chip) s += ` on ${CHIP_LABEL[spec.chip] || spec.chip}`;
+  if (spec.sort && spec.sort !== "best") s += `, ${SORT_LABEL[spec.sort]} first`;
+  return s;
+}
+
+// Said to the Home mic, is this a list for Outreach? A sentence about the
+// people on file (or one that names a chip, or asks to save) that reads as
+// something — not a blast, not a question about the lot. "What's the
+// payment on a Rogue" names a reason and a model and is still not a list:
+// nothing in it is about people.
+export function isListRequest(text, now = Date.now()) {
+  const t = String(text || "").toLowerCase();
+  if (aboutTheLot(t) || isBlast(t, now) || isProspecting(t)) return false;
+  const spec = parseList(t, now);
+  if (spec.empty) return false;
+  // From Home, words it couldn't place mean the sentence is the assistant's
+  // to weigh whole — unless a name was given, which says "a list" plainly.
+  if (spec.unknown.length && !spec.save) return false;
+  return aboutPeople(t) || /\b(?:a |the |my )?lists?\b|\broster\b|\bline ?up\b/.test(t) || !!spec.chip || spec.save;
 }
 
 // What the screen can read, for the sheet's own hint and the voice reply.

@@ -228,6 +228,9 @@ export function isOutreach(text) {
 const LIST_WORDS = new Set(("make give get pull show bring build put together find fetch look search list print read up out names name rundown roster count number total how many do does any are there is which whichever everyone mine drive driving owning currently right now file book database crm records have has got hey ok okay please can could would want need like let us quick full whole entire complete all of my our me i model models year years").split(" "));
 const PEOPLE = /\b(owners?|drivers?|customers?|clients?|people|folks|everyone|everybody|anyone|anybody|who|whose|whoever|leads|prospects|on file|in (?:my|the) book|my book)\b/;
 const THE_LOT = /\b(on the lot|the lot|in stock|inventory|for sale|price|priced|going for|cheapest|priciest|kilomet\w*|kms?|mileage|stock number|units?)\b/;
+// Is the sentence about the people on file, or about the metal on the lot?
+export function aboutPeople(text) { return PEOPLE.test(lower(text)); }
+export function aboutTheLot(text) { return THE_LOT.test(lower(text)); }
 function readOwners(text, now) {
   const t = lower(text);
   if (THE_LOT.test(t) || isOutreach(t)) return null;

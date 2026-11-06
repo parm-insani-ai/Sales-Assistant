@@ -168,6 +168,12 @@ export function renderLeads(view, { param }) {
   // (/deals and the voice agent still arrive by presetting "opportunity".)
   let preset = sessionStorage.getItem("leads-filter");
   sessionStorage.removeItem("leads-filter");
+  // A list said to the Home mic (agent.js hands it over whole). Taken off
+  // the shelf only once it's applied, so a first read of the book in
+  // between doesn't lose it.
+  const SPOKEN = "viniva:leads-spoken";
+  let spoken = null;
+  try { spoken = JSON.parse(sessionStorage.getItem(SPOKEN) || "null"); } catch { spoken = null; }
   // "By opportunity" is Best now: the same customers, ranked by how ready
   // they are to trade. A preset from /deals or the assistant lands there.
   const opp = false;
@@ -1137,6 +1143,14 @@ export function renderLeads(view, { param }) {
   }
 
   draw();
+  // A list said to the Home mic: applied the way the row's own mic applies
+  // one, saved if a name was said, and said back in a line.
+  if (spoken && !opp) {
+    try { sessionStorage.removeItem(SPOKEN); } catch { /* fine */ }
+    const n = applySpoken(spoken);
+    if (spoken.save && spoken.name && n) { saveList(spoken.name); refreshCutRow(); }
+    toast(n ? `${n.toLocaleString()} match · ${cutLabel() || "everyone"}${spoken.save && spoken.name ? ` · saved as "${spoken.name}"` : ""}` : `Nobody matches ${cutLabel() || "that"} yet`, n ? "success" : "warn");
+  }
 }
 
 // What a customer's card says. Drawn once on the way in and again in place

@@ -15,6 +15,7 @@ import { logCustomer } from "./logbook.js";
 import { agentConfigured, createAgentSession, showLotOnScreen, ownersOnScreen, forgetConvo, wrapUpDue, markWrappedUp, ensureWrapUpReminder, WRAPUP_ASK } from "./agent.js";
 import { answerLot } from "./lot.js";
 import { isBlast, parseOutreach, audienceFor, describeAudience, unknownNote, ownerList } from "./outreach.js";
+import { isListRequest } from "./listspeech.js";
 import { reachForBlast } from "./consent.js";
 import { pickBest, repair, recognitionLang, vocabulary } from "./asr.js";
 import { diagTrail } from "./native.js";
@@ -218,7 +219,9 @@ export function parseCommand(raw) {
   // 5b) Who owns what: "make me a list of everyone who owns a Nissan Rogue",
   // "my Rogue owners", "who drives a Sentra" — the customers on file, not
   // the lot. Read before the lot so the lot never answers for the people.
-  if (ownerList(raw)) return { action: "owners", text: raw };
+  // A list with more in it than what they drive — a reason, a chip, an
+  // order, a name to save it under — goes the same way (listspeech.js).
+  if (ownerList(raw) || isListRequest(raw)) return { action: "owners", text: raw };
 
   // 5a) A question about the lot, answered from the lot on the device.
   //
