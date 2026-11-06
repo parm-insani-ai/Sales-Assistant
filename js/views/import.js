@@ -103,6 +103,7 @@ export function renderImport(view) {
         <input id="imp-outreach" type="checkbox" checked>
         <span>Automate outreach — start a follow-up plan (calls/texts) for each imported prospect</span>
       </label>
+      <div id="imp-outreach-note" class="small muted" style="margin:-8px 0 14px" hidden></div>
 
       <label class="btn btn-primary btn-block" for="imp-file">${icon("file")} Choose Excel or CSV file</label>
       <input id="imp-file" type="file" accept=".csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
@@ -145,9 +146,24 @@ export function renderImport(view) {
         `Read ${parsed.headers.length} column${parsed.headers.length === 1 ? "" : "s"} — ${esc(parsed.headers.slice(0, 4).join(", "))}${parsed.headers.length > 4 ? "…" : ""} — and no rows underneath.`);
       return;
     }
+    // A whole CRM is not a prospect list. The follow-up plan is eight tasks a
+    // person, so on a big file it starts unticked: a few hundred fresh leads
+    // want plans, four thousand past customers want the book read instead —
+    // Outreach picks the day's calls from them. Ticking it back is one tap.
+    const box = el.querySelector("#imp-outreach"), note = el.querySelector("#imp-outreach-note");
+    if (box && typeSel.value === "leads") {
+      const big = parsed.rows.length > BIG_FILE;
+      box.checked = !big;
+      if (note) {
+        note.hidden = !big;
+        note.textContent = big ? `Off for a file this size — ${parsed.rows.length.toLocaleString()} plans would be about ${(parsed.rows.length * 8).toLocaleString()} tasks. Outreach picks each day's calls from the book instead; tick it to start plans anyway.` : "";
+      }
+    }
     showMapping(stage, typeSel.value, parsed, { outreach: () => el.querySelector("#imp-outreach")?.checked });
   });
 }
+// Rows past which an import is a book, not a lead list.
+const BIG_FILE = 200;
 
 function showMapping(stage, type, parsed, opts = {}) {
   const targets = type === "vehicles" ? VEHICLE_TARGETS : LEAD_TARGETS;
@@ -459,12 +475,28 @@ function runImportRows(type, rows, mapping) {
     // no contact columns at all and would otherwise duplicate on re-import.
     const byPhone = new Map();
     const byEmail = new Map();
-    const byName = new Map();
+    const byName = new Map(); // name key → every customer with that name
     const nameKey = (n) => String(n || "").toLowerCase().replace(/[^a-z]/g, "");
-    store.all("leads").forEach((l) => {
+    const remember = (l) => {
       if (l.phone) byPhone.set(digits(l.phone), l);
       if (l.email) byEmail.set(l.email.toLowerCase(), l);
-      if (l.name) byName.set(nameKey(l.name), l);
+      const k = nameKey(l.name);
+      if (!k) return;
+      const list = byName.get(k) || [];
+      if (!list.includes(l)) list.push(l);
+      byName.set(k, list);
+    };
+    store.all("leads").forEach(remember);
+    // A name alone is identity only when nothing says otherwise. A whole CRM
+    // holds several people with the same name; when the row's phone or email
+    // and the customer's disagree, they are two people, not one record —
+    // merging them hands one customer the other's payment, payoff and rate.
+    // A row with no contact columns (a service list) still finds its person.
+    const sameName = (rec, ph, em) => (byName.get(nameKey(rec.name)) || []).find((l) => {
+      const lp = digits(l.phone), le = (l.email || "").toLowerCase();
+      if (ph && lp && ph !== lp) return false;
+      if (em && le && em !== le) return false;
+      return true;
     });
 
     rows.forEach((row) => {
@@ -472,7 +504,7 @@ function runImportRows(type, rows, mapping) {
       if (!rec.name) { skipped++; return; }
       const ph = digits(rec.phone);
       const em = rec.email ? rec.email.toLowerCase() : "";
-      const match = (ph && byPhone.get(ph)) || (em && byEmail.get(em)) || byName.get(nameKey(rec.name)) || null;
+      const match = (ph && byPhone.get(ph)) || (em && byEmail.get(em)) || sameName(rec, ph, em) || null;
 
       if (match) {
         const patch = mergeLead(match, rec);
@@ -484,16 +516,12 @@ function runImportRows(type, rows, mapping) {
           unchanged++;
         }
         // A newly-learned phone/email lets later rows match this same person.
-        if (match.phone) byPhone.set(digits(match.phone), match);
-        if (match.email) byEmail.set(match.email.toLowerCase(), match);
-        if (match.name) byName.set(nameKey(match.name), match);
+        remember(match);
       } else {
         const created = store.create("leads", rec);
         addedIds.push(created.id);
         added++;
-        if (ph) byPhone.set(ph, created);
-        if (em) byEmail.set(em, created);
-        byName.set(nameKey(created.name), created);
+        remember(created);
       }
     });
   }
