@@ -243,6 +243,11 @@ function readOwners(text, now) {
   if (!PEOPLE.test(t) && !standing) return null;
   return a;
 }
+// The leftover runs of a list request with the words that only ask for a
+// list taken out: what a spoken list genuinely didn't understand.
+export function listAudienceGaps(runs) {
+  return (runs || []).map((run) => String(run).split(/\s+/).filter((w) => !LIST_WORDS.has(w.replace(/[^a-z0-9$%-]/g, ""))).join(" ")).map((s) => s.trim()).filter(Boolean);
+}
 export function ownerList(text, now = Date.now()) {
   const a = readOwners(text, now);
   if (!a || a.unknown.length || isEveryone(a)) return null;

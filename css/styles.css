@@ -732,6 +732,16 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cut-line .lead-tool { height: 30px; width: 34px; border-radius: 999px; }
 .cut-line .cut-row { flex: 1; min-width: 0; margin: 0; padding-bottom: 0; }
 .sort-sheet { display: flex; flex-direction: column; gap: 8px; }
+/* The spoken list sheet: the words, the read-back, a name, the actions. */
+.vl-sheet textarea { min-height: 56px; }
+.vl-sheet .vl-result { margin: 10px 0 4px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); }
+.vl-sheet .vl-result .strong { font-size: 1.05rem; }
+.vl-sheet .vl-result .vl-on { font-weight: 400; font-size: 0.82rem; }
+.vl-sheet .vl-label { margin-top: 2px; }
+.vl-sheet .vl-miss { margin-top: 4px; }
+.vl-sheet .vl-name { margin: 10px 0 2px; }
+.vl-sheet .btn-row { margin-top: 8px; }
+.vl-sheet [hidden] { display: none; }
 /* The bar under the row when a cut is on, and the hygiene line. */
 .cut-bar .cut-actions .btn { min-width: 0; font-size: 0.8rem; }
 .lead-hygiene { display: flex; align-items: center; gap: 6px; margin: -2px 2px 10px; }

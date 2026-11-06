@@ -30,7 +30,8 @@ import {
 } from "../utils.js";
 import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
-import { inAudience, emptyAudience } from "../outreach.js";
+import { inAudience, emptyAudience, isEveryone } from "../outreach.js";
+import { parseList, LIST_HELP } from "../listspeech.js";
 import { classify } from "../segments.js";
 import { equityOf } from "../reach.js";
 import { outreachReport } from "../outcomes.js";
@@ -515,6 +516,99 @@ export function renderLeads(view, { param }) {
   };
   const wireHygiene = () => { const b = wrap.querySelector('[data-act="fix-numbers"]'); if (b) b.addEventListener("click", () => { cuts = new Set(["nonumber"]); listId = null; keepCuts(); refreshCutRow(); refreshList(); }); };
 
+  // A list, said: the mic at the head of the Cut row. One sentence — "Rogue
+  // owners with equity I haven't reached in ninety days, highest rate first"
+  // — becomes the chip, the cuts, the sheet and the order (listspeech.js).
+  // The sheet reads it back with the count; Show them keeps it on screen,
+  // Save keeps it under a name, Cancel puts the screen back as it was.
+  const CHIP_NAME = { tocontact: "Best now", due: "Follow up", contacted: "Contacted", all: "All" };
+  const snapshot = () => ({ filter, cuts: new Set(cuts), aud, sort, listId });
+  const restore = (s) => {
+    filter = s.filter; cuts = new Set(s.cuts); aud = s.aud; sort = s.sort; listId = s.listId;
+    remember(REMEMBER, filter); remember(SORT_KEY, sort); keepCuts(); keepAud();
+    lightChips(); lightSort(); refreshCutRow(); refreshList();
+  };
+  const applySpoken = (spec) => {
+    // In the row's own order: the vehicle first, then the reasons.
+    const next = new Set();
+    let a = spec.audience ? { ...spec.audience, models: spec.audience.models.slice() } : null;
+    if (a) {
+      // A model or a body style the row has a chip for lights that chip.
+      a.models = a.models.filter((m) => { if (cutDef(`model:${m}`)) { next.add(`model:${m}`); return false; } return true; });
+      if (a.body && !a.models.length && !a.makes.length && cutDef(`body:${a.body}`)) { next.add(`body:${a.body}`); a.body = ""; }
+      if (isEveryone(a)) a = null; else { a.everyone = false; a.text = audienceLabel(a); }
+    }
+    spec.cuts.forEach((k) => { if (cutDef(k)) next.add(k); });
+    cuts = next; aud = a; listId = null;
+    if (spec.chip && CHIPS.includes(spec.chip)) { filter = spec.chip; remember(REMEMBER, filter); }
+    // A spoken list is a whole definition: no order said means best first.
+    sort = spec.sort && SORTS.some((x) => x.key === spec.sort) ? spec.sort : "best"; remember(SORT_KEY, sort);
+    keepCuts(); keepAud(); lightChips(); lightSort(); refreshCutRow(); refreshList();
+    return applyFilter().length;
+  };
+  const sayList = () => {
+    const before = snapshot();
+    let d = null, applied = false, muted = false;
+    openModal("Say the list you want", (close) => {
+      const el = document.createElement("div");
+      el.className = "note-panel vl-sheet";
+      el.innerHTML = `
+        <div class="note-status listening">${icon("mic")} <span>Listening… say the list you want</span></div>
+        <textarea data-f="say" rows="2" placeholder="Rogue owners with equity I haven't reached in 90 days, highest rate first"></textarea>
+        <div class="vl-result" hidden>
+          <div class="strong"><span class="vl-n">0</span> match <span class="muted vl-on"></span></div>
+          <div class="small vl-label"></div>
+          <div class="small muted vl-miss" hidden></div>
+        </div>
+        <div class="field vl-name" hidden><label>Name</label><input data-f="name" placeholder="Rogue equity" autocomplete="off"></div>
+        <div class="btn-row vl-actions">
+          <button type="button" class="btn btn-ghost" data-act="read" style="flex:1">Read it</button>
+          <button type="button" class="btn btn-ghost" data-act="again" style="flex:0 0 auto" aria-label="Say it again" title="Say it again">${icon("mic")}</button>
+        </div>
+        <div class="btn-row vl-done" hidden>
+          <button type="button" class="btn btn-primary" data-act="show" style="flex:1">Show them</button>
+          <button type="button" class="btn btn-ghost" data-act="save" style="flex:1">${icon("tag")} Save as list</button>
+        </div>
+        <button type="button" class="btn btn-ghost btn-block" data-act="cancel" style="margin-top:6px">Cancel</button>
+        <div class="hint" style="margin-top:8px">Say ${esc(LIST_HELP)}.</div>`;
+      const q = (s) => el.querySelector(s);
+      const status = q(".note-status"), box = q('[data-f="say"]');
+      const say = (text, cls) => { status.className = `note-status${cls ? " " + cls : ""}`; status.innerHTML = `${icon(cls === "listening" ? "mic" : "edit")} <span>${esc(text)}</span>`; };
+      const read = (text) => {
+        const spec = parseList(text);
+        if (spec.empty) { say("Didn't catch a list in that — say or type what they drive, where they stand, or the order.", ""); return; }
+        const n = applySpoken(spec); applied = true;
+        q(".vl-result").hidden = false;
+        q(".vl-n").textContent = n.toLocaleString();
+        q(".vl-on").textContent = `on ${CHIP_NAME[filter] || filter}${sort !== "best" ? ` · ${(SORTS.find((x) => x.key === sort) || {}).label}` : ""}`;
+        q(".vl-label").textContent = cutLabel() || "everyone";
+        const miss = q(".vl-miss"); miss.hidden = !spec.unknown.length; miss.textContent = spec.unknown.length ? `Didn't understand ${spec.unknown.map((u) => `"${u}"`).join(", ")} — left out.` : "";
+        q(".vl-name").hidden = false; q('[data-f="name"]').value = spec.name || cutLabel();
+        q(".vl-done").hidden = false;
+        say(n ? "Heard. Fix anything and read it again, or show them." : "Nobody matches that — change a word and read it again.", "");
+        if (spec.save && n) { saveList(spec.name); refreshCutRow(); toast(`Saved "${spec.name}" — it's a chip on the row`, "success"); close(); }
+      };
+      const listen = () => {
+        muted = false;
+        say("Listening… say the list you want", "listening");
+        d = dictate({
+          onInterim: (t) => { if (!muted) box.value = t; },
+          onFinal: (t) => { if (muted) return; if (t) { box.value = t; read(t); } else say("Didn't catch that — say it again, or type it.", ""); },
+          onFallback: (why, partial) => { if (muted) return; if (partial) box.value = partial; say(why, ""); box.focus(); },
+        });
+      };
+      const hush = () => { muted = true; try { d && d.stop(); } catch { /* fine */ } };
+      q('[data-act="read"]').addEventListener("click", () => { hush(); if (box.value.trim()) read(box.value.trim()); else box.focus(); });
+      box.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); q('[data-act="read"]').click(); } });
+      q('[data-act="again"]').addEventListener("click", () => { hush(); box.value = ""; listen(); });
+      q('[data-act="show"]').addEventListener("click", () => { hush(); close(); });
+      q('[data-act="save"]').addEventListener("click", () => { hush(); const name = q('[data-f="name"]').value.trim() || cutLabel() || "My list"; saveList(name); refreshCutRow(); toast(`Saved "${name}" — it's a chip on the row`, "success"); close(); });
+      q('[data-act="cancel"]').addEventListener("click", () => { hush(); if (applied) restore(before); close(); });
+      listen();
+      return el;
+    }, { onClose: () => { muted = true; try { d && d.stop(); } catch { /* fine */ } } });
+  };
+
   function draw() {
     let list = cutBaseList(); // read fresh so swipe-deletes/undos stay accurate
     // The cut row's counts: over the chip showing (and the sheet), before
@@ -578,6 +672,7 @@ export function renderLeads(view, { param }) {
       </div>
       <div class="cut-line"${selecting ? " hidden" : ""}>
         <button type="button" class="btn btn-sm lead-tool ${aud ? "btn-primary" : "btn-ghost"}" data-act="audience" aria-pressed="${!!aud}" aria-label="Filter" title="Filter">${icon("sliders")}</button>
+        <button type="button" class="btn btn-sm lead-tool btn-ghost" data-act="say-list" aria-label="Say a list" title="Say the list you want">${icon("mic")}</button>
         <div class="lead-chips cut-row" aria-label="Cut the book">${cutChipsHTML(cutBase)}</div>
       </div>
       <div class="cut-bar-slot">${cutBarHTML(list.length)}</div>
@@ -589,6 +684,7 @@ export function renderLeads(view, { param }) {
     on('[data-act="opp"]', () => { opp = !opp; remember(OPP_KEY, opp ? "1" : null); draw(); });
     wireCutChips(); wireCutBar(); wireHygiene();
     on('.cut-line [data-act="audience"]', editAud);
+    on('.cut-line [data-act="say-list"]', sayList);
     on('[data-act="sort"]', openSortSheet);
     const cutRow = wrap.querySelector(".cut-row");
     if (cutRow) { cutRow.scrollLeft = rowX; showCutChip(cutRow); }
