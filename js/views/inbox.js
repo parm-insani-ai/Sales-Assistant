@@ -8,7 +8,7 @@
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
-import { toast, openModal } from "../components.js";
+import { toast, openModal, undoToast, confirmDialog } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, telHref } from "../utils.js";
 import { sendText, retryText, smsBlocker, takePrefillDraft, timelineFor, linkIsHot } from "../sms.js";
@@ -114,6 +114,37 @@ function renderThread(view, leadId) {
   const threadBox = el.querySelector("#ib-thread");
   const compose = el.querySelector("#ib-compose");
 
+  // Any message (or logged call) can be deleted: a tap, or a press, puts a
+  // small Delete under it; confirming removes it from this phone and the
+  // account, with an undo for a moment. The customer's own copy on their
+  // phone is theirs — this only clears the record here.
+  let toolsOn = null;
+  function deletable(el, coll, rec, what) {
+    el.classList.add("chat-deletable");
+    el.dataset.recId = rec.id;
+    const show = () => {
+      if (toolsOn && toolsOn.isConnected) toolsOn.remove();
+      const tools = document.createElement("div");
+      tools.className = `bubble-tools${rec.dir === "in" ? " bubble-tools-in" : ""}`;
+      tools.innerHTML = `<button type="button" class="bubble-tool bubble-tool-del" data-act="delete-msg">${icon("trash")} Delete</button><button type="button" class="bubble-tool" data-act="tools-close" aria-label="Close">×</button>`;
+      tools.querySelector('[data-act="tools-close"]').addEventListener("click", (ev) => { ev.stopPropagation(); tools.remove(); toolsOn = null; });
+      tools.querySelector('[data-act="delete-msg"]').addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const ok = await confirmDialog(`Delete ${what}? It goes from this phone and your account. ${coll === "texts" ? "The customer keeps their own copy." : ""}`.trim(), { confirmLabel: "Delete" });
+        if (!ok) return;
+        const copy = { ...rec };
+        store.remove(coll, rec.id);
+        toolsOn = null;
+        paintThread();
+        undoToast(`${what.charAt(0).toUpperCase() + what.slice(1)} deleted`, () => { store.restore(coll, copy); paintThread(); });
+      });
+      el.insertAdjacentElement("afterend", tools);
+      toolsOn = tools;
+    };
+    el.addEventListener("click", (ev) => { if (ev.target.closest(".bubble-retry, a")) return; if (toolsOn && toolsOn.previousElementSibling === el) { toolsOn.remove(); toolsOn = null; } else show(); });
+    el.addEventListener("contextmenu", (ev) => { ev.preventDefault(); show(); });
+  }
+
   function paintThread() {
     const items = timelineFor(leadId);
     threadBox.innerHTML = "";
@@ -151,6 +182,7 @@ function renderThread(view, leadId) {
         c.innerHTML = `${contactLine(item.rec)}${
           item.rec.outcome && !item.rec.logged ? ` · ${esc(item.rec.outcome)}` : ""}${
           item.rec.notes ? ` · ${esc(item.rec.notes)}` : ""} · ${esc(clock(item.at))}`;
+        deletable(c, "calls", item.rec, "this call");
         wrap.appendChild(c);
         return;
       }
@@ -179,6 +211,7 @@ function renderThread(view, leadId) {
       if (m.via === "manager-welcome") { const tag = document.createElement("div"); tag.className = "bubble-by"; tag.textContent = `${m.by || "Manager"} · sales manager`; b.appendChild(tag); }
       body.textContent = m.body;
       b.appendChild(body);
+      deletable(b, "texts", m, "this message");
       wrap.appendChild(b);
 
       // The time sits under the run, outside the bubble — the way it does in

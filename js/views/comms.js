@@ -16,7 +16,7 @@
 
 import * as store from "../store.js";
 import { navigate } from "../router.js";
-import { openModal, buildForm, toast } from "../components.js";
+import { openModal, buildForm, toast, undoToast, confirmDialog } from "../components.js";
 import { icon } from "../icons.js";
 import { esc, formatDate, mailtoHref, initials } from "../utils.js";
 import { openTemplatePicker } from "./messages.js";
@@ -232,6 +232,23 @@ export function renderComms(view) {
       p2.style.color = "var(--brand-strong)";
     }
     row.addEventListener("click", () => navigate(`/inbox/${t.leadId}`));
+    // Press and hold (or right-click): delete the whole conversation — every
+    // text with them, from this phone and the account — with an undo.
+    let pressT = null, pressed = false;
+    const cancel = () => { clearTimeout(pressT); pressT = null; };
+    const askDelete = async () => {
+      const texts = store.textsFor(t.leadId);
+      const ok = await confirmDialog(`Delete the conversation with ${name}? ${texts.length} message${texts.length === 1 ? "" : "s"} go from this phone and your account. The customer keeps their own copy.`, { confirmLabel: "Delete" });
+      if (!ok) return;
+      const copies = texts.map((x) => ({ ...x }));
+      store.bulk(() => copies.forEach((x) => store.remove("texts", x.id)));
+      draw();
+      undoToast(`Conversation with ${name} deleted`, () => { store.bulk(() => copies.forEach((x) => store.restore("texts", x))); draw(); });
+    };
+    row.addEventListener("pointerdown", () => { pressed = false; cancel(); pressT = setTimeout(() => { pressT = null; pressed = true; try { navigator.vibrate && navigator.vibrate(12); } catch { /* fine */ } askDelete(); }, 550); });
+    ["pointerup", "pointercancel", "pointerleave", "pointermove"].forEach((ev) => row.addEventListener(ev, (e) => { if (ev !== "pointermove" || !pressT) { if (ev !== "pointermove") cancel(); } }));
+    row.addEventListener("click", (e) => { if (pressed) { pressed = false; e.stopImmediatePropagation(); } }, true);
+    row.addEventListener("contextmenu", (e) => { e.preventDefault(); askDelete(); });
     return row;
   }
 

@@ -1665,6 +1665,14 @@ a.link { color: var(--brand); text-decoration: none; font-weight: 650; }
 .bubble-out.bubble-runend { border-bottom-right-radius: 6px; }
 .bubble-failed { background: color-mix(in srgb, var(--danger) 14%, var(--surface-2)); color: var(--text); }
 .bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Delete, under the message you tapped. */
+.chat-deletable { cursor: pointer; }
+.bubble-tools { align-self: flex-end; display: inline-flex; gap: 6px; margin: 4px 2px 2px; }
+.bubble-tools-in { align-self: flex-start; }
+.bubble-tool { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 0.76rem; font-weight: 650; cursor: pointer; }
+.bubble-tool .ico { width: 13px; height: 13px; }
+.bubble-tool-del { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.chat-event + .bubble-tools { align-self: center; }
 .bubble-meta {
   align-self: flex-end; margin: 3px 4px 0;
   font-size: 0.68rem; color: var(--muted);
