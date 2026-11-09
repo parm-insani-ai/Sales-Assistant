@@ -1122,6 +1122,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // the mic in a conversation — so open as the strip, not over the top of it.
   if (startDocked) dock();
 
-  session_ = { dock, undock, close, isDocked: () => docked };
+  // `ask` puts a sentence to the assistant as if typed — a screen's own
+  // mic handing over what it couldn't read itself.
+  session_ = { dock, undock, close, isDocked: () => docked, ask: (text) => run(text) };
   return session_;
 }

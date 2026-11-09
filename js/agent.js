@@ -40,6 +40,7 @@ import { styleBrief } from "./style.js";
 import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps, ownerList, ownerGaps, inAudience, AUDIENCE_HELP, isProspecting, isOutreach } from "./outreach.js";
 import { parseList, isListRequest, describeList } from "./listspeech.js";
 import { spokenMatches } from "./listmatch.js";
+import { runQuery, validateQuery, describeQuery, FIELD_HELP, bookProfile, fieldFor } from "./bookquery.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
@@ -74,7 +75,25 @@ function buildContext() {
     // "anything from Dana?" or "who's waiting on me?" needs no lookup, and
     // a message drafted mid-conversation continues it.
     recent: recentDigest(),
+    // The book's shape, so a question is answered from what's actually on
+    // file ("only 40 have a birthday down"). Counts only, never a name.
+    profile: profileLine(),
   };
+}
+// Worked out once per change to the book; a few thousand rows take tens of
+// milliseconds, and the brief is built on every turn.
+let profileCache = { key: "", text: "" };
+function profileLine() {
+  const key = String(store.generation("leads"));
+  if (profileCache.key === key) return profileCache.text;
+  let text = "";
+  try { text = bookProfile(store.all("leads"), { now: Date.now() }); } catch { text = ""; }
+  profileCache = { key, text };
+  return text;
+}
+// What a query needs beyond the rows: the book's read and the calendar.
+function queryCtx() {
+  return { now: Date.now(), assess: assessAll().byId, appointments: store.all("appointments"), tasks: store.all("tasks"), sales: store.all("sales") };
 }
 
 // Everything that can be known about a customer beyond a name and a number —
@@ -92,6 +111,16 @@ CONTEXT_PROPS.notes = { type: "string", description: "EVERYTHING else said about
 const TOOLS = [
   { name: "ask_user", description: "Ask the salesperson ONE short question when a required detail is genuinely missing or ambiguous (e.g. which customer, or a time you can't reasonably assume), or to confirm something that can't be undone. Only use when you truly can't proceed. When the answer is one of a few clear choices — yes or no, which of two customers, new or used, one of a few times — pass them as `options` (2 to 5 short labels) so they can just tap one; leave `options` out when the answer is free-form (a phone number, a name, a note).", input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, description: "2–5 short tappable answers, only when the answer is one of a few clear choices" } }, required: ["question"] } },
   { name: "find_customers", description: "The CUSTOMERS on file — never the lot. 'Make me a list of everyone who owns a Nissan Rogue', 'my Rogue owners', 'who drives a Sentra?', 'how many customers have a paid-off Altima?', 'Rogue owners from 2018 to 2021', 'look for paid-off Sentras from 2018 to 2021' → pass the sentence as `who`, as you understood it (the mic says 'payoff centre' for 'paid-off Sentra' — pass the corrected words); the list is picked by what they drive and where they stand, and put on the Leads screen. 'Paid off', 'with equity', 'lease ending', 'bought from me' are always customers, never the lot. Or look up by name/vehicle `query`, stage, needsFollowUp, or hasEquity.", input_schema: { type: "object", properties: { who: { type: "string", description: "the salesperson's own words for who: a model, make, body style, years, paid off, with equity, lease ending…" }, query: { type: "string" }, stage: { type: "string" }, needsFollowUp: { type: "boolean" }, hasEquity: { type: "boolean" } } } },
+  { name: "query_customers", description: "ANY list of, or question about, the customers on file by ANY field — the general one, when find_customers can't read the sentence or the ask goes past what they drive and where they stand: 'everyone with a payment over 500 who bought in 2021', 'Rogue owners with a rate above 7', 'who has a birthday this month', 'customers I haven't touched in 90 days with equity over 3000', 'who has an appointment this week', 'anyone with no email', 'how many of my customers have a lease', 'average rate on my Sentra owners', 'break my book down by model', 'who did I add this week'. Build `where` from the fields in THE BOOK'S FIELDS (every condition ANDed unless `any`), add `sort` for an order, `limit` for 'top ten'. A LIST goes on the Outreach screen (default): the reply is the count and the label. A NUMBER (`measure`: count, sum, avg, min, max over a field) or a BREAKDOWN (`group` by a field) is answered in words, nothing opens. `name` saves the list as a chip on the Outreach row ('call it …', 'save it as …'). Never say a list can't be made: if a field is missing from most of the book the result says so — tell them how many have it on file.", input_schema: { type: "object", properties: {
+    where: { type: "array", items: { type: "object", properties: { field: { type: "string", description: "a field key from THE BOOK'S FIELDS" }, op: { type: "string", enum: ["is", "isnt", "contains", "startsWith", "in", "gt", "gte", "lt", "lte", "between", "exists", "missing", "before", "after", "withinDays", "pastDays", "olderThanDays", "inMonth", "inYear"], description: "dates: before/after YYYY-MM-DD, withinDays N (the next N days), pastDays N (the last N days), olderThanDays N, inMonth 1-12, inYear YYYY; numbers: gt/gte/lt/lte/between [a,b]; text: is/contains/startsWith/in [a,b]; anything: exists/missing" }, value: { description: "the number, text, YYYY-MM-DD, or [a, b] for between/in" } }, required: ["field", "op"] }, description: "the conditions; empty means everyone" },
+    any: { type: "boolean", description: "true to OR the conditions instead of AND" },
+    sort: { type: "object", properties: { field: { type: "string" }, dir: { type: "string", enum: ["asc", "desc"] } }, description: "the order; left out, best candidates first" },
+    limit: { type: "number", description: "'top ten' → 10" },
+    measure: { type: "object", properties: { op: { type: "string", enum: ["count", "sum", "avg", "min", "max"] }, field: { type: "string" } }, description: "a number instead of a list: 'how many' → count; 'average payment' → avg currentPayment" },
+    group: { type: "string", description: "a breakdown by this field: 'by model', 'by stage', 'by year bought'" },
+    name: { type: "string", description: "save the list under this name" },
+    show: { type: "boolean", description: "false to answer in words without opening the screen (default true for a list, false for a measure or a breakdown)" },
+  } } },
   { name: "get_customer", description: "Full details for one customer by name — contact, vehicle, position, profile, notes, the assessment, and the CONVERSATION so far (their texts, emails and calls, oldest first) with whether they're waiting on a reply.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "get_messages", description: "What people have SAID — every text, email and call on file. With `customer`: that person's whole conversation, oldest first ('what did Dana say?', 'read me Ken's email', 'did Sara get back to me?', 'where did I leave things with Moe?'). Without: everything that came in recently from everyone, newest first, each marked answered or waiting ('anything from my customers?', 'what came in today?', 'who's waiting on me?', 'any emails?'). Includes mail in the connected inbox from people not on file.", input_schema: { type: "object", properties: { customer: { type: "string" }, kind: { type: "string", enum: ["text", "email", "call"], description: "only this kind" }, hours: { type: "number", description: "without a customer: how far back (default 48)" } } } },
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
@@ -165,6 +194,11 @@ function buildStanding() {
     `A VEHICLE WE DON'T HAVE: "Ken wants a white Rogue Platinum, let me know when one comes in", "watch for a used Frontier under 40 for Dana", "tell me when we get a Kicks SR in for Sara" → watch_for_vehicle with the customer and the vehicle as said. It watches the lot and notifies the salesperson when one lands; it's not a lot question, and not a to-do. "Who's waiting for something we don't have?", "what are people looking for that we don't have?" → wanted_list.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
     `WHO OWNS WHAT: "make me a list of everyone who owns a Nissan Rogue", "my Rogue owners", "who drives a Sentra?", "which customers have a paid-off Altima?", "Rogue owners from 2018 to 2021", "a list of everyone whose lease ends soon", "Rogue owners with equity I haven't contacted, highest rate first, call it Rogue equity" → find_customers with the whole sentence as \`who\`, corrected for the mic ("payoff centre" is "paid-off Sentra", "rouge" is "Rogue"). Those are the CUSTOMERS on file, picked by what they drive and where they stand — not the lot (the lot is units for sale; "paid off", "with equity", "lease ending", "bought from me" can only mean customers). If it answers notUnderstood, call it once more with your own reading of the misheard words before asking anything. Say how many and that they're on screen.`,
+    // Every question about the book has an answer in the book. The named
+    // tools read the common sentences fast; this one reads the rest, so
+    // "I can't make that list" is never true.
+    `ANY LIST, ANY QUESTION ABOUT THE BOOK: when the ask is about the customers on file and find_customers can't read it or it goes past what they drive and where they stand — a payment, a rate, a year bought, a birthday, a date added, days since contact, an appointment, a to-do, a note, no email, the app's score or reasons, any combination, 'how many', 'average', 'break it down by' — query_customers. Turn the sentence into conditions on the fields below; the phone runs it over everyone on file, puts a list on Outreach and tells you the count, or gives the number or the breakdown. 'This month' → inMonth of the current month or between the month's first and last day; 'this week' → withinDays 7 or pastDays 7; 'soon' on a date → withinDays 120; 'quiet' or 'haven't reached' → daysSinceContact gt N (never contacted counts as 36500 days); 'owes less than it's worth' → equity gt 0; 'upside down' → equity lt 0; 'paid off' → payoff lte 0 or paymentsLeft lte 0. Read the live BOOK PROFILE first: when a field is on few customers, say how many have it. Never say a list can't be made from the book; never ask them to use a filter themselves.`,
+    `THE BOOK'S FIELDS (key (type): meaning): ${FIELD_HELP}.`,
     `TIMING: "when should I go back to Dana?", "when does it make sense for Ken?", "who opens up in the next six months?", "who's coming up?" → when_it_makes_sense; "when do my leases end?", "what's coming off lease this year?" → lease_ends. The answer is a month and the reason — say it plainly: "Dana opens up in March, when her equity clears three thousand."`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
@@ -219,6 +253,7 @@ function buildLive(ctx) {
     sinceLine(ctx.sinceLast),
     styleBrief(),
     ctx.counts ? `The salesperson has ${ctx.counts.leads} customers and ${ctx.counts.appointments} appointments on file.` : ``,
+    ctx.profile ? `BOOK PROFILE (what query_customers can turn on, and how many have it): ${ctx.profile}` : ``,
     ctx.lot ? `THE LOT RIGHT NOW (from the store's website; ask lot_lookup for units and prices): ${ctx.lot}` : ``,
     ctx.recent ? `RECENT MESSAGES IN (newest first; WAITING = they wrote last and nobody has answered; get_messages has the whole exchange):\n${ctx.recent}` : ``,
     ctx.vocab && ctx.vocab.names.length
@@ -615,7 +650,7 @@ async function runTool(t, p = {}) {
       // what wasn't understood — never the whole book passed off as the list.
       if (p.who) {
         const gaps = ownerGaps(p.who);
-        if (gaps.length) return { result: { count: 0, notUnderstood: gaps, canPickBy: AUDIENCE_HELP, status: `nobody listed — "${gaps.join('", "')}" wasn't understood. If it's the mic (a model or 'paid off' misheard), call again with the sentence as you understood it; otherwise ask which model or situation they meant, in one short question.` }, note: `⚠ didn't understand "${gaps[0]}"` };
+        if (gaps.length) return { result: { count: 0, notUnderstood: gaps, canPickBy: AUDIENCE_HELP, status: `nobody listed — "${gaps.join('", "')}" wasn't understood here. If it's the mic (a model or 'paid off' misheard), call again with the sentence as you understood it. Otherwise this is a query_customers list: build it from THE BOOK'S FIELDS (a payment, a rate, a year, a date, a note, days since contact…) — don't ask them to reword.` }, note: `⚠ didn't understand "${gaps[0]}"` };
       }
       let list = store.all("leads");
       const q = (p.query || "").toLowerCase();
@@ -642,6 +677,48 @@ async function runTool(t, p = {}) {
         navigate("/leads");
       }
       return { result: { count: list.length, customers }, note: "" };
+    }
+    case "query_customers": case "query_book": case "ask_book": {
+      const spec = { where: Array.isArray(p.where) ? p.where : [], any: !!p.any, sort: p.sort && p.sort.field ? p.sort : null, limit: p.limit, measure: p.measure && p.measure.op ? p.measure : null, group: p.group || null };
+      const v = validateQuery(spec);
+      if (!v.ok) return { result: { error: v.errors.join("; "), fields: FIELD_HELP, status: "fix the field or op and call again — never tell the salesperson the field doesn't exist" }, note: `⚠ ${v.errors[0]}` };
+      const ctx = queryCtx();
+      const r = runQuery(spec, store.all("leads"), ctx);
+      const label = r.label;
+      const numbers = !!(spec.measure || spec.group);
+      const show = p.show != null ? !!p.show : !numbers;
+      const have = (key) => { const f = fieldFor(key); if (!f) return null; let k = 0; for (const l of store.all("leads")) { const x = f.get(l, ctx); if (x != null && x !== "" && x !== false) k++; } return k; };
+      // The fields the question turned on, and how many have each: "only 40 of 3,200 have a birthday on file" is the honest answer when the count is small.
+      const coverage = Object.fromEntries([...new Set(spec.where.map((c) => c.field).concat(spec.measure && spec.measure.field ? [spec.measure.field] : [], spec.group ? [spec.group] : []))].map((k) => [fieldFor(k) ? fieldFor(k).key : k, have(k)]));
+      const total = store.all("leads").length;
+      const fmt = (key, x) => { const f = fieldFor(key); if (x == null || !f) return x; if (f.fmt && f.fmt.money) return "$" + Math.round(Number(x)).toLocaleString("en-CA"); if (f.fmt && f.fmt.pct) return `${x}%`; return x; };
+      if (numbers && !show) {
+        const ans = spec.group
+          ? `${label}, by ${fieldFor(spec.group).label}: ${r.groups.slice(0, 8).map((g) => `${g.value} ${spec.measure && spec.measure.op !== "count" ? fmt(spec.measure.field, g.measure) : g.count}`).join(", ")}${r.groups.length > 8 ? ", and more" : ""}.`
+          : `${spec.measure.op === "count" ? `${r.count.toLocaleString()} of ${total.toLocaleString()} customers` : `${spec.measure.op} ${fieldFor(spec.measure.field).label} is ${fmt(spec.measure.field, r.measure)}`} — ${label}.`;
+        return { result: { count: r.count, of: total, label, measure: r.measure != null ? fmt(spec.measure && spec.measure.field, r.measure) : null, groups: r.groups, haveOnFile: coverage, answer: ans, screen: "nothing opened — a number, said in words" }, note: spec.group ? `${label} by ${fieldFor(spec.group).label}` : `${label}: ${r.measure != null ? fmt(spec.measure.field, r.measure) : r.count}` };
+      }
+      const rank = ctx.assess;
+      const sc = (l) => { const a = rank.get(l.id); return a ? a.score : 0; };
+      const rows = spec.sort ? r.rows : r.rows.slice().sort((x, y) => sc(y) - sc(x));
+      const asked = spec.where.map((c) => fieldFor(c.field)).filter(Boolean);
+      const customers = rows.slice(0, 15).map((l) => { const a = rank.get(l.id); const o = { name: l.name, phone: l.phone || "", stage: l.stage, vehicle: l.vehicleInterest || "", score: a ? a.score : 0, why: a ? a.reasons : [] }; for (const f of asked) { const x = f.get(l, ctx); if (x != null) o[f.key] = f.type === "date" ? new Date(x).toISOString().slice(0, 10) : fmt(f.key, x); } return o; });
+      const name = String(p.name || "").trim();
+      if (rows.length) {
+        try {
+          sessionStorage.setItem("viniva:leads-query", JSON.stringify({ spec, label, name, save: !!name, ids: spec.limit ? rows.map((l) => l.id) : null }));
+          sessionStorage.setItem("leads-filter", "all");
+          sessionStorage.removeItem("leads-search");
+          sessionStorage.removeItem("viniva:leads-audience");
+          sessionStorage.removeItem("viniva:leads-spoken");
+        } catch { }
+        navigate("/leads");
+      }
+      const thin = Object.entries(coverage).filter(([, k]) => k != null && total && k < total * 0.5).map(([k, n]) => `${fieldFor(k).label} is on ${n.toLocaleString()} of ${total.toLocaleString()}`);
+      const answer = rows.length
+        ? `${rows.length.toLocaleString()} match — ${label}. ${rows.length === 1 ? "They're" : "They're all"} on the screen.${name ? ` Saved as "${name}" — a chip on the row.` : ""}${thin.length ? ` (${thin.join("; ")}.)` : ""}`
+        : `Nobody on file matches ${label}.${thin.length ? ` ${thin.join("; ")}.` : ""}`;
+      return { result: { count: rows.length, of: total, label, customers, haveOnFile: coverage, answer, screen: rows.length ? "Outreach, cut to these customers (every row has text and call)" : "nothing to show", saved: name || "" }, note: rows.length ? `${rows.length} on screen · ${label}` : `nobody for ${label}` };
     }
     case "get_customer": {
       const l = findLead(p.name || p.customer);

@@ -32,6 +32,7 @@ import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
 import { inAudience, emptyAudience, isEveryone } from "../outreach.js";
 import { parseList, LIST_HELP } from "../listspeech.js";
+import { queryPasses, sortByQuery, describeQuery } from "../bookquery.js";
 import { classify } from "../segments.js";
 import { equityOf } from "../reach.js";
 import { outreachReport } from "../outcomes.js";
@@ -174,6 +175,11 @@ export function renderLeads(view, { param }) {
   const SPOKEN = "viniva:leads-spoken";
   let spoken = null;
   try { spoken = JSON.parse(sessionStorage.getItem(SPOKEN) || "null"); } catch { spoken = null; }
+  // A list the assistant built from any field on file (agent.js,
+  // query_customers): { spec, label, name, save, ids }. Same handoff shape.
+  const QUERY_KEY = "viniva:leads-query";
+  let askedFor = null;
+  try { askedFor = JSON.parse(sessionStorage.getItem(QUERY_KEY) || "null"); } catch { askedFor = null; }
   // "By opportunity" is Best now: the same customers, ranked by how ready
   // they are to trade. A preset from /deals or the assistant lands there.
   const opp = false;
@@ -292,9 +298,24 @@ export function renderLeads(view, { param }) {
   const CUTS_KEY = "viniva:leads-cuts";
   let cuts = new Set();
   let listId = null; // the saved list the cuts came from, if any
-  const keepCuts = () => { try { if (cuts.size || listId) sessionStorage.setItem(CUTS_KEY, JSON.stringify({ cuts: [...cuts], listId })); else sessionStorage.removeItem(CUTS_KEY); } catch { /* fine */ } };
-  try { if (back) { const c = JSON.parse(sessionStorage.getItem(CUTS_KEY) || "null"); if (c) { cuts = new Set(c.cuts || []); listId = c.listId || null; } } } catch { cuts = new Set(); }
+  // A question put to the book — the assistant's query over any field,
+  // kept as one more cut: { spec, label, ids }. Narrows like the sheet does.
+  let query = null;
+  const keepCuts = () => { try { if (cuts.size || listId || query) sessionStorage.setItem(CUTS_KEY, JSON.stringify({ cuts: [...cuts], listId, query })); else sessionStorage.removeItem(CUTS_KEY); } catch { /* fine */ } };
+  try { if (back) { const c = JSON.parse(sessionStorage.getItem(CUTS_KEY) || "null"); if (c) { cuts = new Set(c.cuts || []); listId = c.listId || null; query = c.query || null; } } } catch { cuts = new Set(); }
   if (!back) keepCuts();
+  // What a query reads beyond the row: the book's read, the calendar, the
+  // to-dos, the sales. Built once per change to any of them.
+  let qctxMemo = { key: "", ctx: null };
+  const qctx = () => {
+    const key = ["leads", "appointments", "tasks", "sales"].map((n) => store.generation(n)).join("|");
+    const assess = assessAll().byId;
+    if (!qctxMemo.ctx || qctxMemo.key !== key || qctxMemo.ctx.assess !== assess) qctxMemo = { key, ctx: { now: Date.now(), assess, appointments: store.all("appointments"), tasks: store.all("tasks"), sales: store.all("sales") } };
+    return qctxMemo.ctx;
+  };
+  const queryIds = () => (query && query.ids ? new Set(query.ids) : null);
+  const queryPass = (l, ids = queryIds()) => !query || ((!ids || ids.has(l.id)) && queryPasses(query.spec, l, qctx()));
+  const queryLabel = () => (query ? query.label || describeQuery(query.spec) : "");
   // The order within any cut: best first, or by when the window opens, or
   // longest since contact, or most equity. A preference, kept.
   const SORT_KEY = "viniva:leads-sort";
@@ -360,7 +381,7 @@ export function renderLeads(view, { param }) {
   };
   const passesCuts = (l) => { for (const k of cuts) if (!cutPass(k, l)) return false; return true; };
   // What the cuts and the sheet say, in words: "Rogue · Equity · 2018–2021".
-  const cutLabel = () => [...[...cuts].map((k) => (cutDef(k) || { label: k }).label), aud ? audienceLabel(aud) : ""].filter(Boolean).join(" · ");
+  const cutLabel = () => [...[...cuts].map((k) => (cutDef(k) || { label: k }).label), aud ? audienceLabel(aud) : "", queryLabel()].filter(Boolean).join(" · ");
   // Saved lists: a set of cuts with a name, kept on the phone. A list is a
   // chip at the front of the row; it can be called as a session or blasted.
   const LISTS_KEY = "viniva:leads-lists";
@@ -368,7 +389,7 @@ export function renderLeads(view, { param }) {
   const writeLists = (arr) => { try { localStorage.setItem(LISTS_KEY, JSON.stringify(arr)); } catch { /* fine */ } };
   const saveList = (name) => {
     const id = "list_" + Date.now().toString(36);
-    writeLists([...lists(), { id, name: String(name || "").trim() || cutLabel() || "My list", cuts: [...cuts], aud: aud || null, at: new Date().toISOString() }]);
+    writeLists([...lists(), { id, name: String(name || "").trim() || cutLabel() || "My list", cuts: [...cuts], aud: aud || null, query: query || null, at: new Date().toISOString() }]);
     listId = id; keepCuts();
     return id;
   };
@@ -376,8 +397,10 @@ export function renderLeads(view, { param }) {
   const applyList = (id) => {
     const x = lists().find((y) => y.id === id);
     if (!x) return;
-    cuts = new Set(x.cuts || []); aud = x.aud || null; listId = id; keepCuts(); keepAud();
+    cuts = new Set(x.cuts || []); aud = x.aud || null; query = x.query || null; listId = id; keepCuts(); keepAud();
   };
+  // Everything off: the cuts, the sheet, the question, the list.
+  const clearCuts = () => { cuts = new Set(); aud = null; query = null; listId = null; keepCuts(); keepAud(); };
   const passes = (l) => {
     if (filter === "tocontact" && (inLog(l) || l.lastContacted || snoozed(l))) return false;
     if (filter === "contacted" && (inLog(l) || !l.lastContacted)) return false;
@@ -385,6 +408,7 @@ export function renderLeads(view, { param }) {
     const q = search.toLowerCase();
     if (q && !haystack(l).includes(q)) return false;
     if (aud && !inAudience(aud, l)) return false;
+    if (!queryPass(l)) return false;
     if (!passesCuts(l)) return false;
     return true;
   };
@@ -411,7 +435,9 @@ export function renderLeads(view, { param }) {
     const saved = lists().map((x) => `<button type="button" class="btn btn-sm ${listId === x.id ? "btn-primary" : "btn-ghost"} cut-chip cut-list" data-list="${esc(x.id)}" aria-pressed="${listId === x.id}">${icon("tag")} ${esc(x.name)}</button>`).join("");
     // The sheet's own cut, when it's on, as a lit chip that reopens it.
     const sheet = aud ? `<button type="button" class="btn btn-sm btn-primary cut-chip cut-more" data-act="audience-chip" aria-pressed="true"><span>${esc(audienceLabel(aud))}</span></button>` : "";
-    return saved + sheet + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "");
+    // The question the assistant answered, lit; a tap takes it off.
+    const asked = query ? `<button type="button" class="btn btn-sm btn-primary cut-chip cut-query" data-act="query-chip" aria-pressed="true" title="Asked the assistant — tap to clear"><span>${esc(queryLabel())}</span></button>` : "";
+    return saved + sheet + asked + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "");
   };
   // The row is a scrolling line: the first cut that's on stays in view.
   const showCutChip = (row) => {
@@ -431,12 +457,14 @@ export function renderLeads(view, { param }) {
       refreshCutRow(); refreshList();
     }));
     wrap.querySelectorAll("[data-list]").forEach((b) => b.addEventListener("click", () => {
-      if (listId === b.dataset.list) { cuts = new Set(); aud = null; listId = null; keepCuts(); keepAud(); }
+      if (listId === b.dataset.list) clearCuts();
       else applyList(b.dataset.list);
       refreshCutRow(); refreshList();
     }));
     const chipA = wrap.querySelector('.cut-row [data-act="audience-chip"]');
     if (chipA) chipA.addEventListener("click", editAud);
+    const chipQ = wrap.querySelector('.cut-row [data-act="query-chip"]');
+    if (chipQ) chipQ.addEventListener("click", () => { query = null; listId = null; keepCuts(); refreshCutRow(); refreshList(); });
   };
   const lightChips = () => wrap.querySelectorAll("[data-filter]").forEach((x) => {
     const active = x.dataset.filter === filter;
@@ -475,6 +503,7 @@ export function renderLeads(view, { param }) {
     else if (filter === "due") list = list.filter(dueNow);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
+    if (query) { const ids = queryIds(); list = list.filter((l) => queryPass(l, ids)); }
     return list;
   }
   // The bar under the row when a cut is on: how many, what, and what to
@@ -482,7 +511,7 @@ export function renderLeads(view, { param }) {
   // as a list. (The same hooks the audience bar had, so the sheet's
   // Text these and Email these still work the same way.)
   const cutBarHTML = (n) => {
-    if (!cuts.size && !aud) return "";
+    if (!cuts.size && !aud && !query) return "";
     const saved = listId ? lists().find((x) => x.id === listId) : null;
     return `<div class="card lead-audience cut-bar" style="padding:10px 12px;margin-bottom:10px">
       <div class="row" style="align-items:center">
@@ -499,7 +528,7 @@ export function renderLeads(view, { param }) {
   };
   const wireCutBar = () => {
     const on = (sel, fn) => { const n = wrap.querySelector(sel); if (n) n.addEventListener("click", fn); };
-    on('[data-act="aud-clear"]', () => { cuts = new Set(); aud = null; listId = null; keepCuts(); keepAud(); refreshCutRow(); refreshList(); });
+    on('[data-act="aud-clear"]', () => { clearCuts(); refreshCutRow(); refreshList(); });
     on('[data-act="aud-text"]', () => blast("text"));
     on('[data-act="aud-email"]', () => blast("email"));
     on('[data-act="cut-call"]', () => {
@@ -528,9 +557,9 @@ export function renderLeads(view, { param }) {
   // The sheet reads it back with the count; Show them keeps it on screen,
   // Save keeps it under a name, Cancel puts the screen back as it was.
   const CHIP_NAME = { tocontact: "Best now", due: "Follow up", contacted: "Contacted", all: "All" };
-  const snapshot = () => ({ filter, cuts: new Set(cuts), aud, sort, listId });
+  const snapshot = () => ({ filter, cuts: new Set(cuts), aud, sort, listId, query });
   const restore = (s) => {
-    filter = s.filter; cuts = new Set(s.cuts); aud = s.aud; sort = s.sort; listId = s.listId;
+    filter = s.filter; cuts = new Set(s.cuts); aud = s.aud; sort = s.sort; listId = s.listId; query = s.query || null;
     remember(REMEMBER, filter); remember(SORT_KEY, sort); keepCuts(); keepAud();
     lightChips(); lightSort(); refreshCutRow(); refreshList();
   };
@@ -545,7 +574,7 @@ export function renderLeads(view, { param }) {
       if (isEveryone(a)) a = null; else { a.everyone = false; a.text = audienceLabel(a); }
     }
     spec.cuts.forEach((k) => { if (cutDef(k)) next.add(k); });
-    cuts = next; aud = a; listId = null;
+    cuts = next; aud = a; query = null; listId = null;
     if (spec.chip && CHIPS.includes(spec.chip)) { filter = spec.chip; remember(REMEMBER, filter); }
     // A spoken list is a whole definition: no order said means best first.
     sort = spec.sort && SORTS.some((x) => x.key === spec.sort) ? spec.sort : "best"; remember(SORT_KEY, sort);
@@ -571,6 +600,7 @@ export function renderLeads(view, { param }) {
           <button type="button" class="btn btn-ghost" data-act="read" style="flex:1">Read it</button>
           <button type="button" class="btn btn-ghost" data-act="again" style="flex:0 0 auto" aria-label="Say it again" title="Say it again">${icon("mic")}</button>
         </div>
+        <button type="button" class="btn btn-primary btn-block vl-ask" data-act="ask" hidden style="margin-top:6px">Ask the assistant to build it</button>
         <div class="btn-row vl-done" hidden>
           <button type="button" class="btn btn-primary" data-act="show" style="flex:1">Show them</button>
           <button type="button" class="btn btn-ghost" data-act="save" style="flex:1">${icon("tag")} Save as list</button>
@@ -580,9 +610,14 @@ export function renderLeads(view, { param }) {
       const q = (s) => el.querySelector(s);
       const status = q(".note-status"), box = q('[data-f="say"]');
       const say = (text, cls) => { status.className = `note-status${cls ? " " + cls : ""}`; status.innerHTML = `${icon(cls === "listening" ? "mic" : "edit")} <span>${esc(text)}</span>`; };
+      // The row reads the common sentences itself; anything it can't place
+      // — a payment, a year bought, a birthday, a note — the assistant
+      // builds from every field on file and lands here the same way.
+      const askBtn = q('[data-act="ask"]');
       const read = (text) => {
         const spec = parseList(text);
-        if (spec.empty) { say("Didn't catch a list in that — say or type what they drive, where they stand, or the order.", ""); return; }
+        askBtn.hidden = !(spec.empty || spec.unknown.length);
+        if (spec.empty) { say("Didn't read that as a list here — the assistant can build it from anything on file.", ""); return; }
         const n = applySpoken(spec); applied = true;
         q(".vl-result").hidden = false;
         q(".vl-n").textContent = n.toLocaleString();
@@ -591,7 +626,7 @@ export function renderLeads(view, { param }) {
         const miss = q(".vl-miss"); miss.hidden = !spec.unknown.length; miss.textContent = spec.unknown.length ? `Didn't understand ${spec.unknown.map((u) => `"${u}"`).join(", ")} — left out.` : "";
         q(".vl-name").hidden = false; q('[data-f="name"]').value = spec.name || cutLabel();
         q(".vl-done").hidden = false;
-        say(n ? "Heard. Fix anything and read it again, or show them." : "Nobody matches that — change a word and read it again.", "");
+        say(spec.unknown.length ? `Didn't understand ${spec.unknown.map((u) => `"${u}"`).join(", ")} — fix it, or let the assistant build it.` : n ? "Heard. Fix anything and read it again, or show them." : "Nobody matches that — change a word and read it again.", "");
         if (spec.save && n) { saveList(spec.name); refreshCutRow(); toast(`Saved "${spec.name}" — it's a chip on the row`, "success"); close(); }
       };
       const listen = () => {
@@ -610,6 +645,13 @@ export function renderLeads(view, { param }) {
       q('[data-act="show"]').addEventListener("click", () => { hush(); close(); });
       q('[data-act="save"]').addEventListener("click", () => { hush(); const name = q('[data-f="name"]').value.trim() || cutLabel() || "My list"; saveList(name); refreshCutRow(); toast(`Saved "${name}" — it's a chip on the row`, "success"); close(); });
       q('[data-act="cancel"]').addEventListener("click", () => { hush(); if (applied) restore(before); close(); });
+      askBtn.addEventListener("click", async () => {
+        const text = box.value.trim();
+        hush(); if (applied) restore(before); close();
+        if (!text) return;
+        const v = await import("../voice.js");
+        v.startVoiceAssistant().ask(text);
+      });
       listen();
       return el;
     }, { onClose: () => { muted = true; try { d && d.stop(); } catch { /* fine */ } } });
@@ -1113,7 +1155,10 @@ export function renderLeads(view, { param }) {
     else if (filter === "due") list = list.filter(dueNow);
     if (q) list = list.filter((l) => haystack(l).includes(q));
     if (aud) list = list.filter((l) => inAudience(aud, l));
+    if (query) { const ids = queryIds(); list = list.filter((l) => queryPass(l, ids)); }
     list = list.filter(passesCuts);
+    // A question that named its own order ("highest payment first") keeps it.
+    if (query && query.spec && query.spec.sort) return sortByQuery(query.spec, list, qctx());
     // Soonest window: the month it opens, soonest first; people with no
     // window at all come after, best first.
     if (sort === "timing") {
@@ -1150,6 +1195,17 @@ export function renderLeads(view, { param }) {
     const n = applySpoken(spoken);
     if (spoken.save && spoken.name && n) { saveList(spoken.name); refreshCutRow(); }
     toast(n ? `${n.toLocaleString()} match · ${cutLabel() || "everyone"}${spoken.save && spoken.name ? ` · saved as "${spoken.name}"` : ""}` : `Nobody matches ${cutLabel() || "that"} yet`, n ? "success" : "warn");
+  }
+  // A list the assistant built from the book's fields: the question is the
+  // cut, on All, saved if a name was said.
+  if (askedFor && askedFor.spec && !opp) {
+    try { sessionStorage.removeItem(QUERY_KEY); } catch { /* fine */ }
+    cuts = new Set(); aud = null; listId = null;
+    query = { spec: askedFor.spec, label: askedFor.label || describeQuery(askedFor.spec), ids: askedFor.ids || null };
+    keepCuts(); keepAud(); lightChips(); refreshCutRow(); refreshList();
+    const n = applyFilter().length;
+    if (askedFor.save && askedFor.name && n) { saveList(askedFor.name); refreshCutRow(); }
+    toast(n ? `${n.toLocaleString()} match · ${queryLabel()}${askedFor.save && askedFor.name ? ` · saved as "${askedFor.name}"` : ""}` : `Nobody matches ${queryLabel()} yet`, n ? "success" : "warn");
   }
 }
 

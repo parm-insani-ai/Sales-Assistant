@@ -719,8 +719,8 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cut-chip .ico { width: 13px; height: 13px; }
 .cut-chip.cut-vehicle.btn-ghost { border: 1px solid var(--border); background: var(--surface); }
 .cut-chip.cut-list.btn-ghost { background: var(--brand-tint); color: var(--brand-strong); }
-.cut-chip.cut-more { max-width: 200px; }
-.cut-chip.cut-more span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cut-chip.cut-more, .cut-chip.cut-query { max-width: 200px; }
+.cut-chip.cut-more span, .cut-chip.cut-query span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Two small tools: the order, at the end of the chips; the sheet, at the
    head of the Cut row — fixed, the row scrolls beside it. */
 .lead-tool { flex: none; width: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 14px; box-shadow: none; }
