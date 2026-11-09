@@ -115,13 +115,16 @@ export function parseOutreach(text, now = Date.now()) {
   else { const yr = scope.match(/\b((?:19|20)\d{2})\b/g) || []; if (yr.length === 1) { take(/\b(?:19|20)\d{2}\b/); a.yearMin = Number(yr[0]); a.yearMax = Number(yr[0]); } }
   if (take(/\bpaid[- ]off\b|\bno payments?\b|\bown(?:s|ed)? (?:it|their (?:car|vehicle)) outright\b|\bpaid (?:it |their (?:car|vehicle) )?off\b/)) a.paidOff = true;
   if (take(/\b(?:positive |in )?equity\b/)) a.equity = true;
-  if (take(/\blease\w*\s+(?:is |are |that's |that is )?(?:ending|ends|end|maturing|matures|coming due|comes due|up|expiring|expires|due|almost up|running out|runs out|over|finishing|finishes)\b|\bend of (?:their )?lease\b|\blease-?end\b|\bleases? ending\b/)) {
+  if (take(/\blease\w*\s+(?:is |are |that's |that is )?(?:ending|ends|end|maturing|matures|coming due|comes due|coming up|comes up|coming to an end|up|expiring|expires|due|almost up|running out|runs out|over|finishing|finishes|about to end|nearly (?:up|over|done))\b|\bend of (?:their )?lease\b|\blease-?end\b|\bleases? ending\b|\boff lease\b|\bcoming off (?:their |a )?leases?\b/)) {
     a.lease = true;
     // When: "this year", "next month", "in March", "by June", "in the next
     // three months", "within 60 days". Nothing said: the next four months.
     const d = new Date(now), y = d.getFullYear(), mo = d.getMonth();
     const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, "a couple of": 2, "a couple": 2, "a few": 3, a: 1, an: 1 };
     let m;
+    // "soon", "shortly", "in the near future", "any day now": the default
+    // window, said out loud. Not a word the parser missed.
+    take(/\b(?:very |really |pretty |quite |fairly )?soon\b|\bshortly\b|\bin the near future\b|\bany day now\b|\bbefore long\b|\bin the coming (?:weeks|months)\b/);
     if (take(/\b(?:this|the) (?:calendar )?year\b/)) a.leaseUntil = `${y}-12-31`;
     else if (take(/\bnext year\b/)) { a.leaseFrom = `${y + 1}-01-01`; a.leaseUntil = `${y + 1}-12-31`; }
     else if (take(/\bthis month\b/)) a.leaseUntil = monthEnd(y, mo);
@@ -237,7 +240,8 @@ function readOwners(text, now) {
   const a = parseOutreach(t, now).audience;
   // The words that ask for a list are the shape of the request, not a filter
   // the parser missed.
-  a.unknown = a.unknown.map((run) => run.split(/\s+/).filter((w) => !LIST_WORDS.has(w)).join(" ")).filter(Boolean);
+  // "make a list" leaves "a" once the list words go: a filler, not a filter.
+  a.unknown = a.unknown.map((run) => run.split(/\s+/).filter((w) => !LIST_WORDS.has(w) && !FILLER.has(w)).join(" ")).filter(Boolean);
   // Where someone stands — paid off, with equity, lease ending, owned so many
   // years, quiet, bought from us — is only ever true of a customer. A unit
   // on the lot is none of those, so the sentence is about people even when
@@ -249,7 +253,7 @@ function readOwners(text, now) {
 // The leftover runs of a list request with the words that only ask for a
 // list taken out: what a spoken list genuinely didn't understand.
 export function listAudienceGaps(runs) {
-  return (runs || []).map((run) => String(run).split(/\s+/).filter((w) => !LIST_WORDS.has(w.replace(/[^a-z0-9$%-]/g, ""))).join(" ")).map((s) => s.trim()).filter(Boolean);
+  return (runs || []).map((run) => String(run).split(/\s+/).filter((w) => { const k = w.replace(/[^a-z0-9$%-]/g, ""); return k && !LIST_WORDS.has(k) && !FILLER.has(k); }).join(" ")).map((s) => s.trim()).filter(Boolean);
 }
 export function ownerList(text, now = Date.now()) {
   const a = readOwners(text, now);

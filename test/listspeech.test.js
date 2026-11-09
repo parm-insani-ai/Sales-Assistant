@@ -5,6 +5,7 @@ const m = await import("file://" + path.resolve(__dirname, "../js/listspeech.js"
 const fail = (x) => { console.error("FAIL: " + x); process.exitCode = 1; };
 const now = new Date("2026-11-06T12:00:00").getTime();
 const P = (s) => m.parseList(s, now);
+const isListRequest = (s) => m.isListRequest(s, now);
 const J = JSON.stringify;
 
 let r = P("Rogue owners with equity I haven't reached in ninety days, highest rate first, call it Rogue equity");
@@ -25,6 +26,13 @@ if (!r.cuts.includes("quiet") || !r.cuts.includes("service")) fail("quiet + in s
 
 r = P("everyone whose lease is ending in the next three months, soonest first");
 if (!r.audience.lease || r.audience.leaseUntil !== "2027-02-04" || r.sort !== "timing" || r.unknown.length) fail("lease in three months: " + J(r));
+
+// "Soon" is the default window said out loud, and "make a list" leaves no
+// stray word behind: nothing here is "not understood", so it stays a list.
+for (const s of ["make a list of everyone whose lease ends soon", "make a list of everyone whose lease is coming up", "who is coming off lease soon"]) {
+  r = P(s);
+  if (!r.audience || !r.audience.lease || r.audience.leaseUntil || r.unknown.length || !isListRequest(s)) fail("lease ending soon, as a list: " + s + " " + J(r));
+}
 
 r = P("my follow ups who drive a Sentra");
 if (r.chip !== "due" || r.audience.models.join() !== "sentra") fail("follow-ups chip: " + J(r));

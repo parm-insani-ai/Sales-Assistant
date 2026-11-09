@@ -37,7 +37,7 @@ import { vocabulary } from "./asr.js";
 import { answerLot, lotSummary } from "./lot.js";
 import { modelsIn } from "./segments.js";
 import { styleBrief } from "./style.js";
-import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps, ownerList, ownerGaps, inAudience, AUDIENCE_HELP, isProspecting } from "./outreach.js";
+import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps, ownerList, ownerGaps, inAudience, AUDIENCE_HELP, isProspecting, isOutreach } from "./outreach.js";
 import { parseList, isListRequest, describeList } from "./listspeech.js";
 import { spokenMatches } from "./listmatch.js";
 import { reachForBlast } from "./consent.js";
@@ -161,10 +161,10 @@ function buildStanding() {
     `Use READ tools to look things up before acting when helpful (deal_radar, find_customers, get_appointments, get_customer, get_stats, get_tasks, get_deliveries, get_occasions, get_specials, get_spiffs). You can take multiple steps.`,
     `WHAT CUSTOMERS HAVE SAID is on file — every text, email and call, both directions. get_customer includes the conversation so far; get_messages answers "what did Dana say?", "read me Ken's email", "did Sara get back to me?", "anything from my customers?", "what came in today?", "who's waiting on me?". Answer from what they actually wrote — quote or paraphrase the message, don't guess. When writing a text or email to a customer, continue from what they last said: answer what they asked, never ask something they've already answered, never repeat what was already sent.`,
     `"Why is Dana a good candidate?", "what's the story with Ken?", "should I call Sara?" → get_customer: its \`assessment\` has the score, the reasons in order, and the next move — read the top two reasons back. "Who should I reach out to today?", "who can I sell a car to?", "work the book", "bring me people worth a call", → get_prospects: the app has already gone through everyone on file and picked today's handful, each with the reason. Name the top one or two and hand over to the screen. With a GOAL in the sentence — "find me some people I can reach out to so I can set some appointments", "I'm falling behind on appointments, I need more", "what do I need to do today to hit my number", "how many calls today" → appointment_plan instead: it works out how far behind, how many appointments today, how many calls that is at their own ratio, and who; read its \`answer\` back as is. Neither is mass_outreach — a blast needs a group to text and something to tell them; "find me people to reach out to" is asking who.`,
-    `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself.`,
+    `MASS OUTREACH: "text/email everyone who owns / drives / has a <model>, with a paid-off car, whose lease is ending, from <year> to <year>, that <message>" → mass_outreach with the whole sentence. It opens the review screen with the recipients and the drafts; say how many it's going to and that it's ready to send. It never sends by itself. Only when they say to TEXT or EMAIL a group: "make a list of…", "show me…", "who has…" is a LIST (find_customers), never a blast, whatever the list is of.`,
     `A VEHICLE WE DON'T HAVE: "Ken wants a white Rogue Platinum, let me know when one comes in", "watch for a used Frontier under 40 for Dana", "tell me when we get a Kicks SR in for Sara" → watch_for_vehicle with the customer and the vehicle as said. It watches the lot and notifies the salesperson when one lands; it's not a lot question, and not a to-do. "Who's waiting for something we don't have?", "what are people looking for that we don't have?" → wanted_list.`,
     `THE LOT: any question about what's in stock, a unit's price or kilometres, the cheapest of something, or whether we have a model/trim/colour → lot_lookup with the salesperson's words. Its prices are the website's exact prices. Read its \`answer\` back as is. Never quote a catalogue MSRP for a unit on the lot, and never say a price the lot_lookup didn't give you.`,
-    `WHO OWNS WHAT: "make me a list of everyone who owns a Nissan Rogue", "my Rogue owners", "who drives a Sentra?", "which customers have a paid-off Altima?", "Rogue owners from 2018 to 2021" → find_customers with the whole sentence as \`who\`, corrected for the mic ("payoff centre" is "paid-off Sentra", "rouge" is "Rogue"). Those are the CUSTOMERS on file, picked by what they drive and where they stand — not the lot (the lot is units for sale; "paid off", "with equity", "lease ending", "bought from me" can only mean customers). If it answers notUnderstood, call it once more with your own reading of the misheard words before asking anything. Say how many and that they're on screen.`,
+    `WHO OWNS WHAT: "make me a list of everyone who owns a Nissan Rogue", "my Rogue owners", "who drives a Sentra?", "which customers have a paid-off Altima?", "Rogue owners from 2018 to 2021", "a list of everyone whose lease ends soon", "Rogue owners with equity I haven't contacted, highest rate first, call it Rogue equity" → find_customers with the whole sentence as \`who\`, corrected for the mic ("payoff centre" is "paid-off Sentra", "rouge" is "Rogue"). Those are the CUSTOMERS on file, picked by what they drive and where they stand — not the lot (the lot is units for sale; "paid off", "with equity", "lease ending", "bought from me" can only mean customers). If it answers notUnderstood, call it once more with your own reading of the misheard words before asking anything. Say how many and that they're on screen.`,
     `TIMING: "when should I go back to Dana?", "when does it make sense for Ken?", "who opens up in the next six months?", "who's coming up?" → when_it_makes_sense; "when do my leases end?", "what's coming off lease this year?" → lease_ends. The answer is a month and the reason — say it plainly: "Dana opens up in March, when her equity clears three thousand."`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
@@ -567,7 +567,12 @@ export function ownersOnScreen(text) {
   navigate("/leads");
   const n = list.length;
   const said = n === 1 ? own.said.replace(/\b(owner|customer|lead)s\b/, "$1") : own.said;
-  const answer = n ? `${n} ${said} on file — ${n === 1 ? "they're" : "they're all"} on the screen.` : `Nobody on file is down as ${own.said} yet.`;
+  // "Everyone · lease ending" is the bar's label; said aloud it's "2
+  // customers on file — lease ending".
+  const standing = /^everyone · (.+)$/.exec(own.said);
+  const answer = standing
+    ? (n ? `${n} customer${n === 1 ? "" : "s"} on file — ${standing[1]}. ${n === 1 ? "They're" : "They're all"} on the screen.` : `Nobody on file has ${standing[1].replace(/^lease ending/, "a lease ending")} yet.`)
+    : n ? `${n} ${said} on file — ${n === 1 ? "they're" : "they're all"} on the screen.` : `Nobody on file is down as ${own.said} yet.`;
   return { result: { count: n, audience: own.said, customers, answer, screen: "the Leads list, filtered to these customers" }, note: n ? `${n} ${said} on screen` : `no ${own.said} on file` };
 }
 
@@ -1262,6 +1267,14 @@ async function runTool(t, p = {}) {
         const goal = /\b(appointments?|appts?|behind|need more|catch up|my number|goal|target|pace)\b/i.test(sentence);
         const out = await runTool(goal ? "appointment_plan" : "get_prospects", {});
         return { ...out, result: { ...out.result, notABlast: `this asked WHO to reach out to${goal ? ", to set appointments" : ""} — not a text to a group. ${goal ? "Answered with the day's plan: read its answer back as is." : "Answered with today's prospects, on screen: name the top two and their reasons, and say the rest are on Log with a Review button each."}` } };
+      }
+      // "Make a list of everyone whose lease ends soon" names nobody to text
+      // and nothing to tell them: it asks for a LIST, and Outreach is where
+      // a list lives. Sent here anyway, it goes there — never to the blast
+      // screen, which would pick them up as recipients.
+      if (!isOutreach(sentence) && !spec.message) {
+        const list = ownersOnScreen(sentence);
+        if (list) return { ...list, result: { ...list.result, notABlast: "this asked for a list, not a text to a group — it's on the Outreach screen, cut to these customers. Say how many and that they're on screen." } };
       }
       const m = await import("./views/outreach.js");
       m.queueOutreach(sentence);
