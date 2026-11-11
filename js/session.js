@@ -20,8 +20,13 @@ import { getProspects } from "./prospects.js";
 import { hasCadence, addDaysISO } from "./cadence.js";
 import { slotOn, toReadyAt } from "./schedule.js";
 import { categoryOf, assessment } from "./assess.js";
-import { orderForNow, retrySlot } from "./reachtime.js";
+import { orderForNow, retrySlot, bestTime, PARTS } from "./reachtime.js";
 import { consentStatus } from "./consent.js";
+import { attemptsFor } from "./coverage.js";
+import { openSlots } from "./slots.js";
+
+// Two open times from the calendar, in words, for a text that offers them.
+function twoTimes() { try { return openSlots().map((s) => s.label); } catch { return []; } }
 
 const KEY = "viniva:session";
 const DAY = 86400000;
@@ -41,8 +46,37 @@ export function sessionQueue(now = new Date()) {
   // Anyone who texted back in the last three days is warm: they go first.
   const since = now.getTime() - 3 * DAY;
   const replied = new Set(store.all("texts").filter((t) => t.dir === "in" && t.leadId && new Date(t.at || t.createdAt || 0).getTime() >= since).map((t) => t.leadId));
+  // Then the callbacks due: people already tried, whose next of six is due
+  // today — a third attempt at the hour that works for them beats a first
+  // attempt on a stranger. In the order they're likely to answer now.
+  const have = new Set(open.map((c) => c.lead.id));
+  const due = dueCallbacks(now).filter((c) => !have.has(c.lead.id));
   const warm = open.filter((c) => replied.has(c.lead.id)), cold = open.filter((c) => !replied.has(c.lead.id));
-  return [...warm, ...orderForNow(cold, { now })];
+  return [...warm, ...orderForNow(due, { now }), ...orderForNow(cold, { now })];
+}
+
+/**
+ * The sequence's calls due today or overdue, with a number that works,
+ * not reached since: [{ lead, task, attempt, reasons, why, callback: true }].
+ */
+export function dueCallbacks(now = new Date()) {
+  const today = now.toISOString().slice(0, 10);
+  const seen = new Set();
+  const out = [];
+  store.all("tasks").filter((t) => t && t.sequence && !t.done && t.leadId && t.channel === "call" && t.due && t.due <= today)
+    .sort((a, b) => String(a.due).localeCompare(String(b.due)))
+    .forEach((t) => {
+      if (seen.has(t.leadId)) return;
+      const l = store.get("leads", t.leadId);
+      if (!l || !l.phone || l.badPhone || l.doNotContact || ["sold", "lost"].includes(l.stage)) return;
+      // Reached since the task was set: the chase is over.
+      if (l.lastContactOutcome === "reached" && l.lastContacted && l.lastContacted >= String(t.createdAt || "")) return;
+      seen.add(t.leadId);
+      const n = t.attempt || attemptCount(l.id, now) + 1;
+      const a = (() => { try { return assessment(l.id); } catch { return null; } })();
+      out.push({ lead: l, task: t, attempt: n, callback: true, score: a ? a.score : 0, reasons: a ? a.reasons : [], why: a ? a.whySafe : [], whySafe: a ? a.whySafe : [], best: a ? a.best : null, cat: a ? a.cat : "other" });
+    });
+  return out;
 }
 
 /** Start a session over these customers (today's batch by default). */
@@ -157,7 +191,7 @@ export function revertOutcome(leadId) {
     (d.taskIds || []).forEach((tid) => { if (store.get("tasks", tid)) store.remove("tasks", tid); });
     if (store.get("leads", leadId)) {
       const back = {};
-      ["lastContacted", "lastContactVia", "lastContactOutcome", "loggedAt", "followUp", "prospectSnoozedUntil", "notInterestedAt", "badPhone", "badPhoneAt"].forEach((k) => { if (k in prev) back[k] = prev[k] == null ? null : prev[k]; });
+      ["lastContacted", "lastContactVia", "lastContactOutcome", "loggedAt", "followUp", "prospectSnoozedUntil", "notInterestedAt", "badPhone", "badPhoneAt", "lastConversationOutcome", "lastConversationAt", "stage"].forEach((k) => { if (k in prev) back[k] = prev[k] == null ? null : prev[k]; });
       if (Object.keys(back).length) store.update("leads", leadId, back);
     }
     // The call stays on the event log, marked undone, so the readout
@@ -190,8 +224,9 @@ export function summarize(s = read()) {
   const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
   return {
     dials: done.length,
-    reached: count("reached") + count("appointment") + count("not_interested"),
+    reached: done.filter((d) => SPOKE.has(d.outcome)).length,
     voicemail: count("voicemail"), noAnswer: count("no_answer"), wrongNumber: count("wrong_number"), notInterested: count("not_interested"),
+    callbacks: count("callback"), interested: count("interested"), notNow: count("not_now"), boughtElsewhere: count("bought_elsewhere"),
     appointments,
     minutes: Math.max(1, Math.round((end - since) / 60000)),
     total: s.ids.length, left: s.ids.filter((id) => !doneFor(s, id)).length,
@@ -201,13 +236,32 @@ export function summarize(s = read()) {
 // ---- Outcomes, each with its paperwork ----
 
 export const OUTCOMES = [
-  { key: "reached", label: "Spoke", icon: "check", kind: "ok", hint: "A conversation — they join the log" },
+  { key: "reached", label: "Spoke", icon: "check", kind: "ok", hint: "A conversation — say how it went, and it goes on their file" },
   { key: "appointment", label: "Appointment", icon: "calendar", kind: "ok", hint: "Book them in now" },
-  { key: "voicemail", label: "Left a message", icon: "message", kind: "later", hint: "A text tomorrow, a call in three days" },
-  { key: "no_answer", label: "No answer", icon: "phone", kind: "later", hint: "Again tomorrow, other half of the day" },
-  { key: "not_interested", label: "Not interested", icon: "logout", kind: "off", hint: "Parked six months" },
+  { key: "voicemail", label: "Left a message", icon: "message", kind: "later", hint: "Counts as a miss — the next of six is queued" },
+  { key: "no_answer", label: "No answer", icon: "phone", kind: "later", hint: "The next of six is queued, when they tend to pick up" },
+  { key: "not_interested", label: "Not interested", icon: "logout", kind: "off", hint: "A conversation — parked six months" },
   { key: "wrong_number", label: "Wrong number", icon: "alert", kind: "off", hint: "Off every list until a new number" },
 ];
+// What came of a conversation — the outcome that goes on their file once
+// they've been spoken with. Each is a "Spoke" with its own paperwork.
+export const CONVERSATION_OUTCOMES = [
+  { key: "appointment", label: "Booked", icon: "calendar", hint: "Book them in" },
+  { key: "callback", label: "Call back", icon: "clock", hint: "They said when — a call is set for then" },
+  { key: "interested", label: "Interested", icon: "sparkles", hint: "Wants to see numbers — a text with two times to come in, today" },
+  { key: "not_now", label: "Not now", icon: "bell", hint: "Nothing for six months — back then" },
+  { key: "not_interested", label: "Not interested", icon: "logout", hint: "Parked six months" },
+  { key: "bought_elsewhere", label: "Bought elsewhere", icon: "car", hint: "Off the lists for a year; their new car's dates are worth having" },
+];
+// How long "call back" means, when they didn't say: pick one.
+export const CALLBACK_WHEN = [
+  { key: "tomorrow", label: "Tomorrow", days: 1 },
+  { key: "week", label: "Next week", days: 7 },
+  { key: "month", label: "Next month", days: 30 },
+  { key: "quarter", label: "In 3 months", days: 90 },
+];
+const SPOKE = new Set(["reached", "appointment", "callback", "interested", "not_now", "not_interested", "bought_elsewhere"]);
+export const isConversation = (key) => SPOKE.has(key);
 
 // The hour to try someone again who didn't pick up: the part of the day
 // that works for them when it's known, else the other half of the day
@@ -224,29 +278,42 @@ function followUpTask(lead, { days, hh, mm = 0, channel, intent, title, priority
 // ---- Six attempts, by rule ----
 //
 // About 93% of the people who ever convert are reached by the sixth
-// attempt, and most reps stop after one or two. So anyone not reached is
-// worked six times over two weeks, call and text alternating where consent
-// allows, and then rested ninety days: call · text the same day · call the
-// next day in the other half · text on day three · call on day six · call
-// on day ten. Each miss schedules the next touch; the card says which.
-export const ATTEMPTS = 6, ATTEMPT_WINDOW_DAYS = 21, REST_DAYS = 90;
-const TRY = new Set(["voicemail", "no_answer"]);
+// attempt, and most reps stop after one or two. The goal is a conversation,
+// and only a call or a reply is one — a message left is a miss, a text
+// nobody answered is a miss — so the sequence is calls, with two texts
+// whose only job is to get a time or a reply: call · a text two hours on
+// asking when's good · a call the next day in the other half · a call on
+// day three when they tend to pick up · a text on day four with two times
+// to catch them · a call on day six in the part of the day not yet tried.
+// Then sixty days' rest and another round. Each miss queues the next; a
+// reply ends the chase (coverage.js). The card says which attempt this is.
+export const ATTEMPTS = 6, ATTEMPT_WINDOW_DAYS = 21, REST_DAYS = 60;
 // Attempts on this person in the window: unanswered calls, and texts sent.
 export function attemptCount(leadId, now = new Date()) {
-  const since = now.getTime() - ATTEMPT_WINDOW_DAYS * DAY;
-  const calls = store.all("calls").filter((c) => c && c.leadId === leadId && c.dir !== "in" && (c.via || "call") === "call" && TRY.has(c.outcome) && new Date(c.at).getTime() >= since).length;
-  const texts = store.all("texts").filter((t) => t && t.leadId === leadId && t.dir !== "in" && new Date(t.at || t.createdAt || 0).getTime() >= since).length;
-  return calls + texts;
+  return attemptsFor(leadId, now.getTime());
 }
 // The next touch after a miss, by how many there have been. `other` is the
-// other half of the day (or when they tend to pick up).
+// other half of the day (or when they tend to pick up); `untried` the part
+// of the day no attempt has landed in yet.
 const NEXT = [null,
-  { channel: "text", days: 0, hours: 2 },           // after 1: a text the same day
-  { channel: "call", days: 1, other: true },        // after 2: tomorrow, the other half
-  { channel: "text", days: 2 },                     // after 3: a text in two days
-  { channel: "call", days: 3, other: true },        // after 4: a call in three
-  { channel: "call", days: 4, other: true },        // after 5: a call in four
+  { channel: "text", days: 0, hours: 2, intent: "missed" },   // after 1: a text the same day — when's good?
+  { channel: "call", days: 1, other: true },                  // after 2: tomorrow, the other half
+  { channel: "call", days: 2, other: true },                  // after 3: a call in two days, when they pick up
+  { channel: "text", days: 1, intent: "time" },               // after 4: a text with two times to catch them
+  { channel: "call", days: 2, untried: true },                // after 5: a call in two days, a part of the day not yet tried
 ];
+// A part of the day with no attempt in it yet, for the last call of the
+// round: if mornings and afternoons have missed, the evening is the one
+// left to try. Null when every part has been tried.
+function untriedPart(leadId, now) {
+  const since = now.getTime() - ATTEMPT_WINDOW_DAYS * DAY;
+  const tried = new Set(store.all("calls").filter((c) => c && c.leadId === leadId && c.dir !== "in" && (c.via || "call") === "call" && new Date(c.at).getTime() >= since).map((c) => { const h = new Date(c.at).getHours(); return (PARTS.find((p) => h >= p.from && h < p.to) || PARTS[0]).key; }));
+  const to = Number(store.getSettings().hoursTo ?? 18);
+  const open = PARTS.filter((p) => !tried.has(p.key) && p.from < to);
+  if (!open.length) return null;
+  // Evenings connect best of the parts people skip; prefer the latest open one.
+  return open[open.length - 1];
+}
 const inPlan = (leadId) => store.all("tasks").some((t) => t.leadId === leadId && t.cadence && !t.sequence && !t.done);
 /**
  * A miss just happened: put the next touch on the queue (or rest them after
@@ -272,15 +339,18 @@ export function scheduleNextAttempt(leadId, { now = new Date() } = {}) {
   let task;
   if (step.channel === "text" && canText) {
     const at = step.days === 0 ? localLater(now, step.hours || 2) : slotOn(addDaysISO(step.days), 10, 15);
-    task = store.create("tasks", { title: `Text ${fn} — attempt ${next} of ${ATTEMPTS}, after the call`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: "missed", cadence: true, sequence: true, attempt: next, of: ATTEMPTS, from: "session" });
-    return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a text ${step.days === 0 ? "in a couple of hours" : `in ${step.days} days`}.` };
+    const what = step.intent === "time" ? "two times to catch them" : "asking when's good";
+    task = store.create("tasks", { title: `Text ${fn} — attempt ${next} of ${ATTEMPTS}, ${what}`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: step.intent || "missed", cadence: true, sequence: true, attempt: next, of: ATTEMPTS, from: "session", ...(step.intent === "time" ? { why: twoTimes() } : {}) });
+    return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a text ${step.days === 0 ? "in a couple of hours" : `in ${step.days} day${step.days === 1 ? "" : "s"}`}, ${what}.` };
   }
-  // A call (or a text they can't be sent): the day's other half, or when
-  // they tend to pick up.
+  // A call (or a text they can't be sent): when they tend to pick up, the
+  // day's other half, or — for the last call of the round — the part of
+  // the day nobody has tried them in.
   const days = step.channel === "text" ? Math.max(1, step.days) : step.days;
-  const oh = retrySlot(leadId, now);
-  task = followUpTask(lead, { days, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — attempt ${next} of ${ATTEMPTS} · ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}`, extra: { sequence: true, attempt: next, of: ATTEMPTS } });
-  return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a call ${days === 1 ? "tomorrow" : `in ${days} days`}, ${oh.known ? "when they tend to pick up: " : ""}${oh.word}.` };
+  let oh = retrySlot(leadId, now);
+  if (step.untried && !bestTime(leadId)) { const u = untriedPart(leadId, now); if (u) oh = { key: u.key, label: u.label, hh: u.hh, mm: u.mm, word: u.label.replace(/^around /, ""), known: false, untried: true }; }
+  task = followUpTask(lead, { days, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — attempt ${next} of ${ATTEMPTS} · ${oh.known ? "they tend to pick up" : oh.untried ? "not yet tried" : "try the"} ${oh.word}`, extra: { sequence: true, attempt: next, of: ATTEMPTS } });
+  return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a call ${days === 1 ? "tomorrow" : `in ${days} days`}, ${oh.known ? "when they tend to pick up: " : oh.untried ? "a part of the day not tried yet: " : ""}${oh.word}.` };
 }
 // A clock time a few hours on, inside the working day (else the next slot).
 function localLater(now, hours) {
@@ -296,11 +366,14 @@ function localLater(now, hours) {
  * Record what came of the call, do the paperwork it implies, move on.
  * Returns { rec, line, tasks } — `line` is what to tell the salesperson.
  */
-export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}) {
+export function recordOutcome(leadId, key, { notes = "", now = new Date(), when = null } = {}) {
   const lead = store.get("leads", leadId);
   if (!lead) return null;
   const fn = firstName(lead.name);
   const canText = (() => { try { return !!lead.phone && !store.optedOut(lead); } catch { return false; } })();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // A conversation ends the chase: the open attempts on them come off.
+  const stopChase = () => store.all("tasks").filter((t) => t.leadId === leadId && t.sequence && !t.done).forEach((t) => store.remove("tasks", t.id));
   // Why the call was made and which opener it led with — so Coach can say,
   // in a few weeks, which reasons and which phrasings book (outcomes.js).
   const a = (() => { try { return assessment(leadId); } catch { return null; } })();
@@ -308,12 +381,51 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
   // A second answer for the same customer takes the first one back first.
   const changed = revertOutcome(leadId);
   const was = store.get("leads", leadId);
-  const prev = { lastContacted: was.lastContacted || null, lastContactVia: was.lastContactVia || null, lastContactOutcome: was.lastContactOutcome || null, loggedAt: was.loggedAt || null, followUp: was.followUp || null, prospectSnoozedUntil: was.prospectSnoozedUntil || null, notInterestedAt: was.notInterestedAt || null, badPhone: !!was.badPhone, badPhoneAt: was.badPhoneAt || null };
+  const prev = { lastContacted: was.lastContacted || null, lastContactVia: was.lastContactVia || null, lastContactOutcome: was.lastContactOutcome || null, loggedAt: was.loggedAt || null, followUp: was.followUp || null, prospectSnoozedUntil: was.prospectSnoozedUntil || null, notInterestedAt: was.notInterestedAt || null, badPhone: !!was.badPhone, badPhoneAt: was.badPhoneAt || null, lastConversationOutcome: was.lastConversationOutcome || null, lastConversationAt: was.lastConversationAt || null, stage: was.stage };
   let rec = null, line = "", tasks = [], ev = null;
   store.bulk(() => {
     if (key === "reached" || key === "appointment") {
       rec = store.logContact(leadId, { via: "call", outcome: "reached", notes });
-      line = key === "appointment" ? `Spoke with ${fn} — book them in.` : `Spoke with ${fn} — they're on the log now.`;
+      stopChase();
+      store.update("leads", leadId, { lastConversationAt: rec.at, lastConversationOutcome: key === "appointment" ? "appointment" : "spoke" });
+      store.update("calls", rec.id, { conversationOutcome: key === "appointment" ? "appointment" : "spoke" });
+      line = key === "appointment" ? `Spoke with ${fn} — book them in.` : `Spoke with ${fn} — on their file. How did it go?`;
+    } else if (key === "callback" || key === "interested" || key === "not_now" || key === "bought_elsewhere") {
+      // A conversation with a next step: the step is the paperwork.
+      rec = store.logContact(leadId, { via: "call", outcome: "reached", notes });
+      stopChase();
+      store.update("calls", rec.id, { conversationOutcome: key, ...(when ? { callbackAt: when } : {}) });
+      const patch = { lastConversationAt: rec.at, lastConversationOutcome: key };
+      if (key === "callback") {
+        // "Call me back Thursday" / next week / next month: a call on the
+        // queue for then, at the hour they picked up today.
+        const at = when ? String(when) : slotOn(addDaysISO(7), now.getHours() >= 8 && now.getHours() < 21 ? now.getHours() : 10, 0);
+        const dueDay = at.slice(0, 10);
+        const t = store.create("tasks", { title: `Call ${fn} back — they asked for it`, due: dueDay, at: at.length > 10 ? at : null, readyAt: at.length > 10 ? toReadyAt(at) : null, priority: "high", done: false, leadId, channel: "call", intent: "callback", from: "session" });
+        tasks.push(t);
+        patch.followUp = dueDay;
+        line = `Spoke with ${fn} — calling them back ${relDay(dueDay, now)}.`;
+      } else if (key === "interested") {
+        // Wants numbers: a text today with two times to come in, and the
+        // follow-up plan takes them from here.
+        const at = localLater(now, 1);
+        const t = store.create("tasks", { title: `Text ${fn} two times to come in — they're interested`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "high", done: false, leadId, channel: "text", intent: "time", cadence: true, from: "session", why: twoTimes() });
+        tasks.push(t);
+        patch.followUp = at.slice(0, 10);
+        if (!["appointment", "negotiating", "sold", "delivered"].includes(lead.stage)) patch.stage = "working";
+        line = `Spoke with ${fn} — interested. A text with two times to come in is queued for this afternoon.`;
+      } else if (key === "not_now") {
+        const until = ymd(new Date(now.getTime() + 180 * DAY));
+        patch.prospectSnoozedUntil = until; patch.followUp = until;
+        const t = store.create("tasks", { title: `Check back with ${fn} — said not now in ${now.toLocaleDateString("en-CA", { month: "long" })}`, due: until, priority: "normal", done: false, leadId, channel: "call", intent: "checkback", from: "session" });
+        tasks.push(t);
+        line = `Spoke with ${fn} — not now. Back to them ${new Date(until + "T12:00:00").toLocaleDateString("en-CA", { month: "long" })}.`;
+      } else {
+        const until = ymd(new Date(now.getTime() + 365 * DAY));
+        patch.prospectSnoozedUntil = until; patch.boughtElsewhereAt = rec.at;
+        line = `Spoke with ${fn} — bought elsewhere. Off the lists for a year; note what they bought if they said.`;
+      }
+      store.update("leads", leadId, patch);
     } else if (key === "voicemail" || key === "no_answer") {
       rec = store.logContact(leadId, { via: "call", outcome: key, notes });
       // The next of six, by rule (or the rest after the sixth).
@@ -327,9 +439,11 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
       // Parked six months — but still one of today's batch, worked: the
       // day's count keeps them (snoozeProspect would drop them from it).
       const until = new Date(now.getTime() + 180 * DAY).toISOString().slice(0, 10);
-      store.update("leads", leadId, { lastContacted: at, lastContactVia: "call", lastContactOutcome: "reached", notInterestedAt: at, prospectSnoozedUntil: until });
+      stopChase();
+      store.update("calls", rec.id, { conversationOutcome: "not_interested" });
+      store.update("leads", leadId, { lastContacted: at, lastContactVia: "call", lastContactOutcome: "reached", notInterestedAt: at, prospectSnoozedUntil: until, lastConversationAt: at, lastConversationOutcome: "not_interested" });
       store.logActivity("touch");
-      line = `${fn} isn't interested — parked until ${until}.`;
+      line = `${fn} isn't interested — on their file; parked until ${until}.`;
     } else if (key === "wrong_number") {
       const at = now.toISOString();
       rec = store.create("calls", { leadId, dir: "out", via: "call", at, outcome: "wrong_number", notes, logged: true });
@@ -341,6 +455,16 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date() } = {}
   if (!rec) return null;
   recordDone(leadId, { outcome: key, recId: rec.id, taskIds: tasks.map((t) => t.id), eventId: ev ? ev.id : null, prev });
   return { rec, line: changed ? `Changed. ${line}` : line, tasks, changed };
+}
+// "tomorrow", "Thursday", "in 3 weeks", "March 4".
+function relDay(ymdStr, now = new Date()) {
+  const d = new Date(ymdStr + "T12:00:00");
+  const days = Math.round((d - new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)) / DAY);
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days < 7) return d.toLocaleDateString("en-CA", { weekday: "long" });
+  if (days < 28) return `in ${Math.round(days / 7)} week${Math.round(days / 7) === 1 ? "" : "s"}`;
+  return d.toLocaleDateString("en-CA", { month: "long", day: "numeric" });
 }
 
 // ---- The script ----

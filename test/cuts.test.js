@@ -56,8 +56,8 @@ const read = () => p.evaluate(() => ({
 // --- Day one: ten picks, all new, the rest of the book under them, nobody twice.
 let t = await read();
 console.log("today:", JSON.stringify({ head: t.head, sub: t.sub, more: t.more, picks: t.picks.length, fresh: t.fresh, rest: t.rest }));
-if (t.head !== "Today's 10 · 0 reached" || t.picks.length !== 10 || t.fresh !== 10) fail("the day should open on ten fresh picks: " + JSON.stringify(t));
-if (!/10 to go/.test(t.sub || "") || !/more ready behind them/.test(t.sub || "")) fail("the line should say what's left and what's behind: " + t.sub);
+if (t.head !== "Today's 10 · 0 tried · 0 spoken with" || t.picks.length !== 10 || t.fresh !== 10) fail("the day should open on ten fresh picks: " + JSON.stringify(t));
+if (!/10 to go/.test(t.sub || "") || !/more behind them/.test(t.sub || "") || !/never spoken with/.test(t.sub || "")) fail("the line should say what's left, what's behind and how many have never been spoken with: " + t.sub);
 if (!/The rest of the book/.test(t.rest || "")) fail("the rest of the book should sit under the batch: " + t.rest);
 if (t.picks.some((id) => t.restCards.includes(id))) fail("a pick is listed twice");
 const stamped = await p.evaluate(async () => { const s = await import("/js/store.js"); return s.all("leads").filter((l) => l.lastProspectedAt && l.firstProspectedAt).length; });
@@ -86,7 +86,7 @@ const first = t.picks[0];
 await p.evaluate((id) => { const w = document.querySelector(`.today-list .swipe-card[data-lead-id="${id}"]`).closest(".swipe-wrap"); const tap = (label) => [...w.querySelectorAll(".swipe-act")].find((x) => x.textContent.trim() === label).click(); tap("Contacted"); setTimeout(() => { tap("Call"); setTimeout(() => tap("Spoke"), 50); }, 50); }, first);
 await p.waitForTimeout(600);
 t = await read();
-if (t.head !== "Today's 10 · 1 reached" || t.bar !== "10%") fail("a contact should count against the day at once: " + JSON.stringify({ head: t.head, bar: t.bar }));
+if (t.head !== "Today's 10 · 1 tried · 1 spoken with" || t.bar !== "10%") fail("a conversation should count against the day at once: " + JSON.stringify({ head: t.head, bar: t.bar }));
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(300);
 await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(900);
 t = await read();
@@ -95,7 +95,7 @@ if (t.picks.length !== 9 || t.picks.includes(first)) fail("the one reached shoul
 // --- Ten more: the next in line, stamped, none repeated.
 await p.click('[data-act="more-today"]'); await p.waitForTimeout(700);
 t = await read();
-if (t.head !== "Today's 20 · 1 reached" || t.picks.length !== 19 || new Set(t.picks).size !== 19) fail("ten more should extend the day's batch without repeats: " + JSON.stringify({ head: t.head, picks: t.picks.length }));
+if (t.head !== "Today's 20 · 1 tried · 1 spoken with" || t.picks.length !== 19 || new Set(t.picks).size !== 19) fail("ten more should extend the day's batch without repeats: " + JSON.stringify({ head: t.head, picks: t.picks.length }));
 
 // --- Cuts AND together: Equity, then High rate on top; every card
 // carries both; the counts narrow; the bar says what and offers what to do.

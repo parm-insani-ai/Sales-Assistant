@@ -171,7 +171,7 @@ if (live !== 6) fail("the answers taken back should be marked undone, leaving si
 await p.click('[data-act="back"]'); await p.waitForTimeout(800);
 const block = await p.evaluate(() => ({ head: document.querySelector(".today-block .strong")?.textContent.trim(), start: document.querySelector('[data-act="start-session"]')?.textContent.trim() || null }));
 console.log("back on Outreach:", JSON.stringify(block));
-if (!/All 6 reached today/.test(block.head || "") || block.start) fail("with the batch worked through there's nothing to call: " + JSON.stringify(block));
+if (!/All 6 tried today · 3 spoken with/.test(block.head || "") || block.start) fail("with the batch worked through there's nothing to call, and the block says how many were real conversations: " + JSON.stringify(block));
 
 // --- Continue: a session left open comes back where it was.
 await p.evaluate(async () => { const st = await import("/js/store.js"); st.update("leads", "o10", { lastProspectedAt: null, firstProspectedAt: null }); st.update("leads", "o11", { lastProspectedAt: null, firstProspectedAt: null }); const s = await import("/js/session.js"); s.startSession(["o10", "o11"]); });

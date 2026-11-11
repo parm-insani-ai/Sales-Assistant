@@ -33,6 +33,7 @@ import { afterSale, closeFollowUps } from "../connections.js";
 import { inAudience, emptyAudience, isEveryone } from "../outreach.js";
 import { parseList, LIST_HELP } from "../listspeech.js";
 import { queryPasses, sortByQuery, describeQuery } from "../bookquery.js";
+import { reachState, coverageLine } from "../coverage.js";
 import { classify } from "../segments.js";
 import { equityOf } from "../reach.js";
 import { outreachReport } from "../outcomes.js";
@@ -308,9 +309,9 @@ export function renderLeads(view, { param }) {
   // to-dos, the sales. Built once per change to any of them.
   let qctxMemo = { key: "", ctx: null };
   const qctx = () => {
-    const key = ["leads", "appointments", "tasks", "sales"].map((n) => store.generation(n)).join("|");
+    const key = ["leads", "appointments", "tasks", "sales", "calls", "texts"].map((n) => store.generation(n)).join("|");
     const assess = assessAll().byId;
-    if (!qctxMemo.ctx || qctxMemo.key !== key || qctxMemo.ctx.assess !== assess) qctxMemo = { key, ctx: { now: Date.now(), assess, appointments: store.all("appointments"), tasks: store.all("tasks"), sales: store.all("sales") } };
+    if (!qctxMemo.ctx || qctxMemo.key !== key || qctxMemo.ctx.assess !== assess) qctxMemo = { key, ctx: { now: Date.now(), assess, appointments: store.all("appointments"), tasks: store.all("tasks"), sales: store.all("sales"), calls: store.all("calls"), texts: store.all("texts") } };
     return qctxMemo.ctx;
   };
   const queryIds = () => (query && query.ids ? new Set(query.ids) : null);
@@ -347,6 +348,10 @@ export function renderLeads(view, { param }) {
     { key: "warranty", label: "Warranty ending", cat: "warranty" },
     { key: "service", label: "In service", cat: "service" },
     { key: "quiet", label: "Quiet 6+ mo" },
+    // The goal's own cut: nobody has had a real conversation with them — a
+    // message left or a text unanswered doesn't count (reachstate.js).
+    { key: "unspoken", label: "Never spoken with" },
+    { key: "callback", label: "Callback due" },
   ];
   const BODY_LABEL = { suv: "SUVs", truck: "Trucks", car: "Sedans", van: "Vans", sports: "Sports cars" };
   // The book's vehicles, as cuts: every model with a few owners (most
@@ -376,6 +381,8 @@ export function renderLeads(view, { param }) {
     if (d.kind === "vehicle") return inAudience({ ...emptyAudience(), ...d.spec }, l);
     if (d.key === "quiet") { const t = l.lastContacted ? new Date(l.lastContacted).getTime() : 0; return !t || Date.now() - t > 180 * 86400000; }
     if (d.key === "nonumber") return !l.phone || !!l.badPhone;
+    if (d.key === "unspoken") { const r = reachState(l); return !!r && !r.conversation && r.state !== "unreachable"; }
+    if (d.key === "callback") { const r = reachState(l); return !!r && r.state === "due"; }
     const a = assessAll().byId.get(l.id);
     return !!(a && (a.reasons || []).some((r) => categoryOf(r) === d.cat));
   };
@@ -1044,14 +1051,16 @@ export function renderLeads(view, { param }) {
       block.className = `card today-block${pr.total && !pr.left ? " today-done" : ""}`;
       const head = !pr.total
         ? "Nobody new to bring up today"
-        : pr.left ? `Today's ${pr.total} · ${pr.reached} reached` : `All ${pr.total} reached today`;
+        : pr.left ? `Today's ${pr.total} · ${pr.reached} tried · ${pr.spoken} spoken with` : `All ${pr.total} tried today · ${pr.spoken} spoken with`;
+      const untouchedNote = pr.untouched ? ` · ${pr.untouched.toLocaleString()} never spoken with` : "";
       const sub = !pr.total
         ? "Everyone with a reason has been reached or put off lately — tomorrow brings the next in line."
-        : pr.left ? `Fresh each morning, best first, nobody twice in three weeks. ${pr.left} to go${pr.behind ? ` · ${pr.behind.toLocaleString()} more ready behind them` : ""}.`
-        : pr.behind ? `Nice. ${pr.behind.toLocaleString()} more are ready — take the next ${Math.min(n, pr.behind)}?` : "That's everyone the book has a reason for right now.";
+        : pr.left ? `Best first, with a share for people never spoken with. ${pr.left} to go${pr.behind ? ` · ${pr.behind.toLocaleString()} more behind them${untouchedNote}` : ""}.`
+        : pr.behind ? `Nice. ${pr.behind.toLocaleString()} more are ready${untouchedNote} — take the next ${Math.min(n, pr.behind)}?` : "That's everyone the book has a reason for right now.";
+      const cov = (() => { try { return coverageLine(); } catch { return ""; } })();
       block.innerHTML = `
         <div class="row" style="align-items:center">
-          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div><div class="small today-day" style="margin-top:4px">${esc(dayLine())}</div><div class="small muted today-window" style="margin-top:2px">${esc(callWindow().line)}</div></div>
+          <div class="row-main"><div class="strong">${esc(head)}</div><div class="small muted" style="margin-top:2px">${esc(sub)}</div><div class="small today-day" style="margin-top:4px">${esc(dayLine())}</div><div class="small muted today-window" style="margin-top:2px">${esc(callWindow().line)}</div>${cov ? `<div class="small today-cov" style="margin-top:2px">${esc(cov)}</div>` : ""}</div>
           ${pr.behind ? `<button type="button" class="btn btn-sm ${pr.left ? "btn-ghost" : "btn-primary"}" data-act="more-today" style="flex:none">${pr.total ? `${Math.min(n, pr.behind)} more` : `Bring up ${Math.min(n, pr.behind)}`}</button>` : ""}
         </div>
         ${pr.total ? `<div class="today-bar"><span style="width:${Math.round((pr.reached / pr.total) * 100)}%"></span></div>` : ""}
@@ -1074,7 +1083,7 @@ export function renderLeads(view, { param }) {
         if (!block.isConnected) return;
         const q = pickProgress();
         const strong = block.querySelector(".strong"), bar = block.querySelector(".today-bar > span");
-        if (strong && q.total) strong.textContent = q.left ? `Today's ${q.total} · ${q.reached} reached` : `All ${q.total} reached today`;
+        if (strong && q.total) strong.textContent = q.left ? `Today's ${q.total} · ${q.reached} tried · ${q.spoken} spoken with` : `All ${q.total} tried today · ${q.spoken} spoken with`;
         if (bar && q.total) bar.style.width = `${Math.round((q.reached / q.total) * 100)}%`;
         block.classList.toggle("today-done", !!q.total && !q.left);
       };

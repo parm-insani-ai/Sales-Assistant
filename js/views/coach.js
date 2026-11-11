@@ -11,6 +11,7 @@ import { dealTotal, dealFront, dealBO } from "./soldlog.js";
 import { monthSummary } from "./goals.js";
 import { outreachReport, callReport, reasonWeights } from "../outcomes.js";
 import { funnel, weekly } from "../funnel.js";
+import { coverage } from "../coverage.js";
 
 // ---- Week math ----
 export function weekStart(d = new Date()) {
@@ -196,6 +197,23 @@ export function renderCoach(view) {
     // of attempted, set of reached, showed of set, sold of shown — with the
     // benchmark standing in where there isn't enough of their own yet, and
     // the weeks: dials, reached, set, appointments per hundred dials.
+    // The book against the one goal: a conversation with everyone on file.
+    // The share spoken with, this week's conversations, the pace, and when
+    // the book is covered at it — the number a manager reads first.
+    const reach = (() => {
+      let c; try { c = coverage(); } catch { return ""; }
+      if (!c || !c.total) return "";
+      const seg = (n, cls) => (c.reachable ? `<span class="rb-seg ${cls}" style="width:${Math.max(0, (n / c.reachable) * 100)}%"></span>` : "");
+      const by = c.coveredBy && c.weeksLeft <= 104 ? `at ${c.pace} a week the book is covered by <b>${esc(c.coveredBy.toLocaleDateString("en-CA", { month: "long", year: "numeric" }))}</b>` : c.left ? (c.pace ? "" : "no conversations in the last four weeks — the pace sets the date") : "everyone reachable has been spoken with";
+      return `
+      <div class="section-title" style="margin-top:0">Reach the book <span class="muted">· a conversation with everyone</span></div>
+      <div class="card rb-card">
+        <div class="rb-head"><span class="rb-pct">${c.pct}%</span><span class="rb-what">spoken with<br><span class="muted">${c.spoken.toLocaleString()} of ${c.reachable.toLocaleString()} reachable · last ${Math.round(c.cycleDays / 30)} months</span></span><span class="rb-week"><b>${c.week}</b><br><span class="muted">this week</span></span></div>
+        <div class="rb-bar">${seg(c.spoken, "rb-spoken")}${seg(c.working + c.due, "rb-working")}${seg(c.rested, "rb-rested")}</div>
+        <div class="rb-legend small muted"><span><i class="rb-spoken"></i> spoken with ${c.spoken.toLocaleString()}</span><span><i class="rb-working"></i> being worked ${(c.working + c.due).toLocaleString()}${c.due ? ` (${c.due} due now)` : ""}</span><span><i class="rb-rested"></i> resting ${c.rested.toLocaleString()}</span><span><i class="rb-none"></i> not started ${(c.untouched + c.lapsed).toLocaleString()}</span></div>
+        <div class="small" style="margin-top:8px">${by ? by + "." : ""} ${c.unreachable ? `<span class="muted">${c.unreachable.toLocaleString()} have no number that works.</span>` : ""}</div>
+      </div>`;
+    })();
     const board = (() => {
       const f = funnel();
       if (!f.dials && !f.appointments) return "";
@@ -250,7 +268,7 @@ export function renderCoach(view) {
     })();
 
     if (!store.all("sales").length && !store.all("appointments").length) {
-      body.innerHTML = board + worked + emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
+      body.innerHTML = reach + board + worked + emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
       return;
     }
 
@@ -286,6 +304,7 @@ export function renderCoach(view) {
     const toneColor = { good: "var(--brand)", warn: "var(--danger)", info: "var(--muted)" };
 
     body.innerHTML = `
+      ${reach}
       ${board}
       ${worked}
       ${insights.length ? `

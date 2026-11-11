@@ -44,6 +44,7 @@ import { initAutoUpdate } from "./updater.js";
 import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from "./email.js";
 import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
+import { absorbReplies } from "./coverage.js";
 import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import { handleGmailRedirect, pullGmailIfStale, ensureMailWatch } from "./gmail.js";
@@ -536,8 +537,11 @@ autoSendDueEmails().then(async (r) => {
 window.addEventListener("viniva-sync", (e) => {
   if (e.detail && e.detail.status === "synced" && e.detail.applied) {
     try { reconcileLinks(); } catch {}
-    // A customer who replied is in a conversation; their plan steps back.
+    // A customer who replied is in a conversation; their plan steps back,
+    // and the chase of six attempts stops (coverage.js).
     try { adaptToReplies(); } catch {}
+    try { absorbReplies(); } catch {}
   }
 });
 try { adaptToReplies(); } catch {}
+try { absorbReplies(); } catch {}

@@ -19,6 +19,13 @@ import * as store from "./store.js";
 import { ranked } from "./assess.js";
 import { hasCadence } from "./cadence.js";
 import { reasonWeights, applyWeights } from "./outcomes.js";
+import { coveragePicks, coverageEntry, coverageBehind, reachState } from "./coverage.js";
+
+// The share of each day's batch kept for people nobody has ever had a
+// conversation with — behind the ones with a reason, so the whole book gets
+// its turn and the goal (everyone spoken with) is worked every day, not
+// only the people a deal can be read on.
+const COVERAGE_SHARE = 0.3;
 
 const COOLDOWN_DAYS = 21;   // surfaced → not again for this long
 const CONTACT_DAYS = 14;    // contacted this recently → someone's on it
@@ -87,15 +94,38 @@ export function getProspects() {
   const saved = readPicks();
   if (saved && saved.day === day) {
     return saved.ids
-      .map((id) => all.find((c) => c.lead.id === id))
+      .map((id) => entryFor(id, all))
       .filter((c) => c && stillOpen(c.lead, day))
       .map((c) => ({ ...c, fresh: isFresh(c.lead, day) }));
   }
   const n = Math.max(0, Number(store.getSettings().dailyProspects ?? 10));
-  const picks = all.filter((c) => eligible(c.lead)).slice(0, n);
+  const picks = pickBatch(all, n);
   writePicks({ day, ids: picks.map((c) => c.lead.id) });
   stampSurfaced(picks);
   return picks.map((c) => ({ ...c, fresh: !c.lead.firstProspectedAt }));
+}
+
+// A day's pick: the people with a reason, best first, with a share of the
+// batch kept for people never spoken with — and the whole batch from them
+// when the reasons run out. `skip` is who's already on today's list.
+function pickBatch(all, n, skip = new Set()) {
+  if (!n) return [];
+  const reasoned = all.filter((c) => !skip.has(c.lead.id) && eligible(c.lead));
+  const keep = Math.ceil(n * COVERAGE_SHARE);
+  const fromReasons = reasoned.slice(0, Math.max(0, n - keep));
+  const have = new Set([...skip, ...fromReasons.map((c) => c.lead.id)]);
+  const fill = coveragePicks(n, Date.now()).filter((c) => !have.has(c.lead.id)).slice(0, n - fromReasons.length);
+  // The reserved seats nobody untouched could fill go back to the reasons.
+  const more = reasoned.slice(fromReasons.length).filter((c) => !fill.some((x) => x.lead.id === c.lead.id)).slice(0, Math.max(0, n - fromReasons.length - fill.length));
+  return [...fromReasons, ...more, ...fill];
+}
+// Today's pick by id: its candidate entry, or — for someone brought up for
+// coverage, who has no reason — the coverage entry.
+function entryFor(id, all = candidates()) {
+  const c = all.find((x) => x.lead.id === id);
+  if (c) return c;
+  const l = store.get("leads", id);
+  return l ? coverageEntry(l, reachState(l)) : null;
 }
 
 // Never brought up before today: the first time this customer has had a turn.
@@ -121,7 +151,7 @@ export function morePicks(n = Number(store.getSettings().dailyProspects ?? 10)) 
   const day = todayK();
   const saved = readPicks() && readPicks().day === day ? readPicks() : { day, ids: [] };
   const have = new Set(saved.ids);
-  const next = candidates().filter((c) => !have.has(c.lead.id) && eligible(c.lead)).slice(0, Math.max(0, n));
+  const next = pickBatch(candidates(), Math.max(0, n), have);
   if (!next.length) return [];
   writePicks({ day, ids: [...saved.ids, ...next.map((c) => c.lead.id)] });
   stampSurfaced(next);
@@ -135,11 +165,22 @@ export function pickProgress() {
   const day = todayK();
   const saved = readPicks();
   const ids = saved && saved.day === day ? saved.ids : [];
-  let reached = 0;
-  ids.forEach((id) => { const l = store.get("leads", id); if (!l || !stillOpen(l, day)) reached++; });
+  // Worked: an attempt today took them off the list. Spoken: a real
+  // conversation today — the number that counts (coverage.js).
+  let reached = 0, spoken = 0;
+  ids.forEach((id) => {
+    const l = store.get("leads", id);
+    if (!l || !stillOpen(l, day)) reached++;
+    if (l) { try { const r = reachState(l); if (r && r.conversation && new Date(r.conversation.at).toISOString().slice(0, 10) === day) spoken++; } catch { /* counted as worked */ } }
+  });
   const have = new Set(ids);
-  const behind = candidates().filter((c) => !have.has(c.lead.id) && eligible(c.lead)).length;
-  return { total: ids.length, reached, left: ids.length - reached, behind };
+  const reasoned = candidates().filter((c) => !have.has(c.lead.id) && eligible(c.lead)).map((c) => c.lead.id);
+  // Behind them: the rest with a reason, and everyone never spoken with
+  // (many are both — a past customer has years in the car and no call).
+  let pool = [];
+  try { pool = coveragePicks(1e9).filter((c) => !have.has(c.lead.id)).map((c) => c.lead.id); } catch { pool = []; }
+  const behind = new Set([...reasoned, ...pool]).size;
+  return { total: ids.length, reached, spoken, left: ids.length - reached, behind, withReason: reasoned.length, untouched: pool.length };
 }
 
 // "Not now." A month off the list, and off today's.
@@ -154,5 +195,7 @@ export function snoozeProspect(leadId, days = SNOOZE_DAYS) {
 // How much of the book is still ahead — for the voice reply and the page.
 export function prospectStats() {
   const all = candidates();
-  return { withReason: all.length, eligibleNow: all.filter((c) => eligible(c.lead)).length };
+  let untouched = 0;
+  try { untouched = coverageBehind(); } catch { untouched = 0; }
+  return { withReason: all.length, eligibleNow: all.filter((c) => eligible(c.lead)).length, untouched };
 }

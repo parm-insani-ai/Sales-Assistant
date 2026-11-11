@@ -21,6 +21,7 @@ import { classify } from "./segments.js";
 import { equityOf } from "./reach.js";
 import { paymentsLeftOf } from "./contract.js";
 import { isLease } from "./horizon.js";
+import { buildReachIndex, reachStateOf, conversationOf } from "./reachstate.js";
 
 const DAY = 86400000;
 const num = (v) => (v == null || v === "" || !isFinite(Number(v)) ? null : Number(v));
@@ -41,6 +42,11 @@ function indexes(ctx) {
   for (const s of ctx.sales || []) { if (!s || !s.leadId) continue; sales.set(s.leadId, (sales.get(s.leadId) || 0) + 1); }
   ctx._ix = { appts, tasks, sales };
   return ctx._ix;
+}
+// Where everyone stands toward a conversation (reachstate.js), once per query.
+function reach(ctx) {
+  if (!ctx._reach) ctx._reach = buildReachIndex({ calls: ctx.calls || [], texts: ctx.texts || [], tasks: ctx.tasks || [], appointments: ctx.appointments || [], now: ctx.now || Date.now() });
+  return ctx._reach;
 }
 
 // Every field a question can turn on. `get` returns null when the file
@@ -96,6 +102,11 @@ export const FIELDS = [
   F("tier", "enum", "tier", "hot | strong | worth — the top of the book by score", (l, c) => { const a = c.assess && c.assess.get(l.id); return a && a.tier ? a.tier.key : null; }, { values: ["hot", "strong", "worth"] }),
   F("reasons", "list", "reasons", "the app's reasons for them, as shown on the card ('Same payment', '$4,200 equity', 'Lease ends in 40d'…); `contains` matches a word", (l, c) => { const a = c.assess && c.assess.get(l.id); return a && a.reasons && a.reasons.length ? a.reasons.slice() : null; }),
   F("reasonKinds", "list", "reason kinds", "payment | equity | ending | rate | warranty | service | cycle | engaged | flagged — the kinds of reason on the card", (l, c) => { const a = c.assess && c.assess.get(l.id); const k = a ? kindsOf(a.reasons) : []; return k.length ? k : null; }),
+  F("lastConversation", "date", "last conversation", "the last real conversation — a call they answered, a text they replied to, a visit; missing when never", (l, c) => { const x = conversationOf(l, reach(c)); return x ? x.at : null; }),
+  F("spokenWith", "bool", "spoken with", "true when a real conversation is on file in the last six months (a message left or an unanswered text is not one)", (l, c) => reachStateOf(l, reach(c)).state === "spoken"),
+  F("conversationOutcome", "text", "conversation outcome", "what the last conversation came to: spoke | appointment | callback | interested | not_now | not_interested | bought_elsewhere | replied", (l, c) => { const x = conversationOf(l, reach(c)); return x && x.outcome ? String(x.outcome) : null; }),
+  F("attempts", "number", "attempts", "attempts in the current round of six (unanswered calls and texts sent in the last three weeks)", (l, c) => reachStateOf(l, reach(c)).attempts),
+  F("reachState", "enum", "reach state", "spoken | due | working | rested | lapsed | untouched | unreachable — where they stand toward a conversation (due = a callback is due now; untouched = never tried)", (l, c) => reachStateOf(l, reach(c)).state, { values: ["spoken", "due", "working", "rested", "lapsed", "untouched", "unreachable"] }),
   F("nextAppointment", "date", "next appointment", "their next appointment on the calendar, when there is one", (l, c) => { const t = indexes(c).appts.get(l.id); return t == null ? null : t; }),
   F("openTasks", "number", "open to-dos", "how many open to-dos name them", (l, c) => indexes(c).tasks.get(l.id) || 0),
   F("sales", "number", "sales", "how many sales logged to them", (l, c) => indexes(c).sales.get(l.id) || 0),
@@ -108,7 +119,7 @@ export const FIELDS = [
 ];
 const BY_KEY = new Map(FIELDS.map((f) => [f.key, f]));
 // Lenient on the spelling: "payment", "current_payment", "lastContact" all land.
-const ALIAS = { payment: "currentPayment", monthly: "currentPayment", apr: "currentApr", rate: "currentApr", value: "currentValue", lease: "leaseEnd", leaseend: "leaseEnd", maturity: "leaseEnd", birthday: "dob", lastcontact: "lastContacted", quiet: "daysSinceContact", dayssincecontact: "daysSinceContact", km: "odometer", mileage: "odometer", vehicleinterest: "vehicle", car: "vehicle", bought: "purchaseDate", purchased: "purchaseDate", owned: "ownedYears", term: "currentTerm", dealtype: "dealType", type: "dealType", appointment: "nextAppointment", tasks: "openTasks", todos: "openTasks", tasksopen: "openTasks" };
+const ALIAS = { spoken: "spokenWith", conversation: "lastConversation", lastconversationat: "lastConversation", reached: "spokenWith", state: "reachState", payment: "currentPayment", monthly: "currentPayment", apr: "currentApr", rate: "currentApr", value: "currentValue", lease: "leaseEnd", leaseend: "leaseEnd", maturity: "leaseEnd", birthday: "dob", lastcontact: "lastContacted", quiet: "daysSinceContact", dayssincecontact: "daysSinceContact", km: "odometer", mileage: "odometer", vehicleinterest: "vehicle", car: "vehicle", bought: "purchaseDate", purchased: "purchaseDate", owned: "ownedYears", term: "currentTerm", dealtype: "dealType", type: "dealType", appointment: "nextAppointment", tasks: "openTasks", todos: "openTasks", tasksopen: "openTasks" };
 export function fieldFor(key) {
   const k = str(key);
   if (BY_KEY.has(k)) return BY_KEY.get(k);

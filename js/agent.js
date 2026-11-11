@@ -41,6 +41,8 @@ import { parseOutreach, audienceFor, describeAudience, unknownNote, audienceGaps
 import { parseList, isListRequest, describeList } from "./listspeech.js";
 import { spokenMatches } from "./listmatch.js";
 import { runQuery, validateQuery, describeQuery, FIELD_HELP, bookProfile, fieldFor } from "./bookquery.js";
+import { coverage, coverageLine } from "./coverage.js";
+import { dueCallbacks } from "./session.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
@@ -93,7 +95,7 @@ function profileLine() {
 }
 // What a query needs beyond the rows: the book's read and the calendar.
 function queryCtx() {
-  return { now: Date.now(), assess: assessAll().byId, appointments: store.all("appointments"), tasks: store.all("tasks"), sales: store.all("sales") };
+  return { now: Date.now(), assess: assessAll().byId, appointments: store.all("appointments"), tasks: store.all("tasks"), sales: store.all("sales"), calls: store.all("calls"), texts: store.all("texts") };
 }
 
 // Everything that can be known about a customer beyond a name and a number —
@@ -121,6 +123,7 @@ const TOOLS = [
     name: { type: "string", description: "save the list under this name" },
     show: { type: "boolean", description: "false to answer in words without opening the screen (default true for a list, false for a measure or a breakdown)" },
   } } },
+  { name: "book_coverage", description: "How much of the book has been SPOKEN WITH — a real conversation (a call they answered, a text they replied to, a visit), not a message left: 'how much of my book have I reached', 'how many conversations this week', 'who's still untouched', 'how many callbacks are due', 'when will I have talked to everyone'. Returns the counts by state (spoken with, being worked, due now, resting, never tried, no way to reach), this week's and last four weeks' conversations, the pace and the date the book is covered at it, and the callbacks due today. Read `answer` back.", input_schema: { type: "object", properties: {} } },
   { name: "get_customer", description: "Full details for one customer by name — contact, vehicle, position, profile, notes, the assessment, and the CONVERSATION so far (their texts, emails and calls, oldest first) with whether they're waiting on a reply.", input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "get_messages", description: "What people have SAID — every text, email and call on file. With `customer`: that person's whole conversation, oldest first ('what did Dana say?', 'read me Ken's email', 'did Sara get back to me?', 'where did I leave things with Moe?'). Without: everything that came in recently from everyone, newest first, each marked answered or waiting ('anything from my customers?', 'what came in today?', 'who's waiting on me?', 'any emails?'). Includes mail in the connected inbox from people not on file.", input_schema: { type: "object", properties: { customer: { type: "string" }, kind: { type: "string", enum: ["text", "email", "call"], description: "only this kind" }, hours: { type: "number", description: "without a customer: how far back (default 48)" } } } },
   { name: "get_appointments", description: "List appointments, optionally for a date (YYYY-MM-DD).", input_schema: { type: "object", properties: { date: { type: "string" } } } },
@@ -199,6 +202,7 @@ function buildStanding() {
     // "I can't make that list" is never true.
     `ANY LIST, ANY QUESTION ABOUT THE BOOK: when the ask is about the customers on file and find_customers can't read it or it goes past what they drive and where they stand — a payment, a rate, a year bought, a birthday, a date added, days since contact, an appointment, a to-do, a note, no email, the app's score or reasons, any combination, 'how many', 'average', 'break it down by' — query_customers. Turn the sentence into conditions on the fields below; the phone runs it over everyone on file, puts a list on Outreach and tells you the count, or gives the number or the breakdown. 'This month' → inMonth of the current month or between the month's first and last day; 'this week' → withinDays 7 or pastDays 7; 'soon' on a date → withinDays 120; 'quiet' or 'haven't reached' → daysSinceContact gt N (never contacted counts as 36500 days); 'owes less than it's worth' → equity gt 0; 'upside down' → equity lt 0; 'paid off' → payoff lte 0 or paymentsLeft lte 0. Read the live BOOK PROFILE first: when a field is on few customers, say how many have it. Never say a list can't be made from the book; never ask them to use a filter themselves.`,
     `THE BOOK'S FIELDS (key (type): meaning): ${FIELD_HELP}.`,
+    `THE ONE GOAL OF OUTREACH is a CONVERSATION with every person on file — a call they answered or a text they replied to — with an outcome on their file. A message left and a text nobody answered are misses, not contacts; the app queues the next of six attempts after each miss and stops the chase the moment they reply. "How much of my book have I reached", "how many conversations this week", "who's still untouched", "callbacks due" → book_coverage. "Everyone I haven't spoken with", "who did I talk to this week", "callbacks due today" → query_customers on spokenWith, lastConversation, reachState (due = callback due now, untouched = never tried), conversationOutcome. A calling session (open_page "leads", then Start calling) puts the callbacks due first, then today's batch.`,
     `TIMING: "when should I go back to Dana?", "when does it make sense for Ken?", "who opens up in the next six months?", "who's coming up?" → when_it_makes_sense; "when do my leases end?", "what's coming off lease this year?" → lease_ends. The answer is a month and the reason — say it plainly: "Dana opens up in March, when her equity clears three thousand."`,
     `More examples: "what's on my plate?" → get_tasks; "mark the plates thing done" → complete_task; "Sara's car is handed over" → complete_delivery; "let Ken know his car's ready" → text_customer (write the message yourself, warm and short); "what's the payment on 42 grand over 72 months?" → payment_quote; "what could I put Dana in?" → deal_options; "any birthdays or leases ending?" → get_occasions; "how am I doing this week?" → get_coach; "what should I do right now?" → get_plays; "0% on Rogues till Monday" → add_special; "text Ken my booking link" → get_booking_link then text_customer with the link in the message.`,
     // "Who are people I can get into a car right now for a lower payment than
@@ -677,6 +681,13 @@ async function runTool(t, p = {}) {
         navigate("/leads");
       }
       return { result: { count: list.length, customers }, note: "" };
+    }
+    case "book_coverage": case "reach_status": case "coverage": {
+      const c = coverage();
+      const due = dueCallbacks();
+      const by = c.coveredBy && c.weeksLeft <= 104 ? ` At ${c.pace} conversations a week the whole book is covered by ${c.coveredBy.toLocaleDateString("en-CA", { month: "long", year: "numeric" })}.` : c.pace ? "" : " No conversations in the last four weeks yet.";
+      const answer = c.total ? `Spoken with ${c.spoken.toLocaleString()} of ${c.reachable.toLocaleString()} reachable customers, ${c.pct} percent. ${c.week} conversation${c.week === 1 ? "" : "s"} this week. ${(c.working + c.due).toLocaleString()} being worked${c.due ? `, ${c.due} callback${c.due === 1 ? "" : "s"} due now` : ""}, ${c.rested.toLocaleString()} resting, ${(c.untouched + c.lapsed).toLocaleString()} not started${c.unreachable ? `, and ${c.unreachable.toLocaleString()} with no number that works` : ""}.${by}` : "Nobody on file yet.";
+      return { result: { ...c, coveredBy: c.coveredBy ? c.coveredBy.toISOString().slice(0, 10) : null, callbacksDue: due.length, callbacks: due.slice(0, 10).map((d) => ({ name: d.lead.name, attempt: d.attempt, due: d.task.due })), line: coverageLine(c), answer, screen: "Coach shows the Reach the book card; a calling session starts with the callbacks due" }, note: coverageLine(c) || "no customers" };
     }
     case "query_customers": case "query_book": case "ask_book": {
       const spec = { where: Array.isArray(p.where) ? p.where : [], any: !!p.any, sort: p.sort && p.sort.field ? p.sort : null, limit: p.limit, measure: p.measure && p.measure.op ? p.measure : null, group: p.group || null };

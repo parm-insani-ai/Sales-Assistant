@@ -28,7 +28,10 @@ import { dayPlan, dayLine, callWindow } from "../funnel.js";
 import { openSlots, askLine } from "../slots.js";
 import { afterAppointmentBooked } from "../connections.js";
 import { morePicks } from "../prospects.js";
-import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, startSession, sessionQueue, extendSession, roster, goTo, goNext, goPrev, nextOpen, attemptCount, ATTEMPTS } from "../session.js";
+import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, CONVERSATION_OUTCOMES, CALLBACK_WHEN, isConversation, startSession, sessionQueue, dueCallbacks, extendSession, roster, goTo, goNext, goPrev, nextOpen, attemptCount, ATTEMPTS } from "../session.js";
+import { coverageLine } from "../coverage.js";
+import { slotOn } from "../schedule.js";
+import { addDaysISO } from "../cadence.js";
 
 const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "?";
 // Booking an appointment re-draws the whole screen from the router (the
@@ -80,12 +83,15 @@ export function renderSession(view) {
     if (!q.length) { el.innerHTML = emptyState("phone", "Nobody to call right now", "Today's batch is worked through, or nobody on it has a number. Outreach brings up the next handful tomorrow."); const b = document.createElement("button"); b.className = "btn btn-ghost"; b.textContent = "Back to Outreach"; b.addEventListener("click", () => navigate("/leads")); el.appendChild(b); return el; }
     el.className = "card cs-start";
     const plan = dayPlan();
+    const due = q.filter((c) => c.callback).length;
+    const cov = (() => { try { return coverageLine(); } catch { return ""; } })();
     el.innerHTML = `
       <div class="cs-start-n">${q.length}</div>
-      <div class="strong">to call now</div>
+      <div class="strong">to call now${due ? ` <span class="muted">· ${due} callback${due === 1 ? "" : "s"} due first</span>` : ""}</div>
       <div class="cs-day small" style="margin-top:6px">${esc(dayLine(plan))}</div>
       <div class="small muted cs-window" style="margin-top:4px">${esc(callWindow().line)}</div>
-      <div class="small muted" style="margin:6px 0 14px">Best first, one at a time: who, why, what to say, two times to offer — and what came of it. The batch keeps feeding until the day's booked.</div>
+      ${cov ? `<div class="small cs-cov" style="margin-top:4px">${esc(cov)}</div>` : ""}
+      <div class="small muted" style="margin:6px 0 14px">The goal is a conversation with everyone: callbacks due first (at the hour that works for them), then today's batch, best first. Who, why, what to say, two times to offer — and what came of it goes on their file.</div>
       <button type="button" class="btn btn-success btn-lg" data-act="start" style="width:100%">${icon("phone")} Start calling</button>`;
     el.querySelector('[data-act="start"]').addEventListener("click", () => { startSession(); draw(); });
     return el;
@@ -104,8 +110,10 @@ export function renderSession(view) {
     const c = contractSummary(l);
     const consent = consentStatus(l);
     const called = s.done.length;
-    const reached = s.done.filter((d) => ["reached", "appointment", "not_interested"].includes(d.outcome)).length;
-    const was = cur.done ? OUTCOMES.find((o) => o.key === cur.done.outcome) : null;
+    const reached = s.done.filter((d) => isConversation(d.outcome)).length;
+    const was = cur.done ? (OUTCOMES.find((o) => o.key === cur.done.outcome) || CONVERSATION_OUTCOMES.find((o) => o.key === cur.done.outcome)) : null;
+    // A callback due: the attempt this is, and why the hour.
+    const cb = (() => { try { return dueCallbacks().find((d) => d.lead.id === l.id) || null; } catch { return null; } })();
     const plan = dayPlan();
     // The ask: two open times from the calendar, in the script and as buttons.
     const slots = openSlots();
@@ -125,7 +133,7 @@ export function renderSession(view) {
           <div>
             <div class="cs-name">${esc(l.name)}</div>
             <div class="cs-sub">${esc(l.vehicleInterest || "No vehicle noted")}${c && c.line ? ` · ${esc(c.line)}` : ""}</div>
-            ${reachLine(l.id) || attemptCount(l.id) ? `<div class="cs-when">${icon("clock")} ${esc([attemptCount(l.id) ? `Attempt ${Math.min(ATTEMPTS, attemptCount(l.id) + (cur.done ? 0 : 1))} of ${ATTEMPTS}` : "", reachLine(l.id)].filter(Boolean).join(" · "))}</div>` : ""}
+            ${reachLine(l.id) || attemptCount(l.id) || cb ? `<div class="cs-when">${icon("clock")} ${esc([cb ? `Callback due · attempt ${Math.min(ATTEMPTS, cb.attempt)} of ${ATTEMPTS}` : attemptCount(l.id) ? `Attempt ${Math.min(ATTEMPTS, attemptCount(l.id) + (cur.done ? 0 : 1))} of ${ATTEMPTS}` : "", reachLine(l.id)].filter(Boolean).join(" · "))}</div>` : ""}
           </div>
           ${a.tier ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : ""}
         </div>
@@ -210,14 +218,83 @@ export function renderSession(view) {
       if (key === "reached") {
         const r = recordOutcome(l.id, key);
         if (!r) { after("Couldn't log that — try again", "danger"); return; }
-        // What was said, by voice; the moves it implies are offered there.
-        slot.appendChild(notePanel(l, r.rec, () => after(r.line)));
+        // A conversation is on their file. What came of it — booked, a
+        // callback, interested, not now, not interested, bought elsewhere
+        // — is one more tap, and each does its own paperwork; then what
+        // was said, by voice, and the moves it implies.
+        slot.appendChild(howPanel(l, r));
         slot.scrollIntoView({ block: "nearest", behavior: "smooth" });
         return;
       }
       const r = recordOutcome(l.id, key);
       after(r ? r.line : "Couldn't log that — try again", r ? (key === "wrong_number" || key === "not_interested" ? "" : "success") : "danger");
     }));
+    // "How did it go?" — the conversation's outcome, then the note.
+    function howPanel(lead, spoke) {
+      const p = document.createElement("div");
+      p.className = "cs-how";
+      p.innerHTML = `
+        <div class="cs-label">How did it go?</div>
+        <div class="cs-how-row">${CONVERSATION_OUTCOMES.map((o) => `<button type="button" class="btn btn-ghost btn-sm cs-how-btn" data-how="${o.key}" title="${esc(o.hint)}">${icon(o.icon)} ${esc(o.label)}</button>`).join("")}</div>
+        <div class="cs-how-when" hidden><div class="cs-label">When?</div><div class="cs-how-row">${CALLBACK_WHEN.map((w) => `<button type="button" class="btn btn-primary btn-sm" data-when="${w.key}">${esc(w.label)}</button>`).join("")}<button type="button" class="btn btn-ghost btn-sm" data-when="pick">A date…</button></div><input type="date" data-f="when" hidden style="margin-top:6px"></div>
+        <div class="cs-how-note"></div>`;
+      ["pointerdown", "click"].forEach((t) => p.addEventListener(t, (ev) => ev.stopPropagation()));
+      const noteSlot = p.querySelector(".cs-how-note");
+      const whenBox = p.querySelector(".cs-how-when");
+      // What was said, by voice, from the first moment — the outcome above
+      // is one more tap while they talk. Cancelling the note moves on.
+      let rec = spoke.rec;
+      const mountNote = (keep = "") => {
+        const n = notePanel(lead, rec, () => after(""));
+        if (keep) { const box = n.querySelector('[data-f="note"]'); if (box) box.value = keep; }
+        noteSlot.replaceChildren(n);
+      };
+      mountNote();
+      const finishWith = (r) => {
+        p.querySelectorAll(".cs-how-btn").forEach((b) => { b.disabled = true; });
+        toast(r.line, "success");
+        // The outcome replaced the call record: the note binds to the new one.
+        rec = r.rec;
+        const typed = noteSlot.querySelector('[data-f="note"]');
+        mountNote(typed ? typed.value : "");
+      };
+      p.querySelectorAll("[data-how]").forEach((b) => b.addEventListener("click", () => {
+        const how = b.dataset.how;
+        p.querySelectorAll(".cs-how-btn").forEach((x) => x.classList.toggle("btn-primary", x === b));
+        if (how === "appointment") {
+          flag(true);
+          openAppointmentForm(null, { leadId: lead.id, customerName: lead.name, vehicle: lead.vehicleInterest || "", type: "appointment" });
+          const wait = setInterval(() => {
+            if (!page.isConnected) { clearInterval(wait); return; }
+            if (!document.querySelector(".modal-backdrop")) { clearInterval(wait); flag(false); const r = recordOutcome(lead.id, "appointment"); after(r ? r.line : ""); }
+          }, 300);
+          return;
+        }
+        if (how === "callback") { whenBox.hidden = false; whenBox.scrollIntoView({ block: "nearest" }); return; }
+        const r = recordOutcome(lead.id, how);
+        if (!r) { toast("Couldn't log that — try again", "danger"); return; }
+        finishWith(r);
+      }));
+      const dateIn = p.querySelector('[data-f="when"]');
+      p.querySelectorAll("[data-when]").forEach((b) => b.addEventListener("click", () => {
+        const k = b.dataset.when;
+        if (k === "pick") { dateIn.hidden = false; dateIn.focus(); return; }
+        const w = CALLBACK_WHEN.find((x) => x.key === k);
+        const at = slotOn(addDaysISO(w.days), new Date().getHours() >= 8 && new Date().getHours() < 20 ? new Date().getHours() : 10, 0);
+        const r = recordOutcome(lead.id, "callback", { when: at });
+        if (!r) { toast("Couldn't log that — try again", "danger"); return; }
+        whenBox.hidden = true;
+        finishWith(r);
+      }));
+      dateIn.addEventListener("change", () => {
+        if (!dateIn.value) return;
+        const r = recordOutcome(lead.id, "callback", { when: slotOn(dateIn.value, 10, 0) });
+        if (!r) { toast("Couldn't log that — try again", "danger"); return; }
+        whenBox.hidden = true;
+        finishWith(r);
+      });
+      return p;
+    }
     return el;
   }
 
@@ -236,8 +313,9 @@ export function renderSession(view) {
       <div class="cs-stats">
         ${stat(sum.dials, "dials")}${stat(sum.reached, "reached")}${stat(sum.appointments, sum.appointments === 1 ? "appointment" : "appointments")}${stat(`${rate}%`, "reach rate")}
       </div>
-      <div class="small muted">${[sum.voicemail ? `${sum.voicemail} message${sum.voicemail === 1 ? "" : "s"} left` : "", sum.noAnswer ? `${sum.noAnswer} no answer` : "", sum.notInterested ? `${sum.notInterested} not interested` : "", sum.wrongNumber ? `${sum.wrongNumber} wrong number${sum.wrongNumber === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || (sum.dials ? "Every call reached someone." : "Nothing recorded yet.")}</div>
-      <div class="small" style="margin-top:10px">${sum.voicemail || sum.noAnswer ? "The follow-ups are on your Log — a text or a call for each one tomorrow." : "Nothing left to follow up from this round."}</div>
+      <div class="small muted">${[sum.callbacks ? `${sum.callbacks} callback${sum.callbacks === 1 ? "" : "s"} set` : "", sum.interested ? `${sum.interested} interested` : "", sum.notNow ? `${sum.notNow} not now` : "", sum.voicemail ? `${sum.voicemail} message${sum.voicemail === 1 ? "" : "s"} left` : "", sum.noAnswer ? `${sum.noAnswer} no answer` : "", sum.notInterested ? `${sum.notInterested} not interested` : "", sum.boughtElsewhere ? `${sum.boughtElsewhere} bought elsewhere` : "", sum.wrongNumber ? `${sum.wrongNumber} wrong number${sum.wrongNumber === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") || (sum.dials ? "Every call reached someone." : "Nothing recorded yet.")}</div>
+      <div class="small" style="margin-top:10px">${sum.voicemail || sum.noAnswer ? "Every miss has its next of six on the queue — the text in a couple of hours asks when's good; the calls land when they tend to pick up." : "Nothing left to chase from this round."}</div>
+      ${(() => { try { const c = coverageLine(); return c ? `<div class="small cs-cov" style="margin-top:6px">${esc(c)}</div>` : ""; } catch { return ""; } })()}
       ${over ? `<div class="btn-row" style="margin-top:14px">
         <button type="button" class="btn btn-primary" data-act="back" style="flex:1">Back to Outreach</button>
       </div>` : `<div class="btn-row" style="margin-top:14px">

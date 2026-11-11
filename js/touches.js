@@ -40,7 +40,8 @@ const INTENTS = {
   check:   "A short check-in.",
   week:    "A one-week check-in.",
   twoweek: "A two-week check-in.",
-  missed:  "You just called them and got voicemail. One or two lines: you tried them, what it was about in a few words (from the brief — the vehicle, the visit), and the easiest way back to you: reply here, or a time to come in. No pressure, no 'sorry I missed you' padding.",
+  missed:  "You just called them and didn't get through. The goal of this text is a CONVERSATION — a reply, or a time you can call. One or two lines: you tried them, what it was about in a few words (from the brief — the vehicle, their situation, never a figure), then ONE question that is easy to answer with a word: when's a good time to call, or is a text easier. No 'sorry I missed you' padding, no pitch.",
+  time:    "You've tried them a few times without getting through. The goal is a CONVERSATION. Offer TWO concrete times for a five-minute call (the WHY gives them, e.g. 'tomorrow at 10:30 or Thursday at 4'), ask which suits or for a better one, and say replying here works too. Warm, brief, no pressure, no pitch, never a figure.",
   confirm: "They said they're coming in (the WHY says when). Confirm it warmly in one or two lines — the day and time in words, what you'll have ready for them (the vehicle they wanted, if it's on file), and that they can just reply if anything changes. If someone else is involved in the decision (the brief says who), say they're welcome too.",
   stock:   "The WHY names what's in stock right now that matches what they wanted. Tell them, plainly and specifically — the model and trim, how many, a detail they cared about — and offer to hold one to look at. No prices, no urgency tricks; the stock is the news.",
   prospect: "This is an opener to a customer who already drives something (a past customer or an imported owner) and hasn't heard from the salesperson in a while. You're reaching out because of the reasons listed under WHY. Lead with something true about THEIR situation — their vehicle, their timing — not with a pitch. Offer to work out what a move would look like properly, in person, in about ten minutes. One easy next step. Never a figure, never a promise, never 'trade values are at record highs' or any market claim.",
@@ -100,7 +101,11 @@ export function templateTouch(lead, task) {
       if (lease) return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Your lease is coming up, and it's worth knowing your options before the clock runs down. Want to grab ten minutes this week and go through them properly?`;
       return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Quick one — ${owned} may put you in a better spot to move than you'd think, and I'd rather show you real numbers than guess by text. Ten minutes in person, whenever suits?`;
     }
-    case "missed":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — just tried you about your ${lead.vehicleInterest || "vehicle"}. No rush at all: reply here, or tell me a good time and I'll call then.`;
+    case "missed":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — just tried you about your ${lead.vehicleInterest || "vehicle"}. When's a good time for a quick call, or is a text easier?`;
+    case "time": {
+      const two = Array.isArray(task.why) && task.why.length >= 2 ? `${task.why[0]} or ${task.why[1]}` : "tomorrow morning or late afternoon";
+      return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. I've tried you a couple of times and don't want to keep missing you — I've got ${two} free for a five-minute call. Which suits, or reply here with a better time?`;
+    }
     default:        return `Hi ${fn}, ${me} here. Just keeping in touch — when you're ready to look at a ${car}, I'm one text away.`;
   }
 }

@@ -24,6 +24,7 @@ import { lateTasks, daysLate } from "./reminders.js";
 import { todayPlan } from "./plan.js";
 import { matchedWatches, closeWatch, describeWant } from "./watch.js";
 import { stale, noteOverdue, ASK_AFTER } from "./ledger.js";
+import { dueCallbacks, ATTEMPTS } from "./session.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -463,6 +464,25 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         at: new Date(t).toISOString(),
       });
     });
+
+  // --- Callbacks due: people tried before, whose next of six is today — at
+  // the hour that works for them. One line for all of them; a tap starts
+  // the session, which puts them first. Gone once they're answered.
+  try {
+    const due = dueCallbacks(new Date(now));
+    if (due.length) {
+      const known = due.filter((d) => d.task && /tend to pick up/.test(d.task.title || "")).length;
+      out.push({
+        key: `callbacks:${new Date(now).toISOString().slice(0, 10)}`,
+        urgency: 78,
+        kind: "callbacks",
+        title: `${due.length} callback${due.length === 1 ? "" : "s"} due today`,
+        sub: `${due.slice(0, 3).map((d) => `${firstName(d.lead.name)} (attempt ${Math.min(ATTEMPTS, d.attempt)} of ${ATTEMPTS})`).join(", ")}${due.length > 3 ? ` and ${due.length - 3} more` : ""}${known ? ` · ${known} at the hour they tend to pick up` : ""}. Start calling puts them first.`,
+        route: "/session",
+        at: new Date(now).toISOString(),
+      });
+    }
+  } catch { /* the list stands without it */ }
 
   // Most urgent first — with the pinned ones (a new customer's welcome
   // text) ahead of the cut, so a short list never loses them to older,
