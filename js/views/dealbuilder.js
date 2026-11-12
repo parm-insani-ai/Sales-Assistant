@@ -1226,7 +1226,7 @@ export function openDealDetail(lead, m) {
         <div class="small muted" style="margin-top:6px">
           <span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}">${m.method === "lease" ? "Lease" : "Finance"}</span>
           ${m.special ? ` <span class="badge badge-sold">🏷 ${esc(m.special)}</span>` : ""}
-          ${v.lineup ? ` <span class="badge">new — order/allocate</span>` : v.stock ? ` <span class="badge">#${esc(v.stock)}</span>` : ""}
+          ${v.lineup ? ` <span class="badge">new — order/allocate</span>` : v.stock ? ` <span class="badge">#${esc(v.stock)}</span>` : ""}${v.lot === "network" ? ` <span class="badge">at ${esc(v.dealer || "another store")}</span>` : ""}
         </div>
       </div>
 
@@ -1439,7 +1439,7 @@ function dealRow(lead, m) {
     <div class="row">
       <div class="row-main">
         <div class="row-title">${esc(vehName(v))}</div>
-        <div class="row-sub"><span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}" style="margin-right:6px">${m.method === "lease" ? "Lease" : "Finance"}</span>${v.price != null ? currency(v.price) : ""}${v.stock ? " · #" + esc(v.stock) : ""}${v.lineup ? " · new — order/allocate" : ""}${m.advertised && m.leaseDown ? ` · ${currency(m.leaseDown)} down` : ""}
+        <div class="row-sub"><span class="badge ${m.method === "lease" ? "badge-appt" : "badge-working"}" style="margin-right:6px">${m.method === "lease" ? "Lease" : "Finance"}</span>${v.price != null ? currency(v.price) : ""}${v.stock ? " · #" + esc(v.stock) : ""}${v.lineup ? " · new — order/allocate" : ""}${v.lot === "network" ? ` · at ${esc(v.dealer || "another store in the group")}` : ""}${m.advertised && m.leaseDown ? ` · ${currency(m.leaseDown)} down` : ""}
         ${m.special ? `<div style="margin-top:3px"><span class="badge badge-sold">🏷 ${esc(m.special)}</span></div>` : ""}</div>
       </div>
       <div class="row-meta">

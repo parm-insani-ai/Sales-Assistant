@@ -93,6 +93,14 @@ goes through a database function that checks the manager relationship:
 - **Monthly targets** — units and appointments set — per rep, from the Team
   tab. The rep's app adopts them as its goals for the month.
 
+- **The network's used lot** — with the rep's switch on (Settings → Advanced
+  → Inventory sites), the `viniva-network` job at 7:25 Halifax (`cron.sql`,
+  `{"inventory": {"network": 1}}`) reads the group site's used inventory
+  (the network URL plus its used-only filter) and writes every unit tagged
+  `lot: "network"` with the store it sits at in `dealer`. The store's own
+  units keep `lot: "store"`; a unit on both sites stays the store's; going
+  missing is judged inside one lot only. A long list of vehicle pages is
+  read new-first, so a big group is covered across a few mornings.
 - **The store's lot** — the website import fills a shared inventory for the
   store as well as the importer's own book (re-run `schema.sql` and paste
   the function to get this). Every member's app pulls it, so a rep who

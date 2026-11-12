@@ -720,6 +720,7 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cut-chip.cut-vehicle.btn-ghost { border: 1px solid var(--border); background: var(--surface); }
 .cut-chip.cut-list.btn-ghost { background: var(--brand-tint); color: var(--brand-strong); }
 .cut-chip.cut-more, .cut-chip.cut-query { max-width: 200px; }
+.veh-at { margin-top: 3px; color: var(--brand-strong); display: inline-flex; align-items: center; gap: 4px; }
 .cut-chip.cut-more span, .cut-chip.cut-query span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Two small tools: the order, at the end of the chips; the sheet, at the
    head of the Cut row — fixed, the row scrolls beside it. */

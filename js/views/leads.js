@@ -2021,7 +2021,7 @@ function renderLeadDetail(view, id) {
         <div class="row-main" style="min-width:0">
           ${i === 0 ? `<div class="bd-label">${picked ? "Your pick" : "Best deal"}</div>` : ""}
           <div class="row-title">${esc(vname(m.vehicle))}${picked ? ` <span class="badge badge-working" style="margin-left:4px">picked</span>` : i === 0 ? ` <span class="badge badge-sold" style="margin-left:4px">best fit</span>` : ""}</div>
-          <div class="row-sub">${m.vehicle.price != null ? currency(m.vehicle.price) : ""}${m.vehicle.lineup ? " · new — order/allocate" : m.vehicle.stock ? " · #" + esc(m.vehicle.stock) : ""} · ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷 " + esc(m.special) : ""}</div>
+          <div class="row-sub">${m.vehicle.price != null ? currency(m.vehicle.price) : ""}${m.vehicle.lineup ? " · new — order/allocate" : m.vehicle.stock ? " · #" + esc(m.vehicle.stock) : ""} · ${m.method === "lease" ? "lease" : "finance"}${m.special ? " · 🏷 " + esc(m.special) : ""}${m.vehicle.lot === "network" ? ` · at ${esc(m.vehicle.dealer || "another store in the group")}` : ""}</div>
         </div>
         <div class="row-meta" style="flex:none;text-align:right">
           <div class="strong mono bd-pay">${currency(Math.round(m.monthly))}<span class="muted" style="font-size:0.75rem">/mo</span></div>

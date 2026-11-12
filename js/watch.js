@@ -112,7 +112,7 @@ export function checkWatches({ vehicles = null, now = new Date() } = {}) {
   for (const w of openWatches()) {
     const v = lot.find((x) => vehicleFits(w.want, x));
     if (!v) continue;
-    const matched = { id: v.id, label: vehicleLabel(v), price: v.price ?? null, stock: v.stock || "", color: v.color || "", km: v.mileage ?? null };
+    const matched = { id: v.id, label: vehicleLabel(v) + (v.lot === "network" ? ` at ${v.dealer || "another store in the group"}` : ""), price: v.price ?? null, stock: v.stock || "", color: v.color || "", km: v.mileage ?? null, dealer: v.lot === "network" ? v.dealer || "" : "" };
     store.update("watches", w.id, { matchedAt: now.toISOString(), matchedVehicleId: v.id, matched });
     hits.push({ watch: { ...w, matchedAt: now.toISOString(), matchedVehicleId: v.id, matched }, vehicle: v, lead: store.get("leads", w.leadId) || null });
   }

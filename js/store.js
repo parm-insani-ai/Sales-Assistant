@@ -268,6 +268,12 @@ const DEFAULT_STATE = {
     networkSiteName: "O'Regan's network",
     networkSiteUrl: "https://www.oregans.com/inventory/?do-search=1",
     networkUsedSuffix: "&search.vehicle-inventory-type-ids.0=2",
+    // The group's used inventory, read every morning after the store's lot
+    // (the function tags every unit with the store it sits at). Off until
+    // the salesperson turns it on; the group's name prefix finds the store
+    // names on the page ("O'Regan's Toyota Dartmouth").
+    networkInventory: false,
+    networkGroupName: "O'Regan's",
   },
 };
 

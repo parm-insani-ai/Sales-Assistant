@@ -84,3 +84,19 @@ select cron.schedule(
 -- To check they exist:   select jobname, schedule from cron.job;
 -- To see recent runs:    select * from cron.job_run_details order by start_time desc limit 10;
 -- To remove one:         select cron.unschedule('viniva-sweep');
+
+-- 7:25 Halifax, after the store's lot: the network's used inventory, for
+-- everyone who turned it on (Settings → Advanced → Inventory sites). Every
+-- unit is tagged with the store it sits at; a big group is read new-first
+-- and covered across the days.
+select cron.schedule(
+  'viniva-network',
+  '25 10 * * *',
+  $$
+  select net.http_post(
+    url     := 'https://bgzkafhlwaldbdfehfsa.supabase.co/functions/v1/quick-api',
+    headers := '{"Content-Type": "application/json"}'::jsonb,
+    body    := '{"inventory": {"network": 1}}'::jsonb
+  );
+  $$
+);

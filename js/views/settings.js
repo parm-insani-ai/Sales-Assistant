@@ -174,6 +174,16 @@ export function renderSettings(view) {
       <div class="field"><label>Network</label><input id="d-net-name" value="${esc(s.networkSiteName || "")}" placeholder="Dealer network"></div>
       <div class="field"><label>Network inventory URL</label><input id="d-net-url" type="url" value="${esc(s.networkSiteUrl || "")}" placeholder="https://…/inventory/"></div>
       <div class="field"><label>Network "used only" filter</label><input id="d-net-suffix" value="${esc(s.networkUsedSuffix || "")}" placeholder="&search.vehicle-inventory-type-ids.0=2"></div>
+      <label class="switch" style="margin:4px 0 8px"><input id="d-net-on" type="checkbox" ${s.networkInventory ? "checked" : ""}><span><b>Read the network's used inventory every morning too</b></span></label>
+      <div class="small muted" style="margin:0 0 8px">Every used unit across the group, tagged with the store it sits at, in the app like your own lot: the Inventory screen's Network used chip, lot questions ("any used Rogues?" says what's here and what's at other stores), Deal Radar matches, and the watches for customers waiting on a vehicle. Read at 7:25 after your lot; a big group is covered across a few mornings.</div>
+      <div class="field"><label>Group name on the page (finds the store names)</label><input id="d-net-group" value="${esc(s.networkGroupName || "")}" placeholder="O'Regan's"></div>
+      <button type="button" class="btn btn-ghost btn-block" id="net-import" ${s.networkInventory ? "" : "disabled"}>${icon("car")} Import network used now</button>
+      <div class="small muted" id="net-status" style="margin:8px 0 12px">${(() => {
+        const r = s.lastNetworkImport;
+        if (!s.networkInventory) return "Off — turn it on and the network's used units come in every morning.";
+        if (!r || !r.at) return "On — read every morning at 7:25. Not imported yet.";
+        return `Last network import ${esc(timeAgo(r.at))}: ${r.found} on the site · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.stores || 0} store${r.stores === 1 ? "" : "s"}`;
+      })()}</div>
       <button type="button" class="btn btn-ghost btn-block" id="inv-import">${icon("car")} Import the lot now</button>
       <div class="small muted" id="inv-status" style="margin-top:8px">${(() => {
         const r = s.lastInventoryImport;
@@ -288,10 +298,42 @@ export function renderSettings(view) {
     catch { toast("Couldn't copy — take a screenshot of Settings instead", "danger"); }
   });
 
-  const dealerBind = { "d-store-name": "storeSiteName", "d-store-url": "storeSiteUrl", "d-net-name": "networkSiteName", "d-net-url": "networkSiteUrl", "d-net-suffix": "networkUsedSuffix" };
+  const dealerBind = { "d-store-name": "storeSiteName", "d-store-url": "storeSiteUrl", "d-net-name": "networkSiteName", "d-net-url": "networkSiteUrl", "d-net-suffix": "networkUsedSuffix", "d-net-group": "networkGroupName" };
   Object.entries(dealerBind).forEach(([id, key]) =>
     el.querySelector("#" + id).addEventListener("change", (e) =>
       store.updateSettings({ [key]: e.target.value.trim() })));
+  // The network's used inventory: the switch the morning job reads, and the
+  // same read on demand.
+  el.querySelector("#d-net-on").addEventListener("change", (e) => {
+    store.updateSettings({ networkInventory: e.target.checked });
+    el.querySelector("#net-import").disabled = !e.target.checked;
+    el.querySelector("#net-status").textContent = e.target.checked ? "On — read every morning at 7:25. Tap Import network used now for the first read." : "Off — turn it on and the network's used units come in every morning.";
+    toast(e.target.checked ? "On — the network's used inventory comes in every morning" : "Off", e.target.checked ? "success" : "");
+  });
+  el.querySelector("#net-import").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget, line = el.querySelector("#net-status");
+    const user = backend.currentUser();
+    const url = (store.getSettings().agentUrl || "").trim().replace(/\/+$/, "");
+    if (!user) { toast("Sign in to Cloud sync first", "danger"); return; }
+    if (!url) { toast("Set up the agent function first (Settings → Voice agent)", "danger"); return; }
+    btn.disabled = true; line.textContent = "Reading the network's used inventory… a big group takes a minute or two.";
+    try {
+      const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ inventory: { u: user.id, network: 1, probe: 1 } }) });
+      const r = await res.json().catch(() => ({}));
+      lastReport = r;
+      if (!res.ok || r.error) { line.textContent = r.error || `The function answered ${res.status}`; el.querySelector("#inv-copy").hidden = false; toast("Network import failed", "danger"); return; }
+      store.updateSettings({ lastNetworkImport: { at: r.at || new Date().toISOString(), found: r.found || 0, added: r.added || 0, updated: r.updated || 0, removed: r.removed || 0, onFile: r.onFile || 0, stores: r.stores || 0, complete: r.complete !== false } });
+      line.textContent = r.found
+        ? `${r.found} used across the network · ${r.stores || 0} store${r.stores === 1 ? "" : "s"} · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold${r.complete === false ? " · more tomorrow" : ""}`
+        : "The network site was read but no vehicles were found — copy the report and send it over.";
+      el.querySelector("#inv-copy").hidden = false;
+      toast(r.found ? `${r.found} network units read — syncing them down` : "Nothing found", r.found ? "success" : "danger");
+      sync.syncNow({ reconcile: true });
+    } catch (e) {
+      line.textContent = `Couldn't reach the function: ${(e && e.message) || e}`;
+      toast("Network import failed", "danger");
+    } finally { btn.disabled = !store.getSettings().networkInventory; }
+  });
 
   el.querySelector('[data-act="save-defaults"]').addEventListener("click", () => {
     store.updateSettings({

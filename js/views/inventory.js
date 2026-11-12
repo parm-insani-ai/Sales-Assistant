@@ -36,23 +36,28 @@ export function renderInventory(view, { param }) {
   const wrap = document.createElement("div");
   view.appendChild(wrap);
 
+  // The network's used units (the group's other stores) sit under their own
+  // chip; the lot's chips are our own metal. All is everything.
+  const hay = (v) => [v.year, v.make, v.model, v.trim, v.color, v.stock, v.vin, v.dealer].join(" ").toLowerCase();
   function list() {
     const q = search.toLowerCase();
     let out = vehicles;
-    if (pick) { const ids = new Set(pick.ids); out = out.filter((v) => ids.has(v.id)); return q ? out.filter((v) => [v.year, v.make, v.model, v.trim, v.color, v.stock, v.vin].join(" ").toLowerCase().includes(q)) : out; }
-    if (filter === "new" || filter === "used") out = out.filter((v) => (v.status || "available") === "available" && isNew(v) === (filter === "new"));
-    else if (filter !== "all") out = out.filter((v) => (v.status || "available") === filter);
-    if (q) out = out.filter((v) =>
-      [v.year, v.make, v.model, v.trim, v.color, v.stock, v.vin].join(" ").toLowerCase().includes(q));
+    if (pick) { const ids = new Set(pick.ids); out = out.filter((v) => ids.has(v.id)); return q ? out.filter((v) => hay(v).includes(q)) : out; }
+    if (filter === "network") out = out.filter((v) => isNetwork(v) && (v.status || "available") === "available");
+    else if (filter === "new" || filter === "used") out = out.filter((v) => !isNetwork(v) && (v.status || "available") === "available" && isNew(v) === (filter === "new"));
+    else if (filter !== "all") out = out.filter((v) => !isNetwork(v) && (v.status || "available") === filter);
+    if (q) out = out.filter((v) => hay(v).includes(q));
     return out;
   }
 
   function draw() {
     const waiting = wanted();
+    const network = vehicles.filter((v) => isNetwork(v) && (v.status || "available") === "available").length;
     const chips = [
       { id: "available", label: "Available" },
       { id: "new", label: "New" },
       { id: "used", label: "Used" },
+      ...(network ? [{ id: "network", label: `Network used · ${network.toLocaleString()}` }] : []),
       { id: "hold", label: "On Hold" },
       { id: "sold", label: "Sold" },
       { id: "all", label: "All" },
@@ -126,6 +131,9 @@ export function renderInventory(view, { param }) {
 }
 
 function isNew(v) { return /^new$/i.test(v.condition || ""); }
+// A unit at another store in the group, read from the network site.
+function isNetwork(v) { return v && v.lot === "network"; }
+const atStore = (v) => (isNetwork(v) ? v.dealer || "another store in the group" : "");
 // An incoming unit: the lot date is still ahead of today.
 function arrives(v) {
   const d = String(v.inventoryDate || "").slice(0, 10);
@@ -154,6 +162,7 @@ function vehicleCard(v) {
         <div class="row-title">${esc(vehicleName(v))}</div>
         <div class="row-sub">
           ${[v.stock ? "Stock #" + esc(v.stock) : "", isNew(v) ? "New" : v.certified ? "Certified" : "", v.mileage != null ? num(v.mileage) + " km" : "", v.color ? esc(v.color) : "", arrives(v)].filter(Boolean).join(" · ")}
+          ${isNetwork(v) ? `<div class="small veh-at">${icon("store")} ${esc(atStore(v))}</div>` : ""}
         </div>
       </div>
       <div class="row-meta">
@@ -225,6 +234,7 @@ function renderVehicleDetail(view, id) {
 
     <div class="section-title">Specs</div>
     <div class="card">
+      ${isNetwork(v) ? `<div class="kv"><span class="k">At</span><span class="v">${esc(atStore(v))}${v.site ? ` <span class="muted">· ${esc(v.site)}</span>` : ""}</span></div>` : ""}
       <div class="kv"><span class="k">Stock #</span><span class="v">${esc(v.stock || "—")}</span></div>
       <div class="kv"><span class="k">VIN</span><span class="v">${esc(v.vin || "—")}</span></div>
       <div class="kv"><span class="k">Condition</span><span class="v">${esc([v.condition || "Used", v.certified ? "Certified" : "", v.demo ? "Demo" : ""].filter(Boolean).join(" · "))}</span></div>

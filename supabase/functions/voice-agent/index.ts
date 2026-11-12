@@ -505,6 +505,47 @@ function invSplitName(name) {
   return { year: Number(m[1]), make: m[2], model: rest[0], trim: rest.slice(1).join(" ") };
 }
 function invNorm(k) { return String(k || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+// Which store a unit sits at, on a group site that lists every store's
+// used inventory. Three readings: the structured data's seller, a field in
+// the site's own script, or the store's name in the card's text — matched
+// by the group's prefix ("O'Regan's Toyota Dartmouth"), with the words that
+// follow a name on a page cut off. Last resort, the vehicle page's own host.
+const INV_DEALER_STOP = /^(inventory|used|new|pre-?owned|certified|vehicles?|cars?|specials?|service|parts|finance|contact|home|auto|automotive|group|dealership|website|view|details?|stock|price|from|for|at|in|on|is|has|offers?|sale)$/i;
+function invDealerRe(prefix) {
+  const p = String(prefix || "").trim(); if (!p) return null;
+  const esc = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/['’]/g, "['’]?");
+  return new RegExp(esc + "\\s+((?:[A-Z][A-Za-z'’.&-]+)(?:\\s+[A-Z][A-Za-z'’.&-]+){0,3})", "g");
+}
+function invDealerIn(text, re, prefix) {
+  if (!re || !text) return "";
+  re.lastIndex = 0; let m;
+  while ((m = re.exec(String(text)))) {
+    const words = []; for (const w of m[1].split(/\s+/)) { if (INV_DEALER_STOP.test(w)) break; words.push(w); }
+    if (!words.length) continue;
+    const name = `${prefix} ${words.join(" ")}`;
+    // The group's own name in a header is not a store.
+    if (/\b(auto|automotive)\s+group$/i.test(name) || /\bgroup$/i.test(name)) continue;
+    return name;
+  }
+  return "";
+}
+function invDealerFromHost(host, prefix) {
+  let h = String(host || "").toLowerCase().replace(/^www\./, "").replace(/\.(com|ca|net|org)$/, "");
+  if (!h) return "";
+  const key = String(prefix || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (key && h.startsWith(key)) h = h.slice(key.length);
+  const BRANDS = ["nissan", "toyota", "honda", "hyundai", "kia", "mazda", "subaru", "chevrolet", "chev", "gmc", "buick", "cadillac", "bmw", "mini", "mercedes", "infiniti", "lexus", "volkswagen", "vw", "audi", "ford", "lincoln", "dodge", "jeep", "ram", "chrysler", "mitsubishi", "volvo", "genesis", "acura", "porsche", "jaguar", "landrover", "used", "auto", "cars", "motors"];
+  const parts = [];
+  let rest = h.replace(/[^a-z]/g, "");
+  for (const b of BRANDS) { if (rest.startsWith(b)) { parts.push(b === "vw" ? "Volkswagen" : b === "chev" ? "Chevrolet" : b === "landrover" ? "Land Rover" : b === "bmw" || b === "gmc" ? b.toUpperCase() : b[0].toUpperCase() + b.slice(1)); rest = rest.slice(b.length); break; } }
+  if (rest) parts.push(rest[0].toUpperCase() + rest.slice(1));
+  return parts.length ? `${prefix ? prefix + " " : ""}${parts.join(" ")}` : "";
+}
+function invSellerName(x) {
+  const pick = (o) => (o && typeof o === "object" ? (o.name || (o.address && o.address.name) || "") : typeof o === "string" ? o : "");
+  const offers = Array.isArray(x.offers) ? x.offers[0] || {} : x.offers || {};
+  return String(pick(offers.seller) || pick(offers.offeredBy) || pick(offers.availableAtOrFrom) || pick(x.seller) || pick(x.offeredBy) || pick(x.dealer) || "").trim();
+}
 // "Stock #: A1900", "Stock No. A1900", "Stock: A1900" — never "stock photos".
 function invStock(text) {
   const m = /stock\s*(?:#|no\.?|number|id)\s*:?\s*([A-Z0-9-]{3,})/i.exec(text) || /stock\s*:\s*([A-Z0-9-]{3,})/i.exec(text) || /stock\s+([A-Z]*\d[A-Z0-9-]{2,})/i.exec(text);
@@ -548,7 +589,7 @@ function invFromJsonLd(html, out) {
         mileage: invNum(x.mileageFromOdometer && typeof x.mileageFromOdometer === "object" ? x.mileageFromOdometer.value : x.mileageFromOdometer),
         color: String(x.color || ""), bodyStyle: String(x.bodyType || ""),
         condition: invCondition(String(x.itemCondition || offers.itemCondition || "") + " " + name),
-        url: String(x.url || offers.url || ""), photo: String(image || ""), via: "jsonld",
+        url: String(x.url || offers.url || ""), photo: String(image || ""), dealer: invSellerName(x), via: "jsonld",
       };
       if (rec.vin || (rec.make && rec.model)) out.push(rec);
     });
@@ -593,13 +634,15 @@ function invFromScripts(html, out) {
         bodyStyle: String(g(["bodyStyle", "body_style", "bodyType", "body"]) || ""),
         condition: typeof isNew === "boolean" ? (isNew ? "New" : "Used") : invCondition(String(g(["condition", "type", "vehicleType", "inventoryType", "new_used", "stockType", "vehicle_type"]) || "") + " " + name),
         url: String(g(["url", "link", "href", "vdpUrl", "detailUrl", "permalink", "vdp"]) || ""),
-        photo: String(g(["image", "photo", "imageUrl", "thumbnail", "mainImage", "primaryPhoto"]) || ""), via: "script",
+        photo: String(g(["image", "photo", "imageUrl", "thumbnail", "mainImage", "primaryPhoto"]) || ""),
+        dealer: String(g(["dealerName", "dealershipName", "dealership", "dealer", "sellerName", "storeName", "locationName", "dealerTitle"]) || ""), via: "script",
       };
       if (invLooksVin(rec.vin)) out.push(rec);
     }
   }
 }
-function invFromHtml(html, out) {
+function invFromHtml(html, out, opts) {
+  const dealerRe = opts && opts.dealerRe, dealerPrefix = opts && opts.dealerPrefix;
   const body = String(html).replace(/<script[\s\S]*?<\/script>/gi, " ");
   // Every VIN's position first, so each card's window runs from halfway to
   // the previous VIN to halfway to the next — one card, not its neighbours.
@@ -624,7 +667,7 @@ function invFromHtml(html, out) {
     if (title) for (const w of title[4].trim().split(/\s+/)) { if (!w || STOPS.test(w)) break; trimWords.push(w); }
     out.push({ vin, stock, year: title ? Number(title[1]) : null, make: title ? title[2] : "", model: title ? title[3] : "", trim: trimWords.join(" "),
       price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: invCondition(text.slice(0, 800)),
-      url: href ? href[1] : "", photo: img ? img[1] : "", via: "html" });
+      url: href ? href[1] : "", photo: img ? img[1] : "", dealer: dealerRe ? invDealerIn(text, dealerRe, dealerPrefix) : "", via: "html" });
   });
 }
 // The page's address, when the site writes the vehicle into it:
@@ -656,7 +699,7 @@ function invFromSlug(url) {
 }
 // One vehicle's own page: the title says what it is, the metas and the text
 // say the rest. Used when a page is known to be about a single vehicle.
-function invFromPageMeta(html, pageUrl, out) {
+function invFromPageMeta(html, pageUrl, out, opts) {
   const h = String(html || "");
   const meta = (name) => { const m = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]+content=["']([^"']*)["']`, "i").exec(h) || new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${name}["']`, "i").exec(h); return m ? invDecode(m[1]) : ""; };
   const title = invDecode((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(h) || [])[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
@@ -673,7 +716,8 @@ function invFromPageMeta(html, pageUrl, out) {
   const stock = invStock(text);
   const cond = invCondition(String(pageUrl || "") + " " + title + " " + text.slice(0, 600));
   const rec = { vin, stock, year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
-    price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "", via: "page" };
+    price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "",
+    dealer: opts && opts.dealerRe ? invDealerIn(text.slice(0, 4000), opts.dealerRe, opts.dealerPrefix) : "", via: "page" };
   // The address fills whatever the page didn't: /inventory/Used-2024-Mazda-CX-5-GS-L-P12345/
   const slug = invFromSlug(pageUrl);
   if (slug) { ["year", "make", "model", "trim", "stock", "condition"].forEach((k) => { if (rec[k] == null || rec[k] === "") rec[k] = slug[k]; }); if (slug.condition) rec.condition = slug.condition; }
@@ -681,8 +725,8 @@ function invFromPageMeta(html, pageUrl, out) {
 }
 function parseInventoryHtml(html, opts) {
   const single = !!(opts && opts.single);
-  const found = []; invFromJsonLd(html, found); invFromScripts(html, found); invFromHtml(html, found);
-  if (single) invFromPageMeta(html, opts.url, found);
+  const found = []; invFromJsonLd(html, found); invFromScripts(html, found); invFromHtml(html, found, opts);
+  if (single) invFromPageMeta(html, opts.url, found, opts);
   const byKey = new Map(); const order = [];
   // On a single vehicle's page everything found is that one vehicle, VIN or not.
   found.forEach((r) => {
@@ -860,9 +904,19 @@ async function fetchMany<T>(items: T[], limit: number, fn: (x: T) => Promise<voi
   await Promise.all(workers);
 }
 
-async function crawlInventory(url: string, probe: boolean, deep = false) {
+// `opts.scope`: "store" (the rep's own lot) or "network" (the group site's
+// used inventory — every unit tagged with the store it sits at, and Used).
+// `opts.known`: vehicle-page URLs already on file, read after the new ones
+// so a big network's pages are covered across the days rather than the
+// same four hundred each morning.
+async function crawlInventory(url: string, probe: boolean, deep = false, opts: { scope?: string; dealerPrefix?: string; known?: Set<string> } = {}) {
   const started = Date.now();
   const BUDGET_MS = 100000; // leave headroom under the function's wall clock
+  const scope = opts.scope === "network" ? "network" : "store";
+  const dealerPrefix = String(opts.dealerPrefix || "").trim();
+  const dealerRe = scope === "network" ? invDealerRe(dealerPrefix) : null;
+  const parseOpts: any = { dealerRe, dealerPrefix };
+  const known = opts.known || new Set<string>();
   const first = await fetchSitePage(url);
   const origin = new URL(url).origin;
   const report: any = {
@@ -877,9 +931,17 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
     if (v.photo && !/^https?:/i.test(v.photo)) { try { v.photo = new URL(v.photo, url).toString(); } catch (_) { /* leave it */ } }
     const k = invKey(v); if (!k) return;
     if (all.has(k)) { report.dupes = report.dupes || { count: 0, pages: [] }; report.dupes.count++; if (report.dupes.pages.length < 12) report.dupes.pages.push({ key: k.slice(0, 24), page: String(v.url || from || "").split("/").filter(Boolean).pop() }); return; }
+    v.lot = scope;
+    if (scope === "network") {
+      // The group page is filtered to used; a unit at another store is never ours to sell new.
+      v.condition = "Used";
+      // The vehicle's own page lives on its store's site when the group site
+      // links out; that host names the store when nothing on the card did.
+      try { const host = new URL(String(v.url || ""), url).hostname; if (host && host !== new URL(url).hostname) { v.site = host; if (!v.dealer) v.dealer = invDealerFromHost(host, dealerPrefix); } } catch (_) { /* no url */ }
+    }
     all.set(k, v);
   });
-  add(parseInventoryHtml(first));
+  add(parseInventoryHtml(first, parseOpts));
 
   if (all.size) {
     // The search page carries the vehicles: page on until a page adds nothing.
@@ -889,7 +951,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
       if (Date.now() - started > BUDGET_MS) { report.warnings.push("stopped at the time budget"); report.complete = false; break; }
       let html: string;
       try { html = await fetchSitePage(withPage(url, param, n)); } catch (e) { report.warnings.push(`page ${n}: ${(e as Error).message}`); break; }
-      const before = all.size; add(parseInventoryHtml(html)); report.pages = n;
+      const before = all.size; add(parseInventoryHtml(html, parseOpts)); report.pages = n;
       if (all.size === before) { report.pages = n - 1; break; }
     }
   } else {
@@ -922,7 +984,10 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
     }
     report.sitemapsRead = tried;
     report.vehiclePagesFound = vdps.size;
-    const list = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u)).slice(0, 400);
+    const list = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u))
+      .sort((a, b) => (known.has(a) ? 1 : 0) - (known.has(b) ? 1 : 0))
+      .slice(0, 400);
+    report.vehiclePagesKnown = [...vdps].filter((u) => known.has(u)).length;
     let fetched = 0, parsed = 0, failed = 0;
     let firstPage: { url: string; html: string; vin: string; stock: string } | null = null;
     await fetchMany(list, 6, async (u) => {
@@ -930,7 +995,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
       let html: string;
       try { html = await fetchSitePage(u); } catch (_) { failed++; return; }
       fetched++;
-      const got = parseInventoryHtml(html, { single: true, url: u });
+      const got = parseInventoryHtml(html, { single: true, url: u, ...parseOpts });
       if (got.length) { parsed++; add(got.slice(0, 1), u); if (!firstPage && got[0].vin) firstPage = { url: u, html, vin: got[0].vin, stock: got[0].stock }; }
     });
     report.vehiclePagesRead = fetched; report.vehiclePagesWithAVehicle = parsed; report.vehiclePagesFailed = failed;
@@ -1145,22 +1210,28 @@ async function crawlInventory(url: string, probe: boolean, deep = false) {
 // Bring the user's vehicles collection in line with the lot. Unchanged units
 // are left alone so the phone's sync isn't churned; units no longer on the
 // site are marked sold rather than deleted, so deals that named them survive.
-async function writeInventory(uid: string, vehicles: any[], complete = true) {
+// `scope` keeps the two lots apart: the store's own units and the network's
+// used. A unit seen on both (the store's own used car is on the group site
+// too) stays the store's. Going missing is judged inside one scope only.
+async function writeInventory(uid: string, vehicles: any[], complete = true, scope = "store") {
   if (!vehicles.length) return { added: 0, updated: 0, removed: 0, skipped: 0, unchanged: 0, onFile: null, note: "nothing read — the lot on file was left as it was" };
   const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data`;
   const r = await fetch(sbUrl(q), { headers: sbHeaders() });
   const existing: any[] = r.ok ? await r.json() : [];
   const byId = new Map<string, any>(existing.map((x) => [x.id, x.data || {}]));
+  const lotOf = (w: any) => (w && w.lot === "network" ? "network" : "store");
   const now = new Date().toISOString();
   const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0;
   const seen = new Set<string>();
-  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate"];
+  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
   for (const v of vehicles) {
     const key = invKey(v); if (!key) { skipped++; continue; }
     const id = "web_" + key;
     if (seen.has(id)) continue;
     seen.add(id);
     const was = byId.get(id) || null;
+    // The store's own unit, met again on the group site: left as the store's.
+    if (scope === "network" && was && lotOf(was) === "store") continue;
     const keep = (k: string, val: any) => (val != null && val !== "" ? val : was ? was[k] : (typeof val === "number" ? null : ""));
     const data: any = {
       ...(was || {}), id,
@@ -1172,6 +1243,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
       interiorColor: keep("interiorColor", v.interiorColor), transmission: keep("transmission", v.transmission), drivetrain: keep("drivetrain", v.drivetrain),
       fuel: keep("fuel", v.fuel), engine: keep("engine", v.engine), description: keep("description", v.description), inventoryDate: keep("inventoryDate", v.inventoryDate),
       certified: v.certified != null ? !!v.certified : !!(was && was.certified), demo: v.demo != null ? !!v.demo : !!(was && was.demo),
+      lot: scope, dealer: keep("dealer", v.dealer), site: keep("site", v.site),
       status: "available", source: "web", seenAt: now, updatedAt: now, createdAt: (was && was.createdAt) || now,
     };
     if (!data.make || !data.model) { skipped++; continue; }
@@ -1181,7 +1253,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true) {
   }
   for (const [id, was] of byId) {
     if (!complete) break; // a partial read says nothing about who's gone
-    if (was.source !== "web" || seen.has(id) || was.status === "sold") continue;
+    if (was.source !== "web" || seen.has(id) || was.status === "sold" || lotOf(was) !== scope) continue;
     removed++;
     rows.push({ id, user_id: uid, collection: "vehicles", data: { ...was, status: "sold", updatedAt: now, goneAt: now }, deleted: false });
   }
@@ -1264,10 +1336,14 @@ async function watchPass(uid: string, vehicles: any[]): Promise<number> {
 
 // {inventory: 1} from the daily job: every user whose Settings name a store
 // URL. {inventory: {u, url?, probe?}} from Settings: that user, now.
+// {inventory: {network: 1}} from the later job, or {inventory: {u, network:
+// 1}} from Settings: the group site's used inventory for everyone (or that
+// one) who turned the network read on — each unit tagged with its store.
 async function handleInventory(body: any): Promise<Response> {
   const req = body.inventory && typeof body.inventory === "object" ? body.inventory : {};
   const cronKey = Deno.env.get("CRON_KEY");
   if (!req.u && cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  const network = !!req.network;
   let users: string[] = [];
   if (req.u) {
     if (!/^[0-9a-f-]{36}$/.test(String(req.u))) return json({ error: "bad user" }, 400);
@@ -1275,17 +1351,31 @@ async function handleInventory(body: any): Promise<Response> {
   } else {
     const res = await fetch(sbUrl(`/records?collection=eq.config&deleted=eq.false&select=user_id,data`), { headers: sbHeaders() });
     if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
-    users = ((await res.json()) as any[]).filter((r) => r.data && r.data.storeSiteUrl).map((r) => r.user_id);
+    users = ((await res.json()) as any[]).filter((r) => r.data && (network ? r.data.networkInventory && r.data.networkSiteUrl : r.data.storeSiteUrl)).map((r) => r.user_id);
   }
   const results: any[] = [];
   for (const uid of users) {
     const cfgRes = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.config&deleted=eq.false&select=data&limit=1`), { headers: sbHeaders() });
     const cfg = cfgRes.ok ? ((((await cfgRes.json()) as any[])[0] || {}).data || {}) : {};
-    const url = String(req.url || cfg.storeSiteUrl || "").trim();
-    if (!/^https?:\/\//i.test(url)) { results.push({ uid: uid.slice(0, 8), error: "No store inventory URL in Settings → Dealer inventory sites." }); continue; }
+    const url = network
+      ? String(req.url || ((cfg.networkSiteUrl || "") + (cfg.networkUsedSuffix || ""))).trim()
+      : String(req.url || cfg.storeSiteUrl || "").trim();
+    if (!/^https?:\/\//i.test(url)) { results.push({ uid: uid.slice(0, 8), error: network ? "No network inventory URL in Settings → Advanced → Inventory sites." : "No store inventory URL in Settings → Dealer inventory sites." }); continue; }
     try {
-      const { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep);
-      const write = await writeInventory(uid, vehicles, report.complete !== false);
+      const scope = network ? "network" : "store";
+      // The network's vehicle pages already on file, so a long list is read
+      // new-first and the rest refreshed as the budget allows.
+      let known = new Set<string>();
+      if (network) {
+        try {
+          const kr = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&data->>lot=eq.network&select=data`), { headers: sbHeaders() });
+          if (kr.ok) known = new Set(((await kr.json()) as any[]).map((x) => String((x.data || {}).url || "")).filter(Boolean));
+        } catch (_) { /* read them all, then */ }
+      }
+      const { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep, { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known });
+      report.scope = scope;
+      if (network) report.stores = [...new Set(vehicles.map((v: any) => v.dealer).filter(Boolean))].length;
+      const write = await writeInventory(uid, vehicles, report.complete !== false, scope);
       // Anyone waiting for one of these: told now.
       let watched = 0;
       try { watched = await watchPass(uid, vehicles); } catch (e) { console.error("watch pass", String(e)); }

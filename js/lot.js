@@ -84,6 +84,9 @@ export function parseLotQuestion(text, vehicles, hints = {}, { force = false } =
   const f = { models: [], makes: [], trims: [], condition: hints.condition || "", body: hints.body || "", fuel: hints.fuel || "", drive: "", colour: hints.color || "", stock: hints.stock || "", year: null, minYear: null, maxPrice: hints.maxPrice || null, minPrice: hints.minPrice || null, maxKm: hints.maxKm || null, sort: hints.sort || "", ask: hints.ask || "", certified: false };
   let hits = 0;
 
+  // Where: our own lot, the group's other stores, or (nothing said) both.
+  if (/\b(across the (?:network|group)|the network|other stores?|other dealerships?|other locations?|any of our stores|in the group|network[- ]wide|group[- ]wide|at the other)\b/.test(t)) { f.scope = "network"; hits++; }
+  else if (/\b(on our lot|our own lot|our lot|our store|here at the store|in house|in-house|at our place|right here)\b/.test(t)) { f.scope = "ours"; }
   // Condition.
   if (/\b(brand new|new)\b/.test(t) && !/\bnewest\b/.test(t)) { f.condition = "New"; hits++; }
   if (/\b(used|pre-?owned|second-?hand|trade-?ins?)\b/.test(t)) { f.condition = "Used"; hits++; }
@@ -201,11 +204,18 @@ function arrivesOn(v, today) {
   return dt.toLocaleDateString("en-CA", { month: "long", day: "numeric" });
 }
 const isNew = (v) => /^new$/i.test(String(v.condition || ""));
+// A unit at another store in the group (the network read), and where.
+export const isNetwork = (v) => !!v && v.lot === "network";
+export const atStore = (v) => (isNetwork(v) ? v.dealer || "another store in the group" : "");
 
 export function matchLot(vehicles, f, { today } = {}) {
   const inv = (vehicles || []).filter((v) => (v.status || "available") === "available");
   return inv.filter((v) => {
     const model = String(v.model || "").toLowerCase(), make = String(v.make || "").toLowerCase(), trim = String(v.trim || "").toLowerCase();
+    // "On our lot" / "here" is ours; "across the network" / "other stores" is
+    // theirs; nothing said is both, ours first among equals.
+    if (f.scope === "ours" && isNetwork(v)) return false;
+    if (f.scope === "network" && !isNetwork(v)) return false;
     if (f.stock) return String(v.stock || "").toUpperCase() === f.stock;
     if (f.models.length && !f.models.some((m) => model === m || model.includes(m) || m.includes(model))) return false;
     if (f.makes.length && !f.makes.some((m) => make === m)) return false;
@@ -224,12 +234,20 @@ export function matchLot(vehicles, f, { today } = {}) {
     if (f.maxKm && !(v.mileage != null && v.mileage <= f.maxKm)) return false;
     return true;
   }).sort((a, b) => {
-    if (f.sort === "price") return (a.price ?? 1e12) - (b.price ?? 1e12);
-    if (f.sort === "priceDesc") return (b.price ?? -1) - (a.price ?? -1);
+    if (f.sort === "price") return (a.price ?? 1e12) - (b.price ?? 1e12) || (isNetwork(a) ? 1 : 0) - (isNetwork(b) ? 1 : 0);
+    if (f.sort === "priceDesc") return (b.price ?? -1) - (a.price ?? -1) || (isNetwork(a) ? 1 : 0) - (isNetwork(b) ? 1 : 0);
     if (f.sort === "km") return (a.mileage ?? 1e12) - (b.mileage ?? 1e12);
     if (f.sort === "year") return (Number(b.year) || 0) - (Number(a.year) || 0);
-    return (a.price ?? 1e12) - (b.price ?? 1e12);
+    // Ours first, then the network's, each cheapest first.
+    return (isNetwork(a) ? 1 : 0) - (isNetwork(b) ? 1 : 0) || (a.price ?? 1e12) - (b.price ?? 1e12);
   });
+}
+// "3 on our lot and 5 across the network", "2 across the network", "4 on the lot".
+export function whereLine(matches) {
+  const ours = matches.filter((v) => !isNetwork(v)).length, net = matches.length - ours;
+  if (ours && net) return `${ours} on our lot and ${net} across the network`;
+  if (net) return `${net} across the network`;
+  return `${ours} on the lot`;
 }
 
 // What was asked for, in words — "used Rogue SVs under $30,000".
@@ -265,6 +283,7 @@ function oneLine(v, { withName = true, today } = {}) {
   if (v.color) bits.push(String(v.color).split("/")[0]);
   const arr = arrivesOn(v, today); if (arr) bits.push("arrives " + arr);
   if (v.stock) bits.push("#" + v.stock);
+  if (isNetwork(v)) bits.push("at " + atStore(v));
   return bits.join(", ");
 }
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many || pluralLabel(one)}`;
@@ -290,7 +309,7 @@ export function answerLot(vehicles, text, hints = {}, { today, force = false } =
   const first = matches[0];
   let answer = "";
   if (!n) {
-    answer = `Nothing on the lot matches ${label}.`;
+    answer = `Nothing ${f.scope === "network" ? "across the network" : (vehicles || []).some(isNetwork) && f.scope !== "ours" ? "on the lot or across the network" : "on the lot"} matches ${label}.`;
     // One step wider, so the answer still helps: drop the trim, then the price cap, then the condition.
     const wider = [];
     if (f.trims.length) wider.push({ ...f, trims: [], why: "in other trims" });
@@ -306,10 +325,11 @@ export function answerLot(vehicles, text, hints = {}, { today, force = false } =
   }
   const single = n === 1;
   const noun = single ? label.replace(/^vehicles\b/, "vehicle") : pluralLabel(label);
+  const hasNet = matches.some(isNetwork);
   switch (f.ask) {
     case "count":
-      answer = single ? `One ${noun} on the lot: ${oneLine(first, { withName: true, today })}.`
-        : `${n} ${noun} on the lot. ${firstTwo(matches, today)}`;
+      answer = single ? `One ${noun} ${isNetwork(first) ? "across the network" : "on the lot"}: ${oneLine(first, { withName: true, today })}.`
+        : `${n} ${noun}${hasNet ? ` — ${whereLine(matches)}` : " on the lot"}. ${firstTwo(matches, today)}`;
       break;
     case "km":
       answer = single ? (first.mileage != null ? `${fmtKm(first.mileage)} on the ${vehicleLabel(first)}${first.stock ? ", stock " + first.stock : ""}${first.price != null ? ", listed at " + fmtMoney(first.price) : ""}.` : isNew(first) ? `The ${vehicleLabel(first)} is new — no kilometres to speak of.` : `No kilometres on file for the ${vehicleLabel(first)}.`)
@@ -329,10 +349,10 @@ export function answerLot(vehicles, text, hints = {}, { today, force = false } =
       answer = `Newest ${noun} is ${oneLine(first, { withName: true, today })}.${n > 1 ? ` ${n - 1} more on screen.` : ""}`;
       break;
     default:
-      answer = single ? `Yes — one ${noun}: ${oneLine(first, { withName: true, today })}.`
-        : `Yes — ${n} ${noun} on the lot. ${firstTwo(matches, today)}`;
+      answer = single ? `Yes — one ${noun}${isNetwork(first) ? " across the network" : ""}: ${oneLine(first, { withName: true, today })}.`
+        : `Yes — ${n} ${noun}${hasNet ? ` — ${whereLine(matches)}` : " on the lot"}. ${firstTwo(matches, today)}`;
   }
-  return { answer, matches, filters: f, label, count: n };
+  return { answer, matches, filters: f, label, count: n, ours: matches.filter((v) => !isNetwork(v)).length, network: matches.filter(isNetwork).length };
 }
 function firstTwo(matches, today) {
   const two = matches.slice(0, 2).map((v) => oneLine(v, { withName: true, today }));
@@ -341,8 +361,12 @@ function firstTwo(matches, today) {
 
 // A one-line picture of the lot for the assistant's context: counts by model.
 export function lotSummary(vehicles, { limit = 14 } = {}) {
-  const inv = (vehicles || []).filter((v) => (v.status || "available") === "available");
-  if (!inv.length) return "";
+  const avail = (vehicles || []).filter((v) => (v.status || "available") === "available");
+  const net = avail.filter(isNetwork);
+  const inv = avail.filter((v) => !isNetwork(v));
+  // The network's used, counted apart: how many, at how many stores.
+  const netLine = net.length ? ` Plus ${net.length} used across the ${new Set(net.map((v) => v.dealer).filter(Boolean)).size || "group's"} ${new Set(net.map((v) => v.dealer).filter(Boolean)).size ? "other stores in the group" : "other stores"} (sellable; a lot question names the store a unit is at).` : "";
+  if (!inv.length) return net.length ? netLine.trim() : "";
   const byModel = new Map();
   let newN = 0, usedN = 0, unpriced = 0;
   inv.forEach((v) => {
@@ -354,5 +378,5 @@ export function lotSummary(vehicles, { limit = 14 } = {}) {
   });
   const top = [...byModel.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, limit)
     .map(([k, e]) => `${k} ${e.n}${e.isNew && e.isNew < e.n ? ` (${e.isNew} new)` : e.isNew ? " new" : ""}`);
-  return `${inv.length} vehicles on the lot (${newN} new, ${usedN} used${unpriced ? `, ${unpriced} new units without a website price yet` : ""}): ${top.join(", ")}${byModel.size > limit ? ", and more" : ""}.`;
+  return `${inv.length} vehicles on the lot (${newN} new, ${usedN} used${unpriced ? `, ${unpriced} new units without a website price yet` : ""}): ${top.join(", ")}${byModel.size > limit ? ", and more" : ""}.${netLine}`;
 }
