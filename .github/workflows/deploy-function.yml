@@ -62,8 +62,10 @@ jobs:
             mkdir -p "supabase/functions/$FN"
             cp supabase/functions/voice-agent/index.ts "supabase/functions/$FN/index.ts"
           fi
-          supabase functions deploy "$FN" --project-ref "$PROJECT_REF" --no-verify-jwt
+          # --yes: the CLI now asks before deploying, and a runner has no
+          # terminal to answer on; without it nothing is changed.
+          supabase functions deploy "$FN" --project-ref "$PROJECT_REF" --no-verify-jwt --yes
           echo "Deployed supabase/functions/voice-agent/index.ts as $FN (${GITHUB_SHA::12})"
 
       - name: Deploy the calendar proxy
-        run: supabase functions deploy ics-proxy --project-ref "$PROJECT_REF" --no-verify-jwt
+        run: supabase functions deploy ics-proxy --project-ref "$PROJECT_REF" --no-verify-jwt --yes
