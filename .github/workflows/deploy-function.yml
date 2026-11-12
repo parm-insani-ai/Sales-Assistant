@@ -11,6 +11,8 @@ name: Deploy the function
 #   1. Supabase → your avatar → Account → Access Tokens → Generate new token.
 #   2. GitHub → this repo → Settings → Secrets and variables → Actions →
 #      New repository secret, named SUPABASE_ACCESS_TOKEN.
+#   A deploy that fails with "Invalid access token" means that secret has
+#   expired or been revoked: generate a new one and paste it over the old.
 # Optional repository variables (same page, Variables tab):
 #   SUPABASE_PROJECT_REF   the project's ref (default bgzkafhlwaldbdfehfsa)
 #   SUPABASE_FUNCTION_NAME the function the app calls (default quick-api)
