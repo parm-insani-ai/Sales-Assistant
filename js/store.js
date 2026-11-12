@@ -103,15 +103,17 @@ const DEFAULT_TEMPLATES = [
 export { DEFAULT_TEMPLATES };
 
 // A proven multi-touch follow-up cadence, applied to new leads so none go cold.
+// The owner plan: an imported customer the salesperson starts a plan on
+// (a new lead gets the showroom or inbound plan in cadence.js).
 const DEFAULT_CADENCE = [
-  { day: 0, channel: "call", label: "Intro call" },
-  { day: 0, channel: "text", label: "Intro text" },
-  { day: 1, channel: "email", label: "Intro email" },
-  { day: 2, channel: "call", label: "Follow-up call" },
-  { day: 4, channel: "text", label: "Value follow-up" },
-  { day: 7, channel: "call", label: "One-week call" },
-  { day: 14, channel: "text", label: "Two-week check-in" },
-  { day: 30, channel: "call", label: "30-day call" },
+  { day: 0, channel: "call", label: "Reach-out call — the reason on their card", intent: "prospect" },
+  { day: 0, channel: "text", label: "Follow-up text — when's good to talk", intent: "missed" },
+  { day: 1, channel: "email", label: "Email — what a move would look like", intent: "prospect" },
+  { day: 2, channel: "call", label: "Follow-up call", intent: "prospect" },
+  { day: 4, channel: "text", label: "Two times to come in", intent: "time" },
+  { day: 7, channel: "call", label: "One-week call", intent: "prospect" },
+  { day: 14, channel: "text", label: "Two-week check-in", intent: "nurture" },
+  { day: 30, channel: "call", label: "30-day call", intent: "nurture" },
 ];
 
 const DEFAULT_STATE = {
@@ -223,6 +225,11 @@ const DEFAULT_STATE = {
     bookShort: null, // cached short booking link {code, s, sig} — re-minted when the config changes
     cadence: DEFAULT_CADENCE,
     autoCadence: true,
+    // "off": every text waits for a tap. "plan": the plan's texts, the
+    // chase's and the appointment confirmations go by themselves at their
+    // moment, inside hours and consent (autosend.js). Replies never do.
+    autoSend: "off",
+    autoDailyCap: 60,
     dailyTouchGoal: 20,
     // How many of the book's best prospects Home brings up each day.
     dailyProspects: 10,

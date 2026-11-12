@@ -104,7 +104,13 @@ export function afterDeliveryComplete(d) {
   mk(7, "call", "one-week check-in");
   mk(30, "text", "30-day referral ask",
     `Hi ${fn}, a month already with the ${veh} — hope you're loving it! If anyone in your circle starts car shopping, send them my way and I'll take great care of them.${me}`);
-  return 3;
+  // The owner relationship, from here: a check-in at three months and the
+  // first service nudge at six. Occasions carries the anniversary.
+  mk(90, "text", "three-month check-in",
+    `Hi ${fn}, three months with the ${veh} — how's it treating you? Any questions on it at all, I'm a text away.${me}`);
+  mk(180, "text", "six-month service nudge",
+    `Hi ${fn}, it's ${me.replace(/^ — /, "")} — the ${veh} is coming up on its first service. Want me to get you booked in so it's easy? Happy to set it up.`);
+  return 5;
 }
 
 // After an appointment is booked for a lead: the pipeline moves with it,

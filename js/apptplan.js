@@ -19,6 +19,7 @@
 import * as store from "./store.js";
 import { apptType } from "./store.js";
 import { localISO, toReadyAt } from "./schedule.js";
+import { startVisitPlan, startNoShowPlan } from "./cadence.js";
 
 export const DEFAULTS = {
   apptConfirmText: "Hi {first}, it's {me} at {dealership} — just confirming your {type} {day} at {time}{vehicleLine}. Reply YES to confirm, or let me know if another time works better.",
@@ -143,9 +144,17 @@ export function unplanAppointment(apptId) {
 export function onAppointmentConfirmed(apptId) {
   planTasks(apptId).filter((t) => !t.done && t.apptPlan === "confirm").forEach((t) => store.update("tasks", t.id, { done: true, doneAt: new Date().toISOString() }));
 }
-// Showed, no-show or sold: nothing left to remind anyone about.
+// Showed, no-show or sold: nothing left to remind anyone about — and the
+// outcome starts the plan it calls for (cadence.js): came in and didn't
+// buy → the visit plan; didn't turn up → the recovery sequence.
 export function onAppointmentOutcome(apptId) {
   planTasks(apptId).filter((t) => !t.done).forEach((t) => store.update("tasks", t.id, { done: true, doneAt: new Date().toISOString() }));
+  const a = store.get("appointments", apptId);
+  if (!a || !a.leadId) return;
+  try {
+    if (a.outcome === "showed") startVisitPlan(a.leadId, { at: a.when });
+    else if (a.outcome === "no_show") startNoShowPlan(a.leadId, { at: a.when });
+  } catch { /* the reminders are cleared either way */ }
 }
 export function markPlanTaskDone(taskId) {
   const t = store.get("tasks", taskId);

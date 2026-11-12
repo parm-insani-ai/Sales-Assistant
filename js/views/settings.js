@@ -102,7 +102,12 @@ export function renderSettings(view) {
         <div class="field"><label>Today's batch (Outreach and Home)</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
       </div>
       <label class="switch" style="margin-bottom:14px"><input id="s-autocad" type="checkbox" ${s.autoCadence ? "checked" : ""}><span>Start a plan on every new lead</span></label>
-      <div class="small muted" style="margin:0 0 6px">The touches on each new lead</div>
+      <div class="card" style="padding:12px;margin:0 0 14px;background:var(--brand-tint)">
+        <label class="switch"><input id="s-autosend" type="checkbox" ${s.autoSend === "plan" ? "checked" : ""}><span><b>Send the plan's texts automatically</b></span></label>
+        <div class="small muted" style="margin-top:6px">Off: every text the app writes waits for your tap on Log. On: the plan's steps, the "when's good?" after a missed call, the two-times texts and the appointment confirmations go by themselves at their moment — only with a working number and texting consent on file, inside your hours, never to someone who texted back in the last three days (that conversation is yours), never with a figure, and never more than the daily cap. Replies to a customer are always yours to send. Runs while the app is open.</div>
+        <div class="field" style="margin-top:8px;max-width:180px"><label>Daily cap</label><input id="s-autocap" type="number" inputmode="numeric" min="1" max="500" value="${esc(s.autoDailyCap ?? 60)}"></div>
+      </div>
+      <div class="small muted" style="margin:0 0 6px">The touches on each imported owner you start a plan on (new leads get the showroom or inbound plan)</div>
       <div class="cad-list"></div>
       <button class="btn btn-ghost btn-sm btn-block" data-act="add-cad" style="margin-top:10px">+ Add a touch</button>`)}
     ${fold("templates", "Message templates", `${n(s.messageTemplates)}`, `
@@ -315,6 +320,12 @@ export function renderSettings(view) {
     store.updateSettings({ dailyProspects: Math.max(0, Math.min(50, Number(e.target.value) || 0)) }));
   el.querySelector("#s-autocad").addEventListener("change", (e) =>
     store.updateSettings({ autoCadence: e.target.checked }));
+  el.querySelector("#s-autosend").addEventListener("change", (e) => {
+    store.updateSettings({ autoSend: e.target.checked ? "plan" : "off" });
+    toast(e.target.checked ? "On — the plan's texts go by themselves at their moment, inside your hours and consent" : "Off — every text waits for your tap", e.target.checked ? "success" : "");
+  });
+  el.querySelector("#s-autocap").addEventListener("change", (e) =>
+    store.updateSettings({ autoDailyCap: Math.max(1, Math.min(500, Number(e.target.value) || 60)) }));
 
   // Follow-up cadence editor
   const cadList = el.querySelector(".cad-list");

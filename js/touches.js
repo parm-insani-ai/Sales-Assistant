@@ -25,6 +25,22 @@ import { toast } from "./components.js";
 import { consentStatus, consentLine } from "./consent.js";
 import { setPending } from "./outcomes.js";
 import { cachedShortBookingLink, bookingLink } from "./bookinglink.js";
+import { lastConversation } from "./coverage.js";
+import { openSlots } from "./slots.js";
+
+// Where the conversation stands, so day four doesn't read like day one:
+// never reached yet (the text's first job is a reply or a time), or the last
+// real conversation and what it came to.
+function standingLine(lead) {
+  let c = null;
+  try { c = lastConversation(lead); } catch { c = null; }
+  if (!c) return "Contact so far: NOT REACHED YET — no call answered, no reply. This text's first job is to get a reply or a time; make it easy to answer with a word.";
+  const days = Math.floor((Date.now() - c.at) / 86400000);
+  const when = days <= 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  const how = c.via === "text" ? "they replied by text" : c.via === "in person" ? "in person" : "on the phone";
+  const came = c.outcome && !["spoke", "replied", "logged"].includes(c.outcome) ? ` — it came to: ${String(c.outcome).replace(/_/g, " ")}` : "";
+  return `Contact so far: last spoke ${when}, ${how}${came}. Continue from that; don't introduce yourself again.`;
+}
 
 const first = (name) => String(name || "there").trim().split(/\s+/)[0];
 
@@ -41,7 +57,9 @@ const INTENTS = {
   week:    "A one-week check-in.",
   twoweek: "A two-week check-in.",
   missed:  "You just called them and didn't get through. The goal of this text is a CONVERSATION — a reply, or a time you can call. One or two lines: you tried them, what it was about in a few words (from the brief — the vehicle, their situation, never a figure), then ONE question that is easy to answer with a word: when's a good time to call, or is a text easier. No 'sorry I missed you' padding, no pitch.",
-  time:    "You've tried them a few times without getting through. The goal is a CONVERSATION. Offer TWO concrete times for a five-minute call (the WHY gives them, e.g. 'tomorrow at 10:30 or Thursday at 4'), ask which suits or for a better one, and say replying here works too. Warm, brief, no pressure, no pitch, never a figure.",
+  time:    "The goal is a CONVERSATION or a visit. Offer TWO concrete times (the WHY gives them, e.g. 'tomorrow at 10:30 or Thursday at 4') — for a five-minute call if you haven't reached them yet, to come in if you have — ask which suits or for a better one, and say replying here works too. Warm, brief, no pressure, no pitch, never a figure.",
+  visit:   "They came in for an appointment today and left without buying. Within the hour: thank them for coming in, name the ONE thing you said you'd find out or do for them (from the brief and the notes — a colour, a trim, a second option, a question for the manager), and say when they'll have it. If the notes don't say what it was, say you're putting together what you discussed. One line, warm, no pressure, never a figure.",
+  noshow:  "They had an appointment and didn't turn up, a few minutes ago. One or two lines, no guilt: you were looking forward to it, things come up, and the easiest way to pick another time — reply here with a day, or the booking link. Never 'you missed', never a figure.",
   confirm: "They said they're coming in (the WHY says when). Confirm it warmly in one or two lines — the day and time in words, what you'll have ready for them (the vehicle they wanted, if it's on file), and that they can just reply if anything changes. If someone else is involved in the decision (the brief says who), say they're welcome too.",
   stock:   "The WHY names what's in stock right now that matches what they wanted. Tell them, plainly and specifically — the model and trim, how many, a detail they cared about — and offer to hold one to look at. No prices, no urgency tricks; the stock is the news.",
   prospect: "This is an opener to a customer who already drives something (a past customer or an imported owner) and hasn't heard from the salesperson in a while. You're reaching out because of the reasons listed under WHY. Lead with something true about THEIR situation — their vehicle, their timing — not with a pitch. Offer to work out what a move would look like properly, in person, in about ten minutes. One easy next step. Never a figure, never a promise, never 'trade values are at record highs' or any market claim.",
@@ -56,6 +74,7 @@ function systemFor(lead, task) {
 WHO IT'S TO
 ${briefFor(lead)}
 How they arrived: ${isInbound(lead) ? "they enquired online or by phone — they have NOT been in yet" : "they came in to the dealership in person"}
+${standingLine(lead)}
 
 WHAT THIS TEXT IS FOR (${dayN})
 ${INTENTS[task.intent] || INTENTS.nudge}
@@ -102,6 +121,8 @@ export function templateTouch(lead, task) {
       return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Quick one — ${owned} may put you in a better spot to move than you'd think, and I'd rather show you real numbers than guess by text. Ten minutes in person, whenever suits?`;
     }
     case "missed":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — just tried you about your ${lead.vehicleInterest || "vehicle"}. When's a good time for a quick call, or is a text easier?`;
+    case "visit":   return `Hi ${fn}, ${me} here — thanks for coming in today. I'm putting together what we talked about on the ${car} and I'll have it for you tomorrow. Anything you think of in the meantime, I'm a text away.`;
+    case "noshow":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — sorry we didn't connect today, things come up. Reply with a day that works and I'll have the ${car} ready; no pressure either way.`;
     case "time": {
       const two = Array.isArray(task.why) && task.why.length >= 2 ? `${task.why[0]} or ${task.why[1]}` : "tomorrow morning or late afternoon";
       return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. I've tried you a couple of times and don't want to keep missing you — I've got ${two} free for a five-minute call. Which suits, or reply here with a better time?`;
@@ -138,8 +159,13 @@ async function ask(system, messages) {
  * never with a figure in it. Returns { body, via: "agent"|"template" }.
  */
 export async function draftTouch(lead, task) {
-  const fallback = () => ({ body: templateTouch(lead, task), via: "template" });
   if (!lead || !task) return { body: "", via: "template" };
+  // A text that offers two times takes them from the calendar as it's
+  // drafted, not as it was scheduled days ago.
+  if (task.intent === "time" && !(Array.isArray(task.why) && task.why.length)) {
+    try { task = { ...task, why: openSlots().map((x) => x.label) }; } catch { /* the template has a fallback */ }
+  }
+  const fallback = () => ({ body: templateTouch(lead, task), via: "template" });
   if (!agentConfigured()) return fallback();
 
   const system = systemFor(lead, task);

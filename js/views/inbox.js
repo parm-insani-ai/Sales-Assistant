@@ -222,7 +222,7 @@ function renderThread(view, leadId) {
           m.status === "failed" ? " bubble-meta-failed" : ""}`;
         meta.textContent = m.status === "sending" ? "Sending…"
           : m.status === "failed" ? (m.error || "Not delivered")
-          : clock(m.at || m.createdAt);
+          : `${clock(m.at || m.createdAt)}${m.auto ? " · sent automatically" : ""}`;
         if (m.status === "failed") {
           const again = document.createElement("button");
           again.className = "bubble-retry";

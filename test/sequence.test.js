@@ -57,15 +57,15 @@ if (miss1.tasks.length !== 1 || miss1.tasks[0].channel !== "text" || miss1.tasks
 if (!(miss1.tasks[0].due === todayK || new Date(miss1.tasks[0].due) > today)) fail("the text should be the same day (or next morning when the day's over): " + miss1.tasks[0].due);
 if (!/attempt 1 of 6/.test(miss1.toast)) fail("the toast should say which attempt: " + miss1.toast);
 
-// --- The sixth miss rests them ninety days; the card said attempt 6 of 6.
+// --- The sixth miss rests them sixty days; the card said attempt 6 of 6.
 const six = await p.evaluate(() => ({ name: document.querySelector(".cs-name")?.textContent.trim(), when: document.querySelector(".cs-when")?.textContent.trim() }));
 console.log("sixth up:", JSON.stringify(six));
 if (six.name !== "Owner 05 Example" || !/Attempt 6 of 6/.test(six.when || "")) fail("Owner 05's card should say this is attempt 6 of 6: " + JSON.stringify(six));
 await p.click('[data-outcome="no_answer"]'); await p.waitForTimeout(600);
 const rested = await p.evaluate(async () => { const st = await import("/js/store.js"); const l = st.get("leads", "o5"); return { snoozed: l.prospectSnoozedUntil, after: l.restedAfter, tasks: st.all("tasks").filter((t) => t.leadId === "o5" && !t.done).length, toast: [...document.querySelectorAll(".toast")].map((n) => n.textContent).join(" | ") }; });
 console.log("rested:", JSON.stringify(rested));
-const in80 = new Date(); in80.setDate(in80.getDate() + 80);
-if (!rested.snoozed || new Date(rested.snoozed) < in80 || rested.after !== 6 || rested.tasks) fail("the sixth miss should rest them ninety days with nothing queued: " + JSON.stringify(rested));
+const in50 = new Date(); in50.setDate(in50.getDate() + 50);
+if (!rested.snoozed || new Date(rested.snoozed) < in50 || rested.after !== 6 || rested.tasks) fail("the sixth miss should rest them sixty days with nothing queued: " + JSON.stringify(rested));
 if (!/that's six; resting them/.test(rested.toast)) fail("the toast should say so: " + rested.toast);
 
 // --- Undo of an answer takes its sequence step back too. (Everyone's

@@ -223,7 +223,7 @@ function buildStanding() {
     // the follow-up plan is written from it, so a detail dropped here is a
     // generic message later.
     `CONTEXT IS THE PRODUCT. When the salesperson says anything about a customer beyond a name and a number — what they want, the trim, a feature they love, new or used, a budget, a timeline, a trade-in, who else is deciding, why they're shopping, how they came in — capture ALL of it: the structured parts in the context fields AND the whole remark, in the salesperson's words, in \`notes\`. Never drop a detail and never summarise it away. "Add Parm, 902 555 1234, he's after a Rogue, loves the SV moonroof, open to new or used, wants to be around thirty" is ONE create_lead call with name, phone, vehicle "Nissan Rogue", trim "SV", features ["moonroof"], newUsed "either", budget 30000, and notes holding the sentence. A remark about someone already on file is add_context.`,
-    `A new customer's follow-up plan starts by itself — texts and calls over 90 days, each text drafted from their context and held on Log for the salesperson's OK. Say so in one clause ("follow-up plan's started, first text is waiting for your OK on Log"). Never say they need to set anything up.`,
+    `A new customer's follow-up plan starts by itself — texts and calls through the first month and then monthly to a year (an internet enquiry gets call, text, call and an email in the first hour; a showroom visit the text now and the call next morning; a visit that didn't buy its own plan; a no-show a recovery sequence), each text drafted from their context and held on Log for the salesperson's OK. Say so in one clause ("follow-up plan's started, first text is waiting for your OK on Log"). Never say they need to set anything up.`,
     // The screen follows the conversation. The list tools put their results on
     // screen as tappable rows, so the spoken reply's job is to hand over to
     // what the salesperson is now looking at — not to read the list back to
@@ -1096,7 +1096,7 @@ async function runTool(t, p = {}) {
       // conversation the sales target counts, no second step.
       logCustomer(lead.id);
       const n = maybeStartCadence(lead.id);
-      const plan = n ? ` Follow-up plan started automatically: ${n} touches over 90 days, each text drafted from their context and held for the salesperson's OK — nothing sends on its own. Their welcome text is drafted and under "Right now" on Home, locked for five minutes so it doesn't land on their heels${lead.phone ? "" : " (and it needs their phone number to send)"}.` : "";
+      const plan = n ? ` Follow-up plan started automatically: ${n} touches through the first month and then monthly to a year, each text drafted from their context and held for the salesperson's OK — nothing sends on its own. Their welcome text is drafted and under "Right now" on Home, locked for five minutes so it doesn't land on their heels${lead.phone ? "" : " (and it needs their phone number to send)"}.` : "";
       return { result: `created lead ${lead.name}.${plan}`, note: `added ${lead.name}${n ? ` — ${n}-step follow-up plan started` : ""}` };
     }
     case "update_lead": {

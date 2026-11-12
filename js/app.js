@@ -45,6 +45,7 @@ import { autoSendDueEmails, autoSendAppointmentReminders, isSetupError } from ".
 import { reconcileLinks } from "./connections.js";
 import { adaptToReplies } from "./cadence.js";
 import { absorbReplies } from "./coverage.js";
+import { startAutoSend } from "./autosend.js";
 import { reviewTouch } from "./touches.js";
 import { handleAuthRedirect, pullMailIfStale } from "./msmail.js";
 import { handleGmailRedirect, pullGmailIfStale, ensureMailWatch } from "./gmail.js";
@@ -545,3 +546,5 @@ window.addEventListener("viniva-sync", (e) => {
 });
 try { adaptToReplies(); } catch {}
 try { absorbReplies(); } catch {}
+// The plan's texts go by themselves when the switch is on (autosend.js).
+try { startAutoSend(); } catch {}

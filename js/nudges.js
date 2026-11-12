@@ -25,6 +25,7 @@ import { todayPlan } from "./plan.js";
 import { matchedWatches, closeWatch, describeWant } from "./watch.js";
 import { stale, noteOverdue, ASK_AFTER } from "./ledger.js";
 import { dueCallbacks, ATTEMPTS } from "./session.js";
+import { autoOn, autoEligible } from "./autosend.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -194,8 +195,9 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
       taskId: t.id,
       title: `${firstName(lead.name)}'s ${t.intent === "intro" ? "welcome" : "follow-up"} text is ready`,
       // The title says it all; a tap opens the draft. Only a missing
-      // number earns a second line.
-      sub: lead.phone ? "" : "No phone number on file yet — add one to send it.",
+      // number earns a second line — or, with auto-send on, what the sweep
+      // will do with it.
+      sub: lead.phone ? (() => { if (!autoOn()) return ""; const e = autoEligible(t, lead, new Date(now)); return e.ok ? "Sends automatically within a few minutes — open it to send now or change it." : `Waiting for your tap — ${e.why}.`; })() : "No phone number on file yet — add one to send it.",
       route: lead.phone ? null : `/leads/${lead.id}`,
       at: t.readyAt,
     });

@@ -326,8 +326,29 @@ export function scheduleNextAttempt(leadId, { now = new Date() } = {}) {
   const fn = firstName(lead.name);
   const n = Math.max(1, attemptCount(leadId, now));
   store.bulk(() => store.all("tasks").filter((t) => t.leadId === leadId && t.sequence && !t.done).forEach((t) => store.remove("tasks", t.id)));
-  // A plan already working them has its own touches.
-  if (inPlan(leadId)) return { n, task: null, rested: false, line: `attempt ${n} of ${ATTEMPTS} — their plan carries on.` };
+  // A plan already working them keeps its steps — but a call that rang out
+  // still gets the same-day "when's good?" text, and a retry in the other
+  // half of the day when the plan's next call is further off than that.
+  // Never rested: a new lead's plan runs its course.
+  if (inPlan(leadId)) {
+    const canTextP = !!lead.phone && !lead.badPhone && consentStatus(lead).ok;
+    const open = store.all("tasks").filter((t) => t.leadId === leadId && t.cadence && !t.done);
+    const soon = (ch, hours) => open.some((t) => t.channel === ch && t.readyAt && new Date(t.readyAt).getTime() - now.getTime() < hours * 3600000);
+    let task = null;
+    const bits = [];
+    if (canTextP && !soon("text", 6)) {
+      const at = localLater(now, 2);
+      task = store.create("tasks", { title: `Text ${fn} — missed call, asking when's good`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: "missed", cadence: true, sequence: true, kind: "plan", attempt: n + 1, of: ATTEMPTS, from: "session" });
+      bits.push("a text in a couple of hours");
+    }
+    if (!soon("call", 30)) {
+      const oh = retrySlot(leadId, now);
+      const t2 = followUpTask(lead, { days: 1, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — missed · ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}`, extra: { sequence: true, kind: "plan", attempt: n + 1, of: ATTEMPTS } });
+      if (!task) task = t2;
+      bits.push(`a call tomorrow, ${oh.word}`);
+    }
+    return { n, task, rested: false, line: `attempt ${n} — ${bits.length ? bits.join(" and ") + "; " : ""}their plan carries on.` };
+  }
   if (n >= ATTEMPTS) {
     const until = new Date(now.getTime() + REST_DAYS * DAY).toISOString().slice(0, 10);
     store.update("leads", leadId, { prospectSnoozedUntil: until, restedAt: now.toISOString(), restedAfter: n });
