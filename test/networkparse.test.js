@@ -40,4 +40,18 @@ if (h.length !== 2 || h[0].dealer !== "O'Regan's Toyota Dartmouth" || h[1].deale
 const n = lib.parseInventoryHtml(html, {});
 if (n.length !== 2 || n[0].dealer !== "") fail("no prefix, no store: " + JSON.stringify(n.map((v) => v.dealer)));
 
+// Certified and as-is, read from the words on the card and in the structured data.
+const lib2 = new Function(src.slice(start, end) + "\nreturn { parseInventoryHtml, invAsIs, invCertified };")();
+if (!lib2.invAsIs("Wholesale As-Is unit") || !lib2.invAsIs("sold as is") || lib2.invAsIs("Certified Pre-Owned")) fail("as-is reader");
+if (!lib2.invCertified("Certified Pre-Owned") || !lib2.invCertified("CPO") || lib2.invCertified("Used")) fail("certified reader");
+const cards = `<div class="card">2019 Nissan Kicks SV $9,900 100,000 km Stock #: W1001 Wholesale As-Is VIN 3N1CP5CU3KL123456 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .</div>
+<div class="card">2021 Toyota RAV4 XLE Certified Pre-Owned $31,900 45,000 km Stock #: T9981 VIN 2T3P1RFV5MC123456</div>`;
+const read = lib2.parseInventoryHtml(cards, {});
+const kicks = read.find((v) => v.stock === "W1001"), rav = read.find((v) => v.stock === "T9981");
+if (!kicks || !kicks.asIs || kicks.certified || kicks.condition !== "Used") fail("the wholesale unit is as-is and used: " + JSON.stringify(kicks));
+if (!rav || !rav.certified || rav.asIs) fail("the CPO unit is certified: " + JSON.stringify(rav));
+const ld = `<script type="application/ld+json">{"@type":"Car","name":"2020 Honda CR-V EX-L","description":"Sold as-is, wholesale to the public","vehicleIdentificationNumber":"2HKRW2H88LH123456","brand":"Honda","model":"CR-V","vehicleModelDate":"2020","itemCondition":"https://schema.org/UsedCondition","offers":{"@type":"Offer","price":"12995"}}</script>`;
+const l = lib2.parseInventoryHtml(ld, {});
+if (!l[0] || !l[0].asIs) fail("as-is from the structured data's description: " + JSON.stringify(l));
+
 console.log(process.exitCode ? "\nnetworkparse.test.js FAILED" : "\nnetworkparse.test.js passed");

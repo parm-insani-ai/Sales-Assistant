@@ -209,7 +209,8 @@ function catalogueMsrp(v) {
   return (row && row.msrp) || x.msrp || null;
 }
 function availableVehicles() {
-  return store.all("vehicles").filter((v) => (v.status || "available") === "available").map((v) => {
+  // As-is and wholesale units are never a retail deal; the radar leaves them out.
+  return store.all("vehicles").filter((v) => (v.status || "available") === "available" && !v.asIs).map((v) => {
     if (v.price != null) return v.priceSource ? v : { ...v, priceSource: v.source === "web" ? "site" : "entered" };
     const msrp = catalogueMsrp(v);
     return msrp ? { ...v, price: msrp, priceSource: "msrp" } : v;

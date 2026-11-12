@@ -91,6 +91,7 @@ export function parseLotQuestion(text, vehicles, hints = {}, { force = false } =
   if (/\b(brand new|new)\b/.test(t) && !/\bnewest\b/.test(t)) { f.condition = "New"; hits++; }
   if (/\b(used|pre-?owned|second-?hand|trade-?ins?)\b/.test(t)) { f.condition = "Used"; hits++; }
   if (/\b(certified|cpo)\b/.test(t)) { f.certified = true; f.condition = f.condition || "Used"; hits++; }
+  if (/\b(as[- ]is|wholesale|mechanic'?s specials?|as traded)\b/.test(t)) { f.asIs = true; f.condition = f.condition || "Used"; hits++; }
   if (/\b(demos?|demonstrators?)\b/.test(t)) { f.demo = true; hits++; }
   for (const [re, m] of BODIES) if (re.test(t)) { f.body = m; hits++; break; }
   for (const [re, m] of FUELS) if (re.test(t)) { f.fuel = m; hits++; break; }
@@ -222,6 +223,8 @@ export function matchLot(vehicles, f, { today } = {}) {
     if (f.trims.length && !f.trims.every((tr) => trim.split(/[\s/,]+/).includes(tr))) return false;
     if (f.condition && (isNew(v) ? "New" : "Used") !== f.condition) return false;
     if (f.certified && !v.certified) return false;
+    // As-is units answer only when asked for: "any as-is Rogues", "wholesale".
+    if (f.asIs ? !v.asIs : v.asIs) return false;
     if (f.demo && !v.demo) return false;
     if (f.body && !f.body.test(String(v.bodyStyle || ""))) return false;
     if (f.fuel && !f.fuel.test(String(v.fuel || v.fuelType || ""))) return false;
@@ -254,7 +257,7 @@ export function whereLine(matches) {
 export function describeFilters(f) {
   const bits = [];
   if (f.stock) return "stock #" + f.stock;
-  if (f.certified) bits.push("certified"); else if (f.condition) bits.push(f.condition.toLowerCase());
+  if (f.asIs) bits.push("as-is"); else if (f.certified) bits.push("certified"); else if (f.condition) bits.push(f.condition.toLowerCase());
   if (f.demo) bits.push("demo");
   if (f.year) bits.push(String(f.year)); else if (f.minYear) bits.push(`${f.minYear} or newer`);
   if (f.colour) bits.push(f.colour);
@@ -364,8 +367,11 @@ export function lotSummary(vehicles, { limit = 14 } = {}) {
   const avail = (vehicles || []).filter((v) => (v.status || "available") === "available");
   const net = avail.filter(isNetwork);
   const inv = avail.filter((v) => !isNetwork(v));
-  // The network's used, counted apart: how many, at how many stores.
-  const netLine = net.length ? ` Plus ${net.length} used across the ${new Set(net.map((v) => v.dealer).filter(Boolean)).size || "group's"} ${new Set(net.map((v) => v.dealer).filter(Boolean)).size ? "other stores in the group" : "other stores"} (sellable; a lot question names the store a unit is at).` : "";
+  // The network's used, counted apart: how many, how many certified and
+  // as-is, at how many stores.
+  const netStores = new Set(net.map((v) => v.dealer).filter(Boolean)).size;
+  const netCert = net.filter((v) => v.certified).length, netAsIs = net.filter((v) => v.asIs).length;
+  const netLine = net.length ? ` Plus ${net.length} used across the ${netStores || "group's"} ${netStores ? "other stores in the group" : "other stores"}${netCert || netAsIs ? ` (${[netCert ? `${netCert} certified` : "", netAsIs ? `${netAsIs} as-is, offered only when asked for` : ""].filter(Boolean).join(", ")})` : ""} — sellable; a lot question names the store a unit is at.` : "";
   if (!inv.length) return net.length ? netLine.trim() : "";
   const byModel = new Map();
   let newN = 0, usedN = 0, unpriced = 0;

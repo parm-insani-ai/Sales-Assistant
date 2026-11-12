@@ -497,7 +497,11 @@ function invDecode(s) { return String(s || "").replace(/&amp;/g, "&").replace(/&
 function invText(html) { return invDecode(String(html || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " "); }
 function invNum(v) { if (v == null) return null; const n = Number(String(v).replace(/[^0-9.]/g, "")); return isFinite(n) && n > 0 ? n : null; }
 function invLooksVin(v) { return /^[A-HJ-NPR-Z0-9]{17}$/.test(String(v || "")) && /\d/.test(v) && /[A-Z]/.test(v); }
-function invCondition(s) { const t = String(s || "").toLowerCase(); if (/usedcondition|refurbish|\bused\b|pre-?owned|certified|\bcpo\b|\bdemo\b/.test(t)) return "Used"; if (/newcondition|\bnew\b/.test(t)) return "New"; return ""; }
+function invCondition(s) { const t = String(s || "").toLowerCase(); if (/usedcondition|refurbish|\bused\b|pre-?owned|certified|\bcpo\b|\bdemo\b|\bas[- ]is\b|wholesale/.test(t)) return "Used"; if (/newcondition|\bnew\b/.test(t)) return "New"; return ""; }
+// Sold as it stands — wholesale, as-is, mechanic's special: a used unit the
+// retail tools leave alone unless asked for by name.
+function invAsIs(s) { return /\bas[- ]is\b|\bwholesale\b|mechanic'?s special|\bas traded\b|\bas-traded\b/i.test(String(s || "")); }
+function invCertified(s) { return /\bcertified\b|\bcpo\b/i.test(String(s || "")); }
 function invSplitName(name) {
   const m = /^\s*((?:19|20)\d{2})\s+([A-Za-z-]+)\s+(.+)$/.exec(String(name || "").trim());
   if (!m) return null;
@@ -589,6 +593,7 @@ function invFromJsonLd(html, out) {
         mileage: invNum(x.mileageFromOdometer && typeof x.mileageFromOdometer === "object" ? x.mileageFromOdometer.value : x.mileageFromOdometer),
         color: String(x.color || ""), bodyStyle: String(x.bodyType || ""),
         condition: invCondition(String(x.itemCondition || offers.itemCondition || "") + " " + name),
+        certified: invCertified(name + " " + String(x.description || "")), asIs: invAsIs(name + " " + String(x.description || "")),
         url: String(x.url || offers.url || ""), photo: String(image || ""), dealer: invSellerName(x), via: "jsonld",
       };
       if (rec.vin || (rec.make && rec.model)) out.push(rec);
@@ -633,6 +638,8 @@ function invFromScripts(html, out) {
         color: String(g(["exteriorColor", "exterior_color", "extColor", "color", "colour"]) || ""),
         bodyStyle: String(g(["bodyStyle", "body_style", "bodyType", "body"]) || ""),
         condition: typeof isNew === "boolean" ? (isNew ? "New" : "Used") : invCondition(String(g(["condition", "type", "vehicleType", "inventoryType", "new_used", "stockType", "vehicle_type"]) || "") + " " + name),
+        certified: !!(g(["certified", "isCertified", "cpo", "manufacturerCertified"]) === true || Number(g(["certified", "isCertified", "cpo", "manufacturerCertified"])) === 1 || invCertified(String(g(["condition", "type", "vehicleType", "inventoryType", "badge", "tag"]) || "") + " " + name)),
+        asIs: !!(g(["asIs", "wholesale", "isWholesale"]) === true || Number(g(["asIs", "wholesale", "isWholesale"])) === 1 || invAsIs(String(g(["condition", "type", "vehicleType", "inventoryType", "badge", "tag", "description"]) || "") + " " + name)),
         url: String(g(["url", "link", "href", "vdpUrl", "detailUrl", "permalink", "vdp"]) || ""),
         photo: String(g(["image", "photo", "imageUrl", "thumbnail", "mainImage", "primaryPhoto"]) || ""),
         dealer: String(g(["dealerName", "dealershipName", "dealership", "dealer", "sellerName", "storeName", "locationName", "dealerTitle"]) || ""), via: "script",
@@ -667,6 +674,7 @@ function invFromHtml(html, out, opts) {
     if (title) for (const w of title[4].trim().split(/\s+/)) { if (!w || STOPS.test(w)) break; trimWords.push(w); }
     out.push({ vin, stock, year: title ? Number(title[1]) : null, make: title ? title[2] : "", model: title ? title[3] : "", trim: trimWords.join(" "),
       price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: invCondition(text.slice(0, 800)),
+      certified: invCertified(text.slice(0, 800)), asIs: invAsIs(text.slice(0, 800)),
       url: href ? href[1] : "", photo: img ? img[1] : "", dealer: dealerRe ? invDealerIn(text, dealerRe, dealerPrefix) : "", via: "html" });
   });
 }
@@ -717,6 +725,7 @@ function invFromPageMeta(html, pageUrl, out, opts) {
   const cond = invCondition(String(pageUrl || "") + " " + title + " " + text.slice(0, 600));
   const rec = { vin, stock, year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
     price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "",
+    certified: invCertified(String(pageUrl || "") + " " + title + " " + text.slice(0, 1500)), asIs: invAsIs(String(pageUrl || "") + " " + title + " " + text.slice(0, 1500)),
     dealer: opts && opts.dealerRe ? invDealerIn(text.slice(0, 4000), opts.dealerRe, opts.dealerPrefix) : "", via: "page" };
   // The address fills whatever the page didn't: /inventory/Used-2024-Mazda-CX-5-GS-L-P12345/
   const slug = invFromSlug(pageUrl);
@@ -793,7 +802,8 @@ function invFromPlatformVehicle(v, url) {
     color: name(g("vinDetails.exteriorVehicleColor")) || name(info.exteriorColor) || "", interiorColor: name(info.interiorColor) || "",
     bodyStyle: name(v.vehicleBodyStyleGroup) || name(info.bodyStyle) || "",
     condition: /new/i.test(condType) ? "New" : condType ? "Used" : "",
-    certified: !!(Number(category.certified) || Number(category.manufacturerCertified)), demo: !!Number(v.demo),
+    certified: !!(Number(category.certified) || Number(category.manufacturerCertified) || invCertified(condType)), demo: !!Number(v.demo),
+    asIs: !!(Number(category.wholesale) || Number(category.asIs) || Number(v.wholesale) || Number(v.asIs) || invAsIs(condType + " " + String(v.trimMarketingBlurb || v.shortDescription || ""))),
     transmission: name(info.transmissionType) || "", drivetrain: name(info.drivetrainType) || "", fuel: name(info.fuelType) || "",
     engine: String(v.engineDescription || ""), description: String(v.trimMarketingBlurb || v.shortDescription || ""),
     inventoryDate: String(v.inventoryDate || "").slice(0, 10), url: String(url || ""), photo: photo ? String(photo) : "", via: "platform",
@@ -1201,6 +1211,16 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
   report.found = all.size;
   report.via = {} as Record<string, number>;
   for (const v of all.values()) report.via[v.via] = (report.via[v.via] || 0) + 1;
+  // What was read, by condition and by store — the numbers to hold against
+  // the site's own filters (Used, Certified, As-Is) to see the read is whole.
+  report.conditions = { new: 0, used: 0, certified: 0, asIs: 0, unknown: 0 } as Record<string, number>;
+  report.byStore = {} as Record<string, number>;
+  for (const v of all.values()) {
+    if (v.condition === "New") report.conditions.new++; else if (v.condition === "Used") report.conditions.used++; else report.conditions.unknown++;
+    if (v.certified) report.conditions.certified++;
+    if (v.asIs) report.conditions.asIs++;
+    if (v.dealer) report.byStore[v.dealer] = (report.byStore[v.dealer] || 0) + 1;
+  }
   report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, wasPrice: v.wasPrice, mileage: v.mileage, color: v.color, bodyStyle: v.bodyStyle, certified: v.certified, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via, url: v.url }));
   if (probe || !all.size) report.snippet = invText(first).slice(0, 500);
   report.seconds = Math.round((Date.now() - started) / 100) / 10;
@@ -1223,7 +1243,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
   const now = new Date().toISOString();
   const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0;
   const seen = new Set<string>();
-  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
+  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "asIs", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
   for (const v of vehicles) {
     const key = invKey(v); if (!key) { skipped++; continue; }
     const id = "web_" + key;
@@ -1243,7 +1263,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
       interiorColor: keep("interiorColor", v.interiorColor), transmission: keep("transmission", v.transmission), drivetrain: keep("drivetrain", v.drivetrain),
       fuel: keep("fuel", v.fuel), engine: keep("engine", v.engine), description: keep("description", v.description), inventoryDate: keep("inventoryDate", v.inventoryDate),
       certified: v.certified != null ? !!v.certified : !!(was && was.certified), demo: v.demo != null ? !!v.demo : !!(was && was.demo),
-      lot: scope, dealer: keep("dealer", v.dealer), site: keep("site", v.site),
+      lot: scope, dealer: keep("dealer", v.dealer), site: keep("site", v.site), asIs: v.asIs != null ? !!v.asIs : !!(was && was.asIs),
       status: "available", source: "web", seenAt: now, updatedAt: now, createdAt: (was && was.createdAt) || now,
     };
     if (!data.make || !data.model) { skipped++; continue; }
@@ -1357,9 +1377,14 @@ async function handleInventory(body: any): Promise<Response> {
   for (const uid of users) {
     const cfgRes = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.config&deleted=eq.false&select=data&limit=1`), { headers: sbHeaders() });
     const cfg = cfgRes.ok ? ((((await cfgRes.json()) as any[])[0] || {}).data || {}) : {};
-    const url = network
-      ? String(req.url || ((cfg.networkSiteUrl || "") + (cfg.networkUsedSuffix || ""))).trim()
-      : String(req.url || cfg.storeSiteUrl || "").trim();
+    // The network can be more than one listing — one per filter the site
+    // keeps apart (Used, Certified, As-Is), one URL per line in Settings.
+    // A line that already carries its own type filter keeps it; the rest
+    // get the used-only suffix.
+    const urls = network
+      ? (req.url ? [String(req.url)] : String(cfg.networkSiteUrl || "").split(/[\s,]+/).filter((u) => /^https?:\/\//i.test(u)).map((u) => (/vehicle-inventory-type|type-ids|condition=|inventory-type/i.test(u) || !(cfg.networkUsedSuffix || "") ? u : u + cfg.networkUsedSuffix)))
+      : [String(req.url || cfg.storeSiteUrl || "").trim()];
+    const url = urls[0] || "";
     if (!/^https?:\/\//i.test(url)) { results.push({ uid: uid.slice(0, 8), error: network ? "No network inventory URL in Settings → Advanced → Inventory sites." : "No store inventory URL in Settings → Dealer inventory sites." }); continue; }
     try {
       const scope = network ? "network" : "store";
@@ -1372,7 +1397,28 @@ async function handleInventory(body: any): Promise<Response> {
           if (kr.ok) known = new Set(((await kr.json()) as any[]).map((x) => String((x.data || {}).url || "")).filter(Boolean));
         } catch (_) { /* read them all, then */ }
       }
-      const { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep, { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known });
+      const crawlOpts = { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known };
+      let { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep, crawlOpts);
+      // Further listings merge in, inside what's left of the wall clock; a
+      // listing that didn't fit waits for the next morning and nothing is
+      // marked sold on a partial read.
+      if (urls.length > 1) {
+        const startedAll = Date.now();
+        const seenKeys = new Set(vehicles.map((v: any) => invKey(v)));
+        report.listings = [{ url, found: report.found, complete: report.complete !== false }];
+        for (const more of urls.slice(1)) {
+          if (Date.now() - startedAll > 60000) { report.complete = false; report.listings.push({ url: more, skipped: "out of time — next morning" }); continue; }
+          try {
+            const r2 = await crawlInventory(more, false, false, crawlOpts);
+            r2.vehicles.forEach((v: any) => { const k = invKey(v); if (k && !seenKeys.has(k)) { seenKeys.add(k); vehicles.push(v); } });
+            report.listings.push({ url: more, found: r2.report.found, complete: r2.report.complete !== false });
+            if (r2.report.complete === false) report.complete = false;
+            for (const k of Object.keys(r2.report.conditions || {})) report.conditions[k] = (report.conditions[k] || 0) + r2.report.conditions[k];
+            for (const k of Object.keys(r2.report.byStore || {})) report.byStore[k] = (report.byStore[k] || 0) + r2.report.byStore[k];
+          } catch (e) { report.complete = false; report.listings.push({ url: more, error: String((e as Error)?.message || e) }); }
+        }
+        report.found = vehicles.length;
+      }
       report.scope = scope;
       if (network) report.stores = [...new Set(vehicles.map((v: any) => v.dealer).filter(Boolean))].length;
       const write = await writeInventory(uid, vehicles, report.complete !== false, scope);

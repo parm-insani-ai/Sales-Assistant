@@ -161,7 +161,7 @@ function vehicleCard(v) {
       <div class="row-main">
         <div class="row-title">${esc(vehicleName(v))}</div>
         <div class="row-sub">
-          ${[v.stock ? "Stock #" + esc(v.stock) : "", isNew(v) ? "New" : v.certified ? "Certified" : "", v.mileage != null ? num(v.mileage) + " km" : "", v.color ? esc(v.color) : "", arrives(v)].filter(Boolean).join(" · ")}
+          ${[v.stock ? "Stock #" + esc(v.stock) : "", isNew(v) ? "New" : v.certified ? "Certified" : "", v.asIs ? "As-is" : "", v.mileage != null ? num(v.mileage) + " km" : "", v.color ? esc(v.color) : "", arrives(v)].filter(Boolean).join(" · ")}
           ${isNetwork(v) ? `<div class="small veh-at">${icon("store")} ${esc(atStore(v))}</div>` : ""}
         </div>
       </div>
@@ -237,7 +237,7 @@ function renderVehicleDetail(view, id) {
       ${isNetwork(v) ? `<div class="kv"><span class="k">At</span><span class="v">${esc(atStore(v))}${v.site ? ` <span class="muted">· ${esc(v.site)}</span>` : ""}</span></div>` : ""}
       <div class="kv"><span class="k">Stock #</span><span class="v">${esc(v.stock || "—")}</span></div>
       <div class="kv"><span class="k">VIN</span><span class="v">${esc(v.vin || "—")}</span></div>
-      <div class="kv"><span class="k">Condition</span><span class="v">${esc([v.condition || "Used", v.certified ? "Certified" : "", v.demo ? "Demo" : ""].filter(Boolean).join(" · "))}</span></div>
+      <div class="kv"><span class="k">Condition</span><span class="v">${esc([v.condition || "Used", v.certified ? "Certified" : "", v.asIs ? "As-is / wholesale" : "", v.demo ? "Demo" : ""].filter(Boolean).join(" · "))}</span></div>
       <div class="kv"><span class="k">Kilometres</span><span class="v">${v.mileage != null ? num(v.mileage) + " km" : "—"}</span></div>
       <div class="kv"><span class="k">Color</span><span class="v">${esc(v.color || "—")}${v.interiorColor ? ` <span class="muted">· ${esc(v.interiorColor)} interior</span>` : ""}</span></div>
       ${v.bodyStyle ? `<div class="kv"><span class="k">Body</span><span class="v">${esc(v.bodyStyle)}</span></div>` : ""}

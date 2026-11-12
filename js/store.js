@@ -266,7 +266,11 @@ const DEFAULT_STATE = {
     storeSiteName: "My store",
     storeSiteUrl: "https://www.oregansnissanhalifax.com/inventory/?do-search=1&search.vehicle-inventory-type-ids.0=-1",
     networkSiteName: "O'Regan's network",
-    networkSiteUrl: "https://www.oregans.com/inventory/?do-search=1",
+    // The group's used listing as the salesperson sells it: the Used type
+    // and every vehicle category the group counts as sellable used
+    // (certified and as-is among them). The URL carries its own filter,
+    // so the suffix below only applies to a line typed without one.
+    networkSiteUrl: "https://www.oregans.com/inventory/?do-search=1&search.vehicle-inventory-type-ids.0=2&search.vehicle-category-ids.0=2&search.vehicle-category-ids.1=8&search.vehicle-category-ids.2=17&search.vehicle-category-ids.3=16&search.vehicle-category-ids.4=12&search.vehicle-category-ids.5=14&search.vehicle-category-ids.6=6&search.vehicle-category-ids.7=5&search.vehicle-category-ids.8=7&search.vehicle-category-ids.9=13&search.vehicle-category-ids.10=9&search.vehicle-category-ids.11=15&search.vehicle-category-ids.12=11&search.vehicle-category-ids.13=10",
     networkUsedSuffix: "&search.vehicle-inventory-type-ids.0=2",
     // The group's used inventory, read every morning after the store's lot
     // (the function tags every unit with the store it sits at). Off until
@@ -392,6 +396,12 @@ function hydrate(parsed) {
   // typed by hand is left alone.
   if (merged.settings.storeSiteUrl === "https://www.oregansnissanhalifax.com/inventory/?do-search=1") {
     merged.settings.storeSiteUrl = DEFAULT_STATE.settings.storeSiteUrl;
+  }
+  // The network URL used to be the bare search page; the group's used
+  // listing with every sellable category is the one to read. An install
+  // still on the old default moves to it; a URL typed by hand is left alone.
+  if (merged.settings.networkSiteUrl === "https://www.oregans.com/inventory/?do-search=1") {
+    merged.settings.networkSiteUrl = DEFAULT_STATE.settings.networkSiteUrl;
   }
   // One-time correction: early builds shipped a 6.5% tax default. Nova Scotia
   // HST on a vehicle deal is 14%. Runs once (taxRateFixed), so a rate the

@@ -172,7 +172,8 @@ export function renderSettings(view) {
       <div class="field"><label>My store</label><input id="d-store-name" value="${esc(s.storeSiteName || "")}" placeholder="My store"></div>
       <div class="field"><label>Inventory URL</label><input id="d-store-url" type="url" value="${esc(s.storeSiteUrl || "")}" placeholder="https://…/inventory/"></div>
       <div class="field"><label>Network</label><input id="d-net-name" value="${esc(s.networkSiteName || "")}" placeholder="Dealer network"></div>
-      <div class="field"><label>Network inventory URL</label><input id="d-net-url" type="url" value="${esc(s.networkSiteUrl || "")}" placeholder="https://…/inventory/"></div>
+      <div class="field"><label>Network inventory URL — one per line</label><textarea id="d-net-url" rows="3" placeholder="https://…/inventory/?do-search=1">${esc(s.networkSiteUrl || "")}</textarea></div>
+      <div class="hint" style="margin:-4px 0 10px">Open the group site's inventory, tick every used type you sell (Used, Certified, As-Is, whatever the site calls them) and paste the page's address. If the site keeps them on separate pages, paste one address per line. A line with its own type filter is read as is; the rest get the "used only" filter below.</div>
       <div class="field"><label>Network "used only" filter</label><input id="d-net-suffix" value="${esc(s.networkUsedSuffix || "")}" placeholder="&search.vehicle-inventory-type-ids.0=2"></div>
       <label class="switch" style="margin:4px 0 8px"><input id="d-net-on" type="checkbox" ${s.networkInventory ? "checked" : ""}><span><b>Read the network's used inventory every morning too</b></span></label>
       <div class="small muted" style="margin:0 0 8px">Every used unit across the group, tagged with the store it sits at, in the app like your own lot: the Inventory screen's Network used chip, lot questions ("any used Rogues?" says what's here and what's at other stores), Deal Radar matches, and the watches for customers waiting on a vehicle. Read at 7:25 after your lot; a big group is covered across a few mornings.</div>
@@ -182,7 +183,8 @@ export function renderSettings(view) {
         const r = s.lastNetworkImport;
         if (!s.networkInventory) return "Off — turn it on and the network's used units come in every morning.";
         if (!r || !r.at) return "On — read every morning at 7:25. Not imported yet.";
-        return `Last network import ${esc(timeAgo(r.at))}: ${r.found} on the site · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.stores || 0} store${r.stores === 1 ? "" : "s"}`;
+        const c = r.conditions || {};
+        return `Last network import ${esc(timeAgo(r.at))}: ${r.found} on the site${c.certified != null ? ` · ${c.certified} certified · ${c.asIs || 0} as-is${c.new ? ` · ${c.new} read as new (left out)` : ""}` : ""} · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold · ${r.stores || 0} store${r.stores === 1 ? "" : "s"}${r.complete === false ? " · more tomorrow" : ""}`;
       })()}</div>
       <button type="button" class="btn btn-ghost btn-block" id="inv-import">${icon("car")} Import the lot now</button>
       <div class="small muted" id="inv-status" style="margin-top:8px">${(() => {
@@ -322,9 +324,11 @@ export function renderSettings(view) {
       const r = await res.json().catch(() => ({}));
       lastReport = r;
       if (!res.ok || r.error) { line.textContent = r.error || `The function answered ${res.status}`; el.querySelector("#inv-copy").hidden = false; toast("Network import failed", "danger"); return; }
-      store.updateSettings({ lastNetworkImport: { at: r.at || new Date().toISOString(), found: r.found || 0, added: r.added || 0, updated: r.updated || 0, removed: r.removed || 0, onFile: r.onFile || 0, stores: r.stores || 0, complete: r.complete !== false } });
+      store.updateSettings({ lastNetworkImport: { at: r.at || new Date().toISOString(), found: r.found || 0, added: r.added || 0, updated: r.updated || 0, removed: r.removed || 0, onFile: r.onFile || 0, stores: r.stores || 0, complete: r.complete !== false, conditions: r.conditions || null } });
+      const c = r.conditions || {};
+      const stores = r.byStore ? Object.entries(r.byStore).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ") : "";
       line.textContent = r.found
-        ? `${r.found} used across the network · ${r.stores || 0} store${r.stores === 1 ? "" : "s"} · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold${r.complete === false ? " · more tomorrow" : ""}`
+        ? `${r.found} used across the network · ${c.certified || 0} certified · ${c.asIs || 0} as-is${c.new ? ` · ${c.new} read as new (check the filter)` : ""} · ${r.stores || 0} store${r.stores === 1 ? "" : "s"}${stores ? ` (${stores})` : ""} · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold${r.complete === false ? " · more tomorrow" : ""}. Hold these against the site's own Used, Certified and As-Is counts.`
         : "The network site was read but no vehicles were found — copy the report and send it over.";
       el.querySelector("#inv-copy").hidden = false;
       toast(r.found ? `${r.found} network units read — syncing them down` : "Nothing found", r.found ? "success" : "danger");

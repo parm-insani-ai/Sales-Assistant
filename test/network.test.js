@@ -20,6 +20,8 @@ await p.addInitScript(() => {
     { id: "web_D", year: 2020, make: "Nissan", model: "Rogue", trim: "S", price: 23900, mileage: 77000, stock: "H551", condition: "Used", lot: "network", dealer: "O'Regan's Honda Dartmouth", ...x },
     { id: "web_E", year: 2019, make: "Toyota", model: "RAV4", trim: "XLE", price: 26900, mileage: 66000, stock: "T1", condition: "Used", lot: "network", dealer: "O'Regan's Toyota Dartmouth", ...x },
     { id: "web_F", year: 2018, make: "Nissan", model: "Sentra", trim: "SV", price: 14900, mileage: 90000, stock: "P9", condition: "Used", lot: "network", dealer: "O'Regan's Nissan Halifax", status: "sold", createdAt: x.createdAt, updatedAt: x.updatedAt, source: "web" },
+    // An as-is Rogue at another store: never offered unless asked for by name.
+    { id: "web_G", year: 2016, make: "Nissan", model: "Rogue", trim: "S", price: 8900, mileage: 190000, stock: "W77", condition: "Used", asIs: true, lot: "network", dealer: "O'Regan's Nissan Halifax", ...x },
   ];
   localStorage.setItem("sales-assistant:v1", JSON.stringify({ leads: [], vehicles, settings: { salesperson: "Parm", dealership: "O'Regan's Nissan Halifax", cloudAutoSync: false, taxRate: 14, docFee: 699, defaultApr: 7.9, defaultTerm: 72 } }));
 });
@@ -29,11 +31,11 @@ await p.waitForTimeout(800);
 // --- Inventory: the chips keep our lot; the network has its own, counted; the card names the store.
 let s = await p.evaluate(() => ({ chips: [...document.querySelectorAll("[data-filter]")].map((c) => c.textContent.trim()), avail: document.querySelectorAll(".veh-list .card").length }));
 console.log("chips:", JSON.stringify(s));
-if (!s.chips.includes("Network used · 3") || s.avail !== 2) fail("Available shows our two; Network used counts three (the sold one isn't counted): " + JSON.stringify(s));
+if (!s.chips.includes("Network used · 4") || s.avail !== 2) fail("Available shows our two; Network used counts four (the sold one isn't counted; the as-is one is): " + JSON.stringify(s));
 await p.click('[data-filter="network"]'); await p.waitForTimeout(300);
-s = await p.evaluate(() => ({ n: document.querySelectorAll(".veh-list .card").length, at: [...document.querySelectorAll(".veh-list .veh-at")].map((e) => e.textContent.trim()) }));
+s = await p.evaluate(() => ({ n: document.querySelectorAll(".veh-list .card").length, at: [...document.querySelectorAll(".veh-list .veh-at")].map((e) => e.textContent.trim()), asis: [...document.querySelectorAll(".veh-list .row-sub")].filter((e) => /As-is/.test(e.textContent)).length }));
 console.log("network chip:", JSON.stringify(s));
-if (s.n !== 3 || !s.at.some((t) => /Toyota Dartmouth/.test(t)) || !s.at.some((t) => /Honda Dartmouth/.test(t))) fail("the network chip lists the three with their stores: " + JSON.stringify(s));
+if (s.n !== 4 || !s.at.some((t) => /Toyota Dartmouth/.test(t)) || !s.at.some((t) => /Honda Dartmouth/.test(t)) || s.asis !== 1) fail("the network chip lists the four with their stores, the as-is one marked: " + JSON.stringify(s));
 await p.click('[data-filter="used"]'); await p.waitForTimeout(300);
 s = await p.evaluate(() => document.querySelectorAll(".veh-list .card").length);
 if (s !== 1) fail("Used is our own used only: " + s);
@@ -43,8 +45,10 @@ const lot = await p.evaluate(async () => {
   const st = await import("/js/store.js"); const L = await import("/js/lot.js");
   const V = st.all("vehicles");
   const ask = (q) => { const r = L.answerLot(V, q, {}, { force: true }); return r ? { answer: r.answer, count: r.count, ours: r.ours, network: r.network, first: r.matches[0] && r.matches[0].id } : null; };
-  return { used: ask("any used Rogues"), ours: ask("used Rogues on our lot"), net: ask("used Rogues across the network"), neu: ask("do we have any new Rogues"), rav: ask("do we have a RAV4"), summary: L.lotSummary(V) };
+  return { used: ask("any used Rogues"), ours: ask("used Rogues on our lot"), net: ask("used Rogues across the network"), neu: ask("do we have any new Rogues"), rav: ask("do we have a RAV4"), asis: ask("any as-is Rogues"), summary: L.lotSummary(V) };
 });
+if (!lot.asis || lot.asis.count !== 1 || lot.asis.first !== "web_G" || !/as-is/.test(lot.asis.answer)) fail("as-is units answer only when asked for: " + JSON.stringify(lot.asis));
+if (!/1 as-is, offered only when asked for/.test(lot.summary)) fail("the lot picture counts the as-is apart: " + lot.summary);
 console.log("lot:", JSON.stringify(lot, null, 0));
 if (!lot.used || lot.used.count !== 3 || lot.used.ours !== 1 || lot.used.network !== 2 || !/1 on our lot and 2 across the network/.test(lot.used.answer) || lot.used.first !== "web_B") fail("used Rogues: ours first, both counted: " + JSON.stringify(lot.used));
 if (!/at O'Regan's (Toyota|Honda) Dartmouth/.test(lot.used.answer)) fail("the network unit names its store: " + lot.used.answer);
@@ -52,8 +56,8 @@ if (!lot.ours || lot.ours.count !== 1 || lot.ours.network !== 0) fail("'on our l
 if (!lot.net || lot.net.count !== 2 || lot.net.ours !== 0 || !/across the network/.test(lot.net.answer)) fail("'across the network' is theirs alone: " + JSON.stringify(lot.net));
 if (!lot.neu || lot.neu.count !== 1 || lot.neu.network !== 0) fail("new Rogues never come from the network: " + JSON.stringify(lot.neu));
 if (!lot.rav || lot.rav.count !== 1 || !/across the network/.test(lot.rav.answer) || !/Toyota Dartmouth/.test(lot.rav.answer)) fail("a RAV4 we don't stock is found at the Toyota store: " + JSON.stringify(lot.rav));
-// Three units at two stores (the sold Sentra at the Nissan store doesn't count).
-if (!/2 vehicles on the lot/.test(lot.summary) || !/Plus 3 used across the 2 other stores in the group/.test(lot.summary)) fail("the assistant's lot picture counts the network apart: " + lot.summary);
+// Four units at three stores (the sold Sentra doesn't count; the as-is Rogue at the Nissan store does).
+if (!/2 vehicles on the lot/.test(lot.summary) || !/Plus 4 used across the 3 other stores in the group/.test(lot.summary)) fail("the assistant's lot picture counts the network apart: " + lot.summary);
 
 // --- The assistant's tool carries the store.
 const tool = await p.evaluate(async () => { const m = await import("/js/agent.js"); return (await m.execTool("lot_lookup", { question: "any used Rogues" })).result; });
