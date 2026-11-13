@@ -99,8 +99,14 @@ goes through a database function that checks the manager relationship:
   (the network URL plus its used-only filter) and writes every unit tagged
   `lot: "network"` with the store it sits at in `dealer`. The store's own
   units keep `lot: "store"`; a unit on both sites stays the store's; going
-  missing is judged inside one lot only. A long list of vehicle pages is
-  read new-first, so a big group is covered across a few mornings.
+  missing is judged inside one lot only. When the listing page installs the
+  platform's search widget, the read takes the platform's own search feed
+  (`/api/vehicle-inventory-search/`, the page's `search.*` filters, a hundred
+  rendered cards a request): the same list and count the page shows, with
+  the store, price, kilometres, VIN and certification badge on every card —
+  `certified` for a brand or Green Light badge, `asIs` for "As Traded". A
+  site without the widget falls back to its cards or its vehicle pages, a
+  long list of those read in fixed slices run by run.
 - **The store's lot** — the website import fills a shared inventory for the
   store as well as the importer's own book (re-run `schema.sql` and paste
   the function to get this). Every member's app pulls it, so a rep who

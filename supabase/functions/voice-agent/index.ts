@@ -925,6 +925,68 @@ function invPageProbe(html, url) {
     textSnippet: invText(h).slice(0, 700), vinContexts: ctx, inlineScripts: inline, apiHints: invApiHints(h), dataAttrs: (h.match(/data-(?:vin|stock|vehicle|year|make|model|price|trim)[a-z-]*=["'][^"']{0,60}["']/gi) || []).slice(0, 15),
   };
 }
+// The group site's search feed. The listing page is a shell that installs a
+// search widget; the widget fetches its results, as rendered cards, from the
+// platform's search API — the same list, count and filters as the page shows,
+// store and badges included. The page names the widget and its profile; the
+// page's data stub names the platform's origin.
+function invFeedInfo(html) {
+  const h = String(html || "");
+  const call = /data-osw-api-call=["']vehicle-inventory-search-screen-widget["']/i.test(h);
+  const profile = (/data-osw-profile-id=["']([^"']+)["']/i.exec(h) || [])[1] || "";
+  const origin = invServicesOrigin(h);
+  return call && profile && origin ? { origin: origin.replace(/\/$/, ""), profile } : null;
+}
+// The feed's address for one page of a listing: the listing's own search.*
+// filters, the offset and limit, and the widget's profile — the way the
+// results widget asks (ResultsStreamListAdapter.loadItems).
+function invFeedUrl(info, pageUrl, offset, limit) {
+  const u = new URL(info.origin + "/api/vehicle-inventory-search/");
+  try { new URL(pageUrl).searchParams.forEach((v, k) => { if (/^search\./i.test(k)) u.searchParams.append(k, v); }); } catch (_) { /* no filters */ }
+  u.searchParams.set("do-search", "1");
+  u.searchParams.set("search.results-offset", String(offset));
+  u.searchParams.set("search.results-limit", String(limit));
+  u.searchParams.set("app.widgetProfile.id", info.profile + ".searchResults.search");
+  u.searchParams.set("app.referrer", String(pageUrl || ""));
+  return u.toString();
+}
+// One rendered card from the feed → a vehicle. The card's classes are the
+// platform's own (ouvsr…), so each field is read from its element, not
+// guessed from the text; the badges are the platform's certification stamps
+// ("Nissan Certified", "Green Light Certified", "As Traded").
+function parseFeedItem(html, base) {
+  const h = String(html || "");
+  const text = (cls) => { const m = new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"[^>]*>([^<]*)<`).exec(h); return m ? invDecode(m[1]) : ""; };
+  const spec = (cls) => { const m = new RegExp(`\\b${cls}\\b[^>]*>[\\s\\S]*?class="ouvsrValue"[^>]*>([\\s\\S]*?)<\\/span>\\s*<\\/div>`).exec(h); return m ? invDecode(m[1].replace(/<span class="ouvsrShortLabel">[^<]*<\/span>/g, "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim() : ""; };
+  const attr = (name) => (new RegExp(`${name}="([^"]*)"`).exec(h) || [])[1] || "";
+  const year = Number(text("ouvsrYear")) || null, make = text("ouvsrMake"), model = text("ouvsrModel");
+  if (!make || !model) return null;
+  const badges = []; const br = /ouvsrCertificationBadge[^>]*\btitle="([^"]*)"/g; let bm;
+  while ((bm = br.exec(h))) { const t = invDecode(bm[1]); if (t && !badges.includes(t)) badges.push(t); }
+  const typeText = text("ouvsrInventoryType"), typeId = attr("data-vehicle-inventory-type-id");
+  const condition = /new/i.test(typeText) || typeId === "1" ? "New" : /used|pre-?owned/i.test(typeText) || typeId === "2" ? "Used" : "";
+  const dealer = text("ouvsrOwnerLocationLink");
+  const tagline = text("ouvsrTagline");
+  const descHtml = (/class="ouvsrDescription[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(h) || [])[1] || "";
+  const description = invDecode(descHtml.replace(/<a [^>]*>[^<]*<\/a>/g, "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  const priceText = (/ouvsrCurrentPrice[\s\S]{0,200}?class="currencyValue"[^>]*>([^<]*)</.exec(h) || [])[1] || "";
+  const price = Number(String(priceText).replace(/[^0-9.]/g, "")) || null;
+  const kmText = (/ouvsrMileage[\s\S]{0,300}?class="ouvsrValueNum"[^>]*>([^<]*)</.exec(h) || [])[1] || "";
+  const mileage = Number(String(kmText).replace(/[^0-9]/g, "")) || null;
+  const stock = attr("data-vehicle-stock") || spec("ouvsrStockNumber").replace(/^#\s*/, "");
+  const vin = ((/vehicle\.vin=([A-HJ-NPR-Z0-9]{17})/i.exec(h) || [])[1] || "").toUpperCase();
+  let url = (/href="(\/inventory\/[^"?#]+)"/.exec(h) || /href="(https?:\/\/[^"]*\/inventory\/[^"?#]+)"/.exec(h) || [])[1] || "";
+  if (url) { try { url = new URL(invDecode(url), base).toString(); } catch (_) { /* leave it */ } }
+  const photo = (/ouvsrMainImage[^>]*\b(?:src|data-src|style="background-image:\s*url\()["']?([^"')\s]+)/.exec(h) || [])[1] || "";
+  const asIs = badges.some((t) => /as[- ]?traded|as[- ]?is|wholesale/i.test(t)) || /\bwholesale\b/i.test(dealer) || /\bas[- ]?traded\b|\bas[- ]?is\b/i.test(description);
+  const certified = !asIs && badges.some((t) => /certified|\bcpo\b|pre-?owned/i.test(t));
+  return {
+    year, make, model, trim: text("ouvsrTrimAndPackage"), price, mileage, color: text("ouvsrColorName"), stock, vin, condition,
+    certified, asIs, certification: badges.join(" · "), dealer, url, pageUrl: url, photo,
+    engine: spec("ouvsrEngine"), transmission: spec("ouvsrTransmission"), drivetrain: spec("ouvsrDrivetrain"), fuel: spec("ouvsrFuelType"),
+    description: [tagline, description].filter(Boolean).join(" — ").slice(0, 600), via: "feed",
+  };
+}
 function invPageParam(html) { const m = /[?&](page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/i.exec(String(html)); return m ? m[1] : null; }
 function invPageCount(html) { let max = 1; const re = /[?&](?:page|pg|paged|pageNumber|page_number|search\.page|p)=(\d+)/gi; let m; while ((m = re.exec(String(html)))) max = Math.max(max, Number(m[1])); return Math.min(max, 60); }
 // === inventory parser end ===
@@ -989,9 +1051,39 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
     }
     all.set(k, v);
   });
-  add(parseInventoryHtml(first, parseOpts));
+  // The platform's own search feed, when the page installs its search
+  // widget: the listing's whole result set, a hundred cards a request, with
+  // the store, price, kilometres and badges on each — no sitemap, no
+  // per-page reads, and the same count the page shows.
+  const feed = invFeedInfo(first);
+  if (!feed) add(parseInventoryHtml(first, parseOpts));
 
-  if (all.size) {
+  if (feed) {
+    report.mode = "feed"; report.feed = { origin: feed.origin, profile: feed.profile };
+    const LIMIT = 100; let offset = 0, total = 0, pages = 0;
+    const urls = new Set<string>();
+    const feedHeaders = { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": "Mozilla/5.0", "Referer": url, "Origin": origin };
+    while (pages < 60) {
+      if (Date.now() - started > BUDGET_MS) { report.warnings.push("stopped at the time budget"); report.complete = false; break; }
+      let data: any;
+      try {
+        const r = await fetch(invFeedUrl(feed, url, offset, LIMIT), { headers: feedHeaders });
+        if (!r.ok) throw new Error(`the feed answered ${r.status}`);
+        data = await r.json();
+      } catch (e) { report.warnings.push(`feed page ${pages + 1}: ${(e as Error).message}`); report.complete = false; break; }
+      const s = data && data.search;
+      if (!s || !Array.isArray(s.results)) { report.warnings.push("the feed answered without results"); report.complete = false; if (probe) report.feedRaw = JSON.stringify(data).slice(0, 600); break; }
+      total = Number(s.stats && s.stats.totalResultsCount) || total;
+      const items = s.results.map((x: any) => parseFeedItem(x && x.html, url)).filter(Boolean);
+      if (probe && !report.feedSample && s.results[0]) report.feedSample = { parsed: items[0] || null, html: String(s.results[0].html || "").slice(0, 800) };
+      items.forEach((v: any) => { if (v.url) urls.add(v.url); });
+      add(items); pages++; offset += s.results.length;
+      if (!s.results.length || offset >= total) break;
+    }
+    report.pages = pages; report.feedTotal = total; report.vehiclePagesListed = total;
+    if (offset < total) { report.complete = false; report.warnings.push(`${total} on the feed; ${offset} read before the run ended`); }
+    else listed = urls;
+  } else if (all.size) {
     // The search page carries the vehicles: page on until a page adds nothing.
     const param = invPageParam(first) || "page";
     report.pageParam = param; report.pagesDeclared = invPageCount(first);
@@ -1163,8 +1255,10 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
   }
   // The platform behind the site knows the price and the kilometres: ask it
   // for each vehicle by VIN, the way the page's own widget does.
+  // (The feed already carries price and kilometres; across a network of
+  // hundreds, a call per vehicle wouldn't fit the run.)
   const services = invServicesOrigin(first);
-  if (services && all.size) {
+  if (services && all.size && !(feed && scope === "network")) {
     const targets = [...all.values()].filter((v) => v.vin || v.stock);
     const plat: any = { origin: services, asked: targets.length, byStock: targets.filter((v) => !v.vin).length, answeredByStock: 0, answered: 0, priced: 0, withKm: 0, failed: 0, noVin: [...all.values()].filter((v) => !v.vin).length };
     let sampleRaw: any = null, unpricedRaw: any = null;
@@ -1323,13 +1417,31 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
       }
     }
   }
-  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "asIs", "status", "url", "pageUrl", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
+  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "asIs", "status", "url", "pageUrl", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer", "certification"];
+  // A unit filed before its VIN was known (by stock number or page) is the
+  // same unit when it comes back with one: carried over, not doubled.
+  const byStock = new Map<string, string>(), byUrl = new Map<string, string>();
+  for (const [id, w] of byId) {
+    if (w.source !== "web" || lotOf(w) !== scope || w.status === "sold") continue;
+    if (w.stock) byStock.set(String(w.stock).replace(/[^A-Za-z0-9]/g, "").toUpperCase(), id);
+    for (const u of [w.url, w.pageUrl]) if (u) byUrl.set(String(u), id);
+  }
+  let rekeyed = 0;
   for (const v of vehicles) {
     const key = invKey(v); if (!key) { skipped++; continue; }
     const id = "web_" + key;
     if (seen.has(id)) continue;
     seen.add(id);
-    const was = byId.get(id) || null;
+    let was = byId.get(id) || null;
+    if (!was) {
+      const oldId = (v.stock && byStock.get(String(v.stock).replace(/[^A-Za-z0-9]/g, "").toUpperCase())) || (v.url && byUrl.get(String(v.url))) || (v.pageUrl && byUrl.get(String(v.pageUrl))) || "";
+      const old = oldId && oldId !== id ? byId.get(oldId) : null;
+      if (old && !seen.has(oldId)) {
+        was = old;
+        rows.push({ id: oldId, user_id: uid, collection: "vehicles", data: { ...old, updatedAt: now, movedTo: id }, deleted: true });
+        byId.delete(oldId); seen.add(oldId); rekeyed++;
+      }
+    }
     // The store's own unit, met again on the group site: left as the store's.
     if (scope === "network" && was && lotOf(was) === "store") continue;
     const keep = (k: string, val: any) => (val != null && val !== "" ? val : was ? was[k] : (typeof val === "number" ? null : ""));
@@ -1342,7 +1454,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
       wasPrice: v.wasPrice != null ? v.wasPrice : was ? was.wasPrice ?? null : null,
       interiorColor: keep("interiorColor", v.interiorColor), transmission: keep("transmission", v.transmission), drivetrain: keep("drivetrain", v.drivetrain),
       fuel: keep("fuel", v.fuel), engine: keep("engine", v.engine), description: keep("description", v.description), inventoryDate: keep("inventoryDate", v.inventoryDate),
-      certified: v.certified != null ? !!v.certified : !!(was && was.certified), demo: v.demo != null ? !!v.demo : !!(was && was.demo),
+      certified: v.certified != null ? !!v.certified : !!(was && was.certified), demo: v.demo != null ? !!v.demo : !!(was && was.demo), certification: keep("certification", v.certification),
       lot: scope, dealer: keep("dealer", v.dealer), site: keep("site", v.site), pageUrl: keep("pageUrl", v.pageUrl), asIs: v.asIs != null ? !!v.asIs : !!(was && was.asIs),
       status: "available", source: "web", seenAt: now, updatedAt: now, createdAt: (was && was.createdAt) || now,
     };
@@ -1384,8 +1496,8 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
     }
   } catch { /* best effort */ }
   // This lot's standing after the write: on file and not sold.
-  const onFileScope = [...byId.values()].filter((w) => lotOf(w) === scope && w.status !== "sold").length + added - removed;
-  return { added, updated, removed, skipped, cleaned, unchanged: Math.max(0, seen.size - added - updated - skipped - cleaned), onFile: byId.size + added, onFileScope, shared };
+  const onFileScope = [...byId.values()].filter((w) => lotOf(w) === scope && w.status !== "sold").length + added + rekeyed - removed;
+  return { added, updated, removed, skipped, cleaned, rekeyed, unchanged: Math.max(0, seen.size - added - updated - skipped - cleaned - rekeyed), onFile: byId.size + added + rekeyed, onFileScope, shared };
 }
 
 // ---- Stock watches ----
