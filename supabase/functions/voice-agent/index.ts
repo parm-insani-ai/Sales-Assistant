@@ -546,6 +546,9 @@ function invDealerIn(text, re, prefix) {
   }
   return "";
 }
+// An address with the parts that vary taken off, for matching one page to
+// a unit on file: no protocol, no "www.", no trailing slash, no query.
+function invLoose(u) { return String(u || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("?")[0].split("#")[0].replace(/\/+$/, ""); }
 function invDealerFromHost(host, prefix) {
   let h = String(host || "").toLowerCase().replace(/^www\./, "").replace(/\.(com|ca|net|org)$/, "");
   if (!h) return "";
@@ -1043,9 +1046,15 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
       report.vehiclePagesNewSkipped = before - allPages.length;
     }
     listed = new Set(allPages);
-    const list = allPages.slice().sort((a, b) => (known.has(a) ? 1 : 0) - (known.has(b) ? 1 : 0)).slice(0, PAGE_CAP);
+    // Already on file? By the address as written, by the address with the
+    // protocol, "www." and the trailing slash taken off, or by the stock
+    // number in the address — so the pages not yet read always go first.
+    const isKnown = (u) => known.has(u) || known.has(invLoose(u)) || (() => { const s = invFromSlug(u); return !!(s && s.stock && known.has("stk:" + s.stock.toUpperCase())); })();
+    const list = allPages.slice().sort((a, b) => (isKnown(a) ? 1 : 0) - (isKnown(b) ? 1 : 0)).slice(0, PAGE_CAP);
     report.vehiclePagesListed = allPages.length;
-    report.vehiclePagesKnown = allPages.filter((u) => known.has(u)).length;
+    report.vehiclePagesKnown = allPages.filter(isKnown).length;
+    report.knownOnFile = known.size;
+    report.pagesSample = allPages.slice(0, 3);
     if (allPages.length > PAGE_CAP) { report.complete = false; report.vehiclePagesLeft = allPages.length - PAGE_CAP; report.warnings.push(`${allPages.length} vehicle pages listed; ${PAGE_CAP} read this run, the rest follow`); }
     let fetched = 0, parsed = 0, failed = 0;
     let firstPage: { url: string; html: string; vin: string; stock: string } | null = null;
@@ -1468,8 +1477,12 @@ async function handleInventory(body: any, httpReq: Request | null = null): Promi
       let known = new Set<string>();
       try {
         (await sbAllRows(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&data->>lot=eq.${scope}&data->>status=eq.available&select=id,data&order=id`))
-          .forEach((x) => { const d = x.data || {}; if (d.url) known.add(String(d.url)); if (d.pageUrl) known.add(String(d.pageUrl)); });
-      } catch (_) { /* read them all, then */ }
+          .forEach((x) => {
+            const d = x.data || {};
+            for (const u of [d.url, d.pageUrl]) if (u) { known.add(String(u)); known.add(invLoose(u)); }
+            if (d.stock) known.add("stk:" + String(d.stock).toUpperCase());
+          });
+      } catch (e) { console.error("known read", String(e)); }
       const crawlOpts = { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known };
       let { vehicles, report, listed } = await crawlInventory(url, !!req.probe, !!req.deep, crawlOpts);
       // Further listings merge in, inside what's left of the wall clock; a
