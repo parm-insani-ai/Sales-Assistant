@@ -50,9 +50,12 @@ jobs:
             exit 1
           fi
 
+      # The token keeps the "latest release" lookup off GitHub's anonymous
+      # rate limit, which a run of deploys in one evening can hit.
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # The folder is voice-agent for historical reasons; the deployed name
       # is whatever the app's Settings → Voice agent URL ends in. Deploy the
