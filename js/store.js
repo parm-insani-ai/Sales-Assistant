@@ -278,6 +278,9 @@ const DEFAULT_STATE = {
     // names on the page ("O'Regan's Toyota Dartmouth").
     networkInventory: false,
     networkGroupName: "O'Regan's",
+    // The group's wholesale / as-traded units: on file (offered only when
+    // asked for by name) or left out of the read altogether.
+    networkIncludeAsIs: true,
   },
 };
 

@@ -1396,7 +1396,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
 // `listed`, when the crawl walked the site's own list of vehicle pages, is
 // that whole list: a unit on file whose page isn't on it is gone, even on
 // a run that didn't get to re-read it; a unit still listed is kept.
-async function writeInventory(uid: string, vehicles: any[], complete = true, scope = "store", listed: Set<string> | null = null) {
+async function writeInventory(uid: string, vehicles: any[], complete = true, scope = "store", listed: Set<string> | null = null, dropAsIs = false) {
   if (!vehicles.length) return { added: 0, updated: 0, removed: 0, skipped: 0, unchanged: 0, onFile: null, note: "nothing read — the lot on file was left as it was" };
   const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data&order=id`;
   const existing: any[] = await sbAllRows(q);
@@ -1407,11 +1407,12 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
   const seen = new Set<string>();
   // A new car that an earlier network read stamped as used (the group's
   // sitemap lists new and used alike): taken off the file, not kept as sold.
+  // So is an as-is unit once the rep's switch leaves those out.
   if (scope === "network") {
     for (const [id, was] of byId) {
       if (lotOf(was) !== "network") continue;
       const slug = invFromSlug(was.pageUrl || was.url);
-      if ((slug && slug.condition === "New") || was.condition === "New") {
+      if ((slug && slug.condition === "New") || was.condition === "New" || (dropAsIs && was.asIs)) {
         rows.push({ id, user_id: uid, collection: "vehicles", data: { ...was, status: "sold", updatedAt: now, goneAt: now }, deleted: true });
         byId.delete(id); seen.add(id); cleaned++;
       }
@@ -1627,8 +1628,21 @@ async function handleInventory(body: any, httpReq: Request | null = null): Promi
       }
       report.scope = scope;
       report.hop = hop;
+      // The wholesale / as-traded units, when the rep's switch leaves them
+      // out: not written, their pages not counted as listed (so any on file
+      // go), and the count said in the report.
+      const dropAsIs = network && cfg.networkIncludeAsIs === false;
+      if (dropAsIs) {
+        const out = vehicles.filter((v: any) => v.asIs);
+        report.asIsLeftOut = out.length;
+        if (out.length) {
+          vehicles = vehicles.filter((v: any) => !v.asIs);
+          if (listed) out.forEach((v: any) => { for (const u of [v.url, v.pageUrl]) if (u) listed!.delete(String(u)); });
+          report.found = vehicles.length;
+        }
+      }
       if (network) report.stores = [...new Set(vehicles.map((v: any) => v.dealer).filter(Boolean))].length;
-      const write = await writeInventory(uid, vehicles, report.complete !== false, scope, urls.length > 1 ? null : listed);
+      const write = await writeInventory(uid, vehicles, report.complete !== false, scope, urls.length > 1 ? null : listed, dropAsIs);
       // A long list: the next run picks up where this one stopped — chained
       // here when nobody is waiting on the answer (the morning job), or
       // asked for again by the app, which shows the progress.

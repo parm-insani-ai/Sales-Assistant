@@ -68,15 +68,18 @@ if (tool.count !== 3 || tool.onOurLot !== 1 || tool.acrossNetwork !== 2 || !tool
 await p.evaluate(() => { location.hash = "#/settings"; }); await p.waitForTimeout(700);
 const sw = await p.evaluate(async () => {
   const d = document.querySelector('[data-fold="advanced"]'); if (d && !d.open) d.open = true;
-  const on = document.querySelector("#d-net-on"), btn = document.querySelector("#net-import"), grp = document.querySelector("#d-net-group");
-  if (!on || !btn || !grp) return { found: false };
+  const on = document.querySelector("#d-net-on"), btn = document.querySelector("#net-import"), grp = document.querySelector("#d-net-group"), asis = document.querySelector("#d-net-asis");
+  if (!on || !btn || !grp || !asis) return { found: false };
   const before = btn.disabled;
   on.click(); on.dispatchEvent(new Event("change", { bubbles: true }));
   const st = await import("/js/store.js");
-  return { found: true, before, after: btn.disabled, setting: st.getSettings().networkInventory, group: grp.value };
+  const asisBefore = asis.checked;
+  asis.click(); asis.dispatchEvent(new Event("change", { bubbles: true }));
+  return { found: true, before, after: btn.disabled, setting: st.getSettings().networkInventory, group: grp.value, asisBefore, asisSetting: st.getSettings().networkIncludeAsIs };
 });
 console.log("settings:", JSON.stringify(sw));
 if (!sw.found || !sw.before || sw.after || sw.setting !== true || sw.group !== "O'Regan's") fail("the switch should turn the network read on and enable the button: " + JSON.stringify(sw));
+if (!sw.asisBefore || sw.asisSetting !== false) fail("the as-is switch starts on and turning it off is saved: " + JSON.stringify(sw));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();

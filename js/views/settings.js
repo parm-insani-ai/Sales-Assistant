@@ -178,6 +178,8 @@ export function renderSettings(view) {
       <label class="switch" style="margin:4px 0 8px"><input id="d-net-on" type="checkbox" ${s.networkInventory ? "checked" : ""}><span><b>Read the network's used inventory every morning too</b></span></label>
       <div class="small muted" style="margin:0 0 8px">Every used unit across the group, tagged with the store it sits at, in the app like your own lot: the Inventory screen's Network used chip, lot questions ("any used Rogues?" says what's here and what's at other stores), Deal Radar matches, and the watches for customers waiting on a vehicle. Read at 7:25 after your lot; a big group is covered across a few mornings.</div>
       <div class="field"><label>Group name on the page (finds the store names)</label><input id="d-net-group" value="${esc(s.networkGroupName || "")}" placeholder="O'Regan's"></div>
+      <label class="switch" style="margin:4px 0 4px"><input id="d-net-asis" type="checkbox" ${s.networkIncludeAsIs !== false ? "checked" : ""}><span><b>Include wholesale / as-traded units</b></span></label>
+      <div class="small muted" style="margin:0 0 8px">On: the as-is units are on file too, marked, and offered only when someone asks for one by name. Off: the read keeps the certified used only — the site's own Used count — and takes any as-is units off the file on the next import.</div>
       <button type="button" class="btn btn-ghost btn-block" id="net-import" ${s.networkInventory ? "" : "disabled"}>${icon("car")} Import network used now</button>
       <div class="small muted" id="net-status" style="margin:8px 0 12px">${(() => {
         const r = s.lastNetworkImport;
@@ -312,6 +314,10 @@ export function renderSettings(view) {
     el.querySelector("#net-status").textContent = e.target.checked ? "On — read every morning at 7:25. Tap Import network used now for the first read." : "Off — turn it on and the network's used units come in every morning.";
     toast(e.target.checked ? "On — the network's used inventory comes in every morning" : "Off", e.target.checked ? "success" : "");
   });
+  el.querySelector("#d-net-asis").addEventListener("change", (e) => {
+    store.updateSettings({ networkIncludeAsIs: e.target.checked });
+    toast(e.target.checked ? "As-is units come in with the next import" : "As-is units left out from the next import", "success");
+  });
   el.querySelector("#net-import").addEventListener("click", async (ev) => {
     const btn = ev.currentTarget, line = el.querySelector("#net-status");
     const user = backend.currentUser();
@@ -323,7 +329,7 @@ export function renderSettings(view) {
       // A long list is read a few hundred pages at a run: the function
       // says how many are left and the app asks again until none are,
       // adding up what each run found.
-      const sum = { found: 0, added: 0, updated: 0, removed: 0, cleaned: 0, certified: 0, asIs: 0, isNew: 0, stores: {}, listed: 0 };
+      const sum = { found: 0, added: 0, updated: 0, removed: 0, cleaned: 0, certified: 0, asIs: 0, asIsOut: 0, isNew: 0, stores: {}, listed: 0 };
       let r = null, hops = 0;
       for (;;) {
         const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ inventory: { u: user.id, network: 1, probe: hops === 0 ? 1 : 0, hop: hops } }) });
@@ -331,7 +337,7 @@ export function renderSettings(view) {
         lastReport = r;
         if (!res.ok || r.error) { line.textContent = r.error || `The function answered ${res.status}`; el.querySelector("#inv-copy").hidden = false; toast("Network import failed", "danger"); return; }
         sum.found += r.found || 0; sum.added += r.added || 0; sum.updated += r.updated || 0; sum.removed += r.removed || 0; sum.cleaned += r.cleaned || 0;
-        const c = r.conditions || {}; sum.certified += c.certified || 0; sum.asIs += c.asIs || 0; sum.isNew += (c.new || 0) + (r.droppedNew || 0);
+        const c = r.conditions || {}; sum.certified += c.certified || 0; sum.asIs += c.asIs || 0; sum.asIsOut += r.asIsLeftOut || 0; sum.isNew += (c.new || 0) + (r.droppedNew || 0);
         Object.entries(r.byStore || {}).forEach(([k, n]) => { sum.stores[k] = (sum.stores[k] || 0) + n; });
         sum.listed = Math.max(sum.listed, r.vehiclePagesListed || 0);
         hops++;
@@ -342,7 +348,7 @@ export function renderSettings(view) {
       store.updateSettings({ lastNetworkImport: { at: r.at || new Date().toISOString(), found: onFile, added: sum.added, updated: sum.updated, removed: sum.removed, onFile, stores: Object.keys(sum.stores).length, complete: !(r.more > 0), conditions: { certified: sum.certified, asIs: sum.asIs, new: sum.isNew } } });
       const stores = Object.entries(sum.stores).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ");
       line.textContent = sum.found
-        ? `${onFile} used across the network on file${sum.listed ? ` (${sum.listed} listed on the site)` : ""} · this read: ${sum.found} in ${hops} run${hops === 1 ? "" : "s"}, ${sum.certified} certified, ${sum.asIs} as-is${sum.isNew ? `, ${sum.isNew} new cars left out` : ""} · ${Object.keys(sum.stores).length} store${Object.keys(sum.stores).length === 1 ? "" : "s"}${stores ? ` (${stores})` : ""} · ${sum.added} new · ${sum.updated} updated · ${sum.removed} marked sold${sum.cleaned ? ` · ${sum.cleaned} new cars taken off the file` : ""}${r.more > 0 ? ` · ${r.more} pages still to read — tap again` : ""}. Hold these against the site's own Used, Certified and As-Is counts.`
+        ? `${onFile} used across the network on file${sum.listed ? ` (${sum.listed} listed on the site)` : ""} · this read: ${sum.found} in ${hops} run${hops === 1 ? "" : "s"}, ${sum.certified} certified, ${sum.asIs} as-is${sum.asIsOut ? ` (${sum.asIsOut} left out — the switch above)` : ""}${sum.isNew ? `, ${sum.isNew} new cars left out` : ""} · ${Object.keys(sum.stores).length} store${Object.keys(sum.stores).length === 1 ? "" : "s"}${stores ? ` (${stores})` : ""} · ${sum.added} new · ${sum.updated} updated · ${sum.removed} marked sold${sum.cleaned ? ` · ${sum.cleaned} new cars taken off the file` : ""}${r.more > 0 ? ` · ${r.more} pages still to read — tap again` : ""}. Hold these against the site's own Used, Certified and As-Is counts.`
         : "The network site was read but no vehicles were found — copy the report and send it over.";
       el.querySelector("#inv-copy").hidden = false;
       toast(sum.found ? `${sum.found} network units read — syncing them down` : "Nothing found", sum.found ? "success" : "danger");
