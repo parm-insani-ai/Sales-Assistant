@@ -127,6 +127,19 @@ function sbHeaders() {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   return { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
 }
+// Every row a query names, a thousand at a time: PostgREST answers at most
+// a thousand per request, and a lot of a few thousand units is past that.
+async function sbAllRows(path: string, pageSize = 1000): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const r = await fetch(sbUrl(path), { headers: { ...sbHeaders(), Range: `${from}-${from + pageSize - 1}`, "Range-Unit": "items" } });
+    if (!r.ok && r.status !== 206) { if (from === 0) return out; break; }
+    const rows = (await r.json()) as any[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return out;
+}
 function sbUrl(path: string) {
   return `${Deno.env.get("SUPABASE_URL") || ""}/rest/v1${path}`;
 }
@@ -725,7 +738,9 @@ function invFromPageMeta(html, pageUrl, out, opts) {
   const cond = invCondition(String(pageUrl || "") + " " + title + " " + text.slice(0, 600));
   const rec = { vin, stock, year: split.year || null, make: split.make || "", model: split.model || "", trim: split.trim || "",
     price: price ? invNum(price[1]) : null, mileage: km ? invNum(km[1]) : null, color: "", bodyStyle: "", condition: cond, url: String(pageUrl || ""), photo: meta("og:image") || "",
-    certified: invCertified(String(pageUrl || "") + " " + title + " " + text.slice(0, 1500)), asIs: invAsIs(String(pageUrl || "") + " " + title + " " + text.slice(0, 1500)),
+    // From the address and the heading only: a page's text carries the
+    // site's menus, where "Certified Pre-Owned" is a link on every page.
+    certified: invCertified(String(pageUrl || "") + " " + title), asIs: invAsIs(String(pageUrl || "") + " " + title),
     dealer: opts && opts.dealerRe ? invDealerIn(text.slice(0, 4000), opts.dealerRe, opts.dealerPrefix) : "", via: "page" };
   // The address fills whatever the page didn't: /inventory/Used-2024-Mazda-CX-5-GS-L-P12345/
   const slug = invFromSlug(pageUrl);
@@ -744,6 +759,19 @@ function parseInventoryHtml(html, opts) {
     if (!have) { byKey.set(key, Object.assign({}, r)); order.push(key); return; }
     Object.keys(r).forEach((k) => { if ((have[k] == null || have[k] === "") && r[k] != null && r[k] !== "") have[k] = r[k]; });
   });
+  // On one vehicle's page the bare-HTML reading sees the whole page, menus
+  // included — "Certified Pre-Owned" and "As-Is" are links on every page —
+  // so those two flags, and the store, are taken only from the readings
+  // that know what they're looking at: the structured data, the site's
+  // script, the address and the heading.
+  if (single && byKey.has("one")) {
+    const one = byKey.get("one");
+    const trusted = found.filter((r) => r.via !== "html");
+    one.certified = trusted.some((r) => r.certified === true);
+    one.asIs = trusted.some((r) => r.asIs === true);
+    const dealer = trusted.map((r) => r.dealer).find((d) => d);
+    one.dealer = dealer || "";
+  }
   return order.map((k) => byKey.get(k));
 }
 // Sitemap <loc>s, and which of a site's links look like one vehicle's page.
@@ -804,6 +832,9 @@ function invFromPlatformVehicle(v, url) {
     condition: /new/i.test(condType) ? "New" : condType ? "Used" : "",
     certified: !!(Number(category.certified) || Number(category.manufacturerCertified) || invCertified(condType)), demo: !!Number(v.demo),
     asIs: !!(Number(category.wholesale) || Number(category.asIs) || Number(v.wholesale) || Number(v.asIs) || invAsIs(condType + " " + String(v.trimMarketingBlurb || v.shortDescription || ""))),
+    // The store the unit sits at, wherever the platform keeps it: a dealer
+    // or dealership object, a website name, or any dealer-named field.
+    dealer: name(v.dealer) || name(v.dealership) || name(v.sellingDealer) || name(g("dealer.name")) || name(g("dealership.name")) || name(g("website.name")) || name(g("location.name")) || String(invDeepFind(v, /^(dealer|dealership|store|franchise|location|sellingdealer|dealertitle)(name|title)?$/i, "string") || ""),
     transmission: name(info.transmissionType) || "", drivetrain: name(info.drivetrainType) || "", fuel: name(info.fuelType) || "",
     engine: String(v.engineDescription || ""), description: String(v.trimMarketingBlurb || v.shortDescription || ""),
     inventoryDate: String(v.inventoryDate || "").slice(0, 10), url: String(url || ""), photo: photo ? String(photo) : "", via: "platform",
@@ -944,7 +975,10 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
     if (all.has(k)) { report.dupes = report.dupes || { count: 0, pages: [] }; report.dupes.count++; if (report.dupes.pages.length < 12) report.dupes.pages.push({ key: k.slice(0, 24), page: String(v.url || from || "").split("/").filter(Boolean).pop() }); return; }
     v.lot = scope;
     if (scope === "network") {
-      // The group page is filtered to used; a unit at another store is never ours to sell new.
+      // Only used from the group's other stores: a unit that reads as new
+      // is left out (the sitemap lists new and used alike); one that reads
+      // as nothing in particular, on a used listing, is used.
+      if (v.condition === "New") { report.droppedNew = (report.droppedNew || 0) + 1; return; }
       v.condition = "Used";
       // The vehicle's own page lives on its store's site when the group site
       // links out; that host names the store when nothing on the card did.
@@ -1000,7 +1034,14 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
     // was re-read this run. One run reads at most PAGE_CAP of them, the
     // ones not yet on file first; the caller chains the rest.
     const PAGE_CAP = 400;
-    const allPages = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u));
+    let allPages = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u));
+    // The sitemap doesn't know the search filter. On a used listing, a page
+    // whose address says New (/inventory/New-2026-…) is not read at all.
+    if (scope === "network") {
+      const before = allPages.length;
+      allPages = allPages.filter((u) => { const s = invFromSlug(u); return !(s && s.condition === "New"); });
+      report.vehiclePagesNewSkipped = before - allPages.length;
+    }
     listed = new Set(allPages);
     const list = allPages.slice().sort((a, b) => (known.has(a) ? 1 : 0) - (known.has(b) ? 1 : 0)).slice(0, PAGE_CAP);
     report.vehiclePagesListed = allPages.length;
@@ -1246,14 +1287,25 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
 // a run that didn't get to re-read it; a unit still listed is kept.
 async function writeInventory(uid: string, vehicles: any[], complete = true, scope = "store", listed: Set<string> | null = null) {
   if (!vehicles.length) return { added: 0, updated: 0, removed: 0, skipped: 0, unchanged: 0, onFile: null, note: "nothing read — the lot on file was left as it was" };
-  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data`;
-  const r = await fetch(sbUrl(q), { headers: sbHeaders() });
-  const existing: any[] = r.ok ? await r.json() : [];
+  const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data&order=id`;
+  const existing: any[] = await sbAllRows(q);
   const byId = new Map<string, any>(existing.map((x) => [x.id, x.data || {}]));
   const lotOf = (w: any) => (w && w.lot === "network" ? "network" : "store");
   const now = new Date().toISOString();
-  const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0;
+  const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0, cleaned = 0;
   const seen = new Set<string>();
+  // A new car that an earlier network read stamped as used (the group's
+  // sitemap lists new and used alike): taken off the file, not kept as sold.
+  if (scope === "network") {
+    for (const [id, was] of byId) {
+      if (lotOf(was) !== "network") continue;
+      const slug = invFromSlug(was.pageUrl || was.url);
+      if ((slug && slug.condition === "New") || was.condition === "New") {
+        rows.push({ id, user_id: uid, collection: "vehicles", data: { ...was, status: "sold", updatedAt: now, goneAt: now }, deleted: true });
+        byId.delete(id); seen.add(id); cleaned++;
+      }
+    }
+  }
   const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "asIs", "status", "url", "pageUrl", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
   for (const v of vehicles) {
     const key = invKey(v); if (!key) { skipped++; continue; }
@@ -1316,7 +1368,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
   } catch { /* best effort */ }
   // This lot's standing after the write: on file and not sold.
   const onFileScope = [...byId.values()].filter((w) => lotOf(w) === scope && w.status !== "sold").length + added - removed;
-  return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added, onFileScope, shared };
+  return { added, updated, removed, skipped, cleaned, unchanged: Math.max(0, seen.size - added - updated - skipped - cleaned), onFile: byId.size + added, onFileScope, shared };
 }
 
 // ---- Stock watches ----
@@ -1415,8 +1467,8 @@ async function handleInventory(body: any, httpReq: Request | null = null): Promi
       // new-first and the rest refreshed as the budget allows.
       let known = new Set<string>();
       try {
-        const kr = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&data->>lot=eq.${scope}&data->>status=eq.available&select=data`), { headers: sbHeaders() });
-        if (kr.ok) ((await kr.json()) as any[]).forEach((x) => { const d = x.data || {}; if (d.url) known.add(String(d.url)); if (d.pageUrl) known.add(String(d.pageUrl)); });
+        (await sbAllRows(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&data->>lot=eq.${scope}&data->>status=eq.available&select=id,data&order=id`))
+          .forEach((x) => { const d = x.data || {}; if (d.url) known.add(String(d.url)); if (d.pageUrl) known.add(String(d.pageUrl)); });
       } catch (_) { /* read them all, then */ }
       const crawlOpts = { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known };
       let { vehicles, report, listed } = await crawlInventory(url, !!req.probe, !!req.deep, crawlOpts);
