@@ -40,7 +40,9 @@ export function feesFor(v, s = {}) {
 export function prepareUnits(vehicles, s = {}) {
   const t = num(s.taxRate, 14) / 100; // NS HST on a vehicle deal
   const k = perDollar(s.defaultApr ?? 7.9, s.defaultTerm ?? 72);
-  return (vehicles || []).filter((v) => v && num(v.price) > 0 && (v.status || "available") === "available").map((v) => {
+  // The network's as-is / wholesale units are never a deal to put to a
+  // customer unasked — the same rule the deal builder and the watches keep.
+  return (vehicles || []).filter((v) => v && num(v.price) > 0 && (v.status || "available") === "available" && !v.asIs).map((v) => {
     const fees = feesFor(v, s);
     const price = num(v.price);
     return { v, cls: classifyUnit(v), price, fixed: fees.taxable * (1 + t) + fees.nonTaxable, k, t, name: [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") };
