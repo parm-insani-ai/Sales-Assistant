@@ -927,6 +927,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
   const dealerRe = scope === "network" ? invDealerRe(dealerPrefix) : null;
   const parseOpts: any = { dealerRe, dealerPrefix };
   const known = opts.known || new Set<string>();
+  let listed: Set<string> | null = null; // every vehicle page the site lists (vehicle-pages mode)
   const first = await fetchSitePage(url);
   const origin = new URL(url).origin;
   const report: any = {
@@ -994,22 +995,29 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
     }
     report.sitemapsRead = tried;
     report.vehiclePagesFound = vdps.size;
-    const list = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u))
-      .sort((a, b) => (known.has(a) ? 1 : 0) - (known.has(b) ? 1 : 0))
-      .slice(0, 400);
-    report.vehiclePagesKnown = [...vdps].filter((u) => known.has(u)).length;
+    // Every vehicle page the site lists is the lot's roll call: a unit on
+    // file whose page is no longer listed is gone, whether or not its page
+    // was re-read this run. One run reads at most PAGE_CAP of them, the
+    // ones not yet on file first; the caller chains the rest.
+    const PAGE_CAP = 400;
+    const allPages = [...vdps].filter((u) => !/\/(categories|specials|category|tags?)\//i.test(u));
+    listed = new Set(allPages);
+    const list = allPages.slice().sort((a, b) => (known.has(a) ? 1 : 0) - (known.has(b) ? 1 : 0)).slice(0, PAGE_CAP);
+    report.vehiclePagesListed = allPages.length;
+    report.vehiclePagesKnown = allPages.filter((u) => known.has(u)).length;
+    if (allPages.length > PAGE_CAP) { report.complete = false; report.vehiclePagesLeft = allPages.length - PAGE_CAP; report.warnings.push(`${allPages.length} vehicle pages listed; ${PAGE_CAP} read this run, the rest follow`); }
     let fetched = 0, parsed = 0, failed = 0;
     let firstPage: { url: string; html: string; vin: string; stock: string } | null = null;
     await fetchMany(list, 6, async (u) => {
-      if (Date.now() - started > BUDGET_MS) { report.complete = false; return; }
+      if (Date.now() - started > BUDGET_MS) { report.complete = false; report.vehiclePagesLeft = (report.vehiclePagesLeft || 0) + 1; return; }
       let html: string;
       try { html = await fetchSitePage(u); } catch (_) { failed++; return; }
       fetched++;
       const got = parseInventoryHtml(html, { single: true, url: u, ...parseOpts });
-      if (got.length) { parsed++; add(got.slice(0, 1), u); if (!firstPage && got[0].vin) firstPage = { url: u, html, vin: got[0].vin, stock: got[0].stock }; }
+      if (got.length) { parsed++; got[0].pageUrl = u; add(got.slice(0, 1), u); if (!firstPage && got[0].vin) firstPage = { url: u, html, vin: got[0].vin, stock: got[0].stock }; }
     });
     report.vehiclePagesRead = fetched; report.vehiclePagesWithAVehicle = parsed; report.vehiclePagesFailed = failed;
-    if (!report.complete) report.warnings.push("stopped at the time budget — the rest come next run");
+    if (!report.complete && !report.vehiclePagesLeft) report.warnings.push("stopped at the time budget — the rest come next run");
     // What the search page is made of, for fitting the reader by hand.
     report.scripts = invScripts(first);
     report.apiHints = invApiHints(first);
@@ -1224,7 +1232,7 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
   report.sample = [...all.values()].slice(0, 3).map((v) => ({ year: v.year, make: v.make, model: v.model, trim: v.trim, price: v.price, wasPrice: v.wasPrice, mileage: v.mileage, color: v.color, bodyStyle: v.bodyStyle, certified: v.certified, stock: v.stock, vin: v.vin ? v.vin.slice(0, 6) + "…" : "", condition: v.condition, via: v.via, url: v.url }));
   if (probe || !all.size) report.snippet = invText(first).slice(0, 500);
   report.seconds = Math.round((Date.now() - started) / 100) / 10;
-  return { vehicles: [...all.values()], report };
+  return { vehicles: [...all.values()], report, listed };
 }
 
 // Bring the user's vehicles collection in line with the lot. Unchanged units
@@ -1233,7 +1241,10 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
 // `scope` keeps the two lots apart: the store's own units and the network's
 // used. A unit seen on both (the store's own used car is on the group site
 // too) stays the store's. Going missing is judged inside one scope only.
-async function writeInventory(uid: string, vehicles: any[], complete = true, scope = "store") {
+// `listed`, when the crawl walked the site's own list of vehicle pages, is
+// that whole list: a unit on file whose page isn't on it is gone, even on
+// a run that didn't get to re-read it; a unit still listed is kept.
+async function writeInventory(uid: string, vehicles: any[], complete = true, scope = "store", listed: Set<string> | null = null) {
   if (!vehicles.length) return { added: 0, updated: 0, removed: 0, skipped: 0, unchanged: 0, onFile: null, note: "nothing read — the lot on file was left as it was" };
   const q = `/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&select=id,data`;
   const r = await fetch(sbUrl(q), { headers: sbHeaders() });
@@ -1243,7 +1254,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
   const now = new Date().toISOString();
   const rows: any[] = []; let added = 0, updated = 0, removed = 0, skipped = 0;
   const seen = new Set<string>();
-  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "asIs", "status", "url", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
+  const KEYS = ["year", "make", "model", "trim", "price", "wasPrice", "mileage", "color", "interiorColor", "stock", "condition", "certified", "demo", "asIs", "status", "url", "pageUrl", "photo", "bodyStyle", "transmission", "drivetrain", "fuel", "engine", "description", "inventoryDate", "lot", "dealer"];
   for (const v of vehicles) {
     const key = invKey(v); if (!key) { skipped++; continue; }
     const id = "web_" + key;
@@ -1263,7 +1274,7 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
       interiorColor: keep("interiorColor", v.interiorColor), transmission: keep("transmission", v.transmission), drivetrain: keep("drivetrain", v.drivetrain),
       fuel: keep("fuel", v.fuel), engine: keep("engine", v.engine), description: keep("description", v.description), inventoryDate: keep("inventoryDate", v.inventoryDate),
       certified: v.certified != null ? !!v.certified : !!(was && was.certified), demo: v.demo != null ? !!v.demo : !!(was && was.demo),
-      lot: scope, dealer: keep("dealer", v.dealer), site: keep("site", v.site), asIs: v.asIs != null ? !!v.asIs : !!(was && was.asIs),
+      lot: scope, dealer: keep("dealer", v.dealer), site: keep("site", v.site), pageUrl: keep("pageUrl", v.pageUrl), asIs: v.asIs != null ? !!v.asIs : !!(was && was.asIs),
       status: "available", source: "web", seenAt: now, updatedAt: now, createdAt: (was && was.createdAt) || now,
     };
     if (!data.make || !data.model) { skipped++; continue; }
@@ -1272,8 +1283,12 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
     rows.push({ id, user_id: uid, collection: "vehicles", data, deleted: false });
   }
   for (const [id, was] of byId) {
-    if (!complete) break; // a partial read says nothing about who's gone
     if (was.source !== "web" || seen.has(id) || was.status === "sold" || lotOf(was) !== scope) continue;
+    if (listed && listed.size) {
+      // The site's own list says who's still there.
+      if (!was.pageUrl && !was.url) continue;
+      if (listed.has(String(was.pageUrl || "")) || listed.has(String(was.url || ""))) continue;
+    } else if (!complete) break; // a partial read says nothing about who's gone
     removed++;
     rows.push({ id, user_id: uid, collection: "vehicles", data: { ...was, status: "sold", updatedAt: now, goneAt: now }, deleted: false });
   }
@@ -1299,7 +1314,9 @@ async function writeInventory(uid: string, vehicles: any[], complete = true, sco
       }
     }
   } catch { /* best effort */ }
-  return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added, shared };
+  // This lot's standing after the write: on file and not sold.
+  const onFileScope = [...byId.values()].filter((w) => lotOf(w) === scope && w.status !== "sold").length + added - removed;
+  return { added, updated, removed, skipped, unchanged: Math.max(0, seen.size - added - updated - skipped), onFile: byId.size + added, onFileScope, shared };
 }
 
 // ---- Stock watches ----
@@ -1359,15 +1376,21 @@ async function watchPass(uid: string, vehicles: any[]): Promise<number> {
 // {inventory: {network: 1}} from the later job, or {inventory: {u, network:
 // 1}} from Settings: the group site's used inventory for everyone (or that
 // one) who turned the network read on — each unit tagged with its store.
-async function handleInventory(body: any): Promise<Response> {
+// {inventory: {network?, chainUser, hop}} from this function itself (the
+// service key on the call): the next PAGE_CAP of a long list, for one user.
+async function handleInventory(body: any, httpReq: Request | null = null): Promise<Response> {
   const req = body.inventory && typeof body.inventory === "object" ? body.inventory : {};
   const cronKey = Deno.env.get("CRON_KEY");
-  if (!req.u && cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
+  const internal = !!httpReq && isInternal(httpReq);
+  if (req.chainUser && !internal && !(cronKey && body.key === cronKey)) return json({ error: "bad key" }, 403);
+  if (!req.u && !req.chainUser && cronKey && body.key !== cronKey) return json({ error: "bad key" }, 403);
   const network = !!req.network;
+  const hop = Math.max(0, Number(req.hop) || 0);
   let users: string[] = [];
-  if (req.u) {
-    if (!/^[0-9a-f-]{36}$/.test(String(req.u))) return json({ error: "bad user" }, 400);
-    users = [String(req.u)];
+  if (req.u || req.chainUser) {
+    const u = String(req.u || req.chainUser);
+    if (!/^[0-9a-f-]{36}$/.test(u)) return json({ error: "bad user" }, 400);
+    users = [u];
   } else {
     const res = await fetch(sbUrl(`/records?collection=eq.config&deleted=eq.false&select=user_id,data`), { headers: sbHeaders() });
     if (!res.ok) return json({ error: `lookup failed (${res.status})` }, 502);
@@ -1391,14 +1414,12 @@ async function handleInventory(body: any): Promise<Response> {
       // The network's vehicle pages already on file, so a long list is read
       // new-first and the rest refreshed as the budget allows.
       let known = new Set<string>();
-      if (network) {
-        try {
-          const kr = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&data->>lot=eq.network&select=data`), { headers: sbHeaders() });
-          if (kr.ok) known = new Set(((await kr.json()) as any[]).map((x) => String((x.data || {}).url || "")).filter(Boolean));
-        } catch (_) { /* read them all, then */ }
-      }
+      try {
+        const kr = await fetch(sbUrl(`/records?user_id=eq.${encodeURIComponent(uid)}&collection=eq.vehicles&deleted=eq.false&data->>lot=eq.${scope}&data->>status=eq.available&select=data`), { headers: sbHeaders() });
+        if (kr.ok) ((await kr.json()) as any[]).forEach((x) => { const d = x.data || {}; if (d.url) known.add(String(d.url)); if (d.pageUrl) known.add(String(d.pageUrl)); });
+      } catch (_) { /* read them all, then */ }
       const crawlOpts = { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known };
-      let { vehicles, report } = await crawlInventory(url, !!req.probe, !!req.deep, crawlOpts);
+      let { vehicles, report, listed } = await crawlInventory(url, !!req.probe, !!req.deep, crawlOpts);
       // Further listings merge in, inside what's left of the wall clock; a
       // listing that didn't fit waits for the next morning and nothing is
       // marked sold on a partial read.
@@ -1420,8 +1441,21 @@ async function handleInventory(body: any): Promise<Response> {
         report.found = vehicles.length;
       }
       report.scope = scope;
+      report.hop = hop;
       if (network) report.stores = [...new Set(vehicles.map((v: any) => v.dealer).filter(Boolean))].length;
-      const write = await writeInventory(uid, vehicles, report.complete !== false, scope);
+      const write = await writeInventory(uid, vehicles, report.complete !== false, scope, urls.length > 1 ? null : listed);
+      // A long list: the next run picks up where this one stopped — chained
+      // here when nobody is waiting on the answer (the morning job), or
+      // asked for again by the app, which shows the progress.
+      const left = Number(report.vehiclePagesLeft || 0);
+      report.more = left;
+      if (left > 0 && hop < 8 && !req.u) {
+        try {
+          const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+          await inBackground(fetch(selfUrl(), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ inventory: { network, chainUser: uid, hop: hop + 1, ...(req.url ? { url: req.url } : {}) } }) }).then(() => {}).catch(() => {}));
+          report.chained = hop + 1;
+        } catch (_) { /* tomorrow, then */ }
+      }
       // Anyone waiting for one of these: told now.
       let watched = 0;
       try { watched = await watchPass(uid, vehicles); } catch (e) { console.error("watch pass", String(e)); }
@@ -3923,7 +3957,7 @@ Deno.serve(async (req: Request) => {
     return json({ sent, errors: errs });
   }
 
-  if (body.inventory) return handleInventory(body);
+  if (body.inventory) return handleInventory(body, req);
   if (body.smscheck) return handleSmsCheck(body);
   if (body.sms) return handleSendSms(body);
   if (body.book) return handleBook(body);

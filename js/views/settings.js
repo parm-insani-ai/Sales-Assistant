@@ -320,18 +320,32 @@ export function renderSettings(view) {
     if (!url) { toast("Set up the agent function first (Settings → Voice agent)", "danger"); return; }
     btn.disabled = true; line.textContent = "Reading the network's used inventory… a big group takes a minute or two.";
     try {
-      const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ inventory: { u: user.id, network: 1, probe: 1 } }) });
-      const r = await res.json().catch(() => ({}));
-      lastReport = r;
-      if (!res.ok || r.error) { line.textContent = r.error || `The function answered ${res.status}`; el.querySelector("#inv-copy").hidden = false; toast("Network import failed", "danger"); return; }
-      store.updateSettings({ lastNetworkImport: { at: r.at || new Date().toISOString(), found: r.found || 0, added: r.added || 0, updated: r.updated || 0, removed: r.removed || 0, onFile: r.onFile || 0, stores: r.stores || 0, complete: r.complete !== false, conditions: r.conditions || null } });
-      const c = r.conditions || {};
-      const stores = r.byStore ? Object.entries(r.byStore).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ") : "";
-      line.textContent = r.found
-        ? `${r.found} used across the network · ${c.certified || 0} certified · ${c.asIs || 0} as-is${c.new ? ` · ${c.new} read as new (check the filter)` : ""} · ${r.stores || 0} store${r.stores === 1 ? "" : "s"}${stores ? ` (${stores})` : ""} · ${r.added} new · ${r.updated} updated · ${r.removed} marked sold${r.complete === false ? " · more tomorrow" : ""}. Hold these against the site's own Used, Certified and As-Is counts.`
+      // A long list is read a few hundred pages at a run: the function
+      // says how many are left and the app asks again until none are,
+      // adding up what each run found.
+      const sum = { found: 0, added: 0, updated: 0, removed: 0, certified: 0, asIs: 0, isNew: 0, stores: {}, listed: 0 };
+      let r = null, hops = 0;
+      for (;;) {
+        const res = await fetch(url, { method: "POST", headers: await backend.fnHeaders(), body: JSON.stringify({ inventory: { u: user.id, network: 1, probe: hops === 0 ? 1 : 0, hop: hops } }) });
+        r = await res.json().catch(() => ({}));
+        lastReport = r;
+        if (!res.ok || r.error) { line.textContent = r.error || `The function answered ${res.status}`; el.querySelector("#inv-copy").hidden = false; toast("Network import failed", "danger"); return; }
+        sum.found += r.found || 0; sum.added += r.added || 0; sum.updated += r.updated || 0; sum.removed += r.removed || 0;
+        const c = r.conditions || {}; sum.certified += c.certified || 0; sum.asIs += c.asIs || 0; sum.isNew += c.new || 0;
+        Object.entries(r.byStore || {}).forEach(([k, n]) => { sum.stores[k] = (sum.stores[k] || 0) + n; });
+        sum.listed = Math.max(sum.listed, r.vehiclePagesListed || 0);
+        hops++;
+        if (!(r.more > 0) || hops >= 8 || !(r.found > 0)) break;
+        line.textContent = `${sum.found} read of ${sum.listed || "?"} listed · reading the rest (run ${hops + 1})…`;
+      }
+      const onFile = r.onFileScope != null ? r.onFileScope : r.onFile || sum.found;
+      store.updateSettings({ lastNetworkImport: { at: r.at || new Date().toISOString(), found: onFile, added: sum.added, updated: sum.updated, removed: sum.removed, onFile, stores: Object.keys(sum.stores).length, complete: !(r.more > 0), conditions: { certified: sum.certified, asIs: sum.asIs, new: sum.isNew } } });
+      const stores = Object.entries(sum.stores).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ");
+      line.textContent = sum.found
+        ? `${onFile} used across the network on file${sum.listed ? ` (${sum.listed} listed on the site)` : ""} · this read: ${sum.found} in ${hops} run${hops === 1 ? "" : "s"}, ${sum.certified} certified, ${sum.asIs} as-is${sum.isNew ? `, ${sum.isNew} read as new (check the filter)` : ""} · ${Object.keys(sum.stores).length} store${Object.keys(sum.stores).length === 1 ? "" : "s"}${stores ? ` (${stores})` : ""} · ${sum.added} new · ${sum.updated} updated · ${sum.removed} marked sold${r.more > 0 ? ` · ${r.more} pages still to read — tap again` : ""}. Hold these against the site's own Used, Certified and As-Is counts.`
         : "The network site was read but no vehicles were found — copy the report and send it over.";
       el.querySelector("#inv-copy").hidden = false;
-      toast(r.found ? `${r.found} network units read — syncing them down` : "Nothing found", r.found ? "success" : "danger");
+      toast(sum.found ? `${sum.found} network units read — syncing them down` : "Nothing found", sum.found ? "success" : "danger");
       sync.syncNow({ reconcile: true });
     } catch (e) {
       line.textContent = `Couldn't reach the function: ${(e && e.message) || e}`;
