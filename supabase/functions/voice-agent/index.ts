@@ -953,7 +953,7 @@ async function fetchMany<T>(items: T[], limit: number, fn: (x: T) => Promise<voi
 // `opts.known`: vehicle-page URLs already on file, read after the new ones
 // so a big network's pages are covered across the days rather than the
 // same four hundred each morning.
-async function crawlInventory(url: string, probe: boolean, deep = false, opts: { scope?: string; dealerPrefix?: string; known?: Set<string> } = {}) {
+async function crawlInventory(url: string, probe: boolean, deep = false, opts: { scope?: string; dealerPrefix?: string; known?: Set<string>; hop?: number } = {}) {
   const started = Date.now();
   const BUDGET_MS = 100000; // leave headroom under the function's wall clock
   const scope = opts.scope === "network" ? "network" : "store";
@@ -1050,12 +1050,20 @@ async function crawlInventory(url: string, probe: boolean, deep = false, opts: {
     // protocol, "www." and the trailing slash taken off, or by the stock
     // number in the address — so the pages not yet read always go first.
     const isKnown = (u) => known.has(u) || known.has(invLoose(u)) || (() => { const s = invFromSlug(u); return !!(s && s.stock && known.has("stk:" + s.stock.toUpperCase())); })();
-    const list = allPages.slice().sort((a, b) => (isKnown(a) ? 1 : 0) - (isKnown(b) ? 1 : 0)).slice(0, PAGE_CAP);
-    report.vehiclePagesListed = allPages.length;
-    report.vehiclePagesKnown = allPages.filter(isKnown).length;
+    // The pages in a fixed order, and each run takes the next slice of
+    // PAGE_CAP by its run number — so a list of any length is read to the
+    // end across the runs, whatever is or isn't on file yet.
+    const sorted = allPages.slice().sort();
+    const hopIndex = Math.max(0, Number(opts.hop) || 0);
+    const start = Math.min(hopIndex * PAGE_CAP, sorted.length);
+    const list = sorted.slice(start, start + PAGE_CAP);
+    report.vehiclePagesListed = sorted.length;
+    report.vehiclePagesKnown = sorted.filter(isKnown).length;
     report.knownOnFile = known.size;
-    report.pagesSample = allPages.slice(0, 3);
-    if (allPages.length > PAGE_CAP) { report.complete = false; report.vehiclePagesLeft = allPages.length - PAGE_CAP; report.warnings.push(`${allPages.length} vehicle pages listed; ${PAGE_CAP} read this run, the rest follow`); }
+    report.pagesSample = sorted.slice(0, 3);
+    report.slice = { run: hopIndex, from: start, to: start + list.length };
+    const after = sorted.length - (start + list.length);
+    if (after > 0) { report.complete = false; report.vehiclePagesLeft = after; report.warnings.push(`${sorted.length} vehicle pages listed; pages ${start + 1}–${start + list.length} read this run, ${after} follow`); }
     let fetched = 0, parsed = 0, failed = 0;
     let firstPage: { url: string; html: string; vin: string; stock: string } | null = null;
     await fetchMany(list, 6, async (u) => {
@@ -1483,7 +1491,7 @@ async function handleInventory(body: any, httpReq: Request | null = null): Promi
             if (d.stock) known.add("stk:" + String(d.stock).toUpperCase());
           });
       } catch (e) { console.error("known read", String(e)); }
-      const crawlOpts = { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known };
+      const crawlOpts = { scope, dealerPrefix: cfg.networkGroupName || cfg.networkSiteName || "", known, hop };
       let { vehicles, report, listed } = await crawlInventory(url, !!req.probe, !!req.deep, crawlOpts);
       // Further listings merge in, inside what's left of the wall clock; a
       // listing that didn't fit waits for the next morning and nothing is
