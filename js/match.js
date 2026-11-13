@@ -45,8 +45,23 @@ export function prepareUnits(vehicles, s = {}) {
   return (vehicles || []).filter((v) => v && num(v.price) > 0 && (v.status || "available") === "available" && !v.asIs).map((v) => {
     const fees = feesFor(v, s);
     const price = num(v.price);
-    return { v, cls: classifyUnit(v), price, fixed: fees.taxable * (1 + t) + fees.nonTaxable, k, t, name: [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") };
+    const network = v.lot === "network";
+    // A unit at another store in the group is named with its store, so every
+    // read, task and opener that names the deal says where the car is.
+    const name = [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") + (network ? ` from ${storeShort(v.dealer, s.networkGroupName)}` : "");
+    return { v, cls: classifyUnit(v), price, fixed: fees.taxable * (1 + t) + fees.nonTaxable, k, t, name, network };
   });
+}
+// "O'Regan's Toyota Dartmouth" → "Toyota Dartmouth" when the group's name is
+// known; a store with no name is "another store in the group".
+export function storeShort(dealer, groupName) {
+  const d = String(dealer || "").trim();
+  if (!d) return "another store in the group";
+  const g = String(groupName || "").trim();
+  if (!g) return d;
+  const norm = (x) => x.replace(/[’']/g, "'");
+  const short = norm(d).startsWith(norm(g)) ? d.slice(g.length).replace(/^[\s'’s-]+/, "").trim() : d;
+  return short || d;
 }
 
 // What the customer brings to the desk: trade value and what's owing.
@@ -87,7 +102,8 @@ export function matchFor(l, units, s = {}, now = Date.now()) {
   for (const u of units) {
     const monthly = monthlyFor(u, trade);
     const delta = cur != null ? monthly - cur : null;
-    if (cur != null && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { unit: u, monthly, delta };
+    // The closest payment; on a tie, the unit on our own lot.
+    if (cur != null && (!best || Math.abs(delta) < Math.abs(best.delta) || (Math.abs(delta) === Math.abs(best.delta) && best.unit.network && !u.network))) best = { unit: u, monthly, delta };
     const fit = fitScore(owned, u.cls, { trim: u.v.trim, year: u.v.year, make: u.v.make, condition: u.v.condition });
     // The like-for-like replacement: the best-fitting unit, whatever it costs.
     if (!rep || fit > rep.fit) rep = { unit: u, monthly, delta, fit };
@@ -99,7 +115,9 @@ export function matchFor(l, units, s = {}, now = Date.now()) {
     const over = delta != null && delta > band ? delta - band : 0;
     const within = delta == null || delta <= band + 100;
     if (fit >= 40 && within) {
-      const pick = fit - over * 0.25 + (delta != null && delta < -20 ? 5 : 0);
+      // Our own unit edges a network unit that reads the same: on the lot
+      // today, no dealer trade to arrange.
+      const pick = fit - over * 0.25 + (delta != null && delta < -20 ? 5 : 0) + (u.network ? 0 : 0.5);
       if (!pitch || pick > pitch.pick) pitch = { unit: u, monthly, delta, fit, pick };
     }
   }

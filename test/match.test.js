@@ -58,6 +58,31 @@ if (!read.reasons.some((x) => /\/mo less$|^Same payment$/.test(x))) fail("no pay
 if (!/pitch a 2022 Nissan Frontier PRO-4X at about the same payment/.test(read.next.label)) fail("the next move should name the pitch: " + read.next.label);
 const noLot = R.readCustomer(frontier, { now: new Date("2026-09-25T12:00:00") });
 if (read.score <= noLot.score) fail("a payment match should raise the score");
+
+// --- The network's used, in the match: named with its store; our own unit
+// wins a tie; the as-is units never come up.
+const sn = { ...s, networkGroupName: "O'Regan's" };
+if (M.storeShort("O'Regan's Toyota Dartmouth", "O'Regan's") !== "Toyota Dartmouth" || M.storeShort("O’Regan’s Kia Halifax", "O'Regan's") !== "Kia Halifax" || M.storeShort("", "O'Regan's") !== "another store in the group" || M.storeShort("Steele Honda", "O'Regan's") !== "Steele Honda") fail("the store's short name");
+const net = [
+  ...lot,
+  // A cheaper Rogue at the Toyota store: a better payment for the Murano owner than our new one.
+  { id: "w1", year: 2023, make: "Nissan", model: "Rogue", trim: "SV", price: 29900, mileage: 40000, condition: "Used", status: "available", lot: "network", dealer: "O'Regan's Toyota Dartmouth" },
+  // The very same truck as ours, at another store: ours wins the tie.
+  { id: "w2", year: 2022, make: "Nissan", model: "Frontier", trim: "PRO-4X", price: 39900, mileage: 41000, condition: "Used", status: "available", lot: "network", dealer: "O'Regan's Nissan Dartmouth" },
+  // As-is: never a deal unasked.
+  { id: "w3", year: 2015, make: "Nissan", model: "Murano", trim: "SL", price: 6900, mileage: 190000, condition: "Used", status: "available", lot: "network", asIs: true, dealer: "O'Regan's Wholesale Direct Halifax" },
+];
+const nunits = M.prepareUnits(net, sn);
+if (nunits.some((u) => u.v.id === "w3")) fail("the as-is unit is out of the match");
+const nm = M.matchFor(murano, nunits, sn);
+console.log("murano + network:", JSON.stringify({ pitch: [nm.pitch.unit.name, nm.pitch.delta], best: nm.best.unit.name }));
+if (nm.pitch.unit.v.id !== "w1" || nm.pitch.unit.name !== "2023 Nissan Rogue SV from Toyota Dartmouth") fail("the Toyota store's Rogue is the Murano owner's pitch, named with its store: " + nm.pitch.unit.name);
+const tie = M.matchFor(frontier, nunits, sn);
+if (tie.pitch.unit.v.id !== "u1") fail("our own truck wins the tie with the same truck at another store: " + tie.pitch.unit.name);
+const nread = R.readCustomer(murano, { match: M.makeMatcher(net, sn), dealMatchBand: 50, now: new Date("2026-09-25T12:00:00") });
+console.log("murano read:", nread.reasons, nread.next && nread.next.label);
+if (!nread.deal || nread.deal.unit.id !== "w1" || !/from Toyota Dartmouth/.test(nread.deal.name)) fail("the read carries the network deal with its store: " + JSON.stringify(nread.deal && nread.deal.name));
+if (!nread.next || !/pitch a 2023 Nissan Rogue SV from Toyota Dartmouth at about the same payment/.test(nread.next.label)) fail("the next move names the store: " + (nread.next && nread.next.label));
 const ranked = R.rankBook([{ lead: frontier, rep: { user_id: "p", name: "Parm" } }, { lead: paidOff, rep: { user_id: "p", name: "Parm" } }], { match: matcher, dealMatchBand: 50, now: new Date("2026-09-25T12:00:00") });
 const t = R.taskFor(ranked.rows.find((r) => r.lead.id === "b"), { by: "Sam", now: new Date("2026-09-25T12:00:00") });
 console.log("task:", t.title);
