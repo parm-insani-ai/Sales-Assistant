@@ -138,6 +138,39 @@ await p.click(".cut-chip.cut-list"); await p.waitForTimeout(500);
 c = await read();
 if (!(c.cuts.find((x) => x.key === "equity") || {}).on || !(c.cuts.find((x) => x.key === "rate") || {}).on) fail("the list chip should bring its cuts back: " + JSON.stringify(c.cuts.filter((x) => x.on)));
 if (!/match · Equity at a high rate/.test(c.bar2 || "") || !/Call/.test(c.bar2)) fail("the list's bar: " + c.bar2);
+// Saving the same cuts again under another name, or another cut under the
+// same name, replaces the list — one chip, not a second.
+await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
+await p.click('.cut-chip[data-cut="equity"]'); await p.waitForTimeout(300);
+await p.click('.cut-chip[data-cut="rate"]'); await p.waitForTimeout(400);
+await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="name"]', { timeout: 5000 });
+await p.fill('.modal [name="name"]', "Rate people");
+await p.click('.modal button[type="submit"]'); await p.waitForTimeout(500);
+c = await read();
+let listChips = c.cuts.filter((x) => x.kind === "cut-list");
+if (listChips.length !== 1 || listChips[0].text !== "Rate people") fail("the same cuts saved again take the new name, one chip: " + JSON.stringify(listChips));
+await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
+await p.click('.cut-chip[data-cut="equity"]'); await p.waitForTimeout(400);
+await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="name"]', { timeout: 5000 });
+await p.fill('.modal [name="name"]', "rate PEOPLE");
+await p.click('.modal button[type="submit"]'); await p.waitForTimeout(500);
+c = await read();
+listChips = c.cuts.filter((x) => x.kind === "cut-list");
+if (listChips.length !== 1) fail("the same name saved again replaces the list, one chip: " + JSON.stringify(listChips));
+await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
+await p.click(".cut-chip.cut-list"); await p.waitForTimeout(500);
+c = await read();
+if (!(c.cuts.find((x) => x.key === "equity") || {}).on || (c.cuts.find((x) => x.key === "rate") || {}).on) fail("the replaced list carries the newer cuts: " + JSON.stringify(c.cuts.filter((x) => x.on)));
+// Back to the list the rest of the test works with.
+await p.click('[data-act="list-forget"]'); await p.waitForTimeout(400);
+await p.click('.cut-bar [data-act="aud-clear"]').catch(() => {}); await p.waitForTimeout(300);
+await p.click('.cut-chip[data-cut="equity"]'); await p.waitForTimeout(300);
+await p.click('.cut-chip[data-cut="rate"]'); await p.waitForTimeout(400);
+await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="name"]', { timeout: 5000 });
+await p.fill('.modal [name="name"]', "Equity at a high rate");
+await p.click('.modal button[type="submit"]'); await p.waitForTimeout(500);
+c = await read();
+if (c.cuts.filter((x) => x.kind === "cut-list").length !== 1 || !/match · Equity at a high rate/.test(c.bar2 || "")) fail("back on the one list: " + JSON.stringify({ bar: c.bar2, lists: c.cuts.filter((x) => x.kind === "cut-list") }));
 
 // --- Call these: a session over the cut's people, not today's batch.
 await p.click('[data-act="cut-call"]'); await p.waitForTimeout(800);

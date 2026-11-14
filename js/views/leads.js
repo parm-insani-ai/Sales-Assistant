@@ -394,9 +394,15 @@ export function renderLeads(view, { param }) {
   const LISTS_KEY = "viniva:leads-lists";
   const lists = () => { try { return JSON.parse(localStorage.getItem(LISTS_KEY) || "[]"); } catch { return []; } };
   const writeLists = (arr) => { try { localStorage.setItem(LISTS_KEY, JSON.stringify(arr)); } catch { /* fine */ } };
+  // The same list asked for twice is one chip: a saved list with the same
+  // name, or the same cuts, is replaced rather than doubled.
   const saveList = (name) => {
-    const id = "list_" + Date.now().toString(36);
-    writeLists([...lists(), { id, name: String(name || "").trim() || cutLabel() || "My list", cuts: [...cuts], aud: aud || null, query: query || null, at: new Date().toISOString() }]);
+    const entry = { name: String(name || "").trim() || cutLabel() || "My list", cuts: [...cuts].sort(), aud: aud || null, query: query ? { spec: query.spec, label: query.label || "" } : null };
+    const same = (x) => (x.name || "").trim().toLowerCase() === entry.name.toLowerCase()
+      || JSON.stringify({ c: (x.cuts || []).slice().sort(), a: x.aud || null, q: x.query ? { spec: x.query.spec, label: x.query.label || "" } : null }) === JSON.stringify({ c: entry.cuts, a: entry.aud, q: entry.query });
+    const had = lists().find(same);
+    const id = had ? had.id : "list_" + Date.now().toString(36);
+    writeLists([...lists().filter((x) => x.id !== id), { ...entry, id, at: new Date().toISOString() }]);
     listId = id; keepCuts();
     return id;
   };
