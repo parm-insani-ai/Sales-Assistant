@@ -719,6 +719,14 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .cut-chip .ico { width: 13px; height: 13px; }
 .cut-chip.cut-vehicle.btn-ghost { border: 1px solid var(--border); background: var(--surface); }
 .cut-chip.cut-list.btn-ghost { background: var(--brand-tint); color: var(--brand-strong); }
+.cut-chip.cut-new.btn-ghost { border: 1px dashed var(--border); }
+/* Your own lists: on a card, on the customer's page, and as toggles in a session. */
+.lc-lists { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.badge.badge-list { background: var(--brand-tint); color: var(--brand-strong); display: inline-flex; align-items: center; gap: 3px; }
+.badge.badge-list .ico { width: 11px; height: 11px; }
+.list-toggles { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.list-toggles .btn { white-space: nowrap; }
+.list-pick-row { margin: 6px 0; }
 .cut-chip.cut-more, .cut-chip.cut-query { max-width: 200px; }
 .veh-at { margin-top: 3px; color: var(--brand-strong); display: inline-flex; align-items: center; gap: 4px; }
 .cut-chip.cut-more span, .cut-chip.cut-query span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

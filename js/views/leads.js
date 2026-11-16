@@ -42,6 +42,8 @@ import { horizonFor, monthLabel } from "../horizon.js";
 import { makeMatcher } from "../match.js";
 import { fold, openFold } from "../fold.js";
 import { inLog, logCustomer } from "../logbook.js";
+import { memberLists, listsOf, deleteList } from "../lists.js";
+import { openListPicker, askNewList } from "./listpick.js";
 
 // The words a customer can be found by, lowercased once per record rather
 // than once per keystroke per customer.
@@ -181,6 +183,10 @@ export function renderLeads(view, { param }) {
   const QUERY_KEY = "viniva:leads-query";
   let askedFor = null;
   try { askedFor = JSON.parse(sessionStorage.getItem(QUERY_KEY) || "null"); } catch { askedFor = null; }
+  // One of your own lists, asked for ("show my callback list"): its id.
+  const LIST_KEY = "viniva:leads-list";
+  let askedList = null;
+  try { askedList = sessionStorage.getItem(LIST_KEY) || null; } catch { askedList = null; }
   // "By opportunity" is Best now: the same customers, ranked by how ready
   // they are to trade. A preset from /deals or the assistant lands there.
   const opp = false;
@@ -374,10 +380,21 @@ export function renderLeads(view, { param }) {
     vehCache = { key, cuts: out };
     return out;
   };
-  const cutDef = (key) => vehicleCuts().find((c) => c.key === key) || REASON_CUTS.find((c) => c.key === key) || (key === "nonumber" ? { key, label: "No number", kind: "fix" } : null);
+  // The salesperson's own lists (lists.js) as cuts — "members:<id>" — the
+  // people put on them by hand. Drawn even when empty, so a new list is
+  // there to fill.
+  let memCache = { key: "", cuts: [] };
+  const memberCuts = () => {
+    const key = store.generation("lists") + ":" + store.generation("leads");
+    if (memCache.key === key) return memCache.cuts;
+    memCache = { key, cuts: memberLists().map((x) => ({ key: `members:${x.id}`, label: x.name, kind: "list", members: new Set(x.ids), listId: x.id, always: true })) };
+    return memCache.cuts;
+  };
+  const cutDef = (key) => memberCuts().find((c) => c.key === key) || vehicleCuts().find((c) => c.key === key) || REASON_CUTS.find((c) => c.key === key) || (key === "nonumber" ? { key, label: "No number", kind: "fix" } : null);
   const cutPass = (key, l) => {
     const d = cutDef(key);
     if (!d) return true;
+    if (d.members) return d.members.has(l.id);
     if (d.kind === "vehicle") return inAudience({ ...emptyAudience(), ...d.spec }, l);
     if (d.key === "quiet") { const t = l.lastContacted ? new Date(l.lastContacted).getTime() : 0; return !t || Date.now() - t > 180 * 86400000; }
     if (d.key === "nonumber") return !l.phone || !!l.badPhone;
@@ -442,15 +459,18 @@ export function renderLeads(view, { param }) {
     const chip = (d) => {
       const on = cuts.has(d.key);
       const n = count(d.key);
-      if (!n && !on) return "";
-      return `<button type="button" class="btn btn-sm ${on ? "btn-primary" : "btn-ghost"} cut-chip cut-${d.kind || "reason"}" data-cut="${esc(d.key)}" aria-pressed="${on}">${esc(d.label)} <span class="cut-count">${n.toLocaleString()}</span></button>`;
+      if (!n && !on && !d.always) return "";
+      return `<button type="button" class="btn btn-sm ${on ? "btn-primary" : "btn-ghost"} cut-chip cut-${d.kind || "reason"}" data-cut="${esc(d.key)}" aria-pressed="${on}">${d.members ? icon("users") + " " : ""}${esc(d.label)} <span class="cut-count">${n.toLocaleString()}</span></button>`;
     };
+    // A list of your own, made here: it goes on the row and lights, and
+    // people are put on it from their card, their page or a session.
+    const newList = `<button type="button" class="btn btn-sm btn-ghost cut-chip cut-new" data-act="new-list" title="A list of your own — put anyone on it">${icon("plus")} List</button>`;
     const saved = lists().map((x) => `<button type="button" class="btn btn-sm ${listId === x.id ? "btn-primary" : "btn-ghost"} cut-chip cut-list" data-list="${esc(x.id)}" aria-pressed="${listId === x.id}">${icon("tag")} ${esc(x.name)}</button>`).join("");
     // The sheet's own cut, when it's on, as a lit chip that reopens it.
     const sheet = aud ? `<button type="button" class="btn btn-sm btn-primary cut-chip cut-more" data-act="audience-chip" aria-pressed="true"><span>${esc(audienceLabel(aud))}</span></button>` : "";
     // The question the assistant answered, lit; a tap takes it off.
     const asked = query ? `<button type="button" class="btn btn-sm btn-primary cut-chip cut-query" data-act="query-chip" aria-pressed="true" title="Asked the assistant — tap to clear"><span>${esc(queryLabel())}</span></button>` : "";
-    return saved + sheet + asked + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "");
+    return saved + sheet + asked + memberCuts().map(chip).join("") + vehicleCuts().map(chip).join("") + REASON_CUTS.map(chip).join("") + (cuts.has("nonumber") ? chip(cutDef("nonumber")) : "") + newList;
   };
   // The row is a scrolling line: the first cut that's on stays in view.
   const showCutChip = (row) => {
@@ -478,6 +498,12 @@ export function renderLeads(view, { param }) {
     if (chipA) chipA.addEventListener("click", editAud);
     const chipQ = wrap.querySelector('.cut-row [data-act="query-chip"]');
     if (chipQ) chipQ.addEventListener("click", () => { query = null; listId = null; keepCuts(); refreshCutRow(); refreshList(); });
+    const chipN = wrap.querySelector('.cut-row [data-act="new-list"]');
+    if (chipN) chipN.addEventListener("click", () => askNewList((x) => {
+      cuts = new Set([`members:${x.id}`]); aud = null; query = null; listId = null; keepCuts(); keepAud();
+      refreshCutRow(); refreshList();
+      toast(`"${x.name}" is on the row — put people on it from their card, their page, or as you call`, "success");
+    }));
   };
   const lightChips = () => wrap.querySelectorAll("[data-filter]").forEach((x) => {
     const active = x.dataset.filter === filter;
@@ -526,17 +552,22 @@ export function renderLeads(view, { param }) {
   const cutBarHTML = (n) => {
     if (!cuts.size && !aud && !query) return "";
     const saved = listId ? lists().find((x) => x.id === listId) : null;
+    // One of your own lists on by itself: the bar is the list's — people
+    // are put on it from here, and the list itself can go.
+    const mine = cuts.size === 1 && !aud && !query ? memberCuts().find((c) => cuts.has(c.key)) : null;
     return `<div class="card lead-audience cut-bar" style="padding:10px 12px;margin-bottom:10px">
       <div class="row" style="align-items:center">
-        <span class="small" style="min-width:0"><span class="strong aud-count">${n.toLocaleString()}</span> match · ${esc(saved ? saved.name : cutLabel())}</span>
+        <span class="small" style="min-width:0"><span class="strong aud-count">${n.toLocaleString()}</span> ${mine ? "on" : "match ·"} ${esc(saved ? saved.name : cutLabel())}</span>
         <button class="modal-close" data-act="aud-clear" aria-label="Clear" title="Clear">&times;</button>
       </div>
       ${selecting ? "" : `<div class="btn-row cut-actions" style="margin-top:8px">
         <button class="btn btn-success btn-sm" data-act="cut-call" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px" title="Call these as a session">${icon("phone")} Call</button>
         <button class="btn btn-primary btn-sm" data-act="aud-text" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("message")} Text</button>
         <button class="btn btn-primary btn-sm" data-act="aud-email" style="flex:1;white-space:nowrap;padding-left:6px;padding-right:6px">${icon("mail")} Email</button>
-        ${saved ? `<button class="btn btn-ghost btn-sm" data-act="list-forget" style="flex:0 0 auto" title="Forget this list">${icon("trash")}</button>` : `<button class="btn btn-ghost btn-sm" data-act="list-save" style="flex:0 0 auto" title="Save as a list">${icon("tag")} Save</button>`}
-      </div>`}
+        ${mine ? "" : `<button class="btn btn-ghost btn-sm" data-act="cut-addlist" style="flex:0 0 auto" title="Put these on one of your lists">${icon("users")}</button>`}
+        ${mine ? `<button class="btn btn-ghost btn-sm" data-act="list-delete" style="flex:0 0 auto" title="Delete this list (the customers stay on file)">${icon("trash")}</button>`
+          : saved ? `<button class="btn btn-ghost btn-sm" data-act="list-forget" style="flex:0 0 auto" title="Forget this list">${icon("trash")}</button>` : `<button class="btn btn-ghost btn-sm" data-act="list-save" style="flex:0 0 auto" title="Save as a list">${icon("tag")} Save</button>`}
+      </div>${mine && !n ? `<div class="small muted" style="margin-top:6px">Nobody on it yet — open a customer and tap Lists, or put a whole cut here with the ${icon("users")} button.</div>` : ""}`}
     </div>`;
   };
   const wireCutBar = () => {
@@ -554,6 +585,17 @@ export function renderLeads(view, { param }) {
       return element;
     }));
     on('[data-act="list-forget"]', () => { const x = lists().find((y) => y.id === listId); forgetList(listId); toast(x ? `Forgot "${x.name}"` : "Forgotten", ""); refreshCutRow(); });
+    // Everyone this cut leaves, onto one of your lists (or a new one).
+    on('[data-act="cut-addlist"]', () => {
+      const ids = applyFilter().map((l) => l.id);
+      if (!ids.length) { toast("Nobody here to put on a list", "warn"); return; }
+      openListPicker(ids, { title: `Put ${ids.length.toLocaleString()} on a list` }).then(() => { refreshCutRow(); refreshList(); });
+    });
+    on('[data-act="list-delete"]', async () => {
+      const mine = memberCuts().find((c) => cuts.has(c.key)); if (!mine) return;
+      if (!(await confirmDialog(`Delete the list "${mine.label}"? The ${mine.members.size.toLocaleString()} customers on it stay on file.`, { confirmLabel: "Delete" }))) return;
+      deleteList(mine.listId); clearCuts(); toast(`Deleted "${mine.label}"`, ""); refreshCutRow(); refreshList();
+    });
   };
   // Hygiene: people with no number (or a wrong one) can't be called at
   // all. Said in one line on Best now and All, with the way to fix them.
@@ -1211,6 +1253,16 @@ export function renderLeads(view, { param }) {
     if (spoken.save && spoken.name && n) { saveList(spoken.name); refreshCutRow(); }
     toast(n ? `${n.toLocaleString()} match · ${cutLabel() || "everyone"}${spoken.save && spoken.name ? ` · saved as "${spoken.name}"` : ""}` : `Nobody matches ${cutLabel() || "that"} yet`, n ? "success" : "warn");
   }
+  // One of your own lists, asked for: on, by itself.
+  if (askedList && !opp) {
+    try { sessionStorage.removeItem(LIST_KEY); } catch { /* fine */ }
+    const x = memberLists().find((y) => y.id === askedList);
+    if (x) {
+      cuts = new Set([`members:${x.id}`]); aud = null; query = null; listId = null;
+      keepCuts(); keepAud(); lightChips(); refreshCutRow(); refreshList();
+      toast(`${x.ids.length.toLocaleString()} on "${x.name}"`, x.ids.length ? "success" : "warn");
+    }
+  }
   // A list the assistant built from the book's fields: the question is the
   // cut, on All, saved if a name was said.
   if (askedFor && askedFor.spec && !opp) {
@@ -1248,6 +1300,9 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
   const tier = a && a.tier && !hz ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : "";
   const caution = (r) => /^(Upside down|No texting consent|No phone|Contacted \d|In a campaign)/.test(r);
   const reasons = a && a.reasons.length ? `<ul class="row-reasons lc-why">${a.reasons.map((r) => `<li${caution(r) ? ' class="lc-caution"' : ""}>${esc(r)}</li>`).join("")}</ul>` : "";
+  // The lists of your own they're on.
+  const onLists = listsOf(l.id);
+  const listTags = onLists.length ? `<div class="lc-lists">${onLists.map((x) => `<span class="badge badge-list">${icon("users")} ${esc(x.name)}</span>`).join("")}</div>` : "";
   // The last contact — so logging one is visibly registered — and when
   // they tend to pick up, once that's known.
   const contact = l.lastContacted
@@ -1275,7 +1330,7 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
           ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}
         </div>
       </div>
-      ${timing}${reasons}
+      ${timing}${reasons}${listTags}
       <div class="lc-foot">${contact}${act}</div>
       ${contractBanner(l, { compact: true })}
     </div>
@@ -1397,6 +1452,13 @@ function leadCard(l, onOpen, extra = {}) {
       undoToast(`Deleted ${l.name}`, () => { store.restore("leads", snapshot); restoreRow(); });
     },
   });
+}
+
+// "Callbacks · Interested, no appointment" on the customer's page — or the
+// way to start one.
+function listsLine(leadId) {
+  const names = listsOf(leadId).map((x) => x.name);
+  return names.length ? names.map((n) => `<span class="badge badge-list">${icon("users")} ${esc(n)}</span>`).join(" ") : `<span class="muted">Put on a list…</span>`;
 }
 
 // The three ways to reach someone, and what a logged one is called.
@@ -1823,10 +1885,16 @@ function renderLeadDetail(view, id) {
           : `<button class="btn btn-ghost btn-sm" data-add="email" style="flex:1">${icon("mail")} Email</button>`}
       </div>
       <div class="kv" data-act="contacted" style="cursor:pointer;margin-top:4px;padding:4px 0"><span class="k">Last contacted</span><span class="v">${contactLine(l)}</span></div>
+      <div class="kv" data-act="lists" style="cursor:pointer;padding:4px 0" title="Your own lists"><span class="k">Lists</span><span class="v">${listsLine(l.id)}</span></div>
       ${contractBanner(l, { tap: true })}
     </div>
   `;
   view.appendChild(el);
+  // Your own lists: on a callback list, on "interested, no appointment" —
+  // put on or taken off here.
+  el.querySelector('.lead-head [data-act="lists"]').addEventListener("click", () => {
+    openListPicker(l.id).then(() => { const v = el.querySelector('.lead-head [data-act="lists"] .v'); if (v) v.innerHTML = listsLine(l.id); });
+  });
   // Outreach → Log: they showed promise, they're being worked. Counts as
   // this month's conversation on the sales target.
   const toLog = el.querySelector('[data-act="to-log"]');

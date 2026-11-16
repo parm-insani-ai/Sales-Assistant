@@ -32,6 +32,7 @@ import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSessi
 import { coverageLine } from "../coverage.js";
 import { slotOn } from "../schedule.js";
 import { addDaysISO } from "../cadence.js";
+import { listTogglesRow } from "./listpick.js";
 
 const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "?";
 // Booking an appointment re-draws the whole screen from the router (the
@@ -237,8 +238,13 @@ export function renderSession(view) {
         <div class="cs-label">How did it go?</div>
         <div class="cs-how-row">${CONVERSATION_OUTCOMES.map((o) => `<button type="button" class="btn btn-ghost btn-sm cs-how-btn" data-how="${o.key}" title="${esc(o.hint)}">${icon(o.icon)} ${esc(o.label)}</button>`).join("")}</div>
         <div class="cs-how-when" hidden><div class="cs-label">When?</div><div class="cs-how-row">${CALLBACK_WHEN.map((w) => `<button type="button" class="btn btn-primary btn-sm" data-when="${w.key}">${esc(w.label)}</button>`).join("")}<button type="button" class="btn btn-ghost btn-sm" data-when="pick">A date…</button></div><input type="date" data-f="when" hidden style="margin-top:6px"></div>
+        <div class="cs-label" style="margin-top:10px">On a list</div>
+        <div class="cs-lists-slot"></div>
         <div class="cs-how-note"></div>`;
       ["pointerdown", "click"].forEach((t) => p.addEventListener(t, (ev) => ev.stopPropagation()));
+      // Your own lists — a callback list, "interested, no appointment" —
+      // one tap while it's fresh.
+      p.querySelector(".cs-lists-slot").appendChild(listTogglesRow(lead.id));
       const noteSlot = p.querySelector(".cs-how-note");
       const whenBox = p.querySelector(".cs-how-when");
       // What was said, by voice, from the first moment — the outcome above

@@ -45,6 +45,7 @@ import { coverage, coverageLine } from "./coverage.js";
 import { dueCallbacks } from "./session.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
+import { memberLists, listByName, listById, createList, deleteList, removeFromList, addByName } from "./lists.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
 import { conversationFor, transcript, standingWith, recentInbound, recentDigest, loadBodies } from "./convo.js";
 import { planTasks, planStatus, onAppointmentConfirmed, onAppointmentOutcome } from "./apptplan.js";
@@ -171,6 +172,7 @@ const TOOLS = [
   { name: "mass_outreach", description: "NOT for 'find me some people I can reach out to', 'I need more appointments', 'who should I contact' — those ask WHO, and get_prospects answers them. The message is optional: with only who said, one is written for the audience and shown for review. Set up a text or email to MANY customers at once, picked by what they drive or where they stand: 'text everyone who owns a Sentra that this month if they trade it in for a new Nissan they get double loyalty', 'email all my Rogue owners from 2018 to 2021 that…', 'text everyone with a paid off Nissan that…', 'text everyone whose lease is ending that…'. Pass the salesperson's whole sentence as `sentence` (audience AND message). The app builds the recipient list and writes each message in the customer's name; the salesperson reviews on screen and taps Send — nothing sends from this tool. Never put a dollar amount or a rate in the message.", input_schema: { type: "object", properties: { sentence: { type: "string", description: "the whole request: who, and what to tell them" }, channel: { type: "string", enum: ["text", "email"] } }, required: ["sentence"] } },
   { name: "search_inventory", description: "Put the dealer-website search buttons on screen for the wider O'Regan's NETWORK (other stores, used vehicles) — only when the salesperson asks about the network or other stores. It opens the website in the browser; this app does NOT see the results, cannot count, filter or sort them, and cannot say what's there. Questions about OUR lot are lot_lookup. NOT for comparing models — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "when_it_makes_sense", description: "WHEN a customer's next vehicle starts to make sense — not whether, but the month: when their equity clears the line as the payoff comes down and the value drifts, when a like-for-like on the lot lands at their payment, when the contract runs out, or six months before a lease ends. 'When should I go back to Dana?', 'when does it make sense for Ken?', or with no customer: 'who opens up in the next six months?', 'who's coming up?'. Opens the Timing screen.", input_schema: { type: "object", properties: { customer: { type: "string" }, months: { type: "number", description: "with no customer: how far ahead to list (default 6)" } } } },
+  { name: "customer_list", description: "The salesperson's OWN lists — named buckets they put customers on by hand: a callback list, 'interested, no appointment', an event invite list. 'Put Dana on my callback list', 'add Sam and Jo to interested no appointment', 'take Dana off the callback list', 'show my callback list', 'who's on my callback list', 'make a list called spring event', 'delete the spring event list', 'what lists do I have'. A list named that isn't there yet is made. Not a rule — for 'everyone who…' use query_customers or find_customers.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["add", "remove", "show", "create", "delete", "lists"], description: "add/remove customers, show the list on Outreach, create or delete a list, or name every list" }, list: { type: "string", description: "the list's name, as they said it" }, customers: { type: "array", items: { type: "string" }, description: "the customers to add or remove, by name (or number)" } }, required: ["action"] } },
   { name: "lease_ends", description: "Every lease on the book with when it ends, soonest first — 'when do my leases end?', 'any leases ending this year?', 'what's coming off lease?'. Opens the Timing screen on the lease list.", input_schema: { type: "object", properties: { months: { type: "number", description: "only leases ending within this many months (default 12)" } } } },
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
@@ -516,7 +518,7 @@ const UNDO_COLLECTIONS = ["leads", "tasks", "appointments", "sales", "specials",
 // Settings the tools can change — a standing rule lives here, not in a
 // collection — snapshotted the same way.
 const UNDO_SETTINGS = ["agentNotes"];
-const WRITE_TOOLS = /^(create_lead|update_lead|add_context|add_note|note|add_task|complete_task|finish_task|complete_delivery|mark_delivered|add_special|add_spif|log_spif|log_sale|undo_sale|book_appointment|schedule_appointment|appointment_outcome|set_outcome|start_cadence|start_followup|delete_customer|remove_customer|delete_lead|remember_rule|forget_rule|watch_for_vehicle|watch_lot|stock_watch)$/;
+const WRITE_TOOLS = /^(customer_list|add_to_list|remove_from_list|create_lead|update_lead|add_context|add_note|note|add_task|complete_task|finish_task|complete_delivery|mark_delivered|add_special|add_spif|log_spif|log_sale|undo_sale|book_appointment|schedule_appointment|appointment_outcome|set_outcome|start_cadence|start_followup|delete_customer|remove_customer|delete_lead|remember_rule|forget_rule|watch_for_vehicle|watch_lot|stock_watch)$/;
 const undoStack = [];
 function snapshotRecords() {
   const snap = new Map();
@@ -932,6 +934,53 @@ async function runTool(t, p = {}) {
       try { sessionStorage.setItem("horizon-tab", "timing"); } catch { /* fine */ }
       navigate("/horizon");
       return { result: { readyNow: rows.filter((r) => r.hz.m === 0).length, openingWithin: months, count: within.length, customers: within.slice(0, 12).map(slim) }, note: "reading the book for timing" };
+    }
+    case "customer_list": case "add_to_list": case "remove_from_list": {
+      const action = String(p.action || (t === "add_to_list" ? "add" : t === "remove_from_list" ? "remove" : "lists")).toLowerCase();
+      const every = memberLists();
+      const names = () => every.map((x) => x.name);
+      if (action === "lists" || action === "list") {
+        const ans = every.length ? `${every.length} list${every.length === 1 ? "" : "s"}: ${every.map((x) => `${x.name} (${x.ids.length})`).join(", ")}.` : "No lists of your own yet — say 'make a list called …' or 'put Dana on my callback list'.";
+        return { result: { lists: every.map((x) => ({ name: x.name, customers: x.ids.length })), answer: ans }, note: `${every.length} list${every.length === 1 ? "" : "s"}` };
+      }
+      const listName = String(p.list || p.name || "").trim();
+      if (!listName) return { result: { error: "which list? give its name", lists: names() }, note: "⚠ no list named" };
+      if (action === "create") {
+        const x = createList(listName);
+        return { result: { list: x.name, customers: x.ids.length, answer: `"${x.name}" is on the Outreach row — put people on it from their card, their page or a session.` }, note: `list: ${x.name}` };
+      }
+      if (action === "delete") {
+        const x = listByName(listName);
+        if (!x) return { result: { error: `no list called "${listName}"`, lists: names() }, note: "⚠ no such list" };
+        deleteList(x.id);
+        return { result: { deleted: x.name, answer: `Deleted "${x.name}" — the ${x.ids.length} customer${x.ids.length === 1 ? "" : "s"} on it stay on file.` }, note: `deleted list: ${x.name}` };
+      }
+      if (action === "show" || action === "who") {
+        const x = listByName(listName);
+        if (!x) return { result: { error: `no list called "${listName}"`, lists: names() }, note: "⚠ no such list" };
+        try {
+          sessionStorage.setItem("viniva:leads-list", x.id);
+          sessionStorage.setItem("leads-filter", "all");
+          sessionStorage.removeItem("leads-search"); sessionStorage.removeItem("viniva:leads-audience"); sessionStorage.removeItem("viniva:leads-spoken"); sessionStorage.removeItem("viniva:leads-query");
+        } catch { /* fine */ }
+        navigate("/leads");
+        const people = x.ids.map((id) => store.get("leads", id)).filter(Boolean);
+        return { result: { list: x.name, count: people.length, customers: people.slice(0, 15).map((l) => ({ name: l.name, phone: l.phone || "", vehicle: l.vehicleInterest || "", stage: l.stage })), screen: "Outreach, on the list" }, note: `${x.name}: ${people.length}` };
+      }
+      // add / remove
+      const asked = Array.isArray(p.customers) ? p.customers : p.customer ? [p.customer] : p.customers ? [p.customers] : [];
+      const found = [], missing = [];
+      for (const n of asked) { const l = findLead(n); if (l && !found.includes(l)) found.push(l); else if (!l) missing.push(String(n)); }
+      if (!found.length) return { result: { error: asked.length ? `couldn't find ${missing.map((m) => `"${m}"`).join(", ")} on file` : "which customer?", status: "ask which customer, or check the name" }, note: "⚠ customer not found" };
+      const who = found.map((l) => l.name).join(", ");
+      if (action === "remove") {
+        const x = listByName(listName);
+        if (!x) return { result: { error: `no list called "${listName}"`, lists: names() }, note: "⚠ no such list" };
+        const n = removeFromList(x.id, found.map((l) => l.id));
+        return { result: { list: x.name, removed: n, customers: found.map((l) => l.name), notFound: missing, onList: (listById(x.id) || x).ids.length, answer: `${who} off "${x.name}".${missing.length ? ` Couldn't find ${missing.join(", ")}.` : ""}` }, note: `off ${x.name}: ${who}` };
+      }
+      const r = addByName(listName, found.map((l) => l.id));
+      return { result: { list: r.list.name, added: r.added, onList: r.list.ids.length, customers: found.map((l) => l.name), notFound: missing, answer: `${who} on "${r.list.name}" — ${r.list.ids.length} there now.${missing.length ? ` Couldn't find ${missing.join(", ")}.` : ""}` }, note: `on ${r.list.name}: ${who}` };
     }
     case "lease_ends": case "leases": {
       const months = Number(p.months) || 12;

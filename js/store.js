@@ -160,6 +160,7 @@ const DEFAULT_STATE = {
   daylogs: [],
   watches: [], // the lot watched for a vehicle a customer wants (watch.js)
   pokes: [],   // how many times each commitment has been reminded (ledger.js)
+  lists: [],   // the salesperson's own lists of customers: { name, ids, at } (lists.js)
   outbox: {}, // pending cloud changes, keyed "collection:id" → { collection, id, deleted, at }
   settings: {
     salesperson: "",
@@ -1037,7 +1038,7 @@ export function update(name, id, patch) {
 // to which customer, when, by whom, prompted by what. Only acts on this
 // device log here (records arriving by sync don't); the function logs its
 // own. Never a dollar figure, never a message body.
-const EVENT_SKIP = new Set(["events", "daylogs", "watches", "pokes", "config", "prefs", "push", "activity", "docs", "outbox", "mailwatch", "agentplays", "agentdrafts", "blasts", "paychecks", "spifs", "specials", "vehicles", "outreach", "emails"]);
+const EVENT_SKIP = new Set(["events", "daylogs", "watches", "pokes", "lists", "config", "prefs", "push", "activity", "docs", "outbox", "mailwatch", "agentplays", "agentdrafts", "blasts", "paychecks", "spifs", "specials", "vehicles", "outreach", "emails"]);
 let eventsOn = true;
 export function logEvent(kind, { leadId = null, name = "", by = "rep", prompt = "", at = null, meta = null } = {}) {
   if (!eventsOn || !kind) return null;
@@ -1106,7 +1107,7 @@ export function restore(name, item) {
 // Every syncable collection (everything except settings/outbox metadata).
 // "config" is the settings mirror and "prefs" the sweep's timezone/quiet-hours
 // record. Both hold exactly one row.
-export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs", "agentdrafts", "mgractions", "events", "daylogs", "watches", "pokes"];
+export const SYNC_COLLECTIONS = ["leads", "tasks", "vehicles", "deliveries", "appointments", "sales", "activity", "spifs", "specials", "emails", "texts", "calls", "paychecks", "push", "config", "prefs", "outreach", "blasts", "mailwatch", "agentplays", "docs", "agentdrafts", "mgractions", "events", "daylogs", "watches", "pokes", "lists"];
 
 // --- Calls ---
 // Logged when you tap to call, so the thread reads as a conversation rather
