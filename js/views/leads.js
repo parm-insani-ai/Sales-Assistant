@@ -22,7 +22,7 @@ import { consentStatus, consentLine, recordConsent } from "../consent.js";
 import { reviewProspect, reviewTouch } from "../touches.js";
 import { snoozeProspect, getProspects, morePicks, pickProgress } from "../prospects.js";
 import { openReferralCapture } from "./referrals.js";
-import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals, pitchList, vehicleKey } from "./dealbuilder.js";
+import { openDealBuilder, openDealDetail, dealsForLead, offerText, equityDetail, dealInputs, estimateTradeDetail, paymentDelta, renderDeals, pitchList, vehicleKey, dealCondition, setDealCondition, passesCondition, conditionSegHTML } from "./dealbuilder.js";
 import { icon } from "../icons.js";
 import {
   currency, esc, initials, phoneDisplay, telHref, smsHref, mailtoHref,
@@ -2063,7 +2063,23 @@ function renderLeadDetail(view, id) {
     if (!slot || l.stage === "lost") return;
     const fresh = store.get("leads", l.id) || l;
     const vname = (v) => [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ");
-    const all = pitchList(fresh, 0);
+    // New, used or both: the switch at the head of the card, kept for the
+    // session. The whole list is priced; the switch picks what's shown.
+    const cond = dealCondition();
+    const every = pitchList(fresh, 0);
+    const all = every.filter((m) => passesCondition(m.vehicle, cond));
+    const wireCond = () => slot.querySelectorAll(".bd-cond [data-cond]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); setDealCondition(b.dataset.cond); buildDealSection(); }));
+    if (!all.length && every.length) {
+      // Priced, but nothing of the kind asked for: say so, keep the switch.
+      slot.innerHTML = `
+        <div class="card bd-card">
+          ${conditionSegHTML(cond, "bd-cond-top")}
+          <div class="small muted" style="margin-top:10px">No ${cond} vehicle prices against their numbers — ${every.length} ${cond === "new" ? "used" : "new"} option${every.length === 1 ? "" : "s"} under ${cond === "new" ? "Used" : "New"}, or Both.</div>
+          ${whyHTML()}
+        </div>`;
+      wireCond(); wireWhy(slot);
+      return;
+    }
     if (!all.length) {
       // Nothing to price yet: say what's missing, and keep the read of why now.
       const hasNumbers = fresh.currentPayment != null || fresh.payoff != null;
@@ -2105,6 +2121,7 @@ function renderLeadDetail(view, id) {
       </div>`;
     slot.innerHTML = `
       <div class="card bd-card">
+        ${conditionSegHTML(cond, "bd-cond-top")}
         ${fresh.currentPayment != null ? "" : `<div class="small muted bd-now">No current payment on file — payments shown, not compared.</div>`}
         <div class="ro-list">${rowHTML(rows[0], 0)}</div>
         <div class="btn-row bd-actions">
@@ -2147,6 +2164,7 @@ function renderLeadDetail(view, id) {
     slot.querySelectorAll("[data-deal-open]").forEach((n) =>
       n.addEventListener("click", (ev) => { if (ev.target.closest("[data-unpick]")) return; openDealDetail(fresh, rows[Number(n.dataset.dealOpen)].m); }));
     slot.querySelector('[data-act="deal-breakdown"]').addEventListener("click", () => openDealDetail(fresh, first));
+    wireCond();
     wireWhy(slot);
     slot.querySelectorAll("[data-unpick]").forEach((n) => n.addEventListener("click", (ev) => {
       ev.stopPropagation();

@@ -727,6 +727,10 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .list-toggles { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
 .list-toggles .btn { white-space: nowrap; }
 .list-pick-row { margin: 6px 0; }
+/* New / Used / Both on the Best deal card and the Every option sheet. */
+.bd-cond { max-width: 260px; }
+.bd-cond .seg-btn { padding: 5px 8px; font-size: 0.78rem; }
+.bd-cond-top { margin-bottom: 10px; }
 .cut-chip.cut-more, .cut-chip.cut-query { max-width: 200px; }
 .veh-at { margin-top: 3px; color: var(--brand-strong); display: inline-flex; align-items: center; gap: 4px; }
 .cut-chip.cut-more span, .cut-chip.cut-query span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

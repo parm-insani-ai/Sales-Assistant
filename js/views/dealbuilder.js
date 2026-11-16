@@ -336,8 +336,17 @@ function candidateVehicles() {
 // New-vehicle add-ons, exactly as the store charges them: Atlantic Value
 // Package + freight + air tax + tire levy are taxable; plate registration is
 // a government fee with no tax. Used vehicles use the doc fee instead.
-function isNewUnit(v) {
+export function isNewUnit(v) {
   return !!v.lineup || /new/i.test(String(v.condition || ""));
+}
+// New / Used / Both on the Best deal card and the Every option sheet: one
+// choice, kept for the session so it holds from customer to customer.
+const COND_KEY = "viniva:deal-cond";
+export function dealCondition() { try { const c = sessionStorage.getItem(COND_KEY); return c === "new" || c === "used" ? c : "both"; } catch { return "both"; } }
+export function setDealCondition(c) { try { if (c === "new" || c === "used") sessionStorage.setItem(COND_KEY, c); else sessionStorage.removeItem(COND_KEY); } catch { /* fine */ } }
+export function passesCondition(v, cond) { return cond === "new" ? isNewUnit(v) : cond === "used" ? !isNewUnit(v) : true; }
+export function conditionSegHTML(cond, extraClass = "") {
+  return `<div class="seg bd-cond ${extraClass}" role="group" aria-label="New or used">${[["both", "Both"], ["new", "New"], ["used", "Used"]].map(([k, label]) => `<button type="button" class="seg-btn${cond === k ? " active" : ""}" data-cond="${k}">${label}</button>`).join("")}</div>`;
 }
 export function newAddons(v) {
   const s = store.getSettings();
@@ -1116,7 +1125,9 @@ export function offerText(lead, match) {
   const trade = lead.vehicleInterest ? ` out of your ${lead.vehicleInterest}` : "";
   const how = match.method === "lease" ? " on a lease" : "";
   const spBit = match.special ? " — and there's a Nissan program on it right now" : "";
-  return `${intro} I think I can get you into a new ${v}${how} ${shape}${trade ? "," + trade : ""}${spBit}. Worth ten minutes to see the real numbers? What's your week like?`;
+  // A used unit is named by its year, never called new.
+  const what = isNewUnit(match.vehicle) ? `a new ${v}` : `a ${v}`;
+  return `${intro} I think I can get you into ${what}${how} ${shape}${trade ? "," + trade : ""}${spBit}. Worth ten minutes to see the real numbers? What's your week like?`;
 }
 
 // ---------- Full worked deal for one option ----------
@@ -1288,6 +1299,8 @@ export function openDealBuilder(lead) {
     // whatever the payment-match ranking surfaced.
     let downState = null;
     let pick = "";
+    // New, used or both — the same choice the Best deal card keeps.
+    let cond = dealCondition();
 
     function draw() {
       const down = downState;
@@ -1295,7 +1308,7 @@ export function openDealBuilder(lead) {
       // re-priced as cash changes. Re-ranking live would swap a pricier car into
       // the top row every time cash went up — so the payment would look frozen
       // near their current one while the vehicle silently changed underneath.
-      const baseRows = dealsForLead(lead, { method: "both" });
+      const baseRows = dealsForLead(lead, { method: "both" }).filter((m) => passesCondition(m.vehicle, cond));
       const key = (m) => [m.vehicle.id || "", m.vehicle.model, m.vehicle.trim, m.method].join("|");
       const priced = down == null ? baseRows : dealsForLead(lead, { down, method: "both" });
       const byKey = new Map(priced.map((m) => [key(m), m]));
@@ -1335,7 +1348,7 @@ export function openDealBuilder(lead) {
       // Every car we can quote, for the picker: real stock first, then the
       // lineup by trim.
       const vKey = (v) => [v.id || "", v.model, v.trim].join("|");
-      const cands = candidateVehicles();
+      const cands = candidateVehicles().filter((v) => passesCondition(v, cond));
       const inStock = cands.filter((v) => !v.lineup);
       const lineup = cands.filter((v) => v.lineup);
       const optFor = (v) => `<option value="${esc(vKey(v))}"${vKey(v) === pick ? " selected" : ""}>${esc(vehName(v))}${v.stock ? ` · #${esc(v.stock)}` : ""}${v.price != null ? ` — ${currency(v.price)}` : ""}</option>`;
@@ -1371,7 +1384,8 @@ export function openDealBuilder(lead) {
 
         ${cur == null ? `<div class="hint" style="margin-bottom:10px">No current payment on file for this customer — showing lowest payments. Add their payment/payoff/value to match.</div>` : ""}
 
-        <div class="section-title" style="margin-top:6px">${pick ? "Their offer on this vehicle" : cur != null ? "Closest matches" : "Lowest payments"}</div>
+        ${conditionSegHTML(cond)}
+        <div class="section-title" style="margin-top:10px">${pick ? "Their offer on this vehicle" : cur != null ? "Closest matches" : "Lowest payments"}${cond === "new" ? " · new" : cond === "used" ? " · used" : ""}</div>
         <div class="db-list"></div>
         <div class="fab-note">Estimates using ${s.taxRate}% tax, ${currency(feeShown)} fees, ${s.defaultApr}% standard APR (program rates override), options for term, their car as trade${activeSpecials().length ? " — active Monthly Specials (APR/cash/lease programs) applied automatically where a model matches" : ""}.
           ${appliedNote ? `<div style="margin-top:6px"><b>Applied here:</b> ${esc(appliedNote)}</div>` : ""}
@@ -1382,6 +1396,7 @@ export function openDealBuilder(lead) {
       if (!top.length) {
         list.innerHTML = pick
           ? `<div class="muted small">No offer could be priced for that vehicle.</div>`
+          : cond !== "both" ? `<div class="muted small">No ${cond} vehicle prices against their numbers — try ${cond === "new" ? "Used" : "New"} or Both.</div>`
           : `<div class="muted small">No available inventory with pricing. Add vehicles or import your inventory first.</div>`;
       } else {
         top.forEach((m) => list.appendChild(dealRow(lead, m)));
@@ -1395,6 +1410,7 @@ export function openDealBuilder(lead) {
       });
       const vehEl = wrap.querySelector("#db-veh");
       vehEl.addEventListener("change", () => { pick = vehEl.value; draw(); });
+      wrap.querySelectorAll(".bd-cond [data-cond]").forEach((b) => b.addEventListener("click", () => { cond = b.dataset.cond; setDealCondition(cond); pick = ""; draw(); }));
     }
 
     draw();

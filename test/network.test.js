@@ -77,6 +77,41 @@ for (const id of ["web_B", "web_C", "web_D", "web_E"]) if (!priced.by[id] || pri
 if (priced.by.web_G) fail("the as-is unit is never priced as a deal");
 if (priced.leaseOnly.some(([, m]) => m !== "finance" && m !== "lease") || !priced.leaseOnly.some(([id, m]) => id === "web_B" && m === "finance") || !priced.leaseOnly.some(([id, m]) => id === "web_A" && m === "lease")) fail("asked for leases, the used units still come back financed: " + JSON.stringify(priced.leaseOnly));
 
+// --- The Best deal card: New / Used / Both switches what's shown, the offer
+// text never calls a used unit new, and the Every option sheet carries the
+// same switch.
+const cond = await p.evaluate(async () => {
+  const st = await import("/js/store.js");
+  const l = st.create("leads", { name: "Switch Example", phone: "9025550101", vehicleInterest: "2019 Nissan Rogue SV", currentPayment: 480, currentValue: 18000, payoff: 9000, stage: "delivered" });
+  location.hash = "#/leads/" + l.id;
+  await new Promise((r) => setTimeout(r, 700));
+  const read = () => ({ seg: [...document.querySelectorAll("#deal-slot .bd-cond [data-cond]")].map((b) => ({ k: b.dataset.cond, on: b.classList.contains("active") })), hero: document.querySelector("#deal-slot .bd-hero .row-title")?.textContent.trim() || "", sub: document.querySelector("#deal-slot .bd-hero .row-sub")?.textContent.trim() || "", offer: document.querySelector('#deal-slot [data-act="deal-offer"]')?.getAttribute("href") || "" });
+  const both = read();
+  const tap = async (k) => { document.querySelector(`#deal-slot .bd-cond [data-cond="${k}"]`).click(); await new Promise((r) => setTimeout(r, 300)); return read(); };
+  const used = await tap("used");
+  const neu = await tap("new");
+  // The sheet opens on the same choice.
+  document.querySelector('#deal-slot [data-act="deal-more"]').click();
+  await new Promise((r) => setTimeout(r, 500));
+  const sheet = { seg: [...document.querySelectorAll(".modal .bd-cond [data-cond]")].map((b) => ({ k: b.dataset.cond, on: b.classList.contains("active") })) };
+  document.querySelector(".modal .bd-cond [data-cond='used']").click();
+  await new Promise((r) => setTimeout(r, 400));
+  const sheetUsed = [...document.querySelectorAll(".modal .db-list")].map((n) => n.textContent.replace(/\s+/g, " ").trim())[0] || "";
+  document.querySelector(".modal .modal-close")?.click();
+  await new Promise((r) => setTimeout(r, 300));
+  const back = await tap("both");
+  st.remove("leads", l.id);
+  return { both, used, neu, sheet, sheetUsed, back };
+});
+console.log("cond:", JSON.stringify({ both: cond.both.hero, used: cond.used, neu: cond.neu.hero, sheet: cond.sheet.seg, sheetUsed: cond.sheetUsed.slice(0, 120) }));
+if (cond.both.seg.length !== 3 || !cond.both.seg.find((x) => x.k === "both" && x.on)) fail("the card carries New / Used / Both, on Both: " + JSON.stringify(cond.both.seg));
+if (!/^20(19|20|21|22)\b/.test(cond.used.hero) || !/finance/.test(cond.used.sub) || /new —/.test(cond.used.sub)) fail("Used shows a used unit, financed: " + JSON.stringify(cond.used));
+if (!/^2026 Nissan\b/.test(cond.neu.hero)) fail("New shows a new unit: " + cond.neu.hero);
+if (/into a new 20(19|20|21|22)/.test(decodeURIComponent(cond.used.offer))) fail("the offer never calls a used unit new: " + decodeURIComponent(cond.used.offer));
+if (!cond.sheet.seg.find((x) => x.k === "new" && x.on)) fail("Every option opens on the same choice (New): " + JSON.stringify(cond.sheet.seg));
+if (!/Used|20(19|20|21|22) /.test(cond.sheetUsed) || /2026 Nissan Rogue/.test(cond.sheetUsed)) fail("the sheet on Used lists used units only: " + cond.sheetUsed.slice(0, 160));
+if (!cond.back.seg.find((x) => x.k === "both" && x.on)) fail("back to Both");
+
 // --- The assistant's tool carries the store.
 const tool = await p.evaluate(async () => { const m = await import("/js/agent.js"); return (await m.execTool("lot_lookup", { question: "any used Rogues" })).result; });
 console.log("tool:", JSON.stringify({ count: tool.count, ours: tool.onOurLot, net: tool.acrossNetwork, units: tool.units.map((u) => [u.vehicle, u.at || ""]) }));
