@@ -383,7 +383,11 @@ function optionsForVehicle(lead, v, opts = {}) {
   const feeFor = add.nonTaxable;
   const addTaxable = add.taxable;
   const out = [];
-  if (method !== "lease") {
+  // A used unit is financed, never leased — nobody leases a used car here —
+  // so a used replacement is a finance option whatever the method setting,
+  // and gets no lease row.
+  const used = !isNewUnit(v);
+  if (method !== "lease" || used) {
     // A trim-scoped rate row (Ariya SL+, LEAF Platinum+…) overrides the
     // model-level table and cash from the same bulletin.
     const ft = sp ? trimProgram(sp.trimRates, v) : null;
@@ -429,7 +433,7 @@ function optionsForVehicle(lead, v, opts = {}) {
       out.push({ vehicle: v, method: "finance", monthly: f.monthly, financed: f.amountFinanced, surplus: f.surplus, term, apr, cash, down: num(base.down), special: label });
     }
   }
-  if (method !== "finance") {
+  if (method !== "finance" && !used) {
     const leaseFee = add.nonTaxable;
     // An advertised lease is trim-specific — apply it only to the trim the ad
     // names (sp.leaseTrim); other trims get the computed lease instead.

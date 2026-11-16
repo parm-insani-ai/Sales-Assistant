@@ -59,6 +59,24 @@ if (!lot.rav || lot.rav.count !== 1 || !/across the network/.test(lot.rav.answer
 // Four units at three stores (the sold Sentra doesn't count; the as-is Rogue at the Nissan store does).
 if (!/2 vehicles on the lot/.test(lot.summary) || !/Plus 4 used across the 3 other stores in the group/.test(lot.summary)) fail("the assistant's lot picture counts the network apart: " + lot.summary);
 
+// --- Priced as a deal: a used unit, ours or the network's, is a finance
+// option only (nobody leases a used car); the new one gets finance and lease.
+const priced = await p.evaluate(async () => {
+  const st = await import("/js/store.js"); const d = await import("/js/views/dealbuilder.js");
+  st.updateSettings({ dealMethod: "both" });
+  const l = st.create("leads", { name: "Deal Example", phone: "9025550100", vehicleInterest: "2019 Nissan Rogue SV", currentPayment: 480, currentValue: 18000, payoff: 9000, stage: "delivered" });
+  const rows = d.dealsForLead(l, { method: "both" });
+  const by = {}; rows.forEach((r) => { const k = r.vehicle.id; (by[k] = by[k] || []).push(r.method); });
+  const leaseOnly = d.dealsForLead(l, { method: "lease" }).map((r) => [r.vehicle.id, r.method]);
+  st.remove("leads", l.id);
+  return { by, leaseOnly };
+});
+console.log("priced:", JSON.stringify(priced));
+if (!priced.by.web_A || !priced.by.web_A.includes("finance") || !priced.by.web_A.includes("lease")) fail("the new Rogue is priced both ways: " + JSON.stringify(priced.by.web_A));
+for (const id of ["web_B", "web_C", "web_D", "web_E"]) if (!priced.by[id] || priced.by[id].join() !== "finance") fail(`the used ${id} is a finance option only: ` + JSON.stringify(priced.by[id]));
+if (priced.by.web_G) fail("the as-is unit is never priced as a deal");
+if (priced.leaseOnly.some(([, m]) => m !== "finance" && m !== "lease") || !priced.leaseOnly.some(([id, m]) => id === "web_B" && m === "finance") || !priced.leaseOnly.some(([id, m]) => id === "web_A" && m === "lease")) fail("asked for leases, the used units still come back financed: " + JSON.stringify(priced.leaseOnly));
+
 // --- The assistant's tool carries the store.
 const tool = await p.evaluate(async () => { const m = await import("/js/agent.js"); return (await m.execTool("lot_lookup", { question: "any used Rogues" })).result; });
 console.log("tool:", JSON.stringify({ count: tool.count, ours: tool.onOurLot, net: tool.acrossNetwork, units: tool.units.map((u) => [u.vehicle, u.at || ""]) }));
