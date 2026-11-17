@@ -46,6 +46,8 @@ import { dueCallbacks } from "./session.js";
 import { reachForBlast } from "./consent.js";
 import { makeMatcher } from "./match.js";
 import { memberLists, listByName, listById, createList, deleteList, removeFromList, addByName } from "./lists.js";
+import { leasePipeline, toCall, pipelineLine } from "./leasepipe.js";
+import { reachIndex } from "./coverage.js";
 import { horizonFor, horizonBook, contractsEnding, followUpFor, monthLabel } from "./horizon.js";
 import { conversationFor, transcript, standingWith, recentInbound, recentDigest, loadBodies } from "./convo.js";
 import { planTasks, planStatus, onAppointmentConfirmed, onAppointmentOutcome } from "./apptplan.js";
@@ -173,7 +175,7 @@ const TOOLS = [
   { name: "search_inventory", description: "Put the dealer-website search buttons on screen for the wider O'Regan's NETWORK (other stores, used vehicles) — only when the salesperson asks about the network or other stores. It opens the website in the browser; this app does NOT see the results, cannot count, filter or sort them, and cannot say what's there. Questions about OUR lot are lot_lookup. NOT for comparing models — that's compare_vehicles.", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
   { name: "when_it_makes_sense", description: "WHEN a customer's next vehicle starts to make sense — not whether, but the month: when their equity clears the line as the payoff comes down and the value drifts, when a like-for-like on the lot lands at their payment, when the contract runs out, or six months before a lease ends. 'When should I go back to Dana?', 'when does it make sense for Ken?', or with no customer: 'who opens up in the next six months?', 'who's coming up?'. Opens the Timing screen.", input_schema: { type: "object", properties: { customer: { type: "string" }, months: { type: "number", description: "with no customer: how far ahead to list (default 6)" } } } },
   { name: "customer_list", description: "The salesperson's OWN lists — named buckets they put customers on by hand: a callback list, 'interested, no appointment', an event invite list. 'Put Dana on my callback list', 'add Sam and Jo to interested no appointment', 'take Dana off the callback list', 'show my callback list', 'who's on my callback list', 'make a list called spring event', 'delete the spring event list', 'what lists do I have'. A list named that isn't there yet is made. Not a rule — for 'everyone who…' use query_customers or find_customers.", input_schema: { type: "object", properties: { action: { type: "string", enum: ["add", "remove", "show", "create", "delete", "lists"], description: "add/remove customers, show the list on Outreach, create or delete a list, or name every list" }, list: { type: "string", description: "the list's name, as they said it" }, customers: { type: "array", items: { type: "string" }, description: "the customers to add or remove, by name (or number)" } }, required: ["action"] } },
-  { name: "lease_ends", description: "Every lease on the book with when it ends, soonest first — 'when do my leases end?', 'any leases ending this year?', 'what's coming off lease?'. Opens the Timing screen on the lease list.", input_schema: { type: "object", properties: { months: { type: "number", description: "only leases ending within this many months (default 12)" } } } },
+  { name: "lease_ends", description: "The lease maturity pipeline — every lease on the book by the month it ends and where each stands toward being kept (not touched, tried, spoken with, booked, retained, lost), the retention so far, and who to call first (inside 90 days with no conversation) — 'when do my leases end?', 'any leases ending this year?', 'what's coming off lease?', 'how are my lease ends looking?', 'how many leases have we kept?', 'which lease customers haven't I spoken with?'. Opens the Timing screen on the pipeline. Read back the line and the first names to call.", input_schema: { type: "object", properties: { months: { type: "number", description: "how many months ahead (default 12)" } } } },
   { name: "compare_vehicles", description: "Open the side-by-side comparison tool with the named vehicles, using the built-in 2026 Canadian spec database. Use whenever the salesperson wants to compare models or a customer is cross-shopping — 'compare the Kicks with the CR-V', 'how does the Rogue stack up against the RAV4'.", input_schema: { type: "object", properties: { vehicles: { type: "array", items: { type: "string" }, description: "Vehicle names, e.g. [\"Nissan Kicks\", \"Honda CR-V\"]" } }, required: ["vehicles"] } },
 ];
 
@@ -982,14 +984,25 @@ async function runTool(t, p = {}) {
       const r = addByName(listName, found.map((l) => l.id));
       return { result: { list: r.list.name, added: r.added, onList: r.list.ids.length, customers: found.map((l) => l.name), notFound: missing, answer: `${who} on "${r.list.name}" — ${r.list.ids.length} there now.${missing.length ? ` Couldn't find ${missing.join(", ")}.` : ""}` }, note: `on ${r.list.name}: ${who}` };
     }
-    case "lease_ends": case "leases": {
+    case "lease_ends": case "leases": case "lease_pipeline": {
       const months = Number(p.months) || 12;
       const now = Date.now();
       const list = contractsEnding(store.all("leads"), { now, type: "lease" });
       const soon = list.filter((r) => !r.end || r.end.getTime() - now <= months * 30.44 * 86400000);
+      // The pipeline: where each lease stands toward being kept, by month.
+      const s = store.getSettings(); const lot = store.all("vehicles");
+      const pipe = leasePipeline(store.all("leads"), { now, idx: reachIndex(now), sales: store.all("sales"), appointments: store.all("appointments"), matcher: lot.length ? makeMatcher(lot, s, now) : null, months: Math.min(24, Math.max(1, Math.round(months))) });
+      const red = toCall(pipe).filter((r) => r.red).slice(0, 10).map((r) => ({ customer: r.lead.name, vehicle: r.lead.vehicleInterest || "", ends: r.end.toISOString().slice(0, 10), days: r.days, replacement: r.replacement ? `${r.replacement.name} ≈ $${Math.round(r.replacement.monthly)}/mo` : null }));
       try { sessionStorage.setItem("horizon-tab", "leases"); } catch { /* fine */ }
       navigate("/horizon");
-      return { result: { leasesOnBook: list.length, endingWithin: months, count: soon.length, leases: soon.slice(0, 15).map((r) => ({ customer: r.lead.name, vehicle: r.lead.vehicleInterest || "", ends: r.end ? r.end.toISOString().slice(0, 10) : null, monthsLeft: r.left, past: r.past, payment: r.payment })) }, note: "listing the leases" };
+      return { result: {
+        leasesOnBook: list.length, endingWithin: months, count: soon.length,
+        pipeline: { line: pipelineLine(pipe), totals: pipe.totals.counts, retentionPct: pipe.totals.pct, redNoConversation: pipe.totals.red, byMonth: pipe.months.filter((m) => m.total).map((m) => ({ month: m.label, total: m.total, red: m.red, ...m.counts })), ended: pipe.ended.total, noEndDate: pipe.unknown },
+        callFirst: red,
+        leases: soon.slice(0, 15).map((r) => ({ customer: r.lead.name, vehicle: r.lead.vehicleInterest || "", ends: r.end ? r.end.toISOString().slice(0, 10) : null, monthsLeft: r.left, past: r.past, payment: r.payment })),
+        answer: `${pipelineLine(pipe)}.${red.length ? ` Call first: ${red.slice(0, 3).map((x) => `${x.customer} (${x.days} days)`).join(", ")}.` : ""}`,
+        screen: "Timing, on the lease pipeline — each month with its stages and a Call button for the ones not spoken with",
+      }, note: pipelineLine(pipe) };
     }
     case "get_occasions": {
       const occ = getOccasions().slice(0, 12).map((o) => ({ customer: o.lead.name, phone: o.lead.phone || "", occasion: o.label, suggestedMessage: o.message }));

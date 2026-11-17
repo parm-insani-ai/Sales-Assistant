@@ -11,7 +11,8 @@ import { dealTotal, dealFront, dealBO } from "./soldlog.js";
 import { monthSummary } from "./goals.js";
 import { outreachReport, callReport, reasonWeights } from "../outcomes.js";
 import { funnel, weekly } from "../funnel.js";
-import { coverage } from "../coverage.js";
+import { coverage, reachIndex } from "../coverage.js";
+import { leasePipeline, pipelineLine } from "../leasepipe.js";
 
 // ---- Week math ----
 export function weekStart(d = new Date()) {
@@ -212,6 +213,17 @@ export function renderCoach(view) {
         <div class="rb-bar">${seg(c.spoken, "rb-spoken")}${seg(c.working + c.due, "rb-working")}${seg(c.rested, "rb-rested")}</div>
         <div class="rb-legend small muted"><span><i class="rb-spoken"></i> spoken with ${c.spoken.toLocaleString()}</span><span><i class="rb-working"></i> being worked ${(c.working + c.due).toLocaleString()}${c.due ? ` (${c.due} due now)` : ""}</span><span><i class="rb-rested"></i> resting ${c.rested.toLocaleString()}</span><span><i class="rb-none"></i> not started ${(c.untouched + c.lapsed).toLocaleString()}</span></div>
         <div class="small" style="margin-top:8px">${by ? by + "." : ""} ${c.unreachable ? `<span class="muted">${c.unreachable.toLocaleString()} have no number that works.</span>` : ""}</div>
+        ${(() => {
+          // The lease wall inside the same card: how many end soon with no
+          // conversation yet, and the retention so far. The Timing screen
+          // has the months and the Call button.
+          try {
+            const now = Date.now();
+            const pipe = leasePipeline(store.all("leads"), { now, idx: reachIndex(now), sales: store.all("sales"), appointments: store.all("appointments"), months: 12 });
+            if (!pipe.totals.total && !pipe.unknown) return "";
+            return `<div class="small rb-leases" style="margin-top:8px"><b>Lease ends:</b> ${esc(pipelineLine(pipe))}. <a href="#/horizon" data-horizon="leases">Pipeline →</a></div>`;
+          } catch { return ""; }
+        })()}
       </div>`;
     })();
     const board = (() => {

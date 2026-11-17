@@ -731,6 +731,16 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .bd-cond { max-width: 260px; }
 .bd-cond .seg-btn { padding: 5px 8px; font-size: 0.78rem; }
 .bd-cond-top { margin-bottom: 10px; }
+/* The lease maturity pipeline (Timing → Lease ends). */
+.lp-stages, .lp-counts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
+.lp-counts { margin: 6px 0 2px; }
+.lp-stages i, .lp-counts i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.lp-bar { display: flex; height: 8px; border-radius: 6px; overflow: hidden; background: var(--surface-2); margin-top: 4px; }
+.lp-bar span { display: block; height: 100%; }
+.lp-badge { color: var(--lp); background: color-mix(in srgb, var(--lp) 16%, transparent); margin-left: 4px; }
+.lp-row.lp-red { box-shadow: inset 3px 0 0 var(--danger); padding-left: 8px !important; margin-left: -8px; }
+.lp-empty { opacity: 0.8; }
+.rb-leases a { color: var(--brand); text-decoration: none; font-weight: 600; }
 .cut-chip.cut-more, .cut-chip.cut-query { max-width: 200px; }
 .veh-at { margin-top: 3px; color: var(--brand-strong); display: inline-flex; align-items: center; gap: 4px; }
 .cut-chip.cut-more span, .cut-chip.cut-query span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
