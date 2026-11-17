@@ -8,6 +8,7 @@ import { esc, relativeDay, daysFromToday } from "../utils.js";
 import { icon } from "../icons.js";
 import { navigate } from "../router.js";
 import { isReminder, reminderWhen, wallClock, askNotifyPermission, isLate, daysLate, taskDay } from "../reminders.js";
+import { queuesTask } from "../plays.js";
 
 const pad = (n) => String(n).padStart(2, "0");
 // The to-dos the assistant is running right now (ids). Module-wide, so a
@@ -159,7 +160,10 @@ export function taskListEl({ onChange, limit = Infinity, leadId = null, kind = "
     };
     const made = (t) => { const d = new Date(t.createdAt || 0).getTime(); return isFinite(d) ? d : 0; };
     const all = tasks
-      .filter((t) => !t.done && (!leadId || t.leadId === leadId) && (kind === "all" || (kind === "reminder" ? isReminder(t) : !t.cadence)))
+      // "backlog" is the To-dos chip on Log: not the plan's steps, and not
+      // anything on today's Queue (a customer's, with a channel, due today)
+      // — that is drawn once, on the Queue, with its action.
+      .filter((t) => !t.done && (!leadId || t.leadId === leadId) && (kind === "all" || (kind === "reminder" ? isReminder(t) : kind === "backlog" ? !t.cadence && !queuesTask(t) : !t.cadence)))
       .sort((a, b) => {
         if (order === "newest") { const ma = made(a), mb = made(b); if (ma !== mb) return mb - ma; }
         const da = at(a), db = at(b);

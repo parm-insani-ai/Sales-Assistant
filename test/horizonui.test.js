@@ -65,14 +65,17 @@ fu = await rep.evaluate(async () => { const s = await import("/js/store.js"); re
 console.log("follow-ups:", JSON.stringify(fu));
 if (!fu.later || fu.rich) fail("all-at-once should set the finance customer's month and leave 'now' alone: " + JSON.stringify(fu));
 
-// The lease list, by month.
+// The lease pipeline, by month: the line, the months in order from this
+// one (empties kept), the two leases each in their month with a stage.
 await rep.click('[data-tab="leases"]');
-await rep.waitForFunction(() => /leases on the book/.test(document.body.textContent), null, { timeout: 5000 });
-const leasesTab = await rep.evaluate(() => ({ plan: document.querySelector(".mg-plan .strong")?.textContent.trim(), months: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()) }));
+await rep.waitForFunction(() => /leases end in the next 12 months/.test(document.body.textContent), null, { timeout: 5000 });
+const leasesTab = await rep.evaluate(() => ({ plan: document.querySelector(".lp-head .strong")?.textContent.trim(), months: [...document.querySelectorAll(".section-title")].map((n) => n.textContent.replace(/\s+/g, " ").trim()).filter((t) => /20\d\d/.test(t)), rows: document.querySelectorAll(".lp-row").length }));
 console.log("leases:", JSON.stringify(leasesTab));
-if (!/2 leases on the book · 2 end in the next year/.test(leasesTab.plan || "")) fail("the lease line: " + leasesTab.plan);
+if (!/^2 leases end in the next 12 months/.test(leasesTab.plan || "")) fail("the lease line: " + leasesTab.plan);
+const m0 = new Date(now.getFullYear(), now.getMonth(), 15).toLocaleDateString("en-CA", { month: "long", year: "numeric" });
 const m2 = new Date(now.getFullYear(), now.getMonth() + 2, 15).toLocaleDateString("en-CA", { month: "long", year: "numeric" });
-if (!leasesTab.months[0].startsWith(m2)) fail("the soonest lease comes first: " + JSON.stringify(leasesTab.months));
+if (leasesTab.months.length !== 12 || !leasesTab.months[0].startsWith(m0) || leasesTab.rows !== 2) fail("twelve months from this one, two lease rows: " + JSON.stringify(leasesTab));
+if (!leasesTab.months.find((t) => t.startsWith(m2) && /· 1/.test(t))) fail("the soonest lease sits in its month with its count: " + JSON.stringify(leasesTab.months));
 
 // --- Soonest window on Leads: the same read as an order — the people with
 // a window first, soonest, with the month and why on each; the rest after.

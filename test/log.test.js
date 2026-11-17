@@ -53,15 +53,20 @@ const document_log = (t) => t.log.join(",");
 console.log("log:", JSON.stringify(today, null, 1));
 if (today.chips.map((c) => c.tab).join() !== "logged,todos,queue") fail("the three chips aren't there in order: " + JSON.stringify(today.chips));
 if (today.shown.join() !== "logged" || !today.chips[0].active) fail("Logged should be the chip on screen first: " + JSON.stringify(today));
-if (!/^Logged\s?1$/.test(today.chips[0].label) || !/^To-dos\s?7$/.test(today.chips[1].label) || !/^Queue\s?\d/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
+if (!/^Logged\s?1$/.test(today.chips[0].label) || !/^To-dos\s?6$/.test(today.chips[1].label) || !/^Queue\s?\d/.test(today.chips[2].label)) fail("the counts aren't on the chips: " + JSON.stringify(today.chips.map((c) => c.label)));
 if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list the customer logged this month");
+// "Call the bank about Dana" is about a customer, has a channel and is due
+// today: a play on the Queue, not a to-do — and To-dos says so in a line.
+const split = await p.evaluate(() => ({ onQueue: [...document.querySelectorAll(".plays-slot .pl-card")].some((c) => /Call the bank about Dana/.test(c.textContent)), inTodos: [...document.querySelectorAll('[data-panel="todos"] .todo-card')].some((c) => /Call the bank about Dana/.test(c.textContent)), line: document.querySelector('[data-panel="todos"] .lg-onqueue')?.textContent.replace(/\s+/g, " ").trim() || "" }));
+console.log("split:", JSON.stringify(split));
+if (!split.onQueue || split.inTodos || !/\b1 about a customer is due today/.test(split.line)) fail("a customer's call due today is on the Queue only, and To-dos says so: " + JSON.stringify(split));
 // One list, newest first — the one just added at the top — with the ones
 // added together in due order (the reminder due now, the one later today,
 // then the to-dos dated today), and the week-old one at the bottom.
 // (Run late in the evening, "later today" is tomorrow, so only the ends of
 // the order are pinned.)
-if (today.todos.length !== 7 || !/^Order the plates/.test(today.todos[0]) || !/^Ring Dana back.*now/i.test(today.todos[1]) || !today.todos.slice(2, 4).some((t) => /Check the SV came in/.test(t)) || !/Send the registration/.test(today.todos[6])) fail("to-dos should be one list, newest first, the due reminder marked: " + JSON.stringify(today.todos));
-if (!today.todos[6].includes("Overdue")) fail("the week-old to-do isn't marked overdue: " + today.todos[6]);
+if (today.todos.length !== 6 || !/^Order the plates/.test(today.todos[0]) || !/^Ring Dana back.*now/i.test(today.todos[1]) || !today.todos.slice(2, 4).some((t) => /Check the SV came in/.test(t)) || !/Send the registration/.test(today.todos[5])) fail("to-dos should be one list, newest first, the due reminder marked: " + JSON.stringify(today.todos));
+if (!today.todos[5].includes("Overdue")) fail("the week-old to-do isn't marked overdue: " + today.todos[6]);
 // …and the strip across the top says what's past its day, so sinking
 // doesn't mean forgotten.
 if (!/1 overdue/.test(today.late || "") || !/Send the registration/.test(today.late) || !/6 days ago/.test(today.late) || !/Show them/.test(today.late)) fail("the overdue strip doesn't say how many and the oldest: " + today.late);
@@ -71,7 +76,7 @@ if (!/Settings → Notifications/.test(today.note || "")) fail("the list doesn't
 // --- Tapping a chip swaps the panel.
 await p.click('.log-tabs [data-tab="todos"]');
 const swapped = await p.evaluate(() => ({ shown: [...document.querySelectorAll("#view .log-panel")].filter((p) => !p.hidden).map((p) => p.dataset.panel), active: document.querySelector(".log-tabs .btn-primary")?.dataset.tab, rows: [...document.querySelectorAll('[data-panel="todos"] .todo-card')].filter((r) => r.getBoundingClientRect().height > 0).length }));
-if (swapped.shown.join() !== "todos" || swapped.active !== "todos" || swapped.rows !== 7) fail("tapping To-dos should show only the to-dos: " + JSON.stringify(swapped));
+if (swapped.shown.join() !== "todos" || swapped.active !== "todos" || swapped.rows !== 6) fail("tapping To-dos should show only the to-dos: " + JSON.stringify(swapped));
 
 // --- "Show them": just the overdue ones; "Show all" brings the list back.
 await p.click('[data-panel="todos"] .todo-late [data-act="late-toggle"]');
@@ -81,7 +86,7 @@ console.log("overdue only:", JSON.stringify(only));
 if (only.rows.length !== 1 || !/Send the registration/.test(only.rows[0]) || !only.on || !/Show all/.test(only.strip || "")) fail("Show them should list just the overdue ones: " + JSON.stringify(only));
 await p.click('[data-panel="todos"] .todo-late [data-act="late-toggle"]');
 await p.waitForTimeout(200);
-if ((await p.evaluate(() => document.querySelectorAll('[data-panel="todos"] .todo-card').length)) !== 7) fail("Show all didn't bring the whole list back");
+if ((await p.evaluate(() => document.querySelectorAll('[data-panel="todos"] .todo-card').length)) !== 6) fail("Show all didn't bring the whole list back");
 
 // --- The due reminder is under Right now on Home — and so are the overdue to-dos.
 await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(400);
@@ -126,7 +131,7 @@ await p.click(".modal button[type=submit]");
 await p.waitForTimeout(500);
 const added = await p.evaluate(async () => { const s = await import("/js/store.js"); const t = s.all("tasks").find((x) => x.title === "Appraise the trade"); return { remindAt: t && t.remindAt, channel: t && t.channel, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
 console.log("added:", JSON.stringify(added));
-if (!/T16:30$/.test(added.remindAt || "") || added.channel !== "reminder" || added.count !== "8") fail("a to-do given a time should be a reminder, and the count should move: " + JSON.stringify(added));
+if (!/T16:30$/.test(added.remindAt || "") || added.channel !== "reminder" || added.count !== "7") fail("a to-do given a time should be a reminder, and the count should move: " + JSON.stringify(added));
 // …and one without a time is just on the list.
 await p.click('[data-panel="todos"] [data-act="add-task"]');
 await p.waitForSelector('.modal input[name="title"]', { timeout: 5000 });
@@ -138,7 +143,7 @@ if (plain.remindAt || plain.channel === "reminder" || !plain.due) fail("a to-do 
 await p.evaluate(() => [...document.querySelectorAll('[data-panel="todos"] .todo-card')].find((r) => /Ring Dana back/.test(r.textContent)).querySelector("input").click());
 await p.waitForTimeout(300);
 const ticked = await p.evaluate(async () => { const s = await import("/js/store.js"); return { done: s.get("tasks", "r1").done, count: document.querySelector('.log-tabs [data-count="todos"]').textContent }; });
-if (!ticked.done || ticked.count !== "8") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
+if (!ticked.done || ticked.count !== "7") fail("ticking the reminder off didn't take: " + JSON.stringify(ticked));
 
 // --- "Do it": every to-do the assistant can take a run at has the button —
 // a move the app filed and one in your own words alike; an in-person move

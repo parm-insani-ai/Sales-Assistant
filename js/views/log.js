@@ -17,7 +17,7 @@ import { taskListEl, openTaskForm } from "./tasks.js";
 import { openLeadForm } from "./leads.js";
 import { icon } from "../icons.js";
 import { swipeable, undoToast, toast } from "../components.js";
-import { getPlays, dismissPlay, undismissToday } from "../plays.js";
+import { getPlays, dismissPlay, undismissToday, queuesTask } from "../plays.js";
 import { bookCheap, hasBook, restoreLastBook, restoreSettled, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
 import { pushEnabled } from "../push.js";
@@ -83,7 +83,10 @@ export function renderLog(view) {
   const todoPanel = panel("todos", `<span class="small muted">Give one a time and it reminds you</span><button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>`);
   const todoBody = document.createElement("div");
   todoBody.className = "tasks-slot";
-  const todoCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence).length;
+  // The chip counts what the list draws: not the plan's steps, and not
+  // what's on today's Queue — that's counted there.
+  const todoCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence && !queuesTask(t)).length;
+  const onQueueCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence && queuesTask(t)).length;
   setCount("todos", todoCount());
   // A screenful of to-dos, newest first, the rest behind a button — see
   // taskListEl. Opened from the overdue line on Home, it shows just those.
@@ -92,7 +95,19 @@ export function renderLog(view) {
   // Opened from a line on Home about one to-do: that one is in view, however
   // far down the list it would otherwise sit.
   try { focusId = sessionStorage.getItem("viniva:log:focus") || ""; sessionStorage.removeItem("viniva:log:focus"); } catch { /* the list, then */ }
-  todoBody.appendChild(taskListEl({ limit: 12, showOverdue: lateOnly, focusId, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => setCount("todos", todoCount()) }));
+  // A customer's to-do due today is a play on the Queue, drawn there with
+  // its action; here, one line says how many and opens it.
+  const onQueue = document.createElement("div");
+  onQueue.className = "card small lg-onqueue";
+  const paintOnQueue = () => {
+    const n = onQueueCount();
+    onQueue.hidden = !n;
+    onQueue.innerHTML = n ? `${icon("target")} <b>${n}</b> about ${n === 1 ? "a customer is" : "customers are"} due today — on the <a href="#" data-act="to-queue">Queue</a>, with the call or text ready.` : "";
+  };
+  paintOnQueue();
+  onQueue.addEventListener("click", (ev) => { if (ev.target.closest('[data-act="to-queue"]')) { ev.preventDefault(); show("queue"); } });
+  todoBody.appendChild(onQueue);
+  todoBody.appendChild(taskListEl({ kind: "backlog", limit: 12, showOverdue: lateOnly, focusId, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => { setCount("todos", todoCount()); paintOnQueue(); } }));
   todoPanel.appendChild(todoBody);
   const note = document.createElement("div");
   note.className = "hint";

@@ -74,6 +74,16 @@ export function dismissPlay(p) {
 // Returns [{rank, icon, title, sub, kind, href?, route?}] best first.
 // href = one-tap send/dial; route = screen to open instead. Callers choose the
 // depth: the Home queue asks for everything, the morning push for a handful.
+// The Queue's claim on a task: about a customer, with a way to reach them
+// (a call, a text, an email — not a reminder), and due today or earlier.
+// Such a task is a play on today's Queue and is NOT drawn under To-dos, so
+// the two lists never count the same thing twice. Plan steps and the rep's
+// own "Call Dana" alike — what matters is that it's today's and a customer's.
+export function queuesTask(t, todayK = dayKeyNow()) {
+  return !!(t && !t.done && t.leadId && t.channel && t.channel !== "reminder" && t.due && String(t.due).slice(0, 10) <= todayK);
+}
+function dayKeyNow() { const d = new Date(); const pad = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+
 export function getPlays(limit = 6) {
   const plays = [];
   const now = Date.now();
@@ -174,7 +184,7 @@ export function getPlays(limit = 6) {
   const nowISO = new Date(now).toISOString();
   const held = new Set(heldTouches(now).map((t) => t.id));
   store.all("tasks")
-    .filter((t) => !t.done && t.leadId && t.channel && t.channel !== "reminder" && t.due && t.due <= todayK)
+    .filter((t) => queuesTask(t, todayK))
     // A timed step (the intro call, two hours after adding someone) isn't
     // on the queue until its minute — except a text waiting out its hold
     // (the welcome text's five minutes), which is on the queue from the
