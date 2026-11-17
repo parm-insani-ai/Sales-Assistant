@@ -349,5 +349,7 @@ export function renderCoach(view) {
 
   el.querySelectorAll("[data-nav]").forEach((b) =>
     b.addEventListener("click", () => { offset = Math.min(0, offset + Number(b.dataset.nav)); draw(); }));
+  // The lease line's link lands on the pipeline tab, not Timing's first tab.
+  el.addEventListener("click", (ev) => { const a = ev.target.closest("[data-horizon]"); if (a) { try { sessionStorage.setItem("horizon-tab", a.dataset.horizon); } catch { /* fine */ } } });
   draw();
 }
