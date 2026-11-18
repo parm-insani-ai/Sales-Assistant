@@ -960,14 +960,9 @@ async function runTool(t, p = {}) {
       if (action === "show" || action === "who") {
         const x = listByName(listName);
         if (!x) return { result: { error: `no list called "${listName}"`, lists: names() }, note: "⚠ no such list" };
-        try {
-          sessionStorage.setItem("viniva:leads-list", x.id);
-          sessionStorage.setItem("leads-filter", "all");
-          sessionStorage.removeItem("leads-search"); sessionStorage.removeItem("viniva:leads-audience"); sessionStorage.removeItem("viniva:leads-spoken"); sessionStorage.removeItem("viniva:leads-query");
-        } catch { /* fine */ }
-        navigate("/leads");
+        navigate(`/lists/${x.id}`);
         const people = x.ids.map((id) => store.get("leads", id)).filter(Boolean);
-        return { result: { list: x.name, count: people.length, customers: people.slice(0, 15).map((l) => ({ name: l.name, phone: l.phone || "", vehicle: l.vehicleInterest || "", stage: l.stage })), screen: "Outreach, on the list" }, note: `${x.name}: ${people.length}` };
+        return { result: { list: x.name, count: people.length, customers: people.slice(0, 15).map((l) => ({ name: l.name, phone: l.phone || "", vehicle: l.vehicleInterest || "", stage: l.stage })), screen: "the list's own page — its people, with Call, Text, Email and Add people" }, note: `${x.name}: ${people.length}` };
       }
       // add / remove
       const asked = Array.isArray(p.customers) ? p.customers : p.customer ? [p.customer] : p.customers ? [p.customers] : [];

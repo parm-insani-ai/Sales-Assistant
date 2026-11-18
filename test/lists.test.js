@@ -32,30 +32,41 @@ const read = () => p.evaluate(() => ({
   cards: [...document.querySelectorAll(".lead-list .card[data-lead-id]")].map((c) => ({ id: c.dataset.leadId, lists: [...c.querySelectorAll(".badge-list")].map((n) => n.textContent.trim()) })),
 }));
 
-// --- The row offers a new list; with none yet there is no list chip.
+// --- The row offers the Lists button; no list is a chip on the row.
 let c = await read();
-if (!c.chips.some((x) => x.kind === "cut-new")) fail("the row should offer + List: " + JSON.stringify(c.chips.map((x) => x.text)));
-if (c.chips.some((x) => x.kind === "cut-list")) fail("no lists yet, no list chip");
+if (!(await p.evaluate(() => !!document.querySelector('.cut-line [data-act="lists"]')))) fail("the row should offer Lists");
+if (c.chips.some((x) => x.kind === "cut-list")) fail("no list is a chip on the row");
 
-// --- A list made from the module (what the picker and the assistant call), two on it.
-await p.evaluate(async () => { const L = await import("/js/lists.js"); const x = L.createList("Callbacks"); L.addToList(x.id, ["o1", "o2"]); });
-await p.evaluate(() => { location.hash = "#/inventory"; }); await p.waitForTimeout(300);
-await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForTimeout(600);
+// --- A list made from the module (what the picker and the assistant call), two on it: its own page.
+const cbId = await p.evaluate(async () => { const L = await import("/js/lists.js"); const x = L.createList("Callbacks"); L.addToList(x.id, ["o1", "o2"]); return x.id; });
+await p.click('.cut-line [data-act="lists"]'); await p.waitForSelector(".ls-row", { timeout: 8000 }).catch(() => fail("Lists didn't open"));
+let ls = await p.evaluate(() => ({ hash: location.hash, rows: [...document.querySelectorAll(".ls-row")].map((r) => ({ kind: r.dataset.kind, text: r.textContent.replace(/\s+/g, " ").trim() })), newBtn: !!document.querySelector('[data-act="new-list"]') }));
+console.log("index:", JSON.stringify(ls));
+if (ls.hash !== "#/lists" || !ls.rows.some((r) => r.kind === "mine" && /Callbacks/.test(r.text) && /2 people/.test(r.text)) || !ls.newBtn) fail("the index lists the list with its count and offers a new one: " + JSON.stringify(ls));
+await p.click('.ls-row[data-kind="mine"]'); await p.waitForSelector(".ls-head", { timeout: 8000 });
+ls = await p.evaluate(() => ({ hash: location.hash, head: document.querySelector(".ls-head")?.textContent.replace(/\s+/g, " ").trim(), cards: [...document.querySelectorAll(".ls-people .card[data-lead-id]")].map((x) => x.dataset.leadId), off: document.querySelectorAll(".ls-people .ls-off").length, acts: [...document.querySelectorAll(".ls-head [data-act]")].map((n) => n.dataset.act) }));
+console.log("page:", JSON.stringify(ls));
+if (ls.hash !== `#/lists/${cbId}` || ls.cards.length !== 2 || !ls.cards.every((x) => ["o1", "o2"].includes(x)) || ls.off !== 2) fail("the list's page shows its two, each with Off the list: " + JSON.stringify(ls));
+if (!/2 people · your own list/.test(ls.head) || !["call", "text", "email", "add", "delete", "rename"].every((a) => ls.acts.includes(a))) fail("the page's head and actions: " + JSON.stringify(ls));
+// Off the list from the page; Add people from the page.
+await p.click(".ls-people .ls-off"); await p.waitForTimeout(300);
+let n = await p.evaluate(() => document.querySelectorAll(".ls-people .card[data-lead-id]").length);
+if (n !== 1) fail("Off the list takes one off: " + n);
+await p.click('.ls-head [data-act="add"]'); await p.waitForSelector(".modal .ls-search", { timeout: 5000 });
+await p.fill(".modal .ls-search", "Owner 03"); await p.waitForTimeout(200);
+await p.click(".modal [data-add]"); await p.waitForTimeout(200);
+await p.click(".modal .modal-close"); await p.waitForTimeout(400);
+n = await p.evaluate(async () => { const L = await import("/js/lists.js"); return L.listByName("Callbacks").ids.slice().sort().join(); });
+if (n !== "o2,o3") fail("Add people puts the searched one on: " + n);
+await p.evaluate(async () => { const L = await import("/js/lists.js"); const x = L.listByName("Callbacks"); L.removeFromList(x.id, x.ids); L.addToList(x.id, ["o1", "o2"]); });
+// Back on Outreach, All.
+await p.evaluate(() => { location.hash = "#/leads"; }); await p.waitForSelector(".cut-row", { timeout: 8000 }); await p.waitForTimeout(400);
 await p.click('[data-filter="all"]'); await p.waitForTimeout(400);
 c = await read();
-const cb = c.chips.find((x) => x.kind === "cut-list" && /Callbacks/.test(x.text));
-console.log("chip:", JSON.stringify(cb));
-if (!cb || !/^Callbacks 2$/.test(cb.text) || !/^members:/.test(cb.key || "")) fail("the list is a chip with its count: " + JSON.stringify(c.chips));
-// On: the two, the bar is the list's (delete, no add-to-list), the cards carry the tag.
-await p.click(`.cut-row [data-cut="${cb.key}"]`); await p.waitForTimeout(500);
-c = await read();
-console.log("on:", JSON.stringify({ bar: c.bar, acts: c.acts, cards: c.cards }));
-if (c.cards.length !== 2 || !c.cards.every((x) => ["o1", "o2"].includes(x.id))) fail("the list on shows its two: " + JSON.stringify(c.cards));
-if (!/^2 on Callbacks/.test(c.bar) || !c.acts.includes("list-delete") || c.acts.includes("cut-addlist") || c.acts.includes("list-save")) fail("the bar is the list's: " + JSON.stringify({ bar: c.bar, acts: c.acts }));
-if (!c.cards.every((x) => x.lists.includes("Callbacks"))) fail("each card says the list it's on: " + JSON.stringify(c.cards));
+if (c.chips.some((x) => x.kind === "cut-list")) fail("off, the list isn't a chip on the row");
 
 // --- A reason cut on instead: the bar offers putting the whole cut on a list; a new list made right there takes them all.
-await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
+if (await p.$('.cut-bar [data-act="aud-clear"]')) { await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400); }
 // Whichever reason or vehicle chip the book offers first.
 const anyCut = await p.evaluate(() => [...document.querySelectorAll('.cut-row [data-cut]')].map((x) => x.dataset.cut).find((k) => !/^members:/.test(k)));
 if (!anyCut) fail("the row should offer a cut to put on a list");
@@ -71,9 +82,8 @@ await p.click('.modal .list-pick-new button[type="submit"]'); await p.waitForTim
 const made = await p.evaluate(async () => { const L = await import("/js/lists.js"); const x = L.listByName("Interested, no appointment"); return x ? x.ids.length : -1; });
 if (made !== rateN) fail(`the new list took the whole cut (${rateN}): ` + made);
 await p.click(".modal .modal-close"); await p.waitForTimeout(400);
-c = await read();
-const intChip = c.chips.find((x) => x.kind === "cut-list" && /Interested/.test(x.text));
-if (!intChip || !new RegExp(`Interested, no appointment ${rateN}$`).test(intChip.text)) fail("the new list is a chip with its count: " + JSON.stringify(c.chips.filter((x) => x.kind === "cut-list")));
+const intN = await p.evaluate(async () => { const L = await import("/js/lists.js"); const x = L.listByName("Interested, no appointment"); return x ? x.ids.length : -1; });
+if (intN !== rateN) fail("the new list holds the cut: " + intN);
 
 // --- The customer's page: Lists row, the picker ticks them on. (Someone on
 // no list yet, and not one the assistant is asked about below.)
@@ -118,13 +128,13 @@ console.log("tool:", JSON.stringify(tool));
 if (!tool.add || tool.add.added !== 1 || tool.add.onList !== 4 || !tool.add.notFound.includes("Nobody Here")) fail("add by name: " + JSON.stringify(tool.add));
 if (!tool.all || tool.all.lists.length !== 2) fail("the lists: " + JSON.stringify(tool.all));
 if (!tool.off || tool.off.removed !== 1 || tool.off.onList !== 3) fail("remove by name: " + JSON.stringify(tool.off));
-if (!tool.show || tool.show.count !== 3 || tool.hash !== "#/leads") fail("show opens Outreach on the list: " + JSON.stringify({ show: tool.show, hash: tool.hash }));
-await p.waitForTimeout(700);
-c = await read();
-if (!c.chips.find((x) => x.kind === "cut-list" && /Callbacks 3/.test(x.text) && x.on) || c.cards.length !== 3) fail("Outreach opened on the list, lit, its three showing: " + JSON.stringify({ chips: c.chips.filter((x) => x.kind === "cut-list"), n: c.cards.length }));
+if (!tool.show || tool.show.count !== 3 || !/^#\/lists\//.test(tool.hash)) fail("show opens the list's own page: " + JSON.stringify({ show: tool.show, hash: tool.hash }));
+await p.waitForSelector(".ls-head", { timeout: 8000 }); await p.waitForTimeout(300);
+const shown = await p.evaluate(() => ({ head: document.querySelector(".ls-head")?.textContent.replace(/\s+/g, " ").trim(), n: document.querySelectorAll(".ls-people .card[data-lead-id]").length }));
+if (!/Callbacks/.test(shown.head || "") || shown.n !== 3) fail("the list's page, its three showing: " + JSON.stringify(shown));
 
-// --- Delete from the bar: the list goes, the customers stay.
-await p.click('.cut-bar [data-act="list-delete"]'); await p.waitForTimeout(300);
+// --- Delete from the page: the list goes, the customers stay.
+await p.click('.ls-head [data-act="delete"]'); await p.waitForTimeout(300);
 await p.evaluate(() => { const b = [...document.querySelectorAll(".modal button")].find((x) => /^Delete$/.test(x.textContent.trim())); if (b) b.click(); }); await p.waitForTimeout(500);
 const left = await p.evaluate(async () => { const L = await import("/js/lists.js"); const st = await import("/js/store.js"); return { lists: L.memberLists().map((x) => x.name), leads: st.all("leads").length }; });
 if (left.lists.length !== 1 || left.lists[0] !== "Interested, no appointment" || left.leads !== 8) fail("deleting the list keeps the customers: " + JSON.stringify(left));

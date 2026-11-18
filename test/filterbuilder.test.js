@@ -81,9 +81,13 @@ await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="
 await p.fill('.modal [name="name"]', "Cheap rate, big payment");
 await p.click('.modal button[type="submit"]'); await p.waitForTimeout(400);
 await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(300);
-s = await p.evaluate(() => ({ q: !!document.querySelector('.cut-row [data-act="query-chip"]'), list: document.querySelector(".cut-chip.cut-list")?.textContent.trim() }));
-if (s.q || s.list !== "Cheap rate, big payment") fail("cleared, with the list saved: " + JSON.stringify(s));
-await p.click(".cut-chip.cut-list"); await p.waitForTimeout(500);
+s = await p.evaluate(() => ({ q: !!document.querySelector('.cut-row [data-act="query-chip"]'), saved: JSON.parse(localStorage.getItem("viniva:leads-lists") || "[]").map((x) => x.name) }));
+if (s.q || s.saved.join() !== "Cheap rate, big payment") fail("cleared, with the list saved: " + JSON.stringify(s));
+await p.click('.cut-line [data-act="lists"]'); await p.waitForSelector('.ls-row[data-kind="saved"]', { timeout: 8000 });
+const lsRow = await p.evaluate(() => document.querySelector('.ls-row[data-kind="saved"]')?.textContent.replace(/\s+/g, " ").trim());
+if (!/Cheap rate, big payment/.test(lsRow || "") || !/4 people/.test(lsRow || "")) fail("the saved filter's row on Lists carries its count: " + lsRow);
+await p.click('.ls-row[data-kind="saved"]'); await p.waitForSelector('.ls-head [data-act="work"]', { timeout: 8000 });
+await p.click('.ls-head [data-act="work"]'); await p.waitForSelector(".cut-bar", { timeout: 8000 }); await p.waitForTimeout(400);
 s = await p.evaluate(() => ({ bar: document.querySelector(".cut-bar .aud-count")?.textContent, n: document.querySelectorAll(".lead-list .card[data-lead-id]").length }));
 if (Number(s.bar) !== 4 || s.n !== 4) fail("the saved list brings the filter back: " + JSON.stringify(s));
 

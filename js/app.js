@@ -21,6 +21,7 @@ import { startReminderWatch } from "./reminders.js";
 // first paint carries only what Home, Leads and Inventory need. Each loader
 // names its file literally so the build cache and the asset check see it.
 const LOADERS = {
+  lists: () => import("./views/lists.js"),
   calculator: () => import("./views/calculator.js"), deliveries: () => import("./views/deliveries.js"), settings: () => import("./views/settings.js"),
   goals: () => import("./views/goals.js"), imp: () => import("./views/import.js"), dealer: () => import("./views/dealer.js"), prospecting: () => import("./views/prospecting.js"),
   tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
@@ -138,6 +139,8 @@ const PAGES = {
   // the store, the board. Decided per render so a mode switch takes at once.
   "/": { title: "Dashboard", render: (view, ctx) => (inManagement() ? lazyView("manage", "renderManageHome")(view, ctx) : renderDashboard(view, ctx)) },
   "/leads": { title: "Leads", render: renderLeads },
+  // Your lists and saved filters, the index and each one's own page.
+  "/lists": { title: "Lists", render: lazyView("lists", "renderLists") },
   "/inventory": { title: "Inventory", render: renderInventory },
   "/calculator": { title: "Deal Calculator", render: lazyView("calculator", "renderCalculator") },
   "/deliveries": { title: "Deliveries", render: lazyView("deliveries", "renderDeliveries") },
@@ -250,6 +253,7 @@ function parentOf(base, param, roots) {
   if (param && base === "/inbox") return "/comms";
   if (base === "/todo") return "/log"; // the work page says which chip (a plan step is the queue's)
   if (base === "/session") return "/leads"; // the calling session backs out to Outreach
+  if (base === "/lists") return param ? "/lists" : "/leads"; // a list's page to the index, the index to Outreach
   if (base === "/calendar" && param) return "/appts"; // an appointment's page backs out to the list
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
   return "/";

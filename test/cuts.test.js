@@ -121,46 +121,50 @@ if (!both.every((r) => /equity|Paid off/i.test(r) && /%|Rate/.test(r))) fail("un
 const rateChip = c.cuts.find((x) => x.key === "rate");
 if (!rateChip || !rateChip.on || rateChip.text !== `High rate ${bothN}`) fail("a cut on carries the count it leaves: " + JSON.stringify(rateChip));
 
-// --- Save as a list: a named chip at the front of the row; × clears the
-// cuts; the chip brings them back; the bar names the list; Forget removes it.
+// --- Save as a list: lit with its name in the bar while it's on; off, it
+// isn't a chip — it has its own page under Lists with the same people, and
+// Work it on Outreach brings the cuts back. Saving the same cuts again
+// under another name, or another cut under the same name, is one saved
+// filter, not two.
 await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="name"]', { timeout: 5000 });
 await p.fill('.modal [name="name"]', "Equity at a high rate");
 await p.click('.modal button[type="submit"]'); await p.waitForTimeout(500);
 c = await read();
 const listChip = c.cuts.find((x) => x.kind === "cut-list");
 console.log("saved:", JSON.stringify({ chip: listChip, bar: c.bar2 }));
-if (!listChip || !listChip.on || listChip.text !== "Equity at a high rate" || c.cuts[0].kind !== "cut-list") fail("a saved list should be a lit chip at the front: " + JSON.stringify(c.cuts.slice(0, 2)));
+if (!listChip || !listChip.on || listChip.text !== "Equity at a high rate" || c.cuts[0].kind !== "cut-list") fail("a saved list is lit at the front while it's on: " + JSON.stringify(c.cuts.slice(0, 2)));
 if (!/match · Equity at a high rate/.test(c.bar2 || "")) fail("the bar should name the list: " + c.bar2);
 await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(500);
 c = await read();
 if (c.bar2 || c.cuts.some((x) => x.on) || !c.head) fail("× should clear every cut and bring the batch back: " + JSON.stringify({ bar: c.bar2, on: c.cuts.filter((x) => x.on) }));
-await p.click(".cut-chip.cut-list"); await p.waitForTimeout(500);
+if (c.cuts.some((x) => x.kind === "cut-list")) fail("off, the saved list isn't a chip on the row — it has its own page");
+await p.click('.cut-line [data-act="lists"]'); await p.waitForSelector(".ls-row", { timeout: 8000 }).catch(() => fail("Lists didn't open"));
+let ls = await p.evaluate(() => ({ hash: location.hash, rows: [...document.querySelectorAll(".ls-row")].map((r) => ({ kind: r.dataset.kind, text: r.textContent.replace(/\s+/g, " ").trim() })) }));
+console.log("lists:", JSON.stringify(ls));
+if (ls.hash !== "#/lists" || !ls.rows.some((r) => r.kind === "saved" && /Equity at a high rate/.test(r.text) && new RegExp(`${bothN} (people|person)`).test(r.text))) fail("the index lists the saved filter with its count: " + JSON.stringify(ls));
+await p.click('.ls-row[data-kind="saved"]'); await p.waitForSelector(".ls-head", { timeout: 8000 });
+ls = await p.evaluate(() => ({ hash: location.hash, head: document.querySelector(".ls-head")?.textContent.replace(/\s+/g, " ").trim(), cards: document.querySelectorAll(".ls-people .card[data-lead-id]").length, acts: [...document.querySelectorAll(".ls-head [data-act]")].map((n) => n.dataset.act) }));
+console.log("list page:", JSON.stringify(ls));
+if (!/^#\/lists\//.test(ls.hash) || ls.cards !== bothN || !/Equity at a high rate/.test(ls.head) || !["call", "text", "email", "work", "delete"].every((a) => ls.acts.includes(a))) fail("the saved filter's page: its people and its actions: " + JSON.stringify(ls));
+await p.click('.ls-head [data-act="work"]'); await p.waitForSelector(".cut-bar", { timeout: 8000 }); await p.waitForTimeout(400);
 c = await read();
-if (!(c.cuts.find((x) => x.key === "equity") || {}).on || !(c.cuts.find((x) => x.key === "rate") || {}).on) fail("the list chip should bring its cuts back: " + JSON.stringify(c.cuts.filter((x) => x.on)));
+if (!(c.cuts.find((x) => x.key === "equity") || {}).on || !(c.cuts.find((x) => x.key === "rate") || {}).on) fail("Work it on Outreach brings its cuts back: " + JSON.stringify(c.cuts.filter((x) => x.on)));
 if (!/match · Equity at a high rate/.test(c.bar2 || "") || !/Call/.test(c.bar2)) fail("the list's bar: " + c.bar2);
-// Saving the same cuts again under another name, or another cut under the
-// same name, replaces the list — one chip, not a second.
 await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
 await p.click('.cut-chip[data-cut="equity"]'); await p.waitForTimeout(300);
 await p.click('.cut-chip[data-cut="rate"]'); await p.waitForTimeout(400);
 await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="name"]', { timeout: 5000 });
 await p.fill('.modal [name="name"]', "Rate people");
 await p.click('.modal button[type="submit"]'); await p.waitForTimeout(500);
-c = await read();
-let listChips = c.cuts.filter((x) => x.kind === "cut-list");
-if (listChips.length !== 1 || listChips[0].text !== "Rate people") fail("the same cuts saved again take the new name, one chip: " + JSON.stringify(listChips));
+let savedNow = await p.evaluate(() => JSON.parse(localStorage.getItem("viniva:leads-lists") || "[]").map((x) => x.name));
+if (savedNow.length !== 1 || savedNow[0] !== "Rate people") fail("the same cuts saved again take the new name, one saved filter: " + JSON.stringify(savedNow));
 await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
 await p.click('.cut-chip[data-cut="equity"]'); await p.waitForTimeout(400);
 await p.click('[data-act="list-save"]'); await p.waitForSelector('.modal [name="name"]', { timeout: 5000 });
 await p.fill('.modal [name="name"]', "rate PEOPLE");
 await p.click('.modal button[type="submit"]'); await p.waitForTimeout(500);
-c = await read();
-listChips = c.cuts.filter((x) => x.kind === "cut-list");
-if (listChips.length !== 1) fail("the same name saved again replaces the list, one chip: " + JSON.stringify(listChips));
-await p.click('.cut-bar [data-act="aud-clear"]'); await p.waitForTimeout(400);
-await p.click(".cut-chip.cut-list"); await p.waitForTimeout(500);
-c = await read();
-if (!(c.cuts.find((x) => x.key === "equity") || {}).on || (c.cuts.find((x) => x.key === "rate") || {}).on) fail("the replaced list carries the newer cuts: " + JSON.stringify(c.cuts.filter((x) => x.on)));
+savedNow = await p.evaluate(() => JSON.parse(localStorage.getItem("viniva:leads-lists") || "[]").map((x) => [x.name, (x.cuts || []).join()]));
+if (savedNow.length !== 1 || savedNow[0][1] !== "equity") fail("the same name saved again replaces the saved filter with the newer cuts: " + JSON.stringify(savedNow));
 // Back to the list the rest of the test works with.
 await p.click('[data-act="list-forget"]'); await p.waitForTimeout(400);
 await p.click('.cut-bar [data-act="aud-clear"]').catch(() => {}); await p.waitForTimeout(300);

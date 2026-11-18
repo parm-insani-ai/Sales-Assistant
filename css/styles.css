@@ -731,6 +731,13 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .bd-cond { max-width: 260px; }
 .bd-cond .seg-btn { padding: 5px 8px; font-size: 0.78rem; }
 .bd-cond-top { margin-bottom: 10px; }
+/* Lists, each on its own page. */
+.ls-row { display: block; text-decoration: none; color: inherit; margin-bottom: 10px; }
+.ls-row .row-meta { text-align: right; flex: none; }
+.ls-member { display: flex; flex-direction: column; align-items: flex-end; margin-bottom: 14px; }
+.ls-member > :first-child { align-self: stretch; }
+.ls-member .swipe-wrap-card, .ls-member > .card { margin-bottom: 0; }
+.ls-member .ls-off { font-size: 0.74rem; padding: 3px 10px; margin-top: 4px; color: var(--muted); }
 /* The filter builder: a condition per card, field · operator · value. */
 .fb-row { padding: 10px 12px; margin-bottom: 8px; }
 .fb-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
