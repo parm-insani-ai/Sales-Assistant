@@ -68,7 +68,7 @@ export const FIELDS = [
   F("trim", "text", "trim", "the trim they drive or want", (l) => str(l.trim) || null),
   F("vin", "text", "VIN", "the VIN when on file", (l) => str(l.vin) || null),
   F("odometer", "number", "odometer", "kilometres on their vehicle", (l) => num(l.odometer)),
-  F("dealType", "enum", "deal type", "lease | finance — how they bought", (l) => (isLease(l) ? "lease" : /retail|finance|loan|purchase/i.test(str(l.dealType)) || num(l.currentPayment) != null || num(l.payoff) != null ? "finance" : null), { values: ["lease", "finance"] }),
+  F("dealType", "enum", "deal type", "lease | finance | cash — how they bought (cash when the file says so; missing when the file doesn't say and there's no payment or payoff)", (l) => (isLease(l) ? "lease" : /cash/i.test(str(l.dealType)) ? "cash" : /retail|finance|loan|purchase/i.test(str(l.dealType)) || num(l.currentPayment) != null || num(l.payoff) != null ? "finance" : null), { values: ["lease", "finance", "cash"] }),
   F("purchaseDate", "date", "purchase date", "when they bought (YYYY-MM-DD)", (l) => dateOf(l.purchaseDate)),
   F("ownedYears", "number", "years owned", "years since they bought", (l, c) => { const t = dateOf(l.purchaseDate); return t == null ? null : Math.round(((c.now || Date.now()) - t) / (365.25 * DAY) * 10) / 10; }),
   F("leaseEnd", "date", "lease end", "when the lease or contract matures, as the file says", (l) => dateOf(l.leaseEnd)),
