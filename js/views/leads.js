@@ -270,6 +270,44 @@ export function renderLeads(view, { param }) {
     requestAnimationFrame(() => { view.scrollTop = top; requestAnimationFrame(() => { if (Math.abs(view.scrollTop - top) > 2) view.scrollTop = top; }); });
   });
   view.addEventListener("scroll", pillCheck, { passive: true });
+  // The bookmark: swipe right on a card and this is the place Outreach opens
+  // next time — the same chip, cut, order and search, the card in view.
+  // Swiping the bookmarked card again takes it off; another card moves it.
+  const toggleBookmark = (id) => {
+    const was = readBookmark();
+    if (was && was.leadId === id) { setBookmark(null); toast("Bookmark removed", ""); renderList({ keep: true }); return false; }
+    const l = store.get("leads", id);
+    setBookmark({ leadId: id, filter, cuts: [...cuts], listId, sort, search });
+    toast(`Bookmarked ${l ? l.name : "here"} — Outreach opens here next time`, "success");
+    renderList({ keep: true });
+    return true;
+  };
+  // Opening Outreach fresh with a bookmark set: the chip, cut, order and
+  // search it was made under, the list drawn down to the card, the card in
+  // view. Stepping back from a customer keeps its own place instead.
+  const goToBookmark = () => {
+    const b = readBookmark();
+    if (!b || back || selecting || (opp && !selecting) || !wrap.querySelector(".lead-list")) return false;
+    const l = store.get("leads", b.leadId);
+    if (!l) { setBookmark(null); return false; }
+    if (CHIPS.includes(b.filter) && b.filter !== filter) { filter = b.filter; remember(REMEMBER, filter); lightChips(); }
+    cuts = new Set(b.cuts || []); listId = b.listId || null; query = null; aud = null; keepCuts(); keepAud();
+    if (b.sort && SORTS.some((x) => x.key === b.sort) && b.sort !== sort) { sort = b.sort; remember(SORT_KEY, sort); lightSort(); }
+    refreshCutRow();
+    if ((b.search || "") !== search) { search = b.search || ""; const sb = wrap.querySelector('input[type="search"]'); if (sb) sb.value = search; }
+    const idx = applyFilter().findIndex((x) => x.id === b.leadId);
+    if (idx < 0) { renderList(); toast(`Your bookmark, ${l.name}, isn't on this list any more`, "warn"); return true; }
+    leftOffShown = false; pill.hidden = true;
+    renderList({ restore: idx + 6 });
+    const land = (tries) => {
+      const c = wrap.querySelector(`.card[data-lead-id="${CSS.escape(b.leadId)}"]`);
+      if (c) { c.scrollIntoView({ block: "center" }); return; }
+      if (tries > 0) requestAnimationFrame(() => land(tries - 1));
+    };
+    requestAnimationFrame(() => land(8));
+    toast(`Picked up at your bookmark — ${l.name}`, "");
+    return true;
+  };
   // Where you are, kept as you scroll (so a phone put away mid-list still
   // knows) and when you leave by any door.
   const keepLeftOff = () => {
@@ -960,7 +998,7 @@ export function renderLeads(view, { param }) {
     }
     // A long press on a card starts selecting, with that card picked.
     const startSelect = (id) => { selecting = true; selected.clear(); selected.add(id); draw(); };
-    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, { ...(sort === "timing" ? { hz: hzOf(x) } : {}), onLongPress: startSelect, onListChange: () => renderList({ keep: true }) }));
+    const card = (x) => (selecting ? selectCard(x) : leadCard(x, rememberSpot, { ...(sort === "timing" ? { hz: hzOf(x) } : {}), onLongPress: startSelect, onListChange: () => renderList({ keep: true }), onBookmark: toggleBookmark }));
     // Grouped by when to reach them — Ready now, Opening up in the next
     // three months, Everyone else — on the lists the book's timing applies
     // to. Inside each group the order stays best first.
@@ -1084,7 +1122,7 @@ export function renderLeads(view, { param }) {
         frag.appendChild(dcard);
         const dl = document.createElement("div");
         dl.className = "drive-list";
-        drive.forEach((l) => dl.appendChild(leadCard(l, rememberSpot, { onLongPress: startSelect, onListChange: () => renderList({ keep: true }) })));
+        drive.forEach((l) => dl.appendChild(leadCard(l, rememberSpot, { onLongPress: startSelect, onListChange: () => renderList({ keep: true }), onBookmark: toggleBookmark })));
         frag.appendChild(dl);
         todayPicks = todayPicks.filter((c) => !ids.has(c.lead.id));
       }
@@ -1137,7 +1175,7 @@ export function renderLeads(view, { param }) {
       };
       const list = document.createElement("div");
       list.className = "today-list";
-      todayPicks.forEach((c) => list.appendChild(leadCard(c.lead, rememberSpot, { freshToday: !!c.fresh, onLongPress: startSelect, onListChange: () => renderList({ keep: true }), onWorked: refreshToday })));
+      todayPicks.forEach((c) => list.appendChild(leadCard(c.lead, rememberSpot, { freshToday: !!c.fresh, onLongPress: startSelect, onListChange: () => renderList({ keep: true }), onWorked: refreshToday, onBookmark: toggleBookmark })));
       frag.appendChild(list);
       if (filtered.length) {
         const h = document.createElement("div");
@@ -1245,6 +1283,8 @@ export function renderLeads(view, { param }) {
   }
 
   draw();
+  // A bookmark set, and nothing else asked for on the way in: open there.
+  if (!spoken && !askedFor && !askedList && !opp) goToBookmark();
   // A list said to the Home mic: applied the way the row's own mic applies
   // one, saved if a name was said, and said back in a line.
   if (spoken && !opp) {
@@ -1327,7 +1367,7 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
           <div class="row-sub">${l.vehicleInterest ? esc(l.vehicleInterest) : "No vehicle noted"}${fuBadge}</div>
         </div>
         <div class="row-meta lc-meta">
-          ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}
+          ${tier}${/* Most of an owner book is "delivered" — a chip on every card that says so is noise. */ l.stage === "delivered" ? "" : `<span class="badge ${st.badge}">${esc(st.label)}</span>`}${isBookmarked(l.id) ? `<span class="lc-bookmark" title="Bookmarked — Outreach opens here">${icon("bookmark")}</span>` : ""}
         </div>
       </div>
       ${timing}${reasons}${listTags}
@@ -1357,11 +1397,20 @@ function contractBanner(l, opts = {}) {
     </div>`;
 }
 
+// The bookmark: one place in the book, kept in settings (so it follows you
+// to another phone) — the customer, and the chip, cut, order and search they
+// were under. Outreach opens there next time.
+const BOOKMARK = "outreachBookmark";
+export function readBookmark() { const b = store.getSettings()[BOOKMARK]; return b && b.leadId ? b : null; }
+export function isBookmarked(leadId) { const b = readBookmark(); return !!b && b.leadId === leadId; }
+export function setBookmark(b) { store.updateSettings({ [BOOKMARK]: b ? { ...b, at: Date.now() } : null }); }
+
 function leadCard(l, onOpen, extra = {}) {
   const el = document.createElement("div");
   el.className = "card card-tap";
   el.dataset.leadId = l.id;
   el.innerHTML = cardHTML(l, extra);
+  el.classList.toggle("lc-marked", isBookmarked(l.id));
   // While a note panel is up inside the card, the card is not a button.
   let busy = false;
   // A long press starts selecting (for clearing out an import); the tap that
@@ -1398,8 +1447,15 @@ function leadCard(l, onOpen, extra = {}) {
   const redraw = () => {
     const fresh = store.get("leads", l.id);
     if (fresh) el.innerHTML = cardHTML(fresh, { quick: true, ...extra });
+    el.classList.toggle("lc-marked", isBookmarked(l.id));
   };
   return swipeable(el, {
+    // Swipe right: bookmark this place in the list (or take the bookmark
+    // off). Outreach opens on the bookmarked card next time.
+    right: extra.onBookmark ? {
+      label: isBookmarked(l.id) ? "Unmark" : "Bookmark", icon: "bookmark", kind: "mark",
+      onSwipe: (api) => { const on = extra.onBookmark(l.id); api.relabel(on ? "Unmark" : "Bookmark"); redraw(); },
+    } : null,
     actions: [{
       label: "Contacted", icon: "checkline", kind: "ok",
       // Tapping it turns the tray into the question — Call, Text or Email —

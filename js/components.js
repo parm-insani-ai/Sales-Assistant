@@ -249,7 +249,11 @@ export function emptyState(iconName, title, sub) {
 // Everything a follow-up needs lives in the tray on purpose: it is outside the
 // sliding element, so none of the drag handling can swallow a tap on it.
 let closeOpenSwipe = null;
-export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {}) {
+// `right`, when given, is a swipe the other way: { label, icon, kind, onSwipe }.
+// Dragging the row rightward past half a button lights the action and
+// letting go fires it; the row springs back (it's a flick, not a tray that
+// stays open). `api.relabel(text)` renames it, for a toggle.
+export function swipeable(el, { onDelete, label = "Delete", actions = [], right = null } = {}) {
   const wrap = document.createElement("div");
   wrap.className = "swipe-wrap" + (el.classList.contains("card") ? " swipe-wrap-card" : "");
   const tray = document.createElement("div");
@@ -270,9 +274,19 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
   firstTray();
   el.classList.add("swipe-card");
   wrap.appendChild(tray);
+  let rightBtn = null;
+  if (right) {
+    const lt = document.createElement("div");
+    lt.className = "swipe-tray swipe-tray-left";
+    rightBtn = button({ label: right.label, icon: right.icon || "bookmark", kind: right.kind || "mark" });
+    rightBtn.tabIndex = -1;
+    lt.appendChild(rightBtn);
+    wrap.appendChild(lt);
+  }
   wrap.appendChild(el);
 
   const BTN = 92; // each button's width
+  const R = BTN;  // the rightward swipe's reach
   const baseW = BTN * (1 + first.length);
   let W = baseW; // revealed width right now
   let expanded = false; // a follow-up tray is showing instead of the first one
@@ -294,6 +308,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
   const api = {
     close: closeRow,
     wrap,
+    relabel(text) { if (rightBtn) rightBtn.querySelector("span").textContent = String(text || ""); },
     expand(list) {
       tray.replaceChildren(...list.map((a) => {
         const b = button(a);
@@ -329,7 +344,10 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
     }
     if (!horiz) { tracking = false; return; }
     moved = true;
-    dx = Math.max(-W - 24, Math.min(0, (open ? -W : 0) + mx));
+    // Leftward reveals the tray; rightward (when there's a right action and
+    // the row isn't open) pulls the row toward it, armed past half way.
+    dx = Math.max(-W - 24, Math.min(right && !open ? R + 24 : 0, (open ? -W : 0) + mx));
+    if (right) wrap.classList.toggle("armed", dx > R / 2);
     setX(dx);
   });
   const finish = () => {
@@ -337,6 +355,15 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [] } = {})
     tracking = false;
     el.classList.remove("dragging");
     if (!horiz) return;
+    if (right && dx > 0) {
+      const fire = dx > R / 2;
+      wrap.classList.remove("armed");
+      open = false; dx = 0;
+      setX(0);
+      setTimeout(() => { if (!open) showTray(false); }, 260);
+      if (fire && right.onSwipe) right.onSwipe(api);
+      return;
+    }
     open = dx < -W / 2;
     setX(open ? -W : 0);
     if (!open) { restoreTray(); setTimeout(() => { if (!open) showTray(false); }, 260); }

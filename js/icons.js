@@ -42,6 +42,7 @@ const PATHS = {
   award: '<circle cx="12" cy="9" r="5"/><path d="m9 13.4-1.6 7.1 4.6-2.6 4.6 2.6L15 13.4"/>',
   compare: '<rect x="4" y="4.5" width="6.4" height="15" rx="1.4"/><rect x="13.6" y="8" width="6.4" height="11.5" rx="1.4"/>',
   tag: '<path d="M20.5 12.3 12.3 20.5 3.5 11.7V4a.5.5 0 0 1 .5-.5h7.7z"/><circle cx="8.4" cy="8" r="1.4"/>',
+  bookmark: '<path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-3.9L5.5 20.2V5a1 1 0 0 1 1-1z"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>',
   back: '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
   reply: '<path d="M9 16 4 11l5-5"/><path d="M20 19v-3.5a4.5 4.5 0 0 0-4.5-4.5H4"/>',
