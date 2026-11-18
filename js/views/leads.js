@@ -275,11 +275,14 @@ export function renderLeads(view, { param }) {
   // Swiping the bookmarked card again takes it off; another card moves it.
   const toggleBookmark = (id) => {
     const was = readBookmark();
-    if (was && was.leadId === id) { setBookmark(null); toast("Bookmark removed", ""); renderList({ keep: true }); return false; }
+    // Only the cards concerned change — the list is left as it stands, so
+    // the card under the finger finishes its spring-back in peace.
+    const unmarkOthers = () => wrap.querySelectorAll(".card.lc-marked").forEach((c) => { if (c.dataset.leadId !== id) { c.classList.remove("lc-marked"); c.querySelectorAll(".lc-bookmark").forEach((r) => r.remove()); } });
+    if (was && was.leadId === id) { setBookmark(null); toast("Bookmark removed", ""); return false; }
     const l = store.get("leads", id);
     setBookmark({ leadId: id, filter, cuts: [...cuts], listId, sort, search });
+    unmarkOthers();
     toast(`Bookmarked ${l ? l.name : "here"} — Outreach opens here next time`, "success");
-    renderList({ keep: true });
     return true;
   };
   // Opening Outreach fresh with a bookmark set: the chip, cut, order and

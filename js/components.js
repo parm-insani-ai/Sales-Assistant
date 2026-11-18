@@ -296,8 +296,12 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [], right 
   const restoreTray = () => { if (expanded) { expanded = false; W = baseW; firstTray(); } };
   // The tray exists only while a swipe is underway or the row is open —
   // otherwise a row made translucent (a tap, a loading state) shows the
-  // buttons behind it as if they had appeared.
-  const showTray = (on) => wrap.classList.toggle("swiping", !!on);
+  // buttons behind it as if they had appeared. It hides a beat after the
+  // row springs back — unless a new drag has started by then, which would
+  // otherwise lose its buttons mid-swipe.
+  let hideT = null;
+  const showTray = (on) => { clearTimeout(hideT); wrap.classList.toggle("swiping", !!on); };
+  const hideLater = () => { clearTimeout(hideT); hideT = setTimeout(() => { if (!open && !tracking) wrap.classList.remove("swiping"); }, 260); };
   const closeRow = () => {
     open = false; dx = 0; moved = false;
     setX(0);
@@ -360,13 +364,14 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [], right 
       wrap.classList.remove("armed");
       open = false; dx = 0;
       setX(0);
-      setTimeout(() => { if (!open) showTray(false); }, 260);
+      hideLater();
       if (fire && right.onSwipe) right.onSwipe(api);
       return;
     }
+    wrap.classList.remove("armed");
     open = dx < -W / 2;
     setX(open ? -W : 0);
-    if (!open) { restoreTray(); setTimeout(() => { if (!open) showTray(false); }, 260); }
+    if (!open) { restoreTray(); hideLater(); }
     closeOpenSwipe = open ? closeRow : (closeOpenSwipe === closeRow ? null : closeOpenSwipe);
   };
   el.addEventListener("pointerup", finish);
