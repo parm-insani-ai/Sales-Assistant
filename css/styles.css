@@ -731,6 +731,18 @@ body.typing .voice-overlay:not(.voice-docked) .voice-sheet, body.kb-open .voice-
 .bd-cond { max-width: 260px; }
 .bd-cond .seg-btn { padding: 5px 8px; font-size: 0.78rem; }
 .bd-cond-top { margin-bottom: 10px; }
+/* The filter builder: a condition per card, field · operator · value. */
+.fb-row { padding: 10px 12px; margin-bottom: 8px; }
+.fb-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fb-line + .fb-line { margin-top: 6px; }
+.fb-line select, .fb-line input { min-width: 0; flex: 1; }
+.fb-line .fb-op { flex: 0 1 46%; }
+.fb-vals { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.fb-vals input { min-width: 0; flex: 1; }
+.fb-hint { margin-top: 4px; }
+.fb-any { flex: 1; }
+.fb-any .seg-btn { padding: 5px 8px; font-size: 0.78rem; }
+.fb-count { padding: 8px 10px; background: var(--brand-tint); border-radius: 10px; }
 /* The lease maturity pipeline (Timing → Lease ends). */
 .lp-stages, .lp-counts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
 .lp-counts { margin: 6px 0 2px; }

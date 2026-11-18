@@ -9,6 +9,7 @@
 import { LEAD_STAGES } from "../store.js";
 import { openModal } from "../components.js";
 import { esc } from "../utils.js";
+import { icon } from "../icons.js";
 import { emptyAudience, isEveryone, describeAudience } from "../outreach.js";
 
 const BODIES = [["", "Any"], ["suv", "SUV / crossover"], ["car", "Sedan / hatchback"], ["truck", "Truck"], ["van", "Van"], ["sports", "Sports car"]];
@@ -16,12 +17,13 @@ const list = (s) => String(s || "").toLowerCase().split(/[,/]+/).map((x) => x.tr
 
 // Open the sheet on `current` (an audience object or null) and hand the
 // chosen audience to `onApply` — null when cleared.
-export function openAudienceFilter(current, onApply, { title = "Filter customers" } = {}) {
+export function openAudienceFilter(current, onApply, { title = "Filter customers", onAnyField = null } = {}) {
   const a = { ...emptyAudience(), ...(current || {}), unknown: [] };
   const num = (v) => (v === "" || v == null || !isFinite(Number(v)) ? null : Number(v));
   openModal(title, (close) => {
     const el = document.createElement("div");
     el.innerHTML = `
+      ${onAnyField ? `<button type="button" class="btn btn-ghost btn-block" data-act="any-field" style="margin-bottom:14px;justify-content:space-between"><span>${icon("sliders")} Any field on file — payment, rate, equity, dates, contact, conversations…</span><span class="muted">›</span></button>` : ""}
       <div class="field"><label>Model</label><input id="af-models" placeholder="Sentra, Rogue…" value="${esc(a.models.join(", "))}" autocomplete="off"><div class="hint">Any of these, by name. Leave blank for any model.</div></div>
       <div class="field"><label>Make</label><input id="af-makes" placeholder="Nissan, Honda…" value="${esc(a.makes.join(", "))}" autocomplete="off"></div>
       <div class="field"><label>Body style</label><select id="af-body">${BODIES.map(([v, t]) => `<option value="${v}" ${a.body === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
@@ -49,6 +51,8 @@ export function openAudienceFilter(current, onApply, { title = "Filter customers
       if (picked.has(id)) picked.delete(id); else picked.add(id);
       b.classList.toggle("btn-primary", picked.has(id)); b.classList.toggle("btn-ghost", !picked.has(id));
     }));
+    const anyBtn = el.querySelector('[data-act="any-field"]');
+    if (anyBtn) anyBtn.addEventListener("click", () => { close(); onAnyField(); });
     el.querySelector('[data-act="clear"]').addEventListener("click", () => { close(); onApply(null); });
     el.querySelector('[data-act="apply"]').addEventListener("click", () => {
       const v = (id) => el.querySelector("#" + id).value;

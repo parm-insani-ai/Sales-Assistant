@@ -32,7 +32,8 @@ import { emailsForLead, logEmail } from "../email.js";
 import { afterSale, closeFollowUps } from "../connections.js";
 import { inAudience, emptyAudience, isEveryone } from "../outreach.js";
 import { parseList, LIST_HELP } from "../listspeech.js";
-import { queryPasses, sortByQuery, describeQuery } from "../bookquery.js";
+import { queryPasses, sortByQuery, describeQuery, runQuery, fieldFor } from "../bookquery.js";
+import { openFilterBuilder } from "./filterbuilder.js";
 import { reachState, coverageLine } from "../coverage.js";
 import { classify } from "../segments.js";
 import { equityOf } from "../reach.js";
@@ -143,7 +144,25 @@ export function renderLeads(view, { param }) {
   let aud = null;
   try { aud = JSON.parse(sessionStorage.getItem(AUD) || "null"); } catch { aud = null; }
   const keepAud = () => { try { if (aud) sessionStorage.setItem(AUD, JSON.stringify(aud)); else sessionStorage.removeItem(AUD); } catch {} };
-  const editAud = () => openAudienceFilter(aud, (a) => { aud = a && !isEveryoneAud(a) ? a : null; listId = null; keepAud(); keepCuts(); refreshCutRow(); refreshList(); });
+  const editAud = () => openAudienceFilter(aud, (a) => { aud = a && !isEveryoneAud(a) ? a : null; listId = null; keepAud(); keepCuts(); refreshCutRow(); refreshList(); }, { onAnyField: buildQuery });
+  // A filter on any field on file, built by hand (filterbuilder.js): it
+  // lands as the lit question chip, the same as a list the assistant built
+  // — on All, saveable under a name, callable, textable.
+  const buildQuery = () => openFilterBuilder(query ? query.spec : null, (spec) => {
+    listId = null;
+    if (!spec) { query = null; keepCuts(); refreshCutRow(); refreshList(); return; }
+    query = { spec, label: describeQuery(spec), ids: null };
+    if (filter !== "all" && CHIPS.includes("all")) { filter = "all"; remember(REMEMBER, filter); lightChips(); }
+    keepCuts(); refreshCutRow(); refreshList();
+    const n = applyFilter().length;
+    toast(n ? `${n.toLocaleString()} match · ${queryLabel()}` : `Nobody matches ${queryLabel()} yet`, n ? "success" : "warn");
+  }, {
+    count: (spec) => { try { return runQuery(spec, cutBaseFor(spec), qctx()).count; } catch { return null; } },
+    values: (key) => { const f = fieldFor(key); if (!f || (f.type !== "text" && f.type !== "list")) return []; const seen = new Map(); const ctx = qctx(); for (const l of store.all("leads")) { let v; try { v = f.get(l, ctx); } catch { v = null; } for (const x of Array.isArray(v) ? v : v == null ? [] : [v]) { const s = String(x).trim(); if (s && s.length < 60) seen.set(s, (seen.get(s) || 0) + 1); } } return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v); },
+  });
+  // The count in the builder is over the whole book (the builder sets the
+  // chip to All on apply), minus nobody.
+  const cutBaseFor = () => store.all("leads");
   const isEveryoneAud = (a) => !a || !audienceLabel(a);
   // Hand the filtered people to Mass outreach. The stage chip rides along as
   // a stage rule; the search box doesn't, so what's shown is what's blasted
