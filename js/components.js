@@ -301,7 +301,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [], right 
   // otherwise lose its buttons mid-swipe.
   let hideT = null;
   const showTray = (on) => { clearTimeout(hideT); wrap.classList.toggle("swiping", !!on); };
-  const hideLater = () => { clearTimeout(hideT); hideT = setTimeout(() => { if (!open && !tracking) wrap.classList.remove("swiping"); }, 260); };
+  const hideLater = () => { clearTimeout(hideT); hideT = setTimeout(() => { if (!open && !tracking) wrap.classList.remove("swiping", "swiping-right", "swiping-left"); }, 260); };
   const closeRow = () => {
     open = false; dx = 0; moved = false;
     setX(0);
@@ -350,8 +350,11 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [], right 
     moved = true;
     // Leftward reveals the tray; rightward (when there's a right action and
     // the row isn't open) pulls the row toward it, armed past half way.
-    dx = Math.max(-W - 24, Math.min(right && !open ? R + 24 : 0, (open ? -W : 0) + mx));
-    if (right) wrap.classList.toggle("armed", dx > R / 2);
+    // Rightward stops at the bookmark's edge — no overshoot — and only the
+    // tray on the side being revealed is shown, so the other side's buttons
+    // never peek out from under the row.
+    dx = Math.max(-W - 24, Math.min(right && !open ? R : 0, (open ? -W : 0) + mx));
+    if (right) { wrap.classList.toggle("armed", dx > R / 2); wrap.classList.toggle("swiping-right", dx > 0); wrap.classList.toggle("swiping-left", dx < 0); }
     setX(dx);
   });
   const finish = () => {
