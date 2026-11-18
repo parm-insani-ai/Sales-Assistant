@@ -273,9 +273,10 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [], right 
   const firstTray = () => tray.replaceChildren(...first.map((a) => a.btn), del);
   firstTray();
   el.classList.add("swipe-card");
-  wrap.appendChild(tray);
   let rightBtn = null;
   if (right) {
+    // Under the other tray in the stacking order: on a narrow row the two
+    // overlap in the middle, and the open one must be whole.
     const lt = document.createElement("div");
     lt.className = "swipe-tray swipe-tray-left";
     rightBtn = button({ label: right.label, icon: right.icon || "bookmark", kind: right.kind || "mark" });
@@ -283,6 +284,7 @@ export function swipeable(el, { onDelete, label = "Delete", actions = [], right 
     lt.appendChild(rightBtn);
     wrap.appendChild(lt);
   }
+  wrap.appendChild(tray);
   wrap.appendChild(el);
 
   const BTN = 92; // each button's width

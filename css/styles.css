@@ -1233,8 +1233,12 @@ input[type="range"] { accent-color: var(--brand); height: 26px; }
 .swipe-tray { position: absolute; top: 0; bottom: 0; right: 0; display: flex; visibility: hidden; }
 /* The rightward swipe's one action, behind the row's left edge. */
 .swipe-tray-left { right: auto; left: 0; }
-.swipe-wrap.swiping-right .swipe-tray:not(.swipe-tray-left) { visibility: hidden; }
-.swipe-wrap.swiping-left .swipe-tray-left { visibility: hidden; }
+.swipe-wrap.swiping.swiping-right .swipe-tray:not(.swipe-tray-left) { visibility: hidden; }
+.swipe-wrap.swiping.swiping-left .swipe-tray-left { visibility: hidden; }
+/* The left tray sits under the right one, so where the two would overlap
+   on a narrow row the open tray's buttons are whole. */
+.swipe-tray-left { z-index: 0; }
+.swipe-tray:not(.swipe-tray-left) { z-index: 0; }
 .swipe-act-mark { background: var(--brand); opacity: 0.7; transition: opacity 0.15s; }
 .swipe-wrap.armed .swipe-act-mark { opacity: 1; }
 /* The bookmarked customer on Outreach: a ribbon on the card and a mark down its edge. */
