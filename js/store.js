@@ -105,7 +105,7 @@ export { DEFAULT_TEMPLATES };
 // A proven multi-touch follow-up cadence, applied to new leads so none go cold.
 // The owner plan: an imported customer the salesperson starts a plan on
 // (a new lead gets the showroom or inbound plan in cadence.js).
-const DEFAULT_CADENCE = [
+export const DEFAULT_CADENCE = [
   { day: 0, channel: "call", label: "Reach-out call — the reason on their card", intent: "prospect" },
   { day: 0, channel: "text", label: "Follow-up text — when's good to talk", intent: "missed" },
   { day: 1, channel: "email", label: "Email — what a move would look like", intent: "prospect" },
@@ -225,6 +225,9 @@ const DEFAULT_STATE = {
     bookDays: [1, 2, 3, 4, 5, 6], // Mon–Sat (JS weekday numbers)
     bookShort: null, // cached short booking link {code, s, sig} — re-minted when the config changes
     cadence: DEFAULT_CADENCE,
+    // The other plans, by situation, only where edited (cadence.js
+    // PLAN_DEFAULTS stand otherwise): { inbound, showroom, visit, noshow, nurture }.
+    plans: {},
     autoCadence: true,
     // "off": every text waits for a tap. "plan": the plan's texts, the
     // chase's and the appointment confirmations go by themselves at their

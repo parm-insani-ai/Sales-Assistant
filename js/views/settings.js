@@ -7,6 +7,7 @@ import { cachedStore } from "../team.js";
 const inStore = () => { try { return !!cachedStore(); } catch { return false; } };
 import { BACKEND_DEFAULTS } from "../config.js";
 import { openModal, buildForm, toast, confirmDialog } from "../components.js";
+import { PLAN_KINDS, planOf, planIsDefault, savePlan, resetPlan, INTENT_LABELS } from "../cadence.js";
 import { esc } from "../utils.js";
 import { icon } from "../icons.js";
 import { loadSampleData, removeSampleData, hasSampleData } from "../demo.js";
@@ -96,7 +97,7 @@ export function renderSettings(view) {
     <div class="section-title">More</div>
     ${fold("booking", "Booking page", backend.currentUser() && (s.agentUrl || "").trim() ? `${hourSay(s.bookStart ?? 9)}–${hourSay(s.bookEnd ?? 19)} · ${s.bookSlot || 30} min` : "", `<div id="booking-slot"></div>`)}
     ${fold("mail", "Email & texting", mailSay, `<div id="email-slot"></div>`)}
-    ${fold("plan", "Follow-up plan", `${n(s.cadence)} touch${n(s.cadence) === 1 ? "" : "es"} · ${s.dailyProspects ?? 10} a day`, `
+    ${fold("plan", "Follow-up plans", `${PLAN_KINDS.length} plans${PLAN_KINDS.some((k) => !planIsDefault(k.key)) ? " · edited" : ""} · ${s.dailyProspects ?? 10} a day`, `
       <div class="field-inline">
         <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
         <div class="field"><label>Today's batch (Outreach and Home)</label><input id="s-prospects" type="number" inputmode="numeric" min="0" max="50" value="${esc(s.dailyProspects ?? 10)}"></div>
@@ -107,9 +108,8 @@ export function renderSettings(view) {
         <div class="small muted" style="margin-top:6px">Off: every text the app writes waits for your tap on Log. On: the plan's steps, the "when's good?" after a missed call, the two-times texts and the appointment confirmations go by themselves at their moment — only with a working number and texting consent on file, inside your hours, never to someone who texted back in the last three days (that conversation is yours), never with a figure, and never more than the daily cap. Replies to a customer are always yours to send. Runs while the app is open.</div>
         <div class="field" style="margin-top:8px;max-width:180px"><label>Daily cap</label><input id="s-autocap" type="number" inputmode="numeric" min="1" max="500" value="${esc(s.autoDailyCap ?? 60)}"></div>
       </div>
-      <div class="small muted" style="margin:0 0 6px">The touches on each imported owner you start a plan on (new leads get the showroom or inbound plan)</div>
-      <div class="cad-list"></div>
-      <button class="btn btn-ghost btn-sm btn-block" data-act="add-cad" style="margin-top:10px">+ Add a touch</button>`)}
+      <div class="small muted" style="margin:0 0 6px"><b>The plans, by situation.</b> Each is a list of touches you can change — the day (or minutes after day zero), the time, call or text or email, what the text is for, and what to do. Tap a touch to edit it. Nurture follows the first month of the first three.</div>
+      <div class="plan-editor"></div>`)}
     ${fold("templates", "Message templates", `${n(s.messageTemplates)}`, `
       <div class="small muted" style="margin-bottom:10px">Fill in by themselves: <span class="mono">{firstName}</span> <span class="mono">{name}</span> <span class="mono">{vehicle}</span> <span class="mono">{salesperson}</span> <span class="mono">{dealership}</span></div>
       <div class="tpl-list"></div>
@@ -393,45 +393,64 @@ export function renderSettings(view) {
   el.querySelector("#s-autocap").addEventListener("change", (e) =>
     store.updateSettings({ autoDailyCap: Math.max(1, Math.min(500, Number(e.target.value) || 60)) }));
 
-  // Follow-up cadence editor
-  const cadList = el.querySelector(".cad-list");
-  function drawCad() {
-    const steps = (store.getSettings().cadence || []).slice().sort((a, b) => a.day - b.day);
-    cadList.innerHTML = "";
-    steps.forEach((step, idx) => {
-      const row = document.createElement("div");
-      row.className = "check-item";
-      const verb = step.channel === "text" ? "Text" : step.channel === "email" ? "Email" : "Call";
-      row.innerHTML = `<label style="flex:1"><span class="strong">Day ${step.day}</span> · ${verb} — ${esc(step.label)}</label>
-        <button class="modal-close" data-del="${idx}" aria-label="Remove" style="font-size:1.2rem">&times;</button>`;
-      row.querySelector("[data-del]").addEventListener("click", () => {
-        const next = steps.slice();
-        next.splice(idx, 1);
-        store.updateSettings({ cadence: next });
-        drawCad();
-      });
-      cadList.appendChild(row);
+  // The follow-up plans, by situation: pick a plan, see its touches, tap one
+  // to change it, add one, take one off, or put the plan back to default.
+  const planWrap = el.querySelector(".plan-editor");
+  let planKey = "inbound";
+  const verbOf = (ch) => (ch === "text" ? "Text" : ch === "email" ? "Email" : "Call");
+  const whenOf = (st) => st.after != null ? `${st.after} min` : `Day ${st.day}${st.hh != null ? ` · ${String(st.hh).padStart(2, "0")}:${String(st.mm || 0).padStart(2, "0")}` : ""}`;
+  function drawPlans() {
+    const kind = PLAN_KINDS.find((k) => k.key === planKey) || PLAN_KINDS[0];
+    const steps = planOf(planKey, { bare: true });
+    const isDefault = planIsDefault(planKey);
+    planWrap.innerHTML = `
+      <div class="lead-chips plan-chips" style="margin-bottom:8px">${PLAN_KINDS.map((k) => `<button type="button" class="btn btn-sm ${k.key === planKey ? "btn-primary" : "btn-ghost"}" data-plan="${k.key}">${esc(k.short)}</button>`).join("")}</div>
+      <div class="small muted" style="margin:0 0 8px"><b>${esc(kind.label)}.</b> ${esc(kind.blurb)} Day zero is ${esc(kind.from)}.${kind.nurtured ? " After the last touch, Nurture follows." : ""}${isDefault ? "" : ` <span class="badge badge-working">Edited</span>`}</div>
+      <div class="cad-list">${steps.length ? steps.map((st, idx) => `<div class="check-item plan-step" data-idx="${idx}" style="cursor:pointer"><label style="flex:1;cursor:pointer"><span class="strong">${esc(whenOf(st))}</span> · ${verbOf(st.channel)} — ${esc(st.label)}${st.intent && INTENT_LABELS[st.intent] ? ` <span class="muted small">· ${esc(INTENT_LABELS[st.intent])}</span>` : ""}${st.needsEmail ? ` <span class="muted small">· only with an email on file</span>` : ""}</label><button type="button" class="modal-close" data-del="${idx}" aria-label="Remove" style="font-size:1.2rem">&times;</button></div>`).join("") : `<div class="muted small">No touches — add one below.</div>`}</div>
+      <div class="btn-row" style="margin-top:10px">
+        <button type="button" class="btn btn-ghost btn-sm" data-act="add-step" style="flex:1">+ Add a touch</button>
+        ${isDefault ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-act="reset-plan" style="flex:0 0 auto" title="Back to the default plan">Reset</button>`}
+      </div>`;
+    planWrap.querySelectorAll("[data-plan]").forEach((b) => b.addEventListener("click", () => { planKey = b.dataset.plan; drawPlans(); }));
+    planWrap.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); const next = steps.slice(); next.splice(Number(b.dataset.del), 1); savePlan(planKey, next); drawPlans(); }));
+    planWrap.querySelectorAll(".plan-step").forEach((row) => row.addEventListener("click", () => editStep(Number(row.dataset.idx))));
+    planWrap.querySelector('[data-act="add-step"]').addEventListener("click", () => editStep(null));
+    const reset = planWrap.querySelector('[data-act="reset-plan"]');
+    if (reset) reset.addEventListener("click", async () => {
+      if (!(await confirmDialog(`Put the ${kind.label} plan back to its default? Your changes to it go.`, { confirmLabel: "Reset" }))) return;
+      resetPlan(planKey); toast(`${kind.label}: back to default`, "success"); drawPlans();
     });
-    if (!steps.length) cadList.innerHTML = `<div class="muted small">No touches — add one below.</div>`;
   }
-  drawCad();
-  el.querySelector('[data-act="add-cad"]').addEventListener("click", () => {
-    openModal("Add a follow-up touch", (close) => {
+  function editStep(idx) {
+    const steps = planOf(planKey, { bare: true });
+    const st = idx != null ? steps[idx] : { day: 1, channel: "call", intent: "check", label: "" };
+    const intents = Object.entries(INTENT_LABELS).map(([value, label]) => ({ value, label }));
+    openModal(idx != null ? "Edit the touch" : "Add a touch", (close) => {
       const { element } = buildForm(
         [
-          { name: "day", label: "Day (from lead creation)", value: 1, type: "number", inputmode: "numeric", half: true, required: true },
-          { name: "channel", label: "Channel", value: "call", type: "select", half: true, options: [{ value: "call", label: "Call" }, { value: "text", label: "Text" }, { value: "email", label: "Email" }] },
-          { name: "label", label: "What to do", value: "", required: true, placeholder: "Check in, share options…" },
+          { name: "day", label: "Day (0 = day zero)", value: st.day ?? 0, type: "number", inputmode: "numeric", half: true, required: true },
+          { name: "time", label: "Time (blank = the channel's usual hour)", value: st.hh != null ? `${String(st.hh).padStart(2, "0")}:${String(st.mm || 0).padStart(2, "0")}` : "", type: "time", half: true },
+          { name: "after", label: "Or minutes after day zero (day 0 only)", value: st.after ?? "", type: "number", inputmode: "numeric", half: true, placeholder: "5" },
+          { name: "channel", label: "Channel", value: st.channel || "call", type: "select", half: true, options: [{ value: "call", label: "Call" }, { value: "text", label: "Text" }, { value: "email", label: "Email" }] },
+          { name: "intent", label: "What the text is for (the drafter writes it)", value: st.intent || "check", type: "select", options: [{ value: "", label: "— none —" }, ...intents] },
+          { name: "label", label: "What to do", value: st.label || "", required: true, placeholder: "One-week call — where are they at" },
         ],
-        { submitLabel: "Add touch", onSubmit: (data) => {
-          const next = (store.getSettings().cadence || []).concat([{ day: Number(data.day) || 0, channel: data.channel, label: data.label }]);
-          store.updateSettings({ cadence: next });
-          close(); drawCad();
+        { submitLabel: idx != null ? "Save" : "Add touch", onSubmit: (d) => {
+          const next = steps.slice();
+          const step = { day: Math.max(0, Number(d.day) || 0), channel: d.channel, intent: d.intent || "", label: String(d.label || "").trim() };
+          const m = /^(\d{1,2}):(\d{2})$/.exec(String(d.time || "").trim());
+          if (m) { step.hh = Number(m[1]); step.mm = Number(m[2]); }
+          if (step.day === 0 && d.after !== "" && d.after != null && !isNaN(Number(d.after))) step.after = Math.max(1, Number(d.after));
+          if (st.needsEmail && step.channel === "email") step.needsEmail = true;
+          if (idx != null) next[idx] = step; else next.push(step);
+          savePlan(planKey, next);
+          close(); drawPlans();
         } }
       );
       return element;
     });
-  });
+  }
+  drawPlans();
 
   // Checklist template editor
   const tmplList = el.querySelector(".tmpl-list");

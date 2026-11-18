@@ -61,7 +61,7 @@ export const NURTURE = [
 // Came in, looked, left without buying — added after the visit. The welcome
 // text five minutes on; the call the next morning, with the answer to the
 // one thing they asked; then the rhythm through the first month.
-export const SHOWROOM_PLAN = [
+export const SHOWROOM_MONTH = [
   { day: 0,  after: 5, channel: "text", intent: "intro",    label: "Welcome text — thanks for coming in, and what you noted" },
   { day: 1,  channel: "call", intent: "intro",    label: "Next-morning call — the answer to what they asked, and a time" },
   { day: 2,  channel: "text", intent: "value",    label: "Value text — something specific to what they asked for" },
@@ -71,8 +71,8 @@ export const SHOWROOM_PLAN = [
   { day: 14, channel: "call", intent: "twoweek",  label: "Two-week call" },
   { day: 21, channel: "text", intent: "fresh",    label: "Something new — fresh stock, a program, a reason to look again" },
   { day: 30, channel: "text", intent: "month",    label: "30-day check-in" },
-  ...NURTURE,
 ];
+export const SHOWROOM_PLAN = [...SHOWROOM_MONTH, ...NURTURE];
 // The old name, kept for anything that still asks for it.
 export const INTEREST_PLAN = SHOWROOM_PLAN;
 
@@ -89,7 +89,7 @@ export const INBOUND_DAY0 = [
   { day: 0, after: 20, channel: "call",  intent: "intro", label: "Second call — most connects happen on the second try" },
   { day: 0, after: 60, channel: "email", intent: "intro", label: "Intro email — what they asked about, and the booking link", needsEmail: true },
 ];
-export const INBOUND_PLAN = [
+export const INBOUND_MONTH = [
   ...INBOUND_DAY0,
   { day: 1,  channel: "call", intent: "check",    label: "Day-one call — still shopping? offer a time", hh: 10, mm: 30 },
   { day: 1,  channel: "text", intent: "value",    label: "Day-one text — something specific to what they asked for", hh: 15, mm: 15 },
@@ -101,14 +101,14 @@ export const INBOUND_PLAN = [
   { day: 14, channel: "call", intent: "twoweek",  label: "Two-week call" },
   { day: 21, channel: "text", intent: "fresh",    label: "Something new — fresh stock, a program, a reason to look again" },
   { day: 30, channel: "text", intent: "month",    label: "30-day check-in" },
-  ...NURTURE,
 ];
+export const INBOUND_PLAN = [...INBOUND_MONTH, ...NURTURE];
 
 // Came in for an appointment and left without buying: the most likely
 // person in the book to buy this week. Replaces whatever was queued. The
 // thank-you within the hour names the one thing you promised to find out;
 // the next day's call brings it, or a second option.
-export const VISIT_PLAN = [
+export const VISIT_MONTH = [
   { day: 0,  after: 60, channel: "text", intent: "visit",   label: "Thank-you text — the one thing you promised to find out" },
   { day: 1,  channel: "call", intent: "visit",   label: "Day-after call — the answer, or a second option, and a time", hh: 10, mm: 30 },
   { day: 2,  channel: "text", intent: "time",    label: "Two times to come back" },
@@ -118,8 +118,8 @@ export const VISIT_PLAN = [
   { day: 14, channel: "text", intent: "nudge",   label: "Light nudge — anything changed?" },
   { day: 21, channel: "call", intent: "twoweek", label: "Three-week call" },
   { day: 30, channel: "text", intent: "month",   label: "30-day check-in" },
-  ...NURTURE,
 ];
+export const VISIT_PLAN = [...VISIT_MONTH, ...NURTURE];
 
 // Didn't turn up. Half of no-shows rebook if reached the same day: a text
 // fifteen minutes after the slot, a call an hour on, two times the next
@@ -136,6 +136,58 @@ export function isInbound(lead) {
   return /internet|phone|web|online|text|book|email|facebook|bdc|chat/i.test(String((lead && lead.source) || ""));
 }
 
+// ---- The plans as the salesperson keeps them (Settings → Follow-up plan) ----
+// Six plans, each a list of steps the salesperson can change: the five by
+// situation and the nurture that follows the first month of inbound,
+// showroom and visit. The defaults above stand until a plan is edited;
+// edits live in settings.plans[key] (the owner plan in settings.cadence,
+// as it always has) and sync with the rest of the settings.
+export const PLAN_KINDS = [
+  { key: "inbound",  short: "Internet / phone", label: "Internet or phone enquiry", from: "the moment they enquired", nurtured: true, blurb: "A race: call, text, call in the first twenty minutes, an email at the hour, then the rhythm through the first month." },
+  { key: "showroom", short: "Showroom",         label: "Showroom visit",            from: "the moment they're logged", nurtured: true, blurb: "The welcome text five minutes on, the call next morning with the answer to what they asked, then the month." },
+  { key: "visit",    short: "Didn't buy",       label: "Came in, didn't buy",       from: "the visit", nurtured: true, blurb: "Replaces whatever plan was running: a thank-you inside the hour naming what you promised to find out, the answer or a second option next day, two times to come back." },
+  { key: "noshow",   short: "No-show",          label: "No-show",                   from: "the missed slot", nurtured: false, blurb: "Starts from the slot: 'did I miss you?' at fifteen minutes, a call at the hour, two times next morning. The plan they were on resumes after." },
+  { key: "owner",    short: "Owner",            label: "Owner from the book",       from: "when the plan starts", nurtured: false, blurb: "The softer, longer sequence for someone already in a car — what a reach-out from the owner book runs." },
+  { key: "nurture",  short: "Nurture",          label: "Nurture — month two to a year", from: "day zero of the plan it follows", nurtured: false, blurb: "After the first month a lead that hasn't bought is early, not dead: a touch a month to a year, each drafted from a reason in their file." },
+];
+export const PLAN_DEFAULTS = { inbound: INBOUND_MONTH, showroom: SHOWROOM_MONTH, visit: VISIT_MONTH, noshow: NOSHOW_PLAN, nurture: NURTURE };
+// What each text is for, in the salesperson's words (the drafter knows the rest).
+export const INTENT_LABELS = {
+  intro: "Welcome / intro", value: "Something useful about what they asked for", options: "Two ways to get them there", time: "Two times to come in", check: "Check in and offer a time",
+  week: "Where are they at", nudge: "Light nudge", twoweek: "Two-week check", fresh: "Something new — stock, a program", month: "Month check-in", nurture: "Nurture — a reason from their file",
+  visit: "After the visit", noshow: "After a no-show", missed: "Missed call — when's good?", prospect: "Reach-out — the reason on their card", stock: "What's in stock that fits", confirm: "Confirm the appointment",
+};
+const stepOrder = (a, b) => (Number(a.day) || 0) - (Number(b.day) || 0) || (a.after != null ? a.after : 1e6) - (b.after != null ? b.after : 1e6) || ((a.hh ?? 12) * 60 + (a.mm ?? 0)) - ((b.hh ?? 12) * 60 + (b.mm ?? 0));
+const cleanSteps = (steps) => (Array.isArray(steps) ? steps : []).filter((s) => s && s.channel && s.label).map((s) => ({ ...s, day: Number(s.day) || 0 })).sort(stepOrder);
+/** The plan's own steps as kept: the first month for the nurtured plans (bare), or the whole plan with nurture appended. */
+export function planOf(key, { bare = false } = {}) {
+  const s = store.getSettings();
+  const kind = PLAN_KINDS.find((k) => k.key === key);
+  if (!kind) return [];
+  let steps;
+  if (key === "owner") steps = cleanSteps(s.cadence || []).map((x) => ({ ...x, intent: x.intent || "nurture" }));
+  else steps = cleanSteps(s.plans && Array.isArray(s.plans[key]) ? s.plans[key] : PLAN_DEFAULTS[key]);
+  return kind.nurtured && !bare ? [...steps, ...planOf("nurture")] : steps;
+}
+export function planIsDefault(key) {
+  const s = store.getSettings();
+  if (key === "owner") return JSON.stringify(cleanSteps(s.cadence || [])) === JSON.stringify(cleanSteps(store.DEFAULT_CADENCE));
+  return !(s.plans && Array.isArray(s.plans[key]));
+}
+export function savePlan(key, steps) {
+  const next = cleanSteps(steps);
+  if (key === "owner") { store.updateSettings({ cadence: next }); return next; }
+  const s = store.getSettings();
+  store.updateSettings({ plans: { ...(s.plans || {}), [key]: next } });
+  return next;
+}
+export function resetPlan(key) {
+  if (key === "owner") { store.updateSettings({ cadence: store.DEFAULT_CADENCE.map((x) => ({ ...x })) }); return; }
+  const s = store.getSettings();
+  const plans = { ...(s.plans || {}) }; delete plans[key];
+  store.updateSettings({ plans });
+}
+
 // Which plan fits this customer. An owner already in a car is worked with the
 // salesperson's own sequence from Settings (softer, longer); anyone who came
 // in wanting a vehicle gets the showroom plan, or the inbound one when they
@@ -143,8 +195,8 @@ export function isInbound(lead) {
 export function planFor(lead) {
   if (!lead) return [];
   const owner = ["sold", "delivered"].includes(lead.stage) || lead.currentPayment != null || lead.payoff != null || lead.purchaseDate;
-  if (owner) return (store.getSettings().cadence || []).map((s) => ({ ...s, intent: s.intent || "nurture" }));
-  return isInbound(lead) ? INBOUND_PLAN : SHOWROOM_PLAN;
+  if (owner) return planOf("owner");
+  return isInbound(lead) ? planOf("inbound") : planOf("showroom");
 }
 
 // True if this lead already has plan tasks (so we don't duplicate them).
@@ -226,7 +278,7 @@ export function startVisitPlan(leadId, { at = null } = {}) {
     store.all("tasks").filter((t) => t.leadId === leadId && t.cadence && !t.postDelivery && !t.done && t.kind !== "noshow")
       .forEach((t) => store.update("tasks", t.id, { done: true, doneBy: "replaced", doneAt: new Date().toISOString() }));
   });
-  return startPlan(leadId, VISIT_PLAN, { kind: "visit", from: at });
+  return startPlan(leadId, planOf("visit"), { kind: "visit", from: at });
 }
 
 /**
@@ -238,7 +290,7 @@ export function startNoShowPlan(leadId, { at = null } = {}) {
   if (!lead || ["sold", "delivered", "lost"].includes(lead.stage)) return 0;
   if (recentPlan(leadId, "noshow")) return 0;
   deferPlan(leadId, addDaysISO(6));
-  return startPlan(leadId, NOSHOW_PLAN, { kind: "noshow", from: at });
+  return startPlan(leadId, planOf("noshow"), { kind: "noshow", from: at });
 }
 
 // Has this step's moment arrived? Dated steps are ready on their day; timed
