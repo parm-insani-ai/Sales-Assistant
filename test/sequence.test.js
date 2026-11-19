@@ -66,7 +66,7 @@ const rested = await p.evaluate(async () => { const st = await import("/js/store
 console.log("rested:", JSON.stringify(rested));
 const in50 = new Date(); in50.setDate(in50.getDate() + 50);
 if (!rested.snoozed || new Date(rested.snoozed) < in50 || rested.after !== 6 || rested.tasks) fail("the sixth miss should rest them sixty days with nothing queued: " + JSON.stringify(rested));
-if (!/that's six; resting them/.test(rested.toast)) fail("the toast should say so: " + rested.toast);
+if (!/that's (six|the round); resting them/.test(rested.toast)) fail("the toast should say so: " + rested.toast);
 
 // --- Undo of an answer takes its sequence step back too. (Everyone's
 // answered, so the summary is up: back through them first.)
