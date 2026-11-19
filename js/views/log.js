@@ -14,6 +14,7 @@ import { navigate } from "../router.js";
 import { esc, formatDateTime, relativeDay, daysFromToday } from "../utils.js";
 import { stageMeta } from "../store.js";
 import { taskListEl, openTaskForm } from "./tasks.js";
+import { openOutcomesCard, openInteractions } from "../verify.js";
 import { openLeadForm } from "./leads.js";
 import { icon } from "../icons.js";
 import { swipeable, undoToast, toast } from "../components.js";
@@ -62,7 +63,7 @@ export function renderLog(view) {
   };
 
   // 1. The queue.
-  const queuePanel = panel("queue");
+  const queuePanel = panel("queue", `<span class="small muted">What's due, by the plans</span><a class="btn btn-sm btn-ghost" href="#/plans" data-act="plans">${icon("target")} Plans</a>`);
   const playsSlot = document.createElement("div");
   playsSlot.className = "plays-slot";
   queuePanel.appendChild(playsSlot);
@@ -85,7 +86,9 @@ export function renderLog(view) {
   todoBody.className = "tasks-slot";
   // The chip counts what the list draws: not the plan's steps, and not
   // what's on today's Queue — that's counted there.
-  const todoCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence && !queuesTask(t)).length;
+  // …plus every interaction still without an outcome (verify.js): those are
+  // the first to-dos, before anything that can wait.
+  const todoCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence && !queuesTask(t)).length + openInteractions().length;
   const onQueueCount = () => store.all("tasks").filter((t) => !t.done && !t.cadence && queuesTask(t)).length;
   setCount("todos", todoCount());
   // A screenful of to-dos, newest first, the rest behind a button — see
@@ -106,6 +109,8 @@ export function renderLog(view) {
   };
   paintOnQueue();
   onQueue.addEventListener("click", (ev) => { if (ev.target.closest('[data-act="to-queue"]')) { ev.preventDefault(); show("queue"); } });
+  const verifyCard = openOutcomesCard({ onChange: () => setCount("todos", todoCount()) });
+  todoBody.appendChild(verifyCard);
   todoBody.appendChild(onQueue);
   todoBody.appendChild(taskListEl({ kind: "backlog", limit: 12, showOverdue: lateOnly, focusId, empty: "Nothing on the list. Tap + Add — give it a time and it'll remind you then, and sit under Right now on Home until you tick it off.", onChange: () => { setCount("todos", todoCount()); paintOnQueue(); } }));
   todoPanel.appendChild(todoBody);

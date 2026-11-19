@@ -17,7 +17,7 @@
 
 import * as store from "./store.js";
 import { getProspects } from "./prospects.js";
-import { hasCadence, addDaysISO } from "./cadence.js";
+import { hasCadence, addDaysISO, attemptPlan, attemptsTotal, restDays, outcomeRules } from "./cadence.js";
 import { slotOn, toReadyAt } from "./schedule.js";
 import { categoryOf, assessment } from "./assess.js";
 import { orderForNow, retrySlot, bestTime, PARTS } from "./reachtime.js";
@@ -295,13 +295,8 @@ export function attemptCount(leadId, now = new Date()) {
 // The next touch after a miss, by how many there have been. `other` is the
 // other half of the day (or when they tend to pick up); `untried` the part
 // of the day no attempt has landed in yet.
-const NEXT = [null,
-  { channel: "text", days: 0, hours: 2, intent: "missed" },   // after 1: a text the same day — when's good?
-  { channel: "call", days: 1, other: true },                  // after 2: tomorrow, the other half
-  { channel: "call", days: 2, other: true },                  // after 3: a call in two days, when they pick up
-  { channel: "text", days: 1, intent: "time" },               // after 4: a text with two times to catch them
-  { channel: "call", days: 2, untried: true },                // after 5: a call in two days, a part of the day not yet tried
-];
+// The rows live in cadence.js (ATTEMPT_DEFAULTS), editable on the Plans
+// page; `ATTEMPTS` above is the default count, attemptsTotal() the live one.
 // A part of the day with no attempt in it yet, for the last call of the
 // round: if mornings and afternoons have missed, the evening is the one
 // left to try. Null when every part has been tried.
@@ -338,31 +333,33 @@ export function scheduleNextAttempt(leadId, { now = new Date() } = {}) {
     const bits = [];
     if (canTextP && !soon("text", 6)) {
       const at = localLater(now, 2);
-      task = store.create("tasks", { title: `Text ${fn} — missed call, asking when's good`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: "missed", cadence: true, sequence: true, kind: "plan", attempt: n + 1, of: ATTEMPTS, from: "session" });
+      task = store.create("tasks", { title: `Text ${fn} — missed call, asking when's good`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: "missed", cadence: true, sequence: true, kind: "plan", attempt: n + 1, of: attemptsTotal(), from: "session" });
       bits.push("a text in a couple of hours");
     }
     if (!soon("call", 30)) {
       const oh = retrySlot(leadId, now);
-      const t2 = followUpTask(lead, { days: 1, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — missed · ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}`, extra: { sequence: true, kind: "plan", attempt: n + 1, of: ATTEMPTS } });
+      const t2 = followUpTask(lead, { days: 1, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — missed · ${oh.known ? "they tend to pick up" : "try the"} ${oh.word}`, extra: { sequence: true, kind: "plan", attempt: n + 1, of: attemptsTotal() } });
       if (!task) task = t2;
       bits.push(`a call tomorrow, ${oh.word}`);
     }
     return { n, task, rested: false, line: `attempt ${n} — ${bits.length ? bits.join(" and ") + "; " : ""}their plan carries on.` };
   }
-  if (n >= ATTEMPTS) {
-    const until = new Date(now.getTime() + REST_DAYS * DAY).toISOString().slice(0, 10);
+  const total = attemptsTotal();
+  if (n >= total) {
+    const until = new Date(now.getTime() + restDays() * DAY).toISOString().slice(0, 10);
     store.update("leads", leadId, { prospectSnoozedUntil: until, restedAt: now.toISOString(), restedAfter: n });
-    return { n, task: null, rested: true, until, line: `attempt ${n} of ${ATTEMPTS} — that's six; resting them until ${until}.` };
+    return { n, task: null, rested: true, until, line: `attempt ${n} of ${total} — that's the round; resting them until ${until}.` };
   }
-  const step = NEXT[n] || NEXT[NEXT.length - 1];
+  const rows = attemptPlan();
+  const step = rows[n - 1] || rows[rows.length - 1];
   const canText = !!lead.phone && !lead.badPhone && consentStatus(lead).ok;
   const next = n + 1;
   let task;
   if (step.channel === "text" && canText) {
     const at = step.days === 0 ? localLater(now, step.hours || 2) : slotOn(addDaysISO(step.days), 10, 15);
     const what = step.intent === "time" ? "two times to catch them" : "asking when's good";
-    task = store.create("tasks", { title: `Text ${fn} — attempt ${next} of ${ATTEMPTS}, ${what}`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: step.intent || "missed", cadence: true, sequence: true, attempt: next, of: ATTEMPTS, from: "session", ...(step.intent === "time" ? { why: twoTimes() } : {}) });
-    return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a text ${step.days === 0 ? "in a couple of hours" : `in ${step.days} day${step.days === 1 ? "" : "s"}`}, ${what}.` };
+    task = store.create("tasks", { title: `Text ${fn} — attempt ${next} of ${attemptsTotal()}, ${what}`, due: at.slice(0, 10), at, readyAt: toReadyAt(at), priority: "normal", done: false, leadId, channel: "text", intent: step.intent || "missed", cadence: true, sequence: true, attempt: next, of: attemptsTotal(), from: "session", ...(step.intent === "time" ? { why: twoTimes() } : {}) });
+    return { n, task, rested: false, line: `attempt ${n} of ${attemptsTotal()} — a text ${step.days === 0 ? "in a couple of hours" : `in ${step.days} day${step.days === 1 ? "" : "s"}`}, ${what}.` };
   }
   // A call (or a text they can't be sent): when they tend to pick up, the
   // day's other half, or — for the last call of the round — the part of
@@ -370,8 +367,8 @@ export function scheduleNextAttempt(leadId, { now = new Date() } = {}) {
   const days = step.channel === "text" ? Math.max(1, step.days) : step.days;
   let oh = retrySlot(leadId, now);
   if (step.untried && !bestTime(leadId)) { const u = untriedPart(leadId, now); if (u) oh = { key: u.key, label: u.label, hh: u.hh, mm: u.mm, word: u.label.replace(/^around /, ""), known: false, untried: true }; }
-  task = followUpTask(lead, { days, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — attempt ${next} of ${ATTEMPTS} · ${oh.known ? "they tend to pick up" : oh.untried ? "not yet tried" : "try the"} ${oh.word}`, extra: { sequence: true, attempt: next, of: ATTEMPTS } });
-  return { n, task, rested: false, line: `attempt ${n} of ${ATTEMPTS} — a call ${days === 1 ? "tomorrow" : `in ${days} days`}, ${oh.known ? "when they tend to pick up: " : oh.untried ? "a part of the day not tried yet: " : ""}${oh.word}.` };
+  task = followUpTask(lead, { days, hh: oh.hh, mm: oh.mm, channel: "call", intent: "retry", title: `Call ${fn} again — attempt ${next} of ${attemptsTotal()} · ${oh.known ? "they tend to pick up" : oh.untried ? "not yet tried" : "try the"} ${oh.word}`, extra: { sequence: true, attempt: next, of: attemptsTotal() } });
+  return { n, task, rested: false, line: `attempt ${n} of ${attemptsTotal()} — a call ${days === 1 ? "tomorrow" : `in ${days} days`}, ${oh.known ? "when they tend to pick up: " : oh.untried ? "a part of the day not tried yet: " : ""}${oh.word}.` };
 }
 // A clock time a few hours on, inside the working day (else the next slot).
 function localLater(now, hours) {
@@ -387,7 +384,7 @@ function localLater(now, hours) {
  * Record what came of the call, do the paperwork it implies, move on.
  * Returns { rec, line, tasks } — `line` is what to tell the salesperson.
  */
-export function recordOutcome(leadId, key, { notes = "", now = new Date(), when = null } = {}) {
+export function recordOutcome(leadId, key, { notes = "", now = new Date(), when = null, session = true } = {}) {
   const lead = store.get("leads", leadId);
   if (!lead) return null;
   const fn = firstName(lead.name);
@@ -400,7 +397,10 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date(), when 
   const a = (() => { try { return assessment(leadId); } catch { return null; } })();
   const why = a ? callScript(a) : { cat: "other", variant: "a" };
   // A second answer for the same customer takes the first one back first.
-  const changed = revertOutcome(leadId);
+  // (Not when the outcome is being verified after the fact, outside a
+  // session — verify.js — where nothing of this session's is being changed.)
+  const changed = session ? revertOutcome(leadId) : false;
+  const rules = outcomeRules();
   const was = store.get("leads", leadId);
   const prev = { lastContacted: was.lastContacted || null, lastContactVia: was.lastContactVia || null, lastContactOutcome: was.lastContactOutcome || null, loggedAt: was.loggedAt || null, followUp: was.followUp || null, prospectSnoozedUntil: was.prospectSnoozedUntil || null, notInterestedAt: was.notInterestedAt || null, badPhone: !!was.badPhone, badPhoneAt: was.badPhoneAt || null, lastConversationOutcome: was.lastConversationOutcome || null, lastConversationAt: was.lastConversationAt || null, stage: was.stage };
   let rec = null, line = "", tasks = [], ev = null;
@@ -420,7 +420,7 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date(), when 
       if (key === "callback") {
         // "Call me back Thursday" / next week / next month: a call on the
         // queue for then, at the hour they picked up today.
-        const at = when ? String(when) : slotOn(addDaysISO(7), now.getHours() >= 8 && now.getHours() < 21 ? now.getHours() : 10, 0);
+        const at = when ? String(when) : slotOn(addDaysISO(rules.callbackDays), now.getHours() >= 8 && now.getHours() < 21 ? now.getHours() : 10, 0);
         const dueDay = at.slice(0, 10);
         const t = store.create("tasks", { title: `Call ${fn} back — they asked for it`, due: dueDay, at: at.length > 10 ? at : null, readyAt: at.length > 10 ? toReadyAt(at) : null, priority: "high", done: false, leadId, channel: "call", intent: "callback", from: "session" });
         tasks.push(t);
@@ -436,13 +436,13 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date(), when 
         if (!["appointment", "negotiating", "sold", "delivered"].includes(lead.stage)) patch.stage = "working";
         line = `Spoke with ${fn} — interested. A text with two times to come in is queued for this afternoon.`;
       } else if (key === "not_now") {
-        const until = ymd(new Date(now.getTime() + 180 * DAY));
+        const until = ymd(new Date(now.getTime() + rules.notNowDays * DAY));
         patch.prospectSnoozedUntil = until; patch.followUp = until;
         const t = store.create("tasks", { title: `Check back with ${fn} — said not now in ${now.toLocaleDateString("en-CA", { month: "long" })}`, due: until, priority: "normal", done: false, leadId, channel: "call", intent: "checkback", from: "session" });
         tasks.push(t);
         line = `Spoke with ${fn} — not now. Back to them ${new Date(until + "T12:00:00").toLocaleDateString("en-CA", { month: "long" })}.`;
       } else {
-        const until = ymd(new Date(now.getTime() + 365 * DAY));
+        const until = ymd(new Date(now.getTime() + rules.boughtElsewhereDays * DAY));
         patch.prospectSnoozedUntil = until; patch.boughtElsewhereAt = rec.at;
         line = `Spoke with ${fn} — bought elsewhere. Off the lists for a year; note what they bought if they said.`;
       }
@@ -459,7 +459,7 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date(), when 
       rec = store.create("calls", { leadId, dir: "out", via: "call", at, outcome: "reached", notes: notes || "Not interested", logged: true });
       // Parked six months — but still one of today's batch, worked: the
       // day's count keeps them (snoozeProspect would drop them from it).
-      const until = new Date(now.getTime() + 180 * DAY).toISOString().slice(0, 10);
+      const until = new Date(now.getTime() + rules.notInterestedDays * DAY).toISOString().slice(0, 10);
       stopChase();
       store.update("calls", rec.id, { conversationOutcome: "not_interested" });
       store.update("leads", leadId, { lastContacted: at, lastContactVia: "call", lastContactOutcome: "reached", notInterestedAt: at, prospectSnoozedUntil: until, lastConversationAt: at, lastConversationOutcome: "not_interested" });
@@ -474,7 +474,7 @@ export function recordOutcome(leadId, key, { notes = "", now = new Date(), when 
     ev = store.logEvent("session_outcome", { leadId, meta: { outcome: key, reason: why.cat, opener: why.variant } });
   });
   if (!rec) return null;
-  recordDone(leadId, { outcome: key, recId: rec.id, taskIds: tasks.map((t) => t.id), eventId: ev ? ev.id : null, prev });
+  if (session) recordDone(leadId, { outcome: key, recId: rec.id, taskIds: tasks.map((t) => t.id), eventId: ev ? ev.id : null, prev });
   return { rec, line: changed ? `Changed. ${line}` : line, tasks, changed };
 }
 // "tomorrow", "Thursday", "in 3 weeks", "March 4".

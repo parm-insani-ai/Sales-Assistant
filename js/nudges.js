@@ -24,8 +24,10 @@ import { lateTasks, daysLate } from "./reminders.js";
 import { todayPlan } from "./plan.js";
 import { matchedWatches, closeWatch, describeWant } from "./watch.js";
 import { stale, noteOverdue, ASK_AFTER } from "./ledger.js";
-import { dueCallbacks, ATTEMPTS } from "./session.js";
+import { dueCallbacks } from "./session.js";
+import { attemptsTotal } from "./cadence.js";
 import { autoOn, autoEligible } from "./autosend.js";
+import { openInteractions, verifySheet, VIAS } from "./verify.js";
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -171,6 +173,26 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
   const out = [];
   const leads = store.all("leads");
   const leadById = (id) => leads.find((l) => l.id === id) || null;
+
+  // --- An interaction without its outcome: a call placed, a text opened in
+  // the phone's app, and the app never heard how it went. The question is
+  // the row; it stays until answered (verify.js).
+  openInteractions({ now }).slice(0, 3).forEach((c) => {
+    const lead = leadById(c.leadId);
+    if (!lead) return;
+    const via = c.via || "call";
+    const ago = Math.round((now - new Date(c.at).getTime()) / MIN);
+    out.push({
+      key: `verify:${c.id}`,
+      urgency: 92,
+      pin: true,
+      kind: "verify",
+      title: via === "call" ? `How did the call with ${lead.name} go?` : `Did the ${via} to ${lead.name} go out?`,
+      sub: `${VIAS[via]} ${ago < 60 ? `${ago} min ago` : ago < 1440 ? `${Math.round(ago / 60)} h ago` : `${Math.round(ago / 1440)} d ago`} · no outcome on file yet`,
+      action: (done) => verifySheet(c, { onDone: (r) => { if (r && done) done(r); } }),
+      at: c.at,
+    });
+  });
 
   // --- 0. A welcome text whose moment has come.
   // Five minutes after a customer is added, their first text is drafted and
@@ -479,7 +501,7 @@ export function getNudges({ now = Date.now(), limit = 8 } = {}) {
         urgency: 78,
         kind: "callbacks",
         title: `${due.length} callback${due.length === 1 ? "" : "s"} due today`,
-        sub: `${due.slice(0, 3).map((d) => `${firstName(d.lead.name)} (attempt ${Math.min(ATTEMPTS, d.attempt)} of ${ATTEMPTS})`).join(", ")}${due.length > 3 ? ` and ${due.length - 3} more` : ""}${known ? ` · ${known} at the hour they tend to pick up` : ""}. Start calling puts them first.`,
+        sub: `${due.slice(0, 3).map((d) => `${firstName(d.lead.name)} (attempt ${Math.min(attemptsTotal(), d.attempt)} of ${attemptsTotal()})`).join(", ")}${due.length > 3 ? ` and ${due.length - 3} more` : ""}${known ? ` · ${known} at the hour they tend to pick up` : ""}. Start calling puts them first.`,
         route: "/session",
         at: new Date(now).toISOString(),
       });

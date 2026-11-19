@@ -85,7 +85,10 @@ function renderThread(view, leadId) {
       call.innerHTML = icon("phone");
       // Placing the call logs it, so the thread shows the whole conversation
       // instead of only the half that was typed.
-      call.addEventListener("click", () => { store.logCall(lead.id); setTimeout(paintThread, 0); });
+      // The interaction (the call record, and the outcome asked for on the
+      // way back) opens on the link itself — verify.js. The thread repaints.
+      call.dataset.lead = lead.id;
+      call.addEventListener("click", () => { setTimeout(paintThread, 80); });
       actions.appendChild(call);
     }
     const prof = document.createElement("button");

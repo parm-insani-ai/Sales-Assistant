@@ -6,7 +6,8 @@ import { openModal, buildForm, toast, undoToast, confirmDialog, emptyState, swip
 import { watchesFor, createWatch, cancelWatch, closeWatch, parseWant, isUseful, describeWant, vehicleFits } from "../watch.js";
 import { navigate, goBack, isStepBack, drawnFresh } from "../router.js";
 import { openAppointmentForm } from "./calendar.js";
-import { currentSession, startSession, scheduleNextAttempt, attemptCount, ATTEMPTS } from "../session.js";
+import { currentSession, startSession, scheduleNextAttempt, attemptCount } from "../session.js";
+import { attemptsTotal } from "../cadence.js";
 import { reachLine } from "../reachtime.js";
 import { dayLine, callWindow } from "../funnel.js";
 import { openSaleForm } from "./goals.js";
@@ -1325,7 +1326,7 @@ function cardHTML(l, { quick = false, hz = null, freshToday = false } = {}) {
   // The last contact — so logging one is visibly registered — and when
   // they tend to pick up, once that's known.
   const contact = l.lastContacted
-    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} <span>${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · attempt ${Math.min(ATTEMPTS, attemptCount(l.id))} of ${ATTEMPTS}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</span></div>`
+    ? `<div class="row-contact${OUTCOME_LABEL[l.lastContactOutcome] ? " row-contact-try" : ""}">${icon(OUTCOME_LABEL[l.lastContactOutcome] ? "clock" : "checkline")} <span>${esc(VIA_LABEL[l.lastContactVia] || "Contacted")}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · ${OUTCOME_LABEL[l.lastContactOutcome]}` : ""} ${esc(formatDateTime(l.lastContacted))}${OUTCOME_LABEL[l.lastContactOutcome] && l.followUp ? ` · again ${esc(relativeDay(l.followUp))}` : ""}${OUTCOME_LABEL[l.lastContactOutcome] ? ` · attempt ${Math.min(attemptsTotal(), attemptCount(l.id))} of ${attemptsTotal()}` : ""}${reachLine(l.id) ? ` · ${esc(reachLine(l.id).toLowerCase())}` : ""}</span></div>`
     : reachLine(l.id) ? `<div class="row-contact">${icon("clock")} <span>${esc(reachLine(l.id))}</span></div>` : `<span class="lc-none">Not contacted yet</span>`;
   // The one thing to do from the list: a drafted opener to review, a call
   // when there's no consent to text, or adding the number they lack.
@@ -1671,7 +1672,7 @@ function movesCard(l) {
       const r = rows[Number(rowEl.dataset.i)];
       const on = (sel, fn) => { const n = rowEl.querySelector(sel); if (n) n.addEventListener("click", fn); };
       on('[data-act="review"]', async (ev) => { ev.currentTarget.disabled = true; try { await reviewTouch(r.t.id); } finally { ev.currentTarget.disabled = false; } });
-      on('[data-act="call"]', () => { store.logCall(l.id, {}); });
+      on('[data-act="call"]', () => { store.logActivity("touch"); }); // the interaction opens on the link (verify.js)
       on('[data-act="done"]', () => complete(r.t));
       on('[data-act="appt"]', () => openAppointmentForm(r.a));
       const main = rowEl.querySelector(".nm-main");
@@ -2068,11 +2069,11 @@ function renderLeadDetail(view, id) {
 
   // Log outreach as a "touch" and stamp last-contacted when calling, texting
   // or emailing — and say so on the name box right away, no tap needed.
-  const logTouch = (via) => {
+  // The tap opens an interaction (verify.js): the record is written there
+  // and the outcome asked for on the way back; the line follows it.
+  const logTouch = () => {
     store.logActivity("touch");
-    store.update("leads", l.id, { lastContacted: new Date().toISOString(), lastContactVia: via });
-    const line = el.querySelector('.lead-head [data-act="contacted"] .v');
-    if (line) line.innerHTML = contactLine(store.get("leads", l.id) || l);
+    setTimeout(() => { const line = el.querySelector('.lead-head [data-act="contacted"] .v'); if (line) line.innerHTML = contactLine(store.get("leads", l.id) || l); }, 50);
   };
   const callBtn = el.querySelector('[data-act="call"]');
   if (callBtn) callBtn.addEventListener("click", () => logTouch("call"));

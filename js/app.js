@@ -3,6 +3,7 @@
 import { route, startRouter, currentBase, navigate, goBack } from "./router.js";
 import * as store from "./store.js";
 import { interceptSmsLinks } from "./sms.js";
+import { armVerify } from "./verify.js";
 import { initViewport } from "./viewport.js";
 import { initPullToRefresh } from "./pulltorefresh.js";
 import { openModal, toast } from "./components.js";
@@ -21,7 +22,7 @@ import { startReminderWatch } from "./reminders.js";
 // first paint carries only what Home, Leads and Inventory need. Each loader
 // names its file literally so the build cache and the asset check see it.
 const LOADERS = {
-  lists: () => import("./views/lists.js"),
+  lists: () => import("./views/lists.js"), plans: () => import("./views/plans.js"),
   calculator: () => import("./views/calculator.js"), deliveries: () => import("./views/deliveries.js"), settings: () => import("./views/settings.js"),
   goals: () => import("./views/goals.js"), imp: () => import("./views/import.js"), dealer: () => import("./views/dealer.js"), prospecting: () => import("./views/prospecting.js"),
   tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
@@ -141,6 +142,7 @@ const PAGES = {
   "/leads": { title: "Leads", render: renderLeads },
   // Your lists and saved filters, the index and each one's own page.
   "/lists": { title: "Lists", render: lazyView("lists", "renderLists") },
+  "/plans": { title: "Follow-up plans", render: lazyView("plans", "renderPlans") },
   "/inventory": { title: "Inventory", render: renderInventory },
   "/calculator": { title: "Deal Calculator", render: lazyView("calculator", "renderCalculator") },
   "/deliveries": { title: "Deliveries", render: lazyView("deliveries", "renderDeliveries") },
@@ -254,6 +256,7 @@ function parentOf(base, param, roots) {
   if (base === "/todo") return "/log"; // the work page says which chip (a plan step is the queue's)
   if (base === "/session") return "/leads"; // the calling session backs out to Outreach
   if (base === "/lists") return param ? "/lists" : "/leads"; // a list's page to the index, the index to Outreach
+  if (base === "/plans") return param ? "/plans" : "/settings"; // a plan's page to the index, the index to Settings
   if (base === "/calendar" && param) return "/appts"; // an appointment's page backs out to the list
   if (base === "/leads" || base === "/inventory" || base === "/deliveries" || base === "/calendar") return roots.includes(base) ? base : "/";
   return "/";
@@ -293,6 +296,9 @@ paintUnread();
 // conversation instead of handing off to the phone's messaging app — otherwise
 // the customer's reply goes to a personal inbox the agent can't see.
 interceptSmsLinks();
+// Every dial, text or mail link opens an interaction; coming back asks how
+// it went. Nobody is contacted without an outcome on their file (verify.js).
+armVerify();
 
 // In Safari on an iPhone, viniva is a second copy: iOS gives Safari and the
 // Home Screen app separate storage, so a contact logged here shows up in

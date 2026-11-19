@@ -28,7 +28,8 @@ import { dayPlan, dayLine, callWindow } from "../funnel.js";
 import { openSlots, askLine } from "../slots.js";
 import { afterAppointmentBooked } from "../connections.js";
 import { morePicks } from "../prospects.js";
-import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, CONVERSATION_OUTCOMES, CALLBACK_WHEN, isConversation, startSession, sessionQueue, dueCallbacks, extendSession, roster, goTo, goNext, goPrev, nextOpen, attemptCount, ATTEMPTS } from "../session.js";
+import { currentSession, currentCustomer, recordOutcome, revertOutcome, endSession, summarize, callScript, OUTCOMES, CONVERSATION_OUTCOMES, CALLBACK_WHEN, isConversation, startSession, sessionQueue, dueCallbacks, extendSession, roster, goTo, goNext, goPrev, nextOpen, attemptCount } from "../session.js";
+import { attemptsTotal } from "../cadence.js";
 import { coverageLine } from "../coverage.js";
 import { slotOn } from "../schedule.js";
 import { addDaysISO } from "../cadence.js";
@@ -134,7 +135,7 @@ export function renderSession(view) {
           <div>
             <div class="cs-name">${esc(l.name)}</div>
             <div class="cs-sub">${esc(l.vehicleInterest || "No vehicle noted")}${c && c.line ? ` · ${esc(c.line)}` : ""}</div>
-            ${reachLine(l.id) || attemptCount(l.id) || cb ? `<div class="cs-when">${icon("clock")} ${esc([cb ? `Callback due · attempt ${Math.min(ATTEMPTS, cb.attempt)} of ${ATTEMPTS}` : attemptCount(l.id) ? `Attempt ${Math.min(ATTEMPTS, attemptCount(l.id) + (cur.done ? 0 : 1))} of ${ATTEMPTS}` : "", reachLine(l.id)].filter(Boolean).join(" · "))}</div>` : ""}
+            ${reachLine(l.id) || attemptCount(l.id) || cb ? `<div class="cs-when">${icon("clock")} ${esc([cb ? `Callback due · attempt ${Math.min(attemptsTotal(), cb.attempt)} of ${attemptsTotal()}` : attemptCount(l.id) ? `Attempt ${Math.min(attemptsTotal(), attemptCount(l.id) + (cur.done ? 0 : 1))} of ${attemptsTotal()}` : "", reachLine(l.id)].filter(Boolean).join(" · "))}</div>` : ""}
           </div>
           ${a.tier ? `<span class="badge ${a.tier.badge}">${esc(a.tier.label)}</span>` : ""}
         </div>
@@ -149,7 +150,7 @@ export function renderSession(view) {
           ${script.objections.map((o) => `<div class="cs-obj-row"><div class="cs-obj-say">“${esc(o.say)}”</div><div class="cs-obj-back">${esc(o.back)}</div></div>`).join("")}
         </details>
         ${!consent.ok ? `<div class="cs-note small">${icon("alert")} No texting consent on file — this one's a call. ${esc(consent.note || "")}</div>` : ""}
-        ${l.phone && !l.badPhone ? `<a class="btn btn-success btn-lg cs-dial" data-act="dial" href="${telHref(l.phone)}">${icon("phone")} Call ${esc(phoneDisplay(l.phone))}</a>`
+        ${l.phone && !l.badPhone ? `<a class="btn btn-success btn-lg cs-dial" data-act="dial" data-noverify="1" href="${telHref(l.phone)}">${icon("phone")} Call ${esc(phoneDisplay(l.phone))}</a>`
           : `<div class="cs-dial cs-dial-off">${icon("alert")} ${l.badPhone ? "Wrong number on file" : "No number on file"}</div>`}
         <div class="cs-label" style="margin-top:14px">What came of it</div>
         ${slots.length ? `<div class="cs-book">

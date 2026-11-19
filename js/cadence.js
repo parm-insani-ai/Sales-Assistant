@@ -410,3 +410,85 @@ export function planSummary(leadId) {
   const calls = steps.filter((t) => t.channel === "call").length;
   return `${steps.length} of ${total} steps to go — ${texts} text${texts === 1 ? "" : "s"}, ${calls} call${calls === 1 ? "" : "s"}. Next: ${next.title.replace(/^\w+ \S+ — /, "")} on ${next.due}.`;
 }
+
+// ---- The rules behind the other cadences ----
+//
+// The six plans above are lists of touches. Two more cadences run on rules
+// rather than lists, and the Plans page lets the salesperson change them
+// too: the six attempts after a missed call (session.js schedules them),
+// and how far out each conversation outcome puts the next contact.
+
+// After the n-th miss (1-based), the next touch: a text the same day asking
+// when's good · a call tomorrow in the other half of the day · a call in two
+// days when they tend to pick up · a text with two times to catch them · a
+// call in two days in a part of the day not yet tried. The attempt after the
+// last row is the one that rests them.
+export const ATTEMPT_DEFAULTS = {
+  steps: [
+    { channel: "text", days: 0, hours: 2, intent: "missed" },
+    { channel: "call", days: 1, other: true },
+    { channel: "call", days: 2, other: true },
+    { channel: "text", days: 1, intent: "time" },
+    { channel: "call", days: 2, untried: true },
+  ],
+  restDays: 60,
+};
+const cleanAttempt = (x) => {
+  if (!x || (x.channel !== "text" && x.channel !== "call")) return null;
+  const o = { channel: x.channel, days: Math.max(0, Math.round(Number(x.days) || 0)) };
+  if (x.channel === "text") { o.intent = x.intent === "time" ? "time" : "missed"; if (o.days === 0) o.hours = Math.max(1, Math.round(Number(x.hours) || 2)); }
+  else { if (x.untried) o.untried = true; else o.other = true; }
+  return o;
+};
+/** The attempt rows as kept: the salesperson's, or the defaults. */
+export function attemptPlan() {
+  const s = store.getSettings();
+  const own = s.attemptPlan && Array.isArray(s.attemptPlan.steps) ? s.attemptPlan.steps.map(cleanAttempt).filter(Boolean) : null;
+  return own && own.length ? own : ATTEMPT_DEFAULTS.steps.map((x) => ({ ...x }));
+}
+export function attemptsTotal() { return attemptPlan().length + 1; }
+export function restDays() {
+  const s = store.getSettings();
+  const n = s.attemptPlan && Number(s.attemptPlan.restDays);
+  return n > 0 ? Math.round(n) : ATTEMPT_DEFAULTS.restDays;
+}
+export function attemptPlanIsDefault() {
+  return JSON.stringify({ steps: attemptPlan(), restDays: restDays() }) === JSON.stringify({ steps: ATTEMPT_DEFAULTS.steps, restDays: ATTEMPT_DEFAULTS.restDays });
+}
+export function saveAttemptPlan({ steps = attemptPlan(), restDays: rest = restDays() } = {}) {
+  const clean = steps.map(cleanAttempt).filter(Boolean);
+  store.updateSettings({ attemptPlan: { steps: clean.length ? clean : ATTEMPT_DEFAULTS.steps.map((x) => ({ ...x })), restDays: Number(rest) > 0 ? Math.round(Number(rest)) : ATTEMPT_DEFAULTS.restDays } });
+}
+export function resetAttemptPlan() { store.updateSettings({ attemptPlan: null }); }
+/** One attempt row in words: "Text · same day, 2 hours on · when's good?" */
+export function attemptLine(st) {
+  const when = st.days === 0 ? `same day, ${st.hours || 2} hour${(st.hours || 2) === 1 ? "" : "s"} on` : st.days === 1 ? "next day" : `in ${st.days} days`;
+  const how = st.channel === "text" ? (st.intent === "time" ? "two times to catch them" : "asking when's good") : st.untried ? "a part of the day not yet tried" : "when they tend to pick up, or the other half of the day";
+  return `${st.channel === "text" ? "Text" : "Call"} · ${when} · ${how}`;
+}
+
+// What a conversation's outcome sets up, in days: "call back" with no day
+// named, "not now", "not interested" and "bought elsewhere" — how long before
+// they come round again. Interested is a text the same afternoon; booked
+// is the appointment itself.
+export const OUTCOME_RULE_DEFAULTS = { callbackDays: 7, notNowDays: 180, notInterestedDays: 180, boughtElsewhereDays: 365 };
+export const OUTCOME_RULE_LABELS = {
+  callbackDays: { label: "Call back — when they didn't say", hint: "A call goes on the queue this many days out, at the hour they picked up." },
+  notNowDays: { label: "Not now", hint: "Parked, with a check-back call dated this many days out." },
+  notInterestedDays: { label: "Not interested", hint: "Parked this many days; on their file as a conversation." },
+  boughtElsewhereDays: { label: "Bought elsewhere", hint: "Off the lists this many days; their new car's dates are worth having." },
+};
+export function outcomeRules() {
+  const s = store.getSettings();
+  const own = s.outcomeRules || {};
+  const out = {};
+  Object.keys(OUTCOME_RULE_DEFAULTS).forEach((k) => { const n = Number(own[k]); out[k] = n > 0 ? Math.round(n) : OUTCOME_RULE_DEFAULTS[k]; });
+  return out;
+}
+export function outcomeRulesAreDefault() { return JSON.stringify(outcomeRules()) === JSON.stringify(OUTCOME_RULE_DEFAULTS); }
+export function saveOutcomeRules(patch) {
+  const next = { ...outcomeRules() };
+  Object.keys(OUTCOME_RULE_DEFAULTS).forEach((k) => { if (patch && patch[k] != null && Number(patch[k]) > 0) next[k] = Math.round(Number(patch[k])); });
+  store.updateSettings({ outcomeRules: next });
+}
+export function resetOutcomeRules() { store.updateSettings({ outcomeRules: null }); }

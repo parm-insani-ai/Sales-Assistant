@@ -193,7 +193,9 @@ export function interceptSmsLinks() {
       e.preventDefault();
       return toast(`${(lead.name || "They").split(" ")[0]} has opted out of texts`, "warn");
     }
-    if (openText(parsed.phone, parsed.body)) e.preventDefault();
+    // Kept in the app: the thread logs the text itself, so the verifier
+    // (verify.js) doesn't open an interaction for this tap.
+    if (openText(parsed.phone, parsed.body)) { e.preventDefault(); e.keptInApp = true; }
   }, true);
 }
 
