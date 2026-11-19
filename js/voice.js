@@ -35,12 +35,54 @@ export function speak(text) {
 // hears the reply and answers itself. Resolves on end, on error, and on a
 // timeout, because some platforms simply never fire onend and a conversation
 // that waits forever is worse than one that talks over itself occasionally.
-export function speakAsync(text) {
+// ---------- The assistant's voice ----------
+// The phone's own voices (speechSynthesis), the one picked in Settings by
+// name — a voice is the device's, so a name that isn't on this phone falls
+// back to the best English one here — with the speed and pitch set there.
+export const VOICE_DEFAULTS = { ttsVoice: "", ttsRate: 1.05, ttsPitch: 1 };
+let voiceCache = [];
+export function deviceVoices() {
+  try {
+    if (!("speechSynthesis" in window)) return [];
+    const v = speechSynthesis.getVoices() || [];
+    if (v.length) voiceCache = v;
+  } catch { /* none */ }
+  return voiceCache;
+}
+if (typeof window !== "undefined" && "speechSynthesis" in window) {
+  try { speechSynthesis.addEventListener("voiceschanged", () => deviceVoices()); deviceVoices(); } catch { /* none */ }
+}
+/** The voices worth listing: English first (the salesperson's language), then the rest, each { name, lang, local, def }. */
+export function voiceChoices() {
+  const all = deviceVoices().map((v) => ({ name: v.name, lang: v.lang || "", local: !!v.localService, def: !!v.default }));
+  const en = all.filter((v) => /^en/i.test(v.lang)).sort((a, b) => (b.def - a.def) || (a.lang === "en-CA" ? -1 : b.lang === "en-CA" ? 1 : 0) || a.name.localeCompare(b.name));
+  const rest = all.filter((v) => !/^en/i.test(v.lang)).sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name));
+  return [...en, ...rest];
+}
+export function voiceSettings() {
+  let s = {};
+  try { s = store.getSettings() || {}; } catch { s = {}; }
+  const rate = Number(s.ttsRate), pitch = Number(s.ttsPitch);
+  return { name: String(s.ttsVoice || ""), rate: rate >= 0.5 && rate <= 2 ? rate : VOICE_DEFAULTS.ttsRate, pitch: pitch >= 0.5 && pitch <= 2 ? pitch : VOICE_DEFAULTS.ttsPitch };
+}
+/** The SpeechSynthesisVoice to use: the one named in Settings if this phone has it, else the device's English default. */
+export function pickVoice(name = voiceSettings().name) {
+  const all = deviceVoices();
+  if (!all.length) return null;
+  if (name) { const hit = all.find((v) => v.name === name); if (hit) return hit; }
+  return all.find((v) => v.default && /^en/i.test(v.lang)) || all.find((v) => /^en-CA/i.test(v.lang)) || all.find((v) => /^en/i.test(v.lang)) || null;
+}
+
+export function speakAsync(text, { voice = null, rate = null, pitch = null } = {}) {
   return new Promise((resolve) => {
     try {
       if (!("speechSynthesis" in window) || !text) return resolve();
       const u = new SpeechSynthesisUtterance(String(text));
-      u.rate = 1.05;
+      const vs = voiceSettings();
+      const v = voice || pickVoice(vs.name);
+      if (v) { u.voice = v; if (v.lang) u.lang = v.lang; }
+      u.rate = rate || vs.rate;
+      u.pitch = pitch || vs.pitch;
       let done = false;
       const finish = () => { if (done) return; done = true; resolve(); };
       u.onend = finish;

@@ -97,6 +97,15 @@ export function renderSettings(view) {
     <div class="section-title">More</div>
     ${fold("booking", "Booking page", backend.currentUser() && (s.agentUrl || "").trim() ? `${hourSay(s.bookStart ?? 9)}–${hourSay(s.bookEnd ?? 19)} · ${s.bookSlot || 30} min` : "", `<div id="booking-slot"></div>`)}
     ${fold("mail", "Email & texting", mailSay, `<div id="email-slot"></div>`)}
+    ${fold("voice", "Assistant voice", s.ttsVoice ? esc(String(s.ttsVoice).replace(/\s*\(.*\)\s*$/, "")) : "Phone's default", `
+      <div class="small muted" style="margin:0 0 8px">The assistant talks back in one of this phone's voices. Pick one, set how fast and how high, and hear it. The voices are the phone's own: on an iPhone, more (and better) ones are under Settings → Accessibility → Spoken Content → Voices; on Android, under Settings → System → Languages → Text-to-speech.</div>
+      <div class="field"><label>Voice</label><select id="s-ttsvoice"><option value="">Phone's default</option></select></div>
+      <div class="field-inline">
+        <div class="field"><label>Speed <span class="muted small" id="s-ttsrate-v"></span></label><input id="s-ttsrate" type="range" min="0.7" max="1.4" step="0.05" value="${esc(Number(s.ttsRate) || 1.05)}"></div>
+        <div class="field"><label>Pitch <span class="muted small" id="s-ttspitch-v"></span></label><input id="s-ttspitch" type="range" min="0.7" max="1.3" step="0.05" value="${esc(Number(s.ttsPitch) || 1)}"></div>
+      </div>
+      <div class="btn-row"><button type="button" class="btn btn-primary" id="s-ttshear" style="flex:1">${icon("mic")} Hear it</button><button type="button" class="btn btn-ghost" id="s-ttsreset">Reset</button></div>
+      <div class="hint" id="s-ttsnote" style="margin-top:6px"></div>`)}
     ${fold("plan", "Follow-up plans", `${PLAN_KINDS.length} plans${PLAN_KINDS.some((k) => !planIsDefault(k.key)) ? " · edited" : ""} · ${s.dailyProspects ?? 10} a day`, `
       <div class="field-inline">
         <div class="field"><label>Daily touch goal</label><input id="s-touchgoal" type="number" inputmode="numeric" value="${esc(s.dailyTouchGoal)}"></div>
@@ -380,6 +389,35 @@ export function renderSettings(view) {
   });
 
   // Prospecting settings
+  // The assistant's voice: the phone's voices, listed when the phone has
+  // them (they can arrive a moment after the page), with speed and pitch.
+  {
+    const sel = el.querySelector("#s-ttsvoice"), rate = el.querySelector("#s-ttsrate"), pitch = el.querySelector("#s-ttspitch"), note = el.querySelector("#s-ttsnote");
+    const rateV = el.querySelector("#s-ttsrate-v"), pitchV = el.querySelector("#s-ttspitch-v");
+    const showNums = () => { rateV.textContent = `· ${Number(rate.value).toFixed(2)}×`; pitchV.textContent = `· ${Number(pitch.value).toFixed(2)}`; };
+    showNums();
+    let V = null;
+    const fill = () => {
+      if (!V) return;
+      const list = V.voiceChoices();
+      const cur = store.getSettings().ttsVoice || "";
+      sel.innerHTML = `<option value="">Phone's default${list.length ? "" : " (no voices listed yet)"}</option>` + list.map((v) => `<option value="${esc(v.name)}" ${v.name === cur ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}${v.local ? "" : " · online"}</option>`).join("");
+      if (cur && !list.some((v) => v.name === cur)) { sel.insertAdjacentHTML("beforeend", `<option value="${esc(cur)}" selected>${esc(cur)} · not on this phone</option>`); }
+      note.textContent = list.length ? `${list.length} voice${list.length === 1 ? "" : "s"} on this phone.` : ("speechSynthesis" in window ? "This phone hasn't listed its voices yet — tap Hear it, then come back." : "This browser can't speak.");
+    };
+    import("../voice.js").then((m) => { V = m; fill(); try { speechSynthesis.addEventListener("voiceschanged", fill); } catch { /* fine */ } }).catch(() => { note.textContent = "The voice module didn't load."; });
+    sel.addEventListener("change", () => { store.updateSettings({ ttsVoice: sel.value }); const d = el.querySelector('[data-fold="voice"] summary .set-fold-s'); if (d) d.textContent = sel.value ? sel.value.replace(/\s*\(.*\)\s*$/, "") : "Phone's default"; });
+    rate.addEventListener("input", showNums); pitch.addEventListener("input", showNums);
+    rate.addEventListener("change", () => store.updateSettings({ ttsRate: Number(rate.value) }));
+    pitch.addEventListener("change", () => store.updateSettings({ ttsPitch: Number(pitch.value) }));
+    el.querySelector("#s-ttshear").addEventListener("click", async () => {
+      if (!V) { try { V = await import("../voice.js"); } catch { return; } }
+      const name = (s.salesperson || "").trim().split(/\s+/)[0] || "there";
+      V.speakAsync(`Hi ${name}. Three callbacks due this morning, and Dana's lease ends in ninety days — want me to put her first?`, { voice: V.pickVoice(sel.value), rate: Number(rate.value), pitch: Number(pitch.value) });
+      setTimeout(fill, 600);
+    });
+    el.querySelector("#s-ttsreset").addEventListener("click", () => { store.updateSettings({ ttsVoice: "", ttsRate: 1.05, ttsPitch: 1 }); sel.value = ""; rate.value = "1.05"; pitch.value = "1"; showNums(); fill(); toast("Voice: back to the phone's default", "success"); });
+  }
   el.querySelector("#s-touchgoal").addEventListener("change", (e) =>
     store.updateSettings({ dailyTouchGoal: Number(e.target.value) || 0 }));
   el.querySelector("#s-prospects").addEventListener("change", (e) =>
