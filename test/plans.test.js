@@ -153,6 +153,13 @@ await p.click('.plan-editor .fp-form button[type=submit]'); await p.waitForTimeo
 const ap = await p.evaluate(async () => { const A = await import("/js/apptplan.js"); return { am: A.apptPresets().confirmAm, line: document.querySelector(".plan-editor .fp-meta")?.textContent }; });
 if (ap.am !== "15:30" || !/Confirmation 15:30/.test(ap.line)) fail("the appointment timings save: " + JSON.stringify(ap));
 
+// The + offers it under Tools.
+await p.click("#quick-add"); await p.waitForSelector(".modal .qa-tile", { timeout: 8000 });
+const tile = await p.evaluate(() => [...document.querySelectorAll(".modal .qa-tile")].map((t) => t.textContent.trim()).includes("Follow-up plans"));
+if (!tile) fail("the + should offer Follow-up plans under Tools");
+await p.evaluate(() => { const t = [...document.querySelectorAll(".modal .qa-tile")].find((x) => x.textContent.trim() === "Follow-up plans"); t.click(); });
+await p.waitForSelector(".fp-row", { timeout: 8000 }).catch(() => fail("the + tile opens the plans"));
+
 // The Queue's head offers the plans too.
 await p.evaluate(() => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch {} location.hash = "#/log"; });
 await p.waitForSelector('.log-panel[data-panel="queue"] [data-act="plans"]', { timeout: 8000 }).catch(() => fail("the Queue should link to the plans"));
