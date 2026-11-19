@@ -377,6 +377,19 @@ async function sendPush(uid: string, payload: Record<string, unknown>, errs?: st
 // all.
 
 const SWEEP_CAP = 3;                    // most pushes one sweep will send
+// A notification names one person and one step, never a pile. "81 texts
+// ready" reads as a task too big to start, so a count above a few is never
+// said: "Dana's text is ready, then Sam's" — the rest wait on the Queue,
+// one at a time. nextUp joins a few names; moreSay says how many follow.
+const FEW = 3;
+function nextUp(list: unknown[]): string {
+  const n = list.map((x) => String(x || "").trim()).filter(Boolean);
+  if (!n.length) return "";
+  if (n.length === 1) return n[0];
+  if (n.length === 2) return `${n[0]} and ${n[1]}`;
+  return n.length <= FEW ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : `${n[0]}, ${n[1]} and a few more`;
+}
+function moreSay(n: number): string { return n <= 0 ? "" : n === 1 ? "one more" : n <= FEW ? `${n} more` : "a few more"; }
 const REPLY_GRACE_MIN = 12;             // a reply older than this is waiting
 const CONFIRM_WINDOW_MIN = 180;         // unconfirmed appointment this close
 
@@ -1730,7 +1743,7 @@ async function handleSweep(body: any): Promise<Response> {
       } else if (due.length > 1) {
         // Bundled: one push, one coherent thought.
         const names = due.map((t: any) => String(t.title || "").slice(0, 40));
-        remindersPushed += await sendPush(uid, { title: `${due.length} things due now`, body: `${names.slice(0, 3).join(" · ")}${names.length > 3 ? ` · +${names.length - 3}` : ""}`, tag: `rem:bundle:${stamp.slice(0, 13)}`, url: "./#/todos" });
+        remindersPushed += await sendPush(uid, { title: `Due now: ${names[0]}`, body: `Then ${nextUp(names.slice(1))}. One at a time — they're on the list.`, tag: `rem:bundle:${stamp.slice(0, 13)}`, url: "./#/todos" });
         for (const t of due) already[`rem:${t.id}`] = stamp;
       }
       // Two hours on, still open: once more, and the count goes to two.
@@ -1767,6 +1780,7 @@ async function handleSweep(body: any): Promise<Response> {
     const found: { key: string; urgency: number; title: string; body: string; url: string; actions?: { action: string; title: string; url: string }[] }[] = [];
     const dayOf = (v: unknown) => { const s = String(v || ""); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : (isNaN(new Date(s).getTime()) ? "" : new Date(new Date(s).getTime() - tzOffset * 60000).toISOString().slice(0, 10)); };
     const firstOf = (n: unknown) => String(n || "").trim().split(/\s+/)[0] || "them";
+    const l0Url = (l: any) => (l && l.phone ? `./#/inbox/${l.id}` : l ? `./#/leads/${l.id}` : "./#/leads");
 
     // 0a. Follow-up dates (the ledger's): from nine, the customers whose
     //     follow-up is today and who haven't been reached — one push for
@@ -1780,7 +1794,7 @@ async function handleSweep(body: any): Promise<Response> {
         await sendPush(uid, { title: `Follow up with ${firstOf(l.name)} today`, body: `${l.vehicleInterest ? l.vehicleInterest + " — " : ""}it's the day you set.`, tag: `fu:${l.id}:${localDay}`, url: l.phone ? `./#/inbox/${l.id}` : `./#/leads/${l.id}` });
         already[`fu:${l.id}:${localDay}`] = stamp;
       } else if (fresh.length > 1) {
-        await sendPush(uid, { title: `${fresh.length} follow-ups due today`, body: fresh.slice(0, 4).map((l: any) => firstOf(l.name)).join(", ") + (fresh.length > 4 ? ` +${fresh.length - 4}` : ""), tag: `fu:bundle:${localDay}`, url: "./#/leads" });
+        await sendPush(uid, { title: `Follow up with ${firstOf(fresh[0].name)} today`, body: `${fresh[0].vehicleInterest ? fresh[0].vehicleInterest + " — " : ""}it's the day you set. Then ${nextUp(fresh.slice(1).map((l: any) => firstOf(l.name)))}.`, tag: `fu:bundle:${localDay}`, url: l0Url(fresh[0]) });
         for (const l of fresh) already[`fu:${l.id}:${localDay}`] = stamp;
       }
       for (const l of dueFu) {
@@ -1812,12 +1826,14 @@ async function handleSweep(body: any): Promise<Response> {
           const t = dayOnly[0]; const l = leadById(t.leadId);
           await sendPush(uid, { title: `${t.channel === "call" ? "Call" : t.channel === "text" ? "Text" : t.channel === "email" ? "Email" : "Follow up with"} ${firstOf(l.name)} today`, body: `${String(t.title || "").replace(/^(Call|Text|Email) \S+ — /, "").slice(0, 100)}${late.length ? " · overdue" : ""}`, tag: `fud:${localDay}`, url: `./#/leads/${l.id}` });
         } else {
-          await sendPush(uid, { title: `${todayT.length ? `${todayT.length} follow-up${todayT.length === 1 ? "" : "s"} due today` : `${late.length} follow-up${late.length === 1 ? "" : "s"} overdue`}${todayT.length && late.length ? ` · ${late.length} overdue` : ""}`, body: `${dayOnly.slice(0, 3).map(say).join(" · ")}${dayOnly.length > 3 ? ` · +${dayOnly.length - 3}` : ""}`, tag: `fud:${localDay}`, url: "./#/queue" });
+          const first = todayT[0] || dayOnly[0];
+          const others = dayOnly.filter((t: any) => t !== first);
+          await sendPush(uid, { title: `Start with ${say(first)}`, body: `Then ${nextUp(others.map((t: any) => firstOf(leadById(t.leadId)?.name)))}${late.length ? " — a couple carried over from earlier in the week" : ""}. The Queue lines them up, one at a time.`, tag: `fud:${localDay}`, url: `./#/leads/${first.leadId}` });
         }
         already[`fud:${localDay}`] = stamp;
         await rememberNudges(uid, already);
       } else if (dayOnly.length && already[`fud:${localDay}`] && !already[`fud2:${localDay}`] && now - new Date(already[`fud:${localDay}`]).getTime() >= 2 * 3600 * 1000) {
-        await sendPush(uid, { title: `Still open: ${dayOnly.length} follow-up${dayOnly.length === 1 ? "" : "s"}`, body: `${dayOnly.slice(0, 3).map(say).join(" · ")}${dayOnly.length > 3 ? ` · +${dayOnly.length - 3}` : ""} — reach them, or move the date.`, tag: `fud2:${localDay}`, url: "./#/queue" });
+        await sendPush(uid, { title: `Still open: ${say(dayOnly[0])}`, body: `${dayOnly.length > 1 ? `And ${moreSay(dayOnly.length - 1)} — ` : ""}reach them, or move the date on their page.`, tag: `fud2:${localDay}`, url: `./#/leads/${dayOnly[0].leadId}` });
         already[`fud2:${localDay}`] = stamp;
         for (const t of dayOnly) await bumpPoke(`task:${t.id}`, 2);
         await rememberNudges(uid, already);
@@ -1837,7 +1853,8 @@ async function handleSweep(body: any): Promise<Response> {
           const c = freshCalls[0]; const l = leadById(c.leadId);
           await sendPush(uid, { title: c.via === "text" || c.via === "email" ? `Did the ${c.via} to ${firstOf(l.name)} go out?` : `How did the call with ${firstOf(l.name)} go?`, body: "No outcome on their file yet — spoke, left a message, no answer? One tap puts it on.", tag: `vf:${c.id}`, url: "./#/todos" });
         } else {
-          await sendPush(uid, { title: `${freshCalls.length} calls without an outcome`, body: `${[...new Set(freshCalls.map((c: any) => firstOf(leadById(c.leadId)?.name)))].slice(0, 4).join(", ")} — say how each went.`, tag: `vf:bundle:${stamp.slice(0, 13)}`, url: "./#/todos" });
+          const who = [...new Set(freshCalls.map((c: any) => firstOf(leadById(c.leadId)?.name)))] as string[];
+          await sendPush(uid, { title: `How did the call with ${who[0]} go?`, body: `And ${nextUp(who.slice(1))} — say how each went, one tap each.`, tag: `vf:bundle:${stamp.slice(0, 13)}`, url: "./#/todos" });
         }
         for (const c of freshCalls) already[`vf:${c.id}`] = stamp;
         await rememberNudges(uid, already);
@@ -1859,8 +1876,9 @@ async function handleSweep(body: any): Promise<Response> {
       let third = 0;
       for (const t of overdue) { const p = pokeOf(`task:${t.id}`); if (p && Number(p.count) >= 2) { await bumpPoke(`task:${t.id}`, 3); third++; } }
       const bits = [`${setToday} appointment${setToday === 1 ? "" : "s"} set so far`];
-      if (dueToday || overdue.length) bits.push(`${dueToday} to-do${dueToday === 1 ? "" : "s"} due${overdue.length ? ` (${overdue.length} overdue)` : ""}`);
-      if (waitingLeads) bits.push(`${waitingLeads} waiting on a reply`);
+      const nextTodo = openTodos.filter((t: any) => dayOf(t.due) <= localDay).sort((a: any, b: any) => String(b.due).localeCompare(String(a.due)))[0];
+      if (nextTodo) bits.push(`next to-do: ${String(nextTodo.title || "").slice(0, 48)}${overdue.length ? " (some have waited)" : ""}`);
+      if (waitingLeads) bits.push(waitingLeads > FEW ? "a few customers waiting on a reply" : `${waitingLeads} waiting on a reply`);
       if (third) bits.push(`${third} reminded 3 times — decide on them on Home`);
       await sendPush(uid, { title: "Midday check-in", body: bits.join(" · "), tag: `pulse:${localDay}`, url: "./#/" });
       already[`pulse:${localDay}`] = new Date(now).toISOString();
@@ -1912,12 +1930,15 @@ async function handleSweep(body: any): Promise<Response> {
         t.cadence && !t.done && t.channel === "text" && t.due && String(t.due).slice(0, 10) <= localDay &&
         (!t.readyAt || t.readyAt <= nowISO) && leadById(t.leadId)?.phone);
       if (dueTexts.length) {
+        // Today's first, then the freshest: the one to read now, by name.
+        const ordered = dueTexts.slice().sort((a: any, b: any) => String(b.due).localeCompare(String(a.due)));
+        const who = ordered.map((t: any) => firstOf(leadById(t.leadId)?.name));
         found.push({
           key: `okday:${localDay}`,
           urgency: 60,
-          title: `${dueTexts.length} follow-up text${dueTexts.length === 1 ? " is" : "s are"} ready for your OK`,
-          body: "Each one is written for the customer it's going to. Read, then send.",
-          url: "./#/queue",
+          title: who.length === 1 ? `${who[0]}'s text is ready` : `${who[0]}'s text is ready, then ${who[1]}'s`,
+          body: `Written for ${who.length === 1 ? "them" : "each"} — read it and send, two taps.${who.length > 2 ? " The rest line up behind it on the Queue, one at a time." : ""}`,
+          url: `./#/review/${ordered[0].id}`,
         });
       }
     }
@@ -2472,7 +2493,7 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
           }
         }
         out.service += service;
-        if ((picks.length || service) && canPush.has(uid)) await sendPush(uid, { title: `Your morning: ${picks.length} reach-out${picks.length === 1 ? "" : "s"}${service ? ` · ${service} in service today` : ""}`, body: picks.slice(0, 2).map((x) => `${x.l.name}: ${x.r.reasons[0] || ""}`).join(" · ") || "On your list, with the reason on each.", tag: `agent:handout:${L.day}`, url: "./#/queue" });
+        if ((picks.length || service) && canPush.has(uid)) await sendPush(uid, { title: picks.length ? `Your morning: start with ${picks[0].l.name}` : `Your morning: ${service === 1 ? "someone" : "a few people"} in service today`, body: `${picks.length ? `${picks[0].r.reasons[0] || "On your list"}${picks.length > 1 ? ` · then ${nextUp(picks.slice(1).map((x) => String(x.l.name || "").split(" ")[0]))}` : ""}` : ""}${service ? `${picks.length ? " · " : ""}${service === 1 ? "one" : "a few"} in the service drive — walk over` : ""}`, tag: `agent:handout:${L.day}`, url: "./#/queue" });
         already[`agent:handout:${L.day}`] = new Date().toISOString(); changed = true;
       }
       if (changed) await rememberNudges(uid, already);
@@ -2518,7 +2539,7 @@ async function storeAgentPass(now: number, pushUsers: string[], report: any[]): 
             if (list.length) {
               out.review.push(`bebacks:${L.day}`);
               const text = [`${st.name} · unsold ups worth a call this week`, ...list.map((b, i) => `${i + 1}. ${b.name} (${b.rep}) — ${b.why}`)].join("\n");
-              if (canPush.has(uid)) await sendPush(uid, { title: `${list.length} unsold ups worth a call this week`, body: list.slice(0, 2).map((b) => `${b.name}: ${b.why}`).join(" · ").slice(0, 160), tag: `agent:bebacks:${L.day}`, url: "./#/floor" });
+              if (canPush.has(uid)) await sendPush(uid, { title: `Unsold ups worth a call: start with ${list[0].name}`, body: `${list[0].why}${list.length > 1 ? ` · then ${nextUp(list.slice(1).map((b) => b.name))}` : ""}`.slice(0, 180), tag: `agent:bebacks:${L.day}`, url: "./#/floor" });
               if (mg.email) { try { await resendSend(String(mg.email), `Unsold ups this week · ${st.name}`, text); } catch { /* no email */ } }
             }
           } catch (e) { out.errors.push(`bebacks: ${String(e)}`); }
@@ -3381,7 +3402,7 @@ async function handleMorningPlays(body: any): Promise<Response> {
       bits.push(label ? `${label} was opened overnight 👀` : `${links.length} link${links.length === 1 ? "" : "s"} opened overnight 👀`);
     }
     if (appts.length) bits.push(`${appts.length} appointment${appts.length === 1 ? "" : "s"} today${unconfirmed ? ` (${unconfirmed} unconfirmed)` : ""}`);
-    if (tasksDue) bits.push(`${tasksDue} to-do${tasksDue === 1 ? "" : "s"} due${overdue.length ? ` (${overdue.length} overdue${third ? `, ${third} reminded 3 times — decide on them` : ""})` : ""}`);
+    if (tasksDue) bits.push(`${tasksDue <= FEW ? `${tasksDue} to-do${tasksDue === 1 ? "" : "s"}` : "a few to-dos"} due${overdue.length ? ` (some have waited${third ? ` — ${third <= FEW ? third : "a few"} reminded 3 times, decide on them` : ""})` : ""}`);
     if (!bits.length) continue; // quiet day — no noise
 
     pushed += await sendPush(uid, {
