@@ -87,7 +87,7 @@ export function renderSettings(view) {
       <div class="btn-row" style="margin-bottom:10px" id="s-hoursdays">
         ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => `<button type="button" class="btn btn-sm ${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i) ? "btn-primary" : "btn-ghost"}" data-day="${i}" aria-pressed="${(s.hoursDays || [1, 2, 3, 4, 5, 6]).includes(i)}" style="flex:1;padding-left:0;padding-right:0">${d}</button>`).join("")}
       </div>
-      <div class="hint" style="margin-bottom:12px">One notification each, nothing in the quiet hours. Texts waiting on your OK arrive in business hours.</div>
+      <div class="hint" style="margin-bottom:12px">What reaches this phone, app open or closed: a reminder at its minute; the day's follow-ups at opening (one notification naming them, once more two hours on if still open); a plan's call or text at its time; a text waiting on your OK; a customer waiting on a reply; a call with no outcome half an hour on; an appointment not confirmed, and "did they show?" after; tomorrow's delivery; the midday check-in. One notification each, nothing in the quiet hours.</div>
       <button class="btn btn-ghost btn-block" data-act="save-proactive">Save</button>
     </div>
 

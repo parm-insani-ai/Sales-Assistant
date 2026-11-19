@@ -26,10 +26,11 @@ let made = await p.evaluate(async () => {
   const n = C.afterDeliveryComplete({ leadId: l.id, customerName: l.name, vehicle: "2026 Nissan Rogue SV" });
   const today = new Date(); const d = (k) => { const t = new Date(today.getFullYear(), today.getMonth(), today.getDate() + k); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
   const tasks = st.all("tasks").filter((t) => t.leadId === l.id && t.postDelivery).sort((a, b) => a.due.localeCompare(b.due));
-  return { n, leadId: l.id, tasks: tasks.map((t) => ({ due: t.due, ch: t.channel, intent: t.intent, title: t.title, body: t.body, step: t.step, of: t.of })), expect: [d(1), d(7), d(30), d(90), d(180)] };
+  return { n, leadId: l.id, tasks: tasks.map((t) => ({ due: t.due, ch: t.channel, intent: t.intent, title: t.title, body: t.body, step: t.step, of: t.of, at: t.at, ready: !!t.readyAt })), expect: [d(1), d(7), d(30), d(90), d(180)] };
 });
 console.log("tasks:", JSON.stringify(made.tasks.map((t) => [t.due, t.ch, t.intent])));
 if (made.n !== 5 || made.tasks.map((t) => t.due).join() !== made.expect.join() || made.tasks.map((t) => t.ch).join() !== "text,call,text,text,text" || made.tasks.map((t) => t.intent).join() !== "thanks,check,referral,check,service") fail("the five tasks on their days: " + JSON.stringify(made));
+if (made.tasks[0].at !== made.expect[0] + "T10:15" || made.tasks[1].at !== made.expect[1] + "T11:00" || !made.tasks.every((t) => t.ready)) fail("each step at the channel's usual hour, with its ready time: " + JSON.stringify(made.tasks.map((t) => t.at)));
 if (!/Congrats again on the 2026 Nissan Rogue SV/.test(made.tasks[0].body) || !/g\.page\/r\/example\/review/.test(made.tasks[0].body) || made.tasks[1].body !== "" || !/send them my way/.test(made.tasks[2].body) || !/3 months with the 2026 Nissan Rogue SV/.test(made.tasks[3].body) || !/first service/.test(made.tasks[4].body) || made.tasks[4].of !== 5) fail("ready bodies by intent, the review link on day one: " + JSON.stringify(made.tasks.map((t) => t.body)));
 // A second completion for the same customer adds nothing.
 const again = await p.evaluate(async (id) => { const C = await import("/js/connections.js"); return C.afterDeliveryComplete({ leadId: id, vehicle: "x" }); }, made.leadId);

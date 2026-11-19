@@ -10,6 +10,7 @@
 import * as store from "./store.js";
 import { logCustomer } from "./logbook.js";
 import { deferPlan, planOf } from "./cadence.js";
+import { toReadyAt } from "./schedule.js";
 import { planAppointment } from "./apptplan.js";
 
 // Find a lead by (case-insensitive) name — used to link records created from a
@@ -92,10 +93,14 @@ export function afterDeliveryComplete(d) {
     const dt = new Date(from.getFullYear(), from.getMonth(), from.getDate() + (Number(st.day) || 0));
     const verb = st.channel === "text" ? "Text" : st.channel === "email" ? "Email" : "Call";
     const due = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-    const at = st.hh != null ? `${due}T${String(st.hh).padStart(2, "0")}:${String(st.mm || 0).padStart(2, "0")}` : null;
+    // At the step's time, or the channel's usual hour (as a plan's steps are),
+    // so the push comes at that minute and a text holds until it.
+    const hh = st.hh != null ? st.hh : st.channel === "call" ? 11 : st.channel === "email" ? 9 : 10;
+    const mm = st.mm != null ? st.mm : st.channel === "text" ? 15 : 0;
+    const at = `${due}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
     store.create("tasks", {
       title: `${verb} ${fn} — ${st.label}`,
-      due, ...(at ? { at } : {}),
+      due, at, readyAt: toReadyAt(at),
       priority: "normal",
       done: false,
       leadId: d.leadId,

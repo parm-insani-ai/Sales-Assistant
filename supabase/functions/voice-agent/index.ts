@@ -1793,6 +1793,57 @@ async function handleSweep(body: any): Promise<Response> {
       if (fresh.length) await rememberNudges(uid, already);
     }
 
+    // 0a'. Follow-ups dated to a day, not a minute — the plan's call at the
+    //      week, the 30-day text, a callback they asked for "next week", a
+    //      manager's hand-out, a not-now check-back — pushed at opening as
+    //      ONE push naming them (with anything overdue from the week
+    //      before), and once more two hours on for the ones still open.
+    //      Steps with a clock time are pushed at their minute further down.
+    if (openForBusiness) {
+      const tasksD = await rows("tasks");
+      const weekAgo = new Date(now - 7 * 86400000 - tzOffset * 60000).toISOString().slice(0, 10);
+      const dayOnly = tasksD.filter((t: any) => !t.done && t.leadId && !t.readyAt && t.channel !== "reminder" && t.due && dayOf(t.due) <= localDay && dayOf(t.due) >= weekAgo && leadById(t.leadId));
+      const todayT = dayOnly.filter((t: any) => dayOf(t.due) === localDay);
+      const late = dayOnly.filter((t: any) => dayOf(t.due) < localDay);
+      const say = (t: any) => `${firstOf(leadById(t.leadId)?.name)}: ${String(t.title || "").replace(/^(Call|Text|Email) \S+ — /, "").slice(0, 44)}`;
+      const stamp = new Date(now).toISOString();
+      if (dayOnly.length && !already[`fud:${localDay}`]) {
+        if (dayOnly.length === 1) {
+          const t = dayOnly[0]; const l = leadById(t.leadId);
+          await sendPush(uid, { title: `${t.channel === "call" ? "Call" : t.channel === "text" ? "Text" : t.channel === "email" ? "Email" : "Follow up with"} ${firstOf(l.name)} today`, body: `${String(t.title || "").replace(/^(Call|Text|Email) \S+ — /, "").slice(0, 100)}${late.length ? " · overdue" : ""}`, tag: `fud:${localDay}`, url: `./#/leads/${l.id}` });
+        } else {
+          await sendPush(uid, { title: `${todayT.length ? `${todayT.length} follow-up${todayT.length === 1 ? "" : "s"} due today` : `${late.length} follow-up${late.length === 1 ? "" : "s"} overdue`}${todayT.length && late.length ? ` · ${late.length} overdue` : ""}`, body: `${dayOnly.slice(0, 3).map(say).join(" · ")}${dayOnly.length > 3 ? ` · +${dayOnly.length - 3}` : ""}`, tag: `fud:${localDay}`, url: "./#/queue" });
+        }
+        already[`fud:${localDay}`] = stamp;
+        await rememberNudges(uid, already);
+      } else if (dayOnly.length && already[`fud:${localDay}`] && !already[`fud2:${localDay}`] && now - new Date(already[`fud:${localDay}`]).getTime() >= 2 * 3600 * 1000) {
+        await sendPush(uid, { title: `Still open: ${dayOnly.length} follow-up${dayOnly.length === 1 ? "" : "s"}`, body: `${dayOnly.slice(0, 3).map(say).join(" · ")}${dayOnly.length > 3 ? ` · +${dayOnly.length - 3}` : ""} — reach them, or move the date.`, tag: `fud2:${localDay}`, url: "./#/queue" });
+        already[`fud2:${localDay}`] = stamp;
+        for (const t of dayOnly) await bumpPoke(`task:${t.id}`, 2);
+        await rememberNudges(uid, already);
+      }
+    }
+
+    // 0a''. A call with no outcome yet (the app's verify.js): placed from
+    //       the customer's page or a card and never answered for. Half an
+    //       hour on, once: how did it go? Several together go as one.
+    {
+      const calls = await rows("calls");
+      const openCalls = calls.filter((c: any) => c.dir !== "in" && !c.outcome && !c.logged && leadById(c.leadId) && (() => { const age = now - new Date(c.at || c.createdAt).getTime(); return age >= 30 * 60000 && age <= 6 * 3600000; })());
+      const freshCalls = openCalls.filter((c: any) => !already[`vf:${c.id}`]);
+      if (freshCalls.length) {
+        const stamp = new Date(now).toISOString();
+        if (freshCalls.length === 1) {
+          const c = freshCalls[0]; const l = leadById(c.leadId);
+          await sendPush(uid, { title: c.via === "text" || c.via === "email" ? `Did the ${c.via} to ${firstOf(l.name)} go out?` : `How did the call with ${firstOf(l.name)} go?`, body: "No outcome on their file yet — spoke, left a message, no answer? One tap puts it on.", tag: `vf:${c.id}`, url: "./#/todos" });
+        } else {
+          await sendPush(uid, { title: `${freshCalls.length} calls without an outcome`, body: `${[...new Set(freshCalls.map((c: any) => firstOf(leadById(c.leadId)?.name)))].slice(0, 4).join(", ")} — say how each went.`, tag: `vf:bundle:${stamp.slice(0, 13)}`, url: "./#/todos" });
+        }
+        for (const c of freshCalls) already[`vf:${c.id}`] = stamp;
+        await rememberNudges(uid, already);
+      }
+    }
+
     // 0b. The midday check-in, at one, once: where the day stands in one
     //     push — appointments set, to-dos due and overdue, replies waiting
     //     — and the things reminded twice already are now reminded a third
