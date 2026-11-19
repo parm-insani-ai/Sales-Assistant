@@ -322,8 +322,6 @@ try {
       { id: "sev" + i + "a", user_id: U1, collection: "events", data: { id: "sev" + i + "a", kind: "lead_new", leadId: "sl" + i, name: "Lead " + i, by: "rep", prompt: "", at: new Date(at).toISOString() } },
       { id: "sev" + i + "b", user_id: U1, collection: "events", data: { id: "sev" + i + "b", kind: "text_out", leadId: "sl" + i, name: "Lead " + i, by: "rep", prompt: "intro", at: new Date(at + (3 + i % 4) * 60000).toISOString() } },
     ]; }),
-    // The daily log: one row Parm wrote, one AutoAlert customer their calls show reached today, one listing copied.
-    { id: "daylog:" + new Date().toISOString().slice(0, 10), user_id: U1, collection: "daylogs", data: { id: "daylog:" + new Date().toISOString().slice(0, 10), date: new Date().toISOString().slice(0, 10), prospects: [{ name: "Walk-in Bob", phone: "9025559999", outcome: "Coming Saturday" }], posts: [] } },
     { id: "c10", user_id: U1, collection: "leads", data: { id: "c10", name: "Al Alert", phone: "9025557010", stage: "working", alertType: "Flex", importedAt: hoursAgo(400) } },
     { id: "call10", user_id: U1, collection: "calls", data: { id: "call10", leadId: "c10", dir: "out", via: "call", outcome: "reached", logged: true, notes: "Wants numbers on a Rogue", at: new Date(Date.now() - 30 * 60000).toISOString() } },
     { id: "fb1", user_id: U1, collection: "events", data: { id: "fb1", kind: "fb_post", by: "rep", prompt: "", at: new Date(Date.now() - 20 * 60000).toISOString(), meta: { vehicleId: "v9", vehicle: "2026 Nissan Rogue SV", stock: "N10001" } } },
@@ -373,8 +371,6 @@ try {
   if (agentRep.handouts !== 4 || hand.length !== 4 || !hand.some((t) => t.leadId === "o1" && /Lease ends in 2 mo/.test(t.title)) || !hand.some((t) => t.leadId === "o2" && /\$9,?000 equity/.test(t.title)) || hand.some((t) => t.leadId === "o3")) fail("the morning's hand-outs are wrong: " + JSON.stringify(hand));
   if (!tasks(U1).some((t) => t.kind === "service" && t.leadId === "o4" && /In service today: Sue Service/.test(t.title))) fail("the customer in the service drive wasn't handed over: " + JSON.stringify(tasks(U1)));
   if (!(agentRep.huddles || []).some((k) => /^agent:huddle:/.test(k))) fail("the huddle wasn't sent: " + JSON.stringify(agentRep));
-  // The daily logs, read with the day's message: Parm's row, the AutoAlert customer the calls show reached, the listing copied — 2 prospects, both with an outcome, 1 post.
-  if (!(agentRep.daylogs || []).some((k) => /^daylogs:\d{4}-\d{2}-\d{2}:1\/\d+:2\/2\/1$/.test(k))) fail("the daily logs weren't read with the day's message: " + JSON.stringify(agentRep.daylogs));
   // The statistician: on the review day the store's sentences go to the manager and Parm's own to Parm.
   if (!(agentRep.stats || []).some((k) => /^stats:\d{4}-\d{2}-\d{2}$/.test(k)) || !(agentRep.stats || []).some((k) => new RegExp("^stats:.*:" + U1.slice(0, 8) + "$").test(k))) fail("the statistician didn't run for the store and for Parm: " + JSON.stringify(agentRep.stats));
   if (!(agentRep.statsText || []).some((x) => /^First contact takes \d min at the median; 100% of leads hear from us inside ten minutes\./.test(x))) fail("the statistician's sentence is wrong: " + JSON.stringify(agentRep.statsText));

@@ -9,7 +9,6 @@
 // manager runs the day on.
 
 import * as backend from "./backend.js";
-import { buildSheet } from "./daylog.js";
 import * as store from "./store.js";
 import { repInsight, storeInsight } from "./insight.js";
 import { targetSheet, targetPlan, shoppingOf } from "./target.js";
@@ -324,7 +323,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
   // Eight weeks of appointments and touches for the trend and the rates, 90
   // days of leads for speed-to-lead and sources; the month for the board.
   const since = (days) => ymd(new Date(now.getTime() - days * DAY));
-  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount, daylogToday, postsToday, tasksToday, tasksLate] = await Promise.all([
+  const [activity, apptsSet, apptsMonth, sales, openLeads, recentLeads, config, loggedLeads, lastWrite, planTasks, textsWeek, emailsWeek, calls14, playsToday, bookCount, tasksToday, tasksLate] = await Promise.all([
     backend.readRecords(userId, "activity", { "data->>createdAt": `gte.${since(56)}` }, { select: "data" }),
     backend.readRecords(userId, "appointments", { "data->>createdAt": `gte.${since(56)}` }, { select: "id,data" }),
     backend.readRecords(userId, "appointments", { "data->>when": `gte.${monthStart}` }, { select: "id,data" }),
@@ -349,9 +348,6 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     // How many customers their cloud copy holds at all — so an empty board
     // row can say why, instead of showing zeros that look like a quiet day.
     backend.countFor(userId, "leads").catch(() => null),
-    // Today's daily customer prospect log, for the line on Home.
-    backend.readRecords(userId, "daylogs", { id: `eq.daylog:${today}` }, { select: "data", limit: 1 }).catch(() => []),
-    backend.readRecords(userId, "events", { "data->>kind": "eq.fb_post", "data->>at": `gte.${since(2)}` }, { select: "data", limit: 200 }).catch(() => []),
     // The day's commitments (ledger.js): to-dos due today, and the ones
     // from before still open — due against done is the number that turns
     // reminders into a habit.
@@ -530,11 +526,7 @@ export async function repStats(userId, { now = new Date(), target = null } = {})
     speedMin: insight.speed && insight.speed.medianMinutes != null ? insight.speed.medianMinutes : null,
     closing: sheet && sheet.spoke >= 3 && sheet.closing != null ? Math.round(sheet.closing * 100) : null,
   };
-  // Today's daily log, built from the records the way the rep's page builds
-  // it: the list customers reached today come in by themselves.
-  const dlSheet = buildSheet({ date: today, saved: (daylogToday[0] && daylogToday[0].data) || null, leads: book, calls: callsAll, texts, appointments: allAppts, events: rows(postsToday) });
-  const daylog = dlSheet.counts.prospects || dlSheet.counts.posts ? dlSheet.counts : null;
-  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, daylog, commit, note: readNote, at: now.toISOString() };
+  return { userId, touches, appts: apptStats, sales: saleStats, goal, rates, leads: { untouched, overdue, open: open.length }, raw, insight, sheet, logged, loggedToday, events, lastWrite, waiting, atRisk, noShows, plays, welcomes, textsDue, textsHeld, planTexts, calls: callStats, storeTexts, bookCount, commit, note: readNote, at: now.toISOString() };
 }
 
 // The board's self-check: for each member, what the server holds against
