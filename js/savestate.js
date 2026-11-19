@@ -47,7 +47,7 @@ export function initSaveState() {
     if (d.status === "syncing") { if (!pending) show("Syncing…"); }
     else if (d.status === "synced") { if (!pending) show("Synced", "ok"); }
     else if (d.status === "offline") show("Offline — saved on this phone", "warn");
-    else if (d.status === "error") show("Saved here, not synced", "warn");
+    else if (d.status === "error") show("Saved · not synced", "warn");
   });
   window.addEventListener("online", () => { if (cloud()) show("Syncing…"); });
 }

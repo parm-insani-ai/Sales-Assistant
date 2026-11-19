@@ -7,33 +7,52 @@ import { icon } from "../icons.js";
 import { openDealerSearch } from "./dealer.js";
 import { canManage, setViewMode } from "../team.js";
 
-export const TOOL_LINKS = [
-  { icon: "users", label: "Team", fn: () => navigate("/team") },
-  { icon: "megaphone", label: "Mass outreach", fn: () => navigate("/outreach") },
-  { icon: "target", label: "Campaign", fn: () => navigate("/campaign") },
-  { icon: "sliders", label: "Follow-up plans", fn: () => navigate("/plans") },
-  { icon: "calendar", label: "Timing", fn: () => navigate("/horizon") },
-  { icon: "calculator", label: "Calculator", fn: () => navigate("/calculator") },
-  { icon: "compare", label: "Compare", fn: () => navigate("/compare") },
-  { icon: "tag", label: "Specials", fn: () => navigate("/specials") },
-  { icon: "search", label: "Inventory", fn: () => openDealerSearch() },
-  { icon: "sparkles", label: "Sales Coach", fn: () => navigate("/coach") },
-  { icon: "sparkles", label: "Advanced statistics", fn: () => navigate("/stats") },
-  { icon: "checkline", label: "Sold Tracker", fn: () => navigate("/soldlog") },
-  { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
-  { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },
-  { icon: "box", label: "Deliveries", fn: () => navigate("/deliveries") },
-  { icon: "check", label: "Delivered", fn: () => navigate("/delivered") },
-  { icon: "calendar", label: "Calendar", fn: () => navigate("/calendar") },
-  { icon: "file", label: "Import", fn: () => navigate("/import") },
+// The tools, in the groups a salesperson thinks in. TOOL_LINKS stays the
+// flat list for anything that wants one.
+export const TOOL_GROUPS = [
+  { label: "Your book", items: [
+    { icon: "tag", label: "Lists", fn: () => navigate("/lists") },
+    { icon: "calendar", label: "Timing", fn: () => navigate("/horizon") },
+    { icon: "dollar", label: "Deal Radar", fn: () => navigate("/deals") },
+    { icon: "calendar", label: "Calendar", fn: () => navigate("/calendar") },
+  ] },
+  { label: "Follow up", items: [
+    { icon: "sliders", label: "Follow-up plans", fn: () => navigate("/plans") },
+    { icon: "megaphone", label: "Mass outreach", fn: () => navigate("/outreach") },
+    { icon: "target", label: "Campaign", fn: () => navigate("/campaign") },
+    { icon: "sparkles", label: "Sales Coach", fn: () => navigate("/coach") },
+  ] },
+  { label: "Deals", items: [
+    { icon: "calculator", label: "Calculator", fn: () => navigate("/calculator") },
+    { icon: "compare", label: "Compare", fn: () => navigate("/compare") },
+    { icon: "tag", label: "Specials", fn: () => navigate("/specials") },
+    { icon: "search", label: "Inventory", fn: () => openDealerSearch() },
+    { icon: "box", label: "Deliveries", fn: () => navigate("/deliveries") },
+    { icon: "check", label: "Delivered", fn: () => navigate("/delivered") },
+  ] },
+  { label: "Numbers", items: [
+    { icon: "checkline", label: "Sold Tracker", fn: () => navigate("/soldlog") },
+    { icon: "target", label: "Performance", fn: () => navigate("/performance") },
+    { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
+    { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },
+    { icon: "sparkles", label: "Advanced statistics", fn: () => navigate("/stats") },
+  ] },
+  { label: "Setup", items: [
+    { icon: "file", label: "Import", fn: () => navigate("/import") },
+    { icon: "users", label: "Team", fn: () => navigate("/team") },
+  ] },
 ];
+export const TOOL_LINKS = TOOL_GROUPS.flatMap((g) => g.items);
 
 // The tools for this person. A manager or admin who also sells can step
 // over to the store's app from here.
+const manageTile = () => ({ icon: "store", label: "Management view", fn: () => { setViewMode("manage"); location.hash = "#/"; location.reload(); } });
 export function toolLinks() {
-  return canManage()
-    ? [{ icon: "store", label: "Management view", fn: () => { setViewMode("manage"); location.hash = "#/"; location.reload(); } }, ...TOOL_LINKS]
-    : TOOL_LINKS;
+  return canManage() ? [manageTile(), ...TOOL_LINKS] : TOOL_LINKS;
+}
+/** The groups for the "+" sheet; a manager who also sells gets the store's app first. */
+export function toolGroups() {
+  return canManage() ? [{ label: "The store", items: [manageTile()] }, ...TOOL_GROUPS] : TOOL_GROUPS;
 }
 
 // Shared tile grid, used by the "+" sheet (and the store's own).

@@ -87,7 +87,7 @@ export function getOccasions() {
           const key = `service:${due}`;
           if (!done[key]) out.push({
             lead, key, kind: "service",
-            label: du >= 0 ? `Service due in ${du} day${du === 1 ? "" : "s"}` : `Service due — ${-du} day${du === -1 ? "" : "s"} ago`,
+            label: du > 0 ? `Service due in ${du} day${du === 1 ? "" : "s"}` : du === 0 ? "Service due today" : `Service overdue by ${-du} day${du === -1 ? "" : "s"}`,
             message: fill("Hi {firstName}, {salesperson} here — the {vehicle} is coming up on a service. Want me to get you booked in so it's easy? Reply with a day that suits.", lead, { vehicle: owner.vehicle }),
             rank: 4,
           });

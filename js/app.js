@@ -376,7 +376,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
       wrap.appendChild(tools.toolGrid(items, close));
     };
     section("Add new", keys.map((k) => byKey[k]));
-    section("Tools", tools.toolLinks());
+    tools.toolGroups().forEach((g) => section(g.label, g.items));
     // Settings lives with the account, not among the day's tools.
     section("Account", [{ icon: "settings", label: "Settings", fn: () => navigate("/settings") }, ...(backend.isSignedIn() ? [passwordTile(close), signOutTile()] : [])]);
     return wrap;

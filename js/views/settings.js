@@ -58,7 +58,7 @@ export function renderSettings(view) {
       <div class="field"><label>Name</label><input id="s-name" value="${esc(s.salesperson || "")}" placeholder="Alex Rivera"></div>
       <div class="field"><label>Dealership</label><input id="s-dealer" value="${esc(s.dealership || "")}" placeholder="Metro Toyota"></div>
       <div class="field-inline">
-        <div class="field"><label>Phone</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(555) 123-4567"></div>
+        <div class="field"><label>Phone</label><input id="s-phone" type="tel" inputmode="tel" value="${esc(s.contactPhone || "")}" placeholder="(902) 555-0123"></div>
         <div class="field"><label>Email</label><input id="s-email" type="email" value="${esc(s.contactEmail || "")}" placeholder="you@email.com"></div>
       </div>
       <div class="field-inline">

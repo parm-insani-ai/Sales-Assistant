@@ -77,7 +77,7 @@ const occ = await p.evaluate(async () => {
   return { a, b: b2, c: c2, d: d2, e: e2, line: (await import("/js/views/plans.js")).planLine("care") };
 });
 console.log("occasions:", JSON.stringify(occ));
-if (!occ.a.some((o) => o.kind === "service" && /Service due/.test(o.label) && /2025 Nissan Pathfinder is coming up on a service/.test(o.message))) fail("seven months after delivery with no service on file: due: " + JSON.stringify(occ.a));
+if (!occ.a.some((o) => o.kind === "service" && /Service (due|overdue)/.test(o.label) && /2025 Nissan Pathfinder is coming up on a service/.test(o.message))) fail("seven months after delivery with no service on file: due: " + JSON.stringify(occ.a));
 if (occ.b.some((o) => o.kind === "service")) fail("a service two months ago: not due: " + JSON.stringify(occ.b));
 if (occ.c.some((o) => o.kind === "service" || o.kind === "tires")) fail("a visit booked: quiet: " + JSON.stringify(occ.c));
 if (!occ.d.some((o) => o.kind === "tires" && /Winter tires/.test(o.label) && /winter tires/.test(o.message)) || occ.d.some((o) => /Summer/.test(o.label))) fail("the winter swap on its date, summer off: " + JSON.stringify(occ.d));
@@ -86,7 +86,7 @@ if (!/Service every 6 months · winter tires from/.test(occ.line) || !/no summer
 
 // The Queue carries them.
 await p.evaluate(() => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch {} location.hash = "#/log"; });
-await p.waitForFunction(() => /Lee Owner: Service due/.test(document.body.textContent), null, { timeout: 10000 }).catch(() => fail("the Queue should carry the service occasion"));
+await p.waitForFunction(() => /Lee Owner: Service (due|overdue)/.test(document.body.textContent), null, { timeout: 10000 }).catch(() => fail("the Queue should carry the service occasion"));
 
 // The care page saves.
 await p.evaluate(() => { location.hash = "#/plans/care"; });

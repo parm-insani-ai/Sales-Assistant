@@ -58,7 +58,8 @@ export function renderDashboard(view) {
   // Month-to-date sales vs goal.
   const mtd = monthSummary();
 
-  const todayLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  // Short enough to sit beside the save state and the +: "Thu, Nov 19".
+  const todayLabel = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
   // The day sits in the top bar, in line with the "+", in the greeting's
   // place and its type: the date, with how much is on, and a tap opens the

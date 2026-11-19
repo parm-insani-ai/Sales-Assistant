@@ -1815,7 +1815,7 @@ export function openLeadForm(existing, opts = {}) {
         // Every customer added gets a number: it's how the follow-up plan,
         // the texts and the calls reach them. (Editing an old record that
         // never had one isn't blocked.)
-        { name: "phone", label: "Phone", value: l.phone, type: "tel", inputmode: "tel", half: true, placeholder: "(555) 123-4567", required: !isEdit },
+        { name: "phone", label: "Phone", value: l.phone, type: "tel", inputmode: "tel", half: true, placeholder: "(902) 555-0123", required: !isEdit },
         { name: "email", label: "Email", value: l.email, type: "email", half: true, placeholder: "jane@email.com" },
         { name: "vehicleInterest", label: "Vehicle of interest", value: l.vehicleInterest, placeholder: "2024 RAV4 XLE" },
         // New or used: the target sheet counts conversations by category.

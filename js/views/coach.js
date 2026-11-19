@@ -139,7 +139,7 @@ export function coachInsights(weeks, { current = true } = {}) {
     const daysIn = Math.min(6, (now.getDay() + 6) % 7 + 1);
     const target = s.dailyTouchGoal * daysIn;
     if (w.touches >= target) out.push({ tone: "good", text: `${w.touches} customer touches this week — on top of your ${s.dailyTouchGoal}/day goal.` });
-    else if (daysIn >= 2 && w.touches < target * 0.6) out.push({ tone: "warn", text: `${w.touches} touches so far this week vs a ${target} target — Comms has your due list ready.` });
+    else if (daysIn >= 2 && w.touches < target * 0.6) out.push({ tone: "warn", text: `${w.touches} touches so far this week against a target of ${target} — Comms has your due list ready.` });
   }
 
   // Warm links waiting.

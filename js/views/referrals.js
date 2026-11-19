@@ -17,7 +17,7 @@ export function openReferralCapture(fromName = "", fromLeadId = null) {
     const fields = [];
     for (let i = 1; i <= 3; i++) {
       fields.push({ name: `name${i}`, label: `Referral ${i} — name`, value: "", half: true, placeholder: "Full name" });
-      fields.push({ name: `phone${i}`, label: "Phone", value: "", type: "tel", inputmode: "tel", half: true, placeholder: "(555) 123-4567" });
+      fields.push({ name: `phone${i}`, label: "Phone", value: "", type: "tel", inputmode: "tel", half: true, placeholder: "(902) 555-0123" });
     }
 
     const { element } = buildForm(fields, {
