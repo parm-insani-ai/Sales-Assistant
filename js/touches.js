@@ -62,6 +62,10 @@ const INTENTS = {
   noshow:  "They had an appointment and didn't turn up, a few minutes ago. One or two lines, no guilt: you were looking forward to it, things come up, and the easiest way to pick another time — reply here with a day, or the booking link. Never 'you missed', never a figure.",
   confirm: "They said they're coming in (the WHY says when). Confirm it warmly in one or two lines — the day and time in words, what you'll have ready for them (the vehicle they wanted, if it's on file), and that they can just reply if anything changes. If someone else is involved in the decision (the brief says who), say they're welcome too.",
   stock:   "The WHY names what's in stock right now that matches what they wanted. Tell them, plainly and specifically — the model and trim, how many, a detail they cared about — and offer to hold one to look at. No prices, no urgency tricks; the stock is the news.",
+  thanks:  "They took delivery yesterday. Thank them, congratulate them on the specific vehicle, say you're a text away for anything — and, only if the WHY carries a review link, ask for a quick review with the link. Warm, short, no pitch.",
+  referral: "They've owned the vehicle for about a month. A friendly check-in, then the referral ask in one line: anyone in their circle shopping, send them your way and you'll take great care of them. No incentive unless the notes say so.",
+  service: "They own the vehicle; it's coming up on a service (the WHY says which). Offer to book it for them so it's easy — a day that suits, or reply here. Helpful, not a sales message, no pitch for a new vehicle.",
+  tires:   "Tire season (the WHY says winter or summer). Offer to book their vehicle in for the swap before the rush, with a quick check-over. One line, reply with a day. No pitch.",
   prospect: "This is an opener to a customer who already drives something (a past customer or an imported owner) and hasn't heard from the salesperson in a while. You're reaching out because of the reasons listed under WHY. Lead with something true about THEIR situation — their vehicle, their timing — not with a pitch. Offer to work out what a move would look like properly, in person, in about ten minutes. One easy next step. Never a figure, never a promise, never 'trade values are at record highs' or any market claim.",
 };
 
@@ -120,6 +124,10 @@ export function templateTouch(lead, task) {
       if (lease) return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Your lease is coming up, and it's worth knowing your options before the clock runs down. Want to grab ten minutes this week and go through them properly?`;
       return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""}. Quick one — ${owned} may put you in a better spot to move than you'd think, and I'd rather show you real numbers than guess by text. Ten minutes in person, whenever suits?`;
     }
+    case "thanks":  return `Hi ${fn}! Congrats again on the ${car} — hope day one has been great. Anything at all, I'm a text away. — ${me}`;
+    case "referral": return `Hi ${fn}, a month already with the ${car} — hope you're loving it! If anyone in your circle starts car shopping, send them my way and I'll take great care of them. — ${me}`;
+    case "service": return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — the ${car} is coming up on a service. Want me to get you booked in so it's easy? Reply with a day that suits.`;
+    case "tires":   return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — tire season's coming up. Want me to book the ${car} in for the swap before the rush? Reply with a day that suits.`;
     case "missed":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — just tried you about your ${lead.vehicleInterest || "vehicle"}. When's a good time for a quick call, or is a text easier?`;
     case "visit":   return `Hi ${fn}, ${me} here — thanks for coming in today. I'm putting together what we talked about on the ${car} and I'll have it for you tomorrow. Anything you think of in the meantime, I'm a text away.`;
     case "noshow":  return `Hi ${fn}, it's ${me}${s.dealership ? ` at ${s.dealership}` : ""} — sorry we didn't connect today, things come up. Reply with a day that works and I'll have the ${car} ready; no pressure either way.`;

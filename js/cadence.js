@@ -124,6 +124,18 @@ export const VISIT_PLAN = [...VISIT_MONTH, ...NURTURE];
 // Didn't turn up. Half of no-shows rebook if reached the same day: a text
 // fifteen minutes after the slot, a call an hour on, two times the next
 // morning, then a call and a text. The plan they were on resumes after.
+// After delivery: the owner relationship from day one. Day 1 the thank-you
+// (with the review ask when a link is set), a call at the week, the 30-day
+// check-in with the referral ask, three months, the first service at six.
+// From there the Service & tires rule (careRules) carries the owner: a
+// service nudge every N months and the seasonal tire swaps, as occasions.
+export const DELIVERED_PLAN = [
+  { day: 1,   channel: "text", intent: "thanks",   label: "Day-after thank you — and the review ask" },
+  { day: 7,   channel: "call", intent: "check",    label: "One-week call — how's the first week, any questions on the features" },
+  { day: 30,  channel: "text", intent: "referral", label: "30-day check-in — and the referral ask" },
+  { day: 90,  channel: "text", intent: "check",    label: "Three-month check-in" },
+  { day: 180, channel: "text", intent: "service",  label: "First service — offer to book it" },
+];
 export const NOSHOW_PLAN = [
   { day: 0, after: 15, channel: "text", intent: "noshow", label: "Did I miss you? — an easy way to rebook" },
   { day: 0, after: 60, channel: "call", intent: "noshow", label: "Call — rebook while it's fresh" },
@@ -147,15 +159,17 @@ export const PLAN_KINDS = [
   { key: "showroom", short: "Showroom",         label: "Showroom visit",            from: "the moment they're logged", nurtured: true, blurb: "The welcome text five minutes on, the call next morning with the answer to what they asked, then the month." },
   { key: "visit",    short: "Didn't buy",       label: "Came in, didn't buy",       from: "the visit", nurtured: true, blurb: "Replaces whatever plan was running: a thank-you inside the hour naming what you promised to find out, the answer or a second option next day, two times to come back." },
   { key: "noshow",   short: "No-show",          label: "No-show",                   from: "the missed slot", nurtured: false, blurb: "Starts from the slot: 'did I miss you?' at fifteen minutes, a call at the hour, two times next morning. The plan they were on resumes after." },
+  { key: "delivered", short: "Delivered",       label: "After delivery",            from: "the delivery", nurtured: false, blurb: "The owner relationship from day one: the thank-you (with the review ask), a call at the week, the 30-day check-in with the referral ask, three months, the first service at six. The Service & tires rule carries them from there." },
   { key: "owner",    short: "Owner",            label: "Owner from the book",       from: "when the plan starts", nurtured: false, blurb: "The softer, longer sequence for someone already in a car — what a reach-out from the owner book runs." },
   { key: "nurture",  short: "Nurture",          label: "Nurture — month two to a year", from: "day zero of the plan it follows", nurtured: false, blurb: "After the first month a lead that hasn't bought is early, not dead: a touch a month to a year, each drafted from a reason in their file." },
 ];
-export const PLAN_DEFAULTS = { inbound: INBOUND_MONTH, showroom: SHOWROOM_MONTH, visit: VISIT_MONTH, noshow: NOSHOW_PLAN, nurture: NURTURE };
+export const PLAN_DEFAULTS = { inbound: INBOUND_MONTH, showroom: SHOWROOM_MONTH, visit: VISIT_MONTH, noshow: NOSHOW_PLAN, delivered: DELIVERED_PLAN, nurture: NURTURE };
 // What each text is for, in the salesperson's words (the drafter knows the rest).
 export const INTENT_LABELS = {
   intro: "Welcome / intro", value: "Something useful about what they asked for", options: "Two ways to get them there", time: "Two times to come in", check: "Check in and offer a time",
   week: "Where are they at", nudge: "Light nudge", twoweek: "Two-week check", fresh: "Something new — stock, a program", month: "Month check-in", nurture: "Nurture — a reason from their file",
   visit: "After the visit", noshow: "After a no-show", missed: "Missed call — when's good?", prospect: "Reach-out — the reason on their card", stock: "What's in stock that fits", confirm: "Confirm the appointment",
+  thanks: "Thank you after delivery (+ the review link)", referral: "Referral ask", service: "Service due — offer to book it", tires: "Seasonal tires — offer to book the swap",
 };
 const stepOrder = (a, b) => (Number(a.day) || 0) - (Number(b.day) || 0) || (a.after != null ? a.after : 1e6) - (b.after != null ? b.after : 1e6) || ((a.hh ?? 12) * 60 + (a.mm ?? 0)) - ((b.hh ?? 12) * 60 + (b.mm ?? 0));
 const cleanSteps = (steps) => (Array.isArray(steps) ? steps : []).filter((s) => s && s.channel && s.label).map((s) => ({ ...s, day: Number(s.day) || 0 })).sort(stepOrder);
@@ -492,3 +506,28 @@ export function saveOutcomeRules(patch) {
   store.updateSettings({ outcomeRules: next });
 }
 export function resetOutcomeRules() { store.updateSettings({ outcomeRules: null }); }
+
+// Service & tires — the owner, after the plan: a service nudge every N
+// months from the delivery (or their last service), and the seasonal tire
+// swaps on a date each autumn and spring. These are occasions (occasions.js):
+// each shows once in the Queue with a ready message, in a window around its
+// day, and never while a service visit is already booked.
+export const CARE_DEFAULTS = { serviceMonths: 6, winterTires: true, winterDate: "10-15", summerTires: true, summerDate: "04-15" };
+const mmdd = (v, d) => (/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(v || "")) ? String(v) : d);
+export function careRules() {
+  const s = store.getSettings();
+  const o = s.careRules || {};
+  const months = Number(o.serviceMonths);
+  return {
+    serviceMonths: months >= 1 && months <= 24 ? Math.round(months) : CARE_DEFAULTS.serviceMonths,
+    winterTires: o.winterTires == null ? CARE_DEFAULTS.winterTires : !!o.winterTires,
+    winterDate: mmdd(o.winterDate, CARE_DEFAULTS.winterDate),
+    summerTires: o.summerTires == null ? CARE_DEFAULTS.summerTires : !!o.summerTires,
+    summerDate: mmdd(o.summerDate, CARE_DEFAULTS.summerDate),
+  };
+}
+export function careRulesAreDefault() { return JSON.stringify(careRules()) === JSON.stringify(CARE_DEFAULTS); }
+export function saveCareRules(patch) { store.updateSettings({ careRules: { ...careRules(), ...(patch || {}) } }); }
+export function resetCareRules() { store.updateSettings({ careRules: null }); }
+/** "Oct 15" for "10-15". */
+export function mmddSay(v) { const [m, d] = String(v).split("-").map(Number); return new Date(2000, (m || 1) - 1, d || 1).toLocaleDateString("en-CA", { month: "short", day: "numeric" }); }

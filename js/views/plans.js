@@ -19,7 +19,8 @@ import { icon } from "../icons.js";
 import { esc } from "../utils.js";
 import { PLAN_KINDS, planOf, planIsDefault, savePlan, resetPlan, INTENT_LABELS,
   attemptPlan, attemptsTotal, restDays, attemptPlanIsDefault, saveAttemptPlan, resetAttemptPlan, attemptLine,
-  outcomeRules, OUTCOME_RULE_DEFAULTS, OUTCOME_RULE_LABELS, outcomeRulesAreDefault, saveOutcomeRules, resetOutcomeRules } from "../cadence.js";
+  outcomeRules, OUTCOME_RULE_DEFAULTS, OUTCOME_RULE_LABELS, outcomeRulesAreDefault, saveOutcomeRules, resetOutcomeRules,
+  careRules, careRulesAreDefault, saveCareRules, resetCareRules, mmddSay } from "../cadence.js";
 import { apptPresets, DEFAULTS as APPT_DEFAULTS } from "../apptplan.js";
 
 // The cadences by rule, beside the six by situation.
@@ -27,6 +28,7 @@ export const RULE_KINDS = [
   { key: "attempts", short: "Missed call", label: "Missed call — the attempts", from: "the first call that rang out", blurb: "Each miss queues the next attempt by rule — a text asking when's good, a call in the other half of the day, a call when they tend to pick up, a text with two times, a call in a part of the day not yet tried — and after the last, a rest. A reply or a conversation ends the chase." },
   { key: "outcomes", short: "After a call", label: "After a conversation", from: "the conversation", blurb: "What each outcome of a conversation sets up, and how far out: a call back when they didn't say when, a check-back after not now, how long not interested and bought elsewhere park them. Interested is a text with two times to come in the same afternoon; booked is the appointment itself." },
   { key: "appt", short: "Appointment", label: "Appointment booked", from: "the booking", blurb: "What every appointment comes with the moment it's booked: a confirmation text to the customer, timed by the appointment, and your own reminders. The wording of the texts is under Settings." },
+  { key: "care", short: "Service & tires", label: "Service & tires", from: "the delivery, or their last service", blurb: "The owner after the plan: a service nudge every so many months from the delivery or their last service visit, and the seasonal tire swaps on a date each autumn and spring. Each shows once on the Queue with a ready text, from two weeks before its day to a month after — never while a service visit is already booked." },
 ];
 const ALL = [...PLAN_KINDS, ...RULE_KINDS];
 const kindOf = (key) => ALL.find((k) => k.key === key) || null;
@@ -42,6 +44,7 @@ export function planLine(key) {
   if (!k) return "";
   if (key === "attempts") { const rows = attemptPlan(); const days = rows.reduce((a, r) => a + (r.days || 0), 0); return `${attemptsTotal()} attempts over about ${plural(Math.max(1, days), "day")}, then ${plural(restDays(), "day")}' rest`; }
   if (key === "outcomes") { const r = outcomeRules(); return `Call back ${plural(r.callbackDays, "day")} · not now ${plural(r.notNowDays, "day")} · not interested ${plural(r.notInterestedDays, "day")} · bought elsewhere ${plural(r.boughtElsewhereDays, "day")}`; }
+  if (key === "care") { const c = careRules(); return [`Service every ${plural(c.serviceMonths, "month")}`, c.winterTires ? `winter tires from ${mmddSay(c.winterDate)}` : "no winter-tire nudge", c.summerTires ? `summer tires from ${mmddSay(c.summerDate)}` : "no summer-tire nudge"].join(" · "); }
   if (key === "appt") { const p = apptPresets(); return `Confirmation ${p.confirmAm} the day before a morning appointment, ${p.confirmPm} the morning of an afternoon one · your reminders ${p.morning} and ${p.remindMin} min before`; }
   const steps = planOf(key, { bare: true });
   if (!steps.length) return "No touches";
@@ -54,6 +57,7 @@ export function planLine(key) {
 export function planEdited(key) {
   if (key === "attempts") return !attemptPlanIsDefault();
   if (key === "outcomes") return !outcomeRulesAreDefault();
+  if (key === "care") return !careRulesAreDefault();
   if (key === "appt") { const s = store.getSettings(); return ["apptConfirmAm", "apptConfirmPm", "apptMorning", "apptRemindMin", "apptNoon"].some((k) => s[k] != null && String(s[k]) !== String(APPT_DEFAULTS[k])); }
   return !planIsDefault(key);
 }
@@ -88,6 +92,7 @@ function drawPlan(el, key) {
     if (key === "attempts") drawAttempts(wrap, kind, draw);
     else if (key === "outcomes") drawOutcomes(wrap, kind, draw);
     else if (key === "appt") drawAppt(wrap, kind, draw);
+    else if (key === "care") drawCare(wrap, kind, draw);
     else drawTouches(wrap, kind, draw);
     wrap.querySelectorAll(".plan-chips [data-plan]").forEach((b) => b.addEventListener("click", () => navigate(`/plans/${b.dataset.plan}`)));
   };
@@ -262,5 +267,35 @@ function drawAppt(wrap, kind, redraw) {
   if (reset) reset.addEventListener("click", async () => {
     if (!(await confirmDialog("Put the appointment timings back to the defaults?", { confirmLabel: "Reset" }))) return;
     store.updateSettings({ apptConfirmAm: null, apptConfirmPm: null, apptNoon: null, apptMorning: null, apptRemindMin: null }); toast("Back to default", "success"); redraw();
+  });
+}
+
+// ---- Service & tires: the months, the seasons ----
+function drawCare(wrap, kind, redraw) {
+  const c = careRules();
+  const yn = (v) => (v ? "yes" : "no");
+  wrap.innerHTML = `${chips(wrap, kind.key)}${head(kind)}<div class="card fp-tl"><div class="fp-form"></div>
+    <div class="hint" style="margin-top:8px">A date is month-day, like 10-15. The service nudge counts from their last service visit when the file has one (imports carry it), else from the delivery; the After delivery plan's own first-service text comes first, and this takes over after.</div>
+    ${careRulesAreDefault() ? "" : `<div class="btn-row" style="margin-top:10px"><button type="button" class="btn btn-ghost btn-sm" data-act="reset-plan">Reset</button></div>`}
+  </div>`;
+  const { element } = buildForm(
+    [
+      { name: "serviceMonths", label: "Service nudge every — months", value: c.serviceMonths, type: "number", inputmode: "numeric", required: true },
+      { name: "winterTires", label: "Winter tires nudge", value: yn(c.winterTires), type: "select", half: true, options: [{ value: "yes", label: "On" }, { value: "no", label: "Off" }] },
+      { name: "winterDate", label: "From (month-day)", value: c.winterDate, half: true, placeholder: "10-15", required: true },
+      { name: "summerTires", label: "Summer tires nudge", value: yn(c.summerTires), type: "select", half: true, options: [{ value: "yes", label: "On" }, { value: "no", label: "Off" }] },
+      { name: "summerDate", label: "From (month-day)", value: c.summerDate, half: true, placeholder: "04-15", required: true },
+    ],
+    { submitLabel: "Save", onSubmit: (d) => {
+      if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(d.winterDate) || !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(d.summerDate)) { toast("A date is month-day, like 10-15", "warn"); return; }
+      saveCareRules({ serviceMonths: Number(d.serviceMonths) || 6, winterTires: d.winterTires === "yes", winterDate: d.winterDate, summerTires: d.summerTires === "yes", summerDate: d.summerDate });
+      toast("Saved", "success"); redraw();
+    } }
+  );
+  wrap.querySelector(".fp-form").appendChild(element);
+  const reset = wrap.querySelector('[data-act="reset-plan"]');
+  if (reset) reset.addEventListener("click", async () => {
+    if (!(await confirmDialog("Put service & tires back to the defaults?", { confirmLabel: "Reset" }))) return;
+    resetCareRules(); toast("Back to default", "success"); redraw();
   });
 }

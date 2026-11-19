@@ -9,7 +9,7 @@
 
 import * as store from "./store.js";
 import { logCustomer } from "./logbook.js";
-import { deferPlan } from "./cadence.js";
+import { deferPlan, planOf } from "./cadence.js";
 import { planAppointment } from "./apptplan.js";
 
 // Find a lead by (case-insensitive) name — used to link records created from a
@@ -82,35 +82,44 @@ export function afterDeliveryComplete(d) {
   const me = s.salesperson ? ` — ${s.salesperson}` : "";
   const veh = d.vehicle || "new ride";
   const review = (s.reviewLink || "").trim();
-  const mk = (days, channel, label, body) => {
-    const dt = new Date();
-    dt.setDate(dt.getDate() + days);
-    const verb = channel === "text" ? "Text" : channel === "email" ? "Email" : "Call";
+  // The steps come from the After delivery plan (cadence.js, editable on the
+  // Plans page); a text carries a ready body by its intent, so it sends
+  // without the drafter, and the drafter rewrites it when asked.
+  const steps = planOf("delivered");
+  const from = new Date();
+  let n = 0;
+  steps.forEach((st, i) => {
+    const dt = new Date(from.getFullYear(), from.getMonth(), from.getDate() + (Number(st.day) || 0));
+    const verb = st.channel === "text" ? "Text" : st.channel === "email" ? "Email" : "Call";
+    const due = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    const at = st.hh != null ? `${due}T${String(st.hh).padStart(2, "0")}:${String(st.mm || 0).padStart(2, "0")}` : null;
     store.create("tasks", {
-      title: `${verb} ${fn} — ${label}`,
-      due: dt.toISOString().slice(0, 10),
+      title: `${verb} ${fn} — ${st.label}`,
+      due, ...(at ? { at } : {}),
       priority: "normal",
       done: false,
       leadId: d.leadId,
       cadence: true,
       postDelivery: true,
-      channel,
-      body: body || "",
+      channel: st.channel,
+      intent: st.intent || "",
+      step: i + 1, of: steps.length, kind: "plan",
+      body: st.channel === "text" ? postDeliveryBody(st.intent, { fn, veh, me, review, days: Number(st.day) || 0 }) : "",
     });
-  };
-  mk(1, "text", review ? "thank you + review ask" : "day-after thank you",
-    `Hi ${fn}! Congrats again on the ${veh} — hope day one has been great. Anything at all, I'm a text away.` +
-    (review ? ` And if you have 60 seconds, a quick Google review would mean the world to me: ${review}` : "") + me);
-  mk(7, "call", "one-week check-in");
-  mk(30, "text", "30-day referral ask",
-    `Hi ${fn}, a month already with the ${veh} — hope you're loving it! If anyone in your circle starts car shopping, send them my way and I'll take great care of them.${me}`);
-  // The owner relationship, from here: a check-in at three months and the
-  // first service nudge at six. Occasions carries the anniversary.
-  mk(90, "text", "three-month check-in",
-    `Hi ${fn}, three months with the ${veh} — how's it treating you? Any questions on it at all, I'm a text away.${me}`);
-  mk(180, "text", "six-month service nudge",
-    `Hi ${fn}, it's ${me.replace(/^ — /, "")} — the ${veh} is coming up on its first service. Want me to get you booked in so it's easy? Happy to set it up.`);
-  return 5;
+    n++;
+  });
+  return n;
+}
+// The ready-to-send body for a post-delivery text, by what the step is for.
+export function postDeliveryBody(intent, { fn, veh, me, review, days }) {
+  const since = days >= 335 ? "a year" : days >= 75 ? `${Math.round(days / 30)} months` : days >= 25 ? "a month" : days >= 6 ? "a week" : "day one";
+  switch (intent) {
+    case "thanks": return `Hi ${fn}! Congrats again on the ${veh} — hope day one has been great. Anything at all, I'm a text away.` + (review ? ` And if you have 60 seconds, a quick Google review would mean the world to me: ${review}` : "") + me;
+    case "referral": return `Hi ${fn}, ${since} already with the ${veh} — hope you're loving it! If anyone in your circle starts car shopping, send them my way and I'll take great care of them.${me}`;
+    case "service": return `Hi ${fn}, it's ${me.replace(/^ — /, "")} — the ${veh} is coming up on its ${days <= 200 ? "first " : ""}service. Want me to get you booked in so it's easy? Happy to set it up.`;
+    case "tires": return `Hi ${fn}, it's ${me.replace(/^ — /, "")} — tire season's coming up. Want me to book the ${veh} in for the swap before the rush? Reply with a day that suits.`;
+    default: return `Hi ${fn}, ${since} with the ${veh} — how's it treating you? Any questions on it at all, I'm a text away.${me}`;
+  }
 }
 
 // After an appointment is booked for a lead: the pipeline moves with it,

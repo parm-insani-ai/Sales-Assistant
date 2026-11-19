@@ -5,6 +5,7 @@
 // lead so it never nags twice.
 
 import * as store from "./store.js";
+import { careRules, mmddSay } from "./cadence.js";
 
 const DAY = 86400000;
 
@@ -48,13 +49,74 @@ const monthName = (iso) => {
   return new Date(y, (m || 1) - 1, 1).toLocaleDateString(undefined, { month: "long" });
 };
 
+// An owner: someone in a car from us — delivered or sold, a sale on file,
+// or a purchase date from the book. Their vehicle, and when they got it.
+function ownerOf(lead, sales) {
+  const mine = sales.filter((s) => s.leadId === lead.id && (s.deliveredAt || s.saleDate)).sort((a, b) => String(b.deliveredAt || b.saleDate).localeCompare(String(a.deliveredAt || a.saleDate)));
+  const sale = mine[0] || null;
+  const got = (sale && (sale.deliveredAt || sale.saleDate)) || lead.deliveredAt || lead.purchaseDate || null;
+  if (!got && !["sold", "delivered"].includes(lead.stage)) return null;
+  return { got: got ? String(got).slice(0, 10) : null, vehicle: (sale && sale.vehicle) || lead.vehicleInterest || "vehicle" };
+}
+const addMonths = (iso, n) => { const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number); const t = new Date(y, m - 1 + n, Math.min(d || 1, 28)); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
+
 // All live occasions, best first. Each: { lead, key, kind, label, message, rank }.
 export function getOccasions() {
   const out = [];
   const sales = store.all("sales");
+  const care = careRules();
+  const openServiceTask = new Set(store.all("tasks").filter((t) => !t.done && t.postDelivery && t.intent === "service").map((t) => t.leadId));
   store.all("leads").forEach((lead) => {
     if (lead.stage === "lost") return;
     const done = lead.occLog || {};
+
+    // --- Service & tires (owners) — the Service & tires rule on the Plans page ---
+    const owner = ownerOf(lead, sales);
+    if (owner) {
+      const booked = lead.serviceAppt && daysUntil(lead.serviceAppt) != null && daysUntil(lead.serviceAppt) >= -1;
+      // Service: every N months from the last service (or the delivery);
+      // shown from two weeks before the day to a month after, unless a visit
+      // is booked or the delivery plan's own service text is still open.
+      const anchor = lead.lastService ? String(lead.lastService).slice(0, 10) : owner.got;
+      if (anchor && !booked && !openServiceTask.has(lead.id)) {
+        let due = addMonths(anchor, care.serviceMonths);
+        let guard = 0;
+        while (daysUntil(due) < -30 && guard++ < 60) due = addMonths(due, care.serviceMonths);
+        const du = daysUntil(due);
+        if (du != null && du <= 14) {
+          const key = `service:${due}`;
+          if (!done[key]) out.push({
+            lead, key, kind: "service",
+            label: du >= 0 ? `Service due in ${du} day${du === 1 ? "" : "s"}` : `Service due — ${-du} day${du === -1 ? "" : "s"} ago`,
+            message: fill("Hi {firstName}, {salesperson} here — the {vehicle} is coming up on a service. Want me to get you booked in so it's easy? Reply with a day that suits.", lead, { vehicle: owner.vehicle }),
+            rank: 4,
+          });
+        }
+      }
+      // Tires: the swap each autumn and spring, from two weeks before the
+      // date to a month after.
+      [["winter", care.winterTires, care.winterDate], ["summer", care.summerTires, care.summerDate]].forEach(([season, on, date]) => {
+        if (!on || booked) return;
+        const now = new Date();
+        const [m, d] = String(date).split("-").map(Number);
+        for (const y of [now.getFullYear() - 1, now.getFullYear()]) {
+          const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const du = daysUntil(iso);
+          if (du == null || du > 14 || du < -30) continue;
+          if (owner.got && owner.got > iso) continue; // not before they had the car
+          const key = `tires:${season}:${y}`;
+          if (done[key]) continue;
+          out.push({
+            lead, key, kind: "tires",
+            label: season === "winter" ? `Winter tires — ${mmddSay(date)}` : `Summer tires — ${mmddSay(date)}`,
+            message: fill(season === "winter"
+              ? "Hi {firstName}, {salesperson} here — winter's on its way. Want me to book the {vehicle} in for its winter tires and a quick check-over before the rush? Reply with a day that suits."
+              : "Hi {firstName}, {salesperson} here — time to get the winters off the {vehicle}. Want me to book the swap before the rush? Reply with a day that suits.", lead, { vehicle: owner.vehicle }),
+            rank: 4,
+          });
+        }
+      });
+    }
 
     // --- Lease maturity tiers (skip fresh buyers — their lease info is stale) ---
     const du = daysUntil(lead.leaseEnd);

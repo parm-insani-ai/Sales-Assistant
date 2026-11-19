@@ -26,8 +26,8 @@ await p.click('[data-fold="plan"] [data-act="open-plans"]');
 await p.waitForSelector(".fp-row", { timeout: 8000 }).catch(() => fail("the plans page didn't open"));
 let idx = await p.evaluate(() => ({ hash: location.hash, rows: [...document.querySelectorAll(".fp-row")].map((r) => ({ k: r.dataset.planRow, text: r.textContent.replace(/\s+/g, " ").trim() })) }));
 console.log("index:", JSON.stringify(idx.rows.map((r) => r.k)));
-if (idx.hash !== "#/plans" || idx.rows.map((r) => r.k).join() !== "inbound,showroom,visit,noshow,owner,nurture,attempts,outcomes,appt") fail("nine plans on the index: " + JSON.stringify(idx));
-if (!/14 touches over 30 days/.test(idx.rows[0].text) || !/6 attempts over about 6 days, then 60 days' rest/.test(idx.rows[6].text) || !/Call back 7 days · not now 180 days/.test(idx.rows[7].text)) fail("each row carries its line: " + JSON.stringify(idx.rows.map((r) => r.text)));
+if (idx.hash !== "#/plans" || idx.rows.map((r) => r.k).join() !== "inbound,showroom,visit,noshow,delivered,owner,nurture,attempts,outcomes,appt,care") fail("eleven plans on the index: " + JSON.stringify(idx));
+if (!/14 touches over 30 days/.test(idx.rows[0].text) || !/6 attempts over about 6 days, then 60 days' rest/.test(idx.rows[7].text) || !/Call back 7 days · not now 180 days/.test(idx.rows[8].text) || !/5 touches over 180 days/.test(idx.rows[4].text) || !/Service every 6 months · winter tires from Oct 15 · summer tires from Apr 15/.test(idx.rows[10].text)) fail("each row carries its line: " + JSON.stringify(idx.rows.map((r) => r.text)));
 
 // A plan's page: chips, the timeline by day, the steps as before.
 await p.click('.fp-row[data-plan-row="inbound"]'); await p.waitForSelector(".plan-editor .plan-chips", { timeout: 8000 }).catch(() => fail("the plan editor didn't draw"));
@@ -42,7 +42,7 @@ const read = () => p.evaluate(() => ({
 }));
 let c = await read();
 console.log("inbound:", JSON.stringify({ chips: c.chips.map((x) => x.k + (x.on ? "*" : "")), n: c.steps.length, first: c.steps.slice(0, 4), days: c.days.slice(0, 3) }));
-if (c.hash !== "#/plans/inbound" || c.chips.map((x) => x.k).slice(0, 6).join() !== "inbound,showroom,visit,noshow,owner,nurture" || !c.chips[0].on) fail("the plan's page, inbound lit: " + JSON.stringify(c.chips));
+if (c.hash !== "#/plans/inbound" || c.chips.map((x) => x.k).slice(0, 7).join() !== "inbound,showroom,visit,noshow,delivered,owner,nurture" || !c.chips[0].on) fail("the plan's page, inbound lit: " + JSON.stringify(c.chips));
 if (c.steps.length !== 14 || !/^2 min · Call/.test(c.steps[0]) || !/^5 min · Text/.test(c.steps[1]) || !/^20 min · Call/.test(c.steps[2]) || !/^60 min · Email/.test(c.steps[3]) || !/Day 1 · 10:30 · Call/.test(c.steps[4])) fail("the inbound plan's first month, timed: " + JSON.stringify(c.steps.slice(0, 5)));
 if (!/^Day 0/.test(c.days[0]) || c.days[1] !== "Day 1") fail("the timeline groups by day: " + JSON.stringify(c.days));
 if (c.edited || c.reset) fail("the default plan isn't marked edited");
