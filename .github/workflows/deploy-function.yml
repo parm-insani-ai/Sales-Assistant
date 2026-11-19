@@ -52,6 +52,8 @@ jobs:
 
       # The token keeps the "latest release" lookup off GitHub's anonymous
       # rate limit, which a run of deploys in one evening can hit.
+      # github-token lets the action resolve the latest CLI release without
+      # hitting GitHub's anonymous rate limit.
       - uses: supabase/setup-cli@v1
         with:
           version: latest
