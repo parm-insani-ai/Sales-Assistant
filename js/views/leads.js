@@ -1822,7 +1822,7 @@ export function openLeadForm(existing, opts = {}) {
         { name: "shopping", label: "Shopping for", value: l.shopping || "", type: "select", half: true,
           options: [{ value: "", label: "New or used?" }, { value: "New", label: "New" }, { value: "Used", label: "Used" }] },
         { name: "source", label: "Lead source", value: l.source || "Walk-in", type: "select",
-          options: ["Walk-in", "Internet", "Phone-in", "Referral", "Repeat", "Service", "Other"] },
+          options: ["Walk-in", "Internet", "Phone-in", "Facebook Marketplace", "Referral", "Repeat", "Service", "Other"] },
         { name: "stage", label: "Stage", value: l.stage || "new", type: "select",
           options: LEAD_STAGES.map((s) => ({ value: s.id, label: s.label })), half: true },
         { name: "followUp", label: "Next follow-up", value: l.followUp || "", type: "date", half: true },

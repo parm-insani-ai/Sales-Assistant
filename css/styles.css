@@ -2662,3 +2662,9 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 .fp-ico svg { width: 16px; height: 16px; }
 .fp-inline { width: 64px; display: inline-block; padding: 2px 6px; margin: 0 4px; font-size: 0.9rem; }
 .fp-form .field-inline { align-items: flex-start; }
+
+/* The Marketplace scoreboard: seven columns on a phone — the label gives way, the numbers keep their width. */
+.pf-mp .pf-row { gap: 4px; }
+.pf-mp .pf-lbl { flex: 1 1 60px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-mp .pf-num { flex: 0 0 40px; text-align: right; }
+.pf-mp .pf-head .pf-num { font-size: 0.7rem; }

@@ -14,6 +14,7 @@ import { monthSummary, apptFunnel } from "./goals.js";
 import { dealSummary } from "../dealstats.js";
 import { weekStart, weekStats } from "./coach.js";
 import { exportTracker } from "./soldlog.js";
+import { marketplaceScoreboard, scoreboardLine, SITTING_DAYS as SIT } from "../mpscore.js";
 
 const pad = (n) => String(n).padStart(2, "0");
 function monthLabel(ym) {
@@ -134,6 +135,26 @@ export function renderPerformance(view) {
       const touches = store.all("activity").filter((x) => x.type === "touch" && inScope(x.createdAt)).length;
       const added = store.all("leads").filter((l) => inScope(l.createdAt)).length;
       parts.push(section("Activity", table(null, [["Customers added", added], ["Touches logged", touches], ["Daily touch goal", s.dailyTouchGoal || "—"]], { strongLast: false })));
+    }
+
+    // Facebook Marketplace: what pulls there, from the listings copied out
+    // of the builder, the leads that came in from Facebook, and what came
+    // of them — by model, body style and price band, with the posts sitting.
+    {
+      const [y, m] = ym.split("-").map(Number);
+      const from = yearMode ? `${ym.slice(0, 4)}-01-01` : `${ym}-01`;
+      const to = yearMode ? `${ym.slice(0, 4)}-12-31` : `${ym}-${pad(new Date(y, m, 0).getDate())}`;
+      const sb = marketplaceScoreboard({ from, to, events: store.all("events"), leads: store.all("leads"), appointments: store.all("appointments"), sales: store.all("sales"), vehicles: store.all("vehicles") });
+      const n = (v) => (v == null ? "—" : v);
+      const rows = (list) => list.map((r) => [r.label, r.posts, r.leads, n(r.perPost), r.booked, r.sold, n(r.daysToLead)]);
+      const head = ["", "Posts", "Leads", "/post", "Booked", "Sold", "Days"];
+      parts.push(section("Facebook Marketplace", `
+        <div class="card pf-mp-line"><div class="small">${esc(scoreboardLine(sb))}</div>${sb.unmatched ? `<div class="small muted" style="margin-top:4px">${sb.unmatched} Facebook lead${sb.unmatched === 1 ? "" : "s"} named a model that wasn't posted — counted under it.</div>` : ""}${!sb.posts && !sb.leads ? `<div class="small muted" style="margin-top:4px">Copy a listing from a vehicle's Marketplace builder and give Facebook leads the source "Facebook Marketplace"; the scoreboard reads which cars pull.</div>` : ""}</div>
+        ${sb.byModel.length ? `<div class="small muted" style="margin:8px 2px 4px">By model · best pullers first</div>` + table(head, rows(sb.byModel), { strongLast: false, compact: true }).replace('class="card pf-compact"', 'class="card pf-compact pf-mp"') : ""}
+        ${sb.byBody.length ? `<div class="small muted" style="margin:8px 2px 4px">By body style</div>` + table(head, rows(sb.byBody), { strongLast: false, compact: true }).replace('class="card pf-compact"', 'class="card pf-compact pf-mp"') : ""}
+        ${sb.byPrice.length ? `<div class="small muted" style="margin:8px 2px 4px">By price</div>` + table(head, rows(sb.byPrice), { strongLast: false, compact: true }).replace('class="card pf-compact"', 'class="card pf-compact pf-mp"') : ""}
+        ${sb.sitting.length ? `<div class="small muted" style="margin:8px 2px 4px">Sitting · posted ${SIT} days or more, no lead</div><div class="card pf-compact">${sb.sitting.slice(0, 12).map((p) => `<div class="row pf-row"><div class="small pf-lbl">${esc(p.name)}${p.stock ? ` <span class="muted">· ${esc(p.stock)}</span>` : ""}</div><div class="small mono pf-num">${p.days} d</div></div>`).join("")}${sb.sitting.length > 12 ? `<div class="small muted" style="padding:6px 0">and ${sb.sitting.length - 12} more</div>` : ""}</div>` : ""}
+        <div class="hint" style="margin-top:6px">Days = from the post to its first lead (median). Per post = leads for each listing copied. Facebook shows views and saves on each listing itself; this is what came through the door.</div>`));
     }
 
     el.querySelector("#pf-body").innerHTML = parts.join("");
