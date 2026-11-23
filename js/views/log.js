@@ -22,7 +22,9 @@ import { getPlays, dismissPlay, undismissToday, queuesTask } from "../plays.js";
 import { bookCheap, hasBook, restoreLastBook, restoreSettled, warmBook } from "../assess.js";
 import { reviewTouch, reviewProspect } from "../touches.js";
 import { pushEnabled } from "../push.js";
-import { loggedInMonth, loggedAtOf, monthKeyOf } from "../logbook.js";
+import { loggedInMonth, loggedAll, loggedAtOf, monthKeyOf, logOutcomeOf, setLogOutcome, LOG_OUTCOMES } from "../logbook.js";
+import { openModal } from "../components.js";
+import { outcomeRules } from "../cadence.js";
 import { shoppingOf } from "../target.js";
 
 const TAB_KEY = "viniva:log:tab";     // the chip you were on
@@ -70,13 +72,33 @@ export function renderLog(view) {
   mountQueue(playsSlot, { onCount: (n) => setCount("queue", n), heading: false });
 
   // 2. The month's log.
-  const logPanel = panel("logged", `<span class="small muted">Logged in ${esc(month)}</span><button class="btn btn-sm btn-ghost" data-act="add-customer">+ Add customer</button>`);
+  // Who you logged — this month, or all time — each with what came of it.
+  // The chip counts the month (the target sheet's number); the panel can
+  // widen to everyone, and narrow to the ones with no outcome yet.
+  const logPanel = panel("logged", `<div class="lead-chips lg-scope" style="margin:0"><button type="button" class="btn btn-sm btn-primary" data-scope="month">This month</button><button type="button" class="btn btn-sm btn-ghost" data-scope="all">All time</button><button type="button" class="btn btn-sm btn-ghost lg-none" data-scope="none" title="The ones with no outcome yet">No outcome</button></div><button class="btn btn-sm btn-ghost" data-act="add-customer">+ Add customer</button>`);
   const logBody = document.createElement("div");
   logBody.className = "log-slot";
   logPanel.appendChild(logBody);
-  const logged = loggedInMonth(monthKeyOf());
-  setCount("logged", logged.length);
-  paintLog(logBody, logged);
+  const SCOPE_KEY = "viniva:log:scope";
+  let scope = "month", onlyNone = false;
+  try { scope = localStorage.getItem(SCOPE_KEY) === "all" ? "all" : "month"; } catch { /* month */ }
+  const loggedNow = () => (scope === "all" ? loggedAll() : loggedInMonth(monthKeyOf()));
+  const paintLogged = () => {
+    const all = loggedNow();
+    const ctx = { appointments: store.all("appointments"), sales: store.all("sales"), now: Date.now() };
+    const rows = all.map((l) => ({ l, o: logOutcomeOf(l, ctx) }));
+    const none = rows.filter((r) => r.o.key === "none").length;
+    logPanel.querySelectorAll("[data-scope]").forEach((b) => { const on = b.dataset.scope === "none" ? onlyNone : b.dataset.scope === scope; b.classList.toggle("btn-primary", on); b.classList.toggle("btn-ghost", !on); });
+    const noneBtn = logPanel.querySelector(".lg-none"); if (noneBtn) noneBtn.textContent = none ? `No outcome · ${none}` : "No outcome";
+    paintLog(logBody, onlyNone ? rows.filter((r) => r.o.key === "none") : rows, { scope, none, total: all.length, onOutcome: (l) => outcomeSheet(l, paintLogged) });
+    setCount("logged", loggedInMonth(monthKeyOf()).length);
+  };
+  logPanel.querySelectorAll("[data-scope]").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.scope === "none") onlyNone = !onlyNone;
+    else { scope = b.dataset.scope; try { localStorage.setItem(SCOPE_KEY, scope); } catch { /* fine */ } }
+    paintLogged();
+  }));
+  paintLogged();
   logPanel.querySelector('[data-act="add-customer"]').addEventListener("click", () => openLeadForm());
 
   // 3. To-dos — timed ones are reminders; the plan's own steps stay on the
@@ -144,17 +166,42 @@ export function renderLog(view) {
 
 // The month's log: who, what they're after, where the deal is, when they
 // were last spoken with. Newest first; tap for the customer.
-function paintLog(slot, logged) {
+// The outcome, by hand: Booked and Sold open their forms; the rest go on
+// the file the way a conversation's outcome would.
+function outcomeSheet(l, after) {
+  openModal(`What came of ${esc(String(l.name || "them").split(" ")[0])}?`, (close) => {
+    const box = document.createElement("div");
+    box.className = "lo-sheet";
+    box.innerHTML = `<div class="small muted" style="margin:-4px 0 10px">${esc(l.vehicleInterest || "")}</div><div class="vf-grid">${LOG_OUTCOMES.filter((o) => o.key !== "none").map((o) => `<button type="button" class="btn ${o.key === "sold" || o.key === "booked" ? "btn-success" : "btn-ghost"} vf-btn" data-key="${o.key}">${icon(o.key === "sold" ? "dollar" : o.key === "booked" ? "calendar" : o.key === "showed" ? "check" : o.key === "working" ? "sparkles" : o.key === "not_now" ? "bell" : o.key === "lost" ? "trash" : o.key === "bought_elsewhere" ? "car" : "logout")}<span>${esc(o.label)}</span></button>`).join("")}</div>`;
+    box.querySelectorAll("[data-key]").forEach((b) => b.addEventListener("click", async () => {
+      const key = b.dataset.key;
+      close();
+      if (key === "booked") { const m = await import("./calendar.js"); m.openAppointmentForm(null, { leadId: l.id, customerName: l.name, vehicle: l.vehicleInterest || "", type: "appointment" }); setTimeout(after, 400); return; }
+      if (key === "sold") { const m = await import("./soldlog.js"); m.openDealForm({ customerName: l.name, vehicle: l.vehicleInterest || "", leadId: l.id, phone: l.phone || "" }, after); return; }
+      const r = setLogOutcome(l.id, key, { days: outcomeRules() });
+      toast(r ? `${String(l.name || "").split(" ")[0]}: ${LOG_OUTCOMES.find((o) => o.key === key).label}` : "Couldn't save that", r ? "success" : "danger");
+      after();
+    }));
+    return box;
+  });
+}
+
+function paintLog(slot, rows, { scope = "month", none = 0, total = 0, onOutcome = null } = {}) {
   slot.innerHTML = "";
+  const logged = rows.map((r) => (r && r.l ? r : { l: r, o: logOutcomeOf(r) }));
+  const line = document.createElement("div");
+  line.className = "small muted lg-logline";
+  line.style.margin = "0 2px 8px";
+  line.innerHTML = total ? `<b>${total}</b> logged ${scope === "all" ? "all time" : "this month"}${none ? ` · <b style="color:var(--danger)">${none}</b> with no outcome yet — each needs one` : " · every one has an outcome"}` : "";
+  if (total) slot.appendChild(line);
   if (!logged.length) {
-    slot.innerHTML = `<div class="card"><div class="muted small" style="text-align:center">Nobody logged yet this month.</div></div>`;
+    slot.insertAdjacentHTML("beforeend", `<div class="card"><div class="muted small" style="text-align:center">${total ? "Everyone here has an outcome." : scope === "all" ? "Nobody logged yet." : "Nobody logged yet this month."}</div></div>`);
     return;
   }
   const card = document.createElement("div");
   card.className = "card";
   card.style.padding = "0 16px";
-  logged.slice(0, 60).forEach((l) => {
-    const st = stageMeta(l.stage);
+  logged.slice(0, 60).forEach(({ l, o }) => {
     const shop = shoppingOf(l);
     const fu = l.followUp && !["delivered", "lost", "sold"].includes(l.stage) ? daysFromToday(l.followUp) : null;
     const row = document.createElement("div");
@@ -166,8 +213,10 @@ function paintLog(slot, logged) {
         <div class="row-sub">${esc(l.vehicleInterest || "No vehicle noted")}${l.lastContacted ? ` · ${esc(formatDateTime(l.lastContacted))}` : ""}</div>
         ${fu != null ? `<div class="small ${fu <= 0 ? "" : "muted"}" style="${fu < 0 ? "color:var(--danger)" : ""}">${icon("clock")} Follow up ${esc(relativeDay(l.followUp))}</div>` : ""}
       </div>
-      <div class="row-meta"><span class="badge ${st.badge}">${esc(st.label)}</span><div class="small muted" style="margin-top:4px">${esc(new Date(loggedAtOf(l)).toLocaleDateString("en-US", { month: "short", day: "numeric" }))}</div></div>`;
+      <div class="row-meta"><button type="button" class="badge lg-outcome ${o.badge}" data-outcome="${esc(o.key)}" title="${esc(o.hint || "Tap to set what came of it")}">${esc(o.label)}</button><div class="small muted" style="margin-top:4px">${esc(new Date(loggedAtOf(l)).toLocaleDateString("en-US", { month: "short", day: "numeric", ...(scope === "all" ? { year: "2-digit" } : {}) }))}</div></div>`;
     row.addEventListener("click", () => navigate(`/leads/${l.id}`));
+    const ob = row.querySelector(".lg-outcome");
+    if (ob && onOutcome) ob.addEventListener("click", (e) => { e.stopPropagation(); onOutcome(l); });
     card.appendChild(row);
   });
   if (card.lastChild) card.lastChild.style.borderBottom = "none";
@@ -176,7 +225,7 @@ function paintLog(slot, logged) {
     const more = document.createElement("div");
     more.className = "muted small";
     more.style.padding = "8px 2px";
-    more.textContent = `${logged.length - 60} more this month.`;
+    more.textContent = `${logged.length - 60} more — the customer list has everyone.`;
     slot.appendChild(more);
   }
 }

@@ -229,7 +229,7 @@ export function exportTracker(deals, stamp) {
 // The full tracker form — a superset of the quick "Log a sale" form. Editing a
 // simple sale here upgrades it with the tracker fields in place.
 export function openDealForm(existing, onDone) {
-  const isEdit = !!existing;
+  const isEdit = !!(existing && existing.id);
   const s = existing || {};
   openModal(isEdit ? "Deal details" : "Log a deal", (close) => {
     const { element } = buildForm(
@@ -267,7 +267,7 @@ export function openDealForm(existing, onDone) {
           if (isEdit) { store.update("sales", existing.id, patch); toast("Deal saved", "success"); }
           else {
             let leadId = null;
-            const match = leadByName(data.customerName);
+            const match = (s.leadId && store.get("leads", s.leadId)) || leadByName(data.customerName);
             leadId = match ? match.id
               : store.create("leads", { name: data.customerName, phone: data.phone || "", vehicleInterest: vehicle, stage: "sold", source: data.leadType || "Sale" }).id;
             // A number typed here is the customer's number.
