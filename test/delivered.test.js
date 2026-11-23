@@ -78,7 +78,7 @@ const href = (label) => (dana.links.find((l) => l[0].includes(label)) || [])[1] 
 if (href("Call") !== "tel:9025551111" || href("Text") !== "sms:9025551111" || href("Email") !== "mailto:dana@example.com" || href("Customer") !== "#/leads/a") fail("Call, Text, Email and Customer should be one tap each: " + JSON.stringify(dana.links));
 if (!/No pictures of Dana's contract yet/.test(dana.empty)) fail("with nothing saved it should say so: " + dana.empty);
 
-// --- A picture of the contract: saved with the sale, shown here and on Sold.
+// --- A picture of the contract: saved with the sale, shown here and on the Sold Tracker.
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVQIW2P8z8DwnwEIAAr+Av+1yJjkAAAAAElFTkSuQmCC", "base64");
 const inputs = await p.$$('.dv-card[data-id="s1"] [data-add]');
 await inputs[1].setInputFiles({ name: "contract-p1.png", mimeType: "image/png", buffer: png });
@@ -89,10 +89,10 @@ if (saved.n !== 1 || saved.saleId !== "s1" || saved.leadId !== "a" || !/1$/.test
 await p.click('.dv-card[data-id="s1"] .sd-thumb');
 await p.waitForSelector(".modal .sd-viewer-body img", { timeout: 5000 }).catch(() => fail("tapping the thumbnail should open the picture"));
 await p.click(".modal .modal-close"); await p.waitForTimeout(200);
-await p.goto(APP + "/#/sold");
-await p.waitForSelector(".sd-page .sd-sale", { timeout: 10000 });
-const onSold = await p.evaluate(() => document.querySelector('.sd-sale[data-id="s1"] .sd-count')?.textContent.trim());
-if (!/1$/.test(onSold || "")) fail("the same picture should count on Sold: " + onSold);
+await p.goto(APP + "/#/soldlog");
+await p.waitForSelector('#sl-list .card[data-id="s1"] [data-act="paperwork"]', { timeout: 10000 });
+const onSold = await p.evaluate(() => document.querySelector('#sl-list .card[data-id="s1"] [data-act="paperwork"]')?.textContent.replace(/\s+/g, " ").trim());
+if (!/Paperwork · 1$/.test(onSold || "")) fail("the same picture should count on the Sold Tracker: " + onSold);
 
 // --- Search: a name, a vehicle, a phone number.
 await p.goto(APP + "/#/delivered");

@@ -7,6 +7,8 @@
 // from Goals shows up here, and a deal added here counts toward Goals.
 
 import * as store from "../store.js";
+import { openPaperwork } from "./paperwork.js";
+import { docCount } from "../docs.js";
 import { openModal, buildForm, toast, undoToast, emptyState, swipeable } from "../components.js";
 import { currency, esc, todayISO } from "../utils.js";
 import { icon } from "../icons.js";
@@ -68,7 +70,9 @@ export function renderSoldLog(view) {
     deals.forEach((s, i) => {
       const card = document.createElement("div");
       card.className = "card card-tap";
+      card.dataset.id = s.id;
       const ready = MAKE_READY.filter(([k]) => s.makeReady && s.makeReady[k]).length;
+      const nDocs = docCount(s.id);
       card.innerHTML = `
         <div class="row">
           <div class="row-main">
@@ -86,7 +90,9 @@ export function renderSoldLog(view) {
           ${MAKE_READY.map(([k, lb]) =>
             `<button type="button" class="btn btn-sm ${s.makeReady && s.makeReady[k] ? "btn-primary" : "btn-ghost"}" data-mr="${k}" style="padding:4px 9px;font-size:0.72rem">${lb}</button>`).join("")}
           <span class="small muted mono" style="margin-left:auto">${ready}/${MAKE_READY.length}</span>
-        </div>`;
+        </div>
+        <div class="btn-row" style="margin-top:8px"><button type="button" class="btn btn-sm ${nDocs ? "btn-primary" : "btn-ghost"}" data-act="paperwork">${icon("file")} Paperwork${nDocs ? ` · ${nDocs}` : ""}</button>${s.dealReadAt ? `<span class="small muted sd-read-done" style="align-self:center">${icon("check")} read${s.products && s.products.length ? ` · ${s.products.length} product${s.products.length === 1 ? "" : "s"}` : ""}${s.deliveryId ? ` · <a href="#/deliveries/${esc(s.deliveryId)}" style="color:var(--brand)">prep list</a>` : ""}</span>` : ""}</div>`;
+      card.querySelector('[data-act="paperwork"]').addEventListener("click", (e) => { e.stopPropagation(); openPaperwork(s.id, { onChange: draw }); });
       card.querySelectorAll("[data-mr]").forEach((b) =>
         b.addEventListener("click", (e) => {
           e.stopPropagation();

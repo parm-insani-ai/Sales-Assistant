@@ -25,12 +25,12 @@ const LOADERS = {
   lists: () => import("./views/lists.js"), plans: () => import("./views/plans.js"),
   calculator: () => import("./views/calculator.js"), deliveries: () => import("./views/deliveries.js"), settings: () => import("./views/settings.js"),
   goals: () => import("./views/goals.js"), imp: () => import("./views/import.js"), dealer: () => import("./views/dealer.js"), prospecting: () => import("./views/prospecting.js"),
-  tools: () => import("./views/tools.js"), campaign: () => import("./views/campaign.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
+  tools: () => import("./views/tools.js"), referrals: () => import("./views/referrals.js"), spiffs: () => import("./views/spiffs.js"),
   specials: () => import("./views/specials.js"), compare: () => import("./views/compare.js"), comms: () => import("./views/comms.js"), inbox: () => import("./views/inbox.js"),
   soldlog: () => import("./views/soldlog.js"), coach: () => import("./views/coach.js"), pay: () => import("./views/pay.js"), voice: () => import("./voice.js"),
   outreach: () => import("./views/outreach.js"), team: () => import("./views/team.js"), manage: () => import("./views/manage.js"), insights: () => import("./views/insights.js"), stats: () => import("./views/stats.js"), appointments: () => import("./views/appointments.js"), customers: () => import("./views/customers.js"), horizon: () => import("./views/horizon.js"),
   dealbuilder: () => import("./views/dealbuilder.js"),
-  log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"), sold: () => import("./views/sold.js"),
+  log: () => import("./views/log.js"), performance: () => import("./views/performance.js"), todo: () => import("./views/todo.js"),
   delivered: () => import("./views/delivered.js"), session: () => import("./views/session.js"),
 };
 // A screen: rendered once its module is here, unless the user has moved on.
@@ -164,11 +164,11 @@ const PAGES = {
   // The Tools tab is gone: everything on it is under "+". An old link lands
   // on Home with the "+" sheet open.
   "/tools": { title: "Tools", render: () => { navigate("/"); setTimeout(() => document.getElementById("quick-add").click(), 0); } },
-  "/campaign": { title: "Campaign", render: lazyView("campaign", "renderCampaign") },
+  "/campaign": { title: "Mass outreach", render: () => navigate("/outreach") }, // folded into Mass outreach (a group to start from)
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
   "/session": { title: "Calling", render: lazyView("session", "renderSession") },
-  "/sold": { title: "Sold", render: lazyView("sold", "renderSold") },
+  "/sold": { title: "Sold Tracker", render: () => navigate("/soldlog") }, // the Sold list folded into the Tracker (paperwork on each deal)
   // Everyone delivered: their contact details and the pictures of their
   // contract. From Delivered on the "+" sheet.
   "/delivered": { title: "Delivered", render: lazyView("delivered", "renderDelivered") },
@@ -176,10 +176,10 @@ const PAGES = {
   "/reps": { title: "Reps", render: lazyView("manage", "renderReps") },
   "/team": { title: "Admin", render: lazyView("team", "renderTeam") },
   "/admin": { title: "Admin", render: () => navigate("/team") },
-  "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") },
-  "/stats": { title: "Advanced statistics", render: lazyView("stats", "renderStats") },
-  "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") },
-  "/customers": { title: "Customers", render: lazyView("customers", "renderCustomers") },
+  "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") }, // a rep is sent on to Coach by the page
+  "/stats": { title: "Advanced statistics", render: (view, ctx) => { if (inManagement()) return lazyView("stats", "renderStats")(view, ctx); try { sessionStorage.setItem("viniva:coach:stats", "1"); } catch { /* the fold, then */ } navigate("/coach"); } },
+  "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") }, // a rep is sent on to Calendar by the page
+  "/customers": { title: "Customers", render: lazyView("customers", "renderCustomers") }, // a rep is sent on to Outreach by the page
   "/horizon": { title: "Timing", render: lazyView("horizon", "renderHorizon") },
   "/join": { title: "Join the store", render: lazyView("team", "renderJoin") },
   // Retired surfaces. The daily call list is the Home queue now, and the Deal

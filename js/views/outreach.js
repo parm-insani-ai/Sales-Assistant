@@ -29,6 +29,16 @@ export function queueOutreach(sentence) {
   navigate("/outreach");
 }
 
+// A group to start from, in a tap — what Campaign used to pick from a
+// dropdown. Each is a sentence the parser reads; the message is written
+// for the group, and "Adjust who" narrows it from there.
+export const GROUPS = [
+  { key: "all", label: "Every opportunity", sentence: "Text everyone" },
+  { key: "equity", label: "Sitting on equity", sentence: "Text everyone with positive equity" },
+  { key: "paidoff", label: "Paid off", sentence: "Text everyone with a paid off vehicle" },
+  { key: "lease", label: "Lease maturing", sentence: "Text everyone whose lease is ending" },
+  { key: "loyal", label: "Nissan owners", sentence: "Text all my Nissan owners" },
+];
 const EXAMPLES = [
   "Text everyone who owns a Sentra that this month, if they trade in their Sentra for a new Nissan, they get double loyalty",
   "Email all my Rogue owners from 2018 to 2021 that we're paying top dollar for Rogues this week",
@@ -96,6 +106,8 @@ export function renderOutreach(view) {
         <div class="mo-examples" hidden style="margin-top:8px">
           ${EXAMPLES.map((x, i) => `<button class="btn btn-ghost btn-sm btn-block" data-example="${i}" style="text-align:left;white-space:normal;margin-top:6px">${esc(x)}</button>`).join("")}
         </div>
+        <div class="small muted" style="margin:12px 0 6px">Or start from a group</div>
+        <div class="lead-chips mo-groups" style="margin:0">${GROUPS.map((g) => `<button type="button" class="btn btn-sm btn-ghost" data-group="${g.key}">${esc(g.label)}</button>`).join("")}</div>
       </div>
       ${!spec ? `<div class="fab-note" style="margin:0 2px">Say it to the assistant, or type it here. The app works out who's in the audience from what they drive and where they stand, writes each message in their name, and you send.</div>` : `
       <div class="section-title" style="display:flex;align-items:center;gap:8px"><span style="min-width:0">To <span class="muted" style="font-weight:500;font-size:0.78rem">· ${esc(describeAudience(live))}</span></span><button class="btn btn-ghost btn-sm" data-act="adjust" style="margin-left:auto;flex:0 0 auto">Adjust who</button></div>
@@ -154,6 +166,7 @@ export function renderOutreach(view) {
     });
     el.querySelector('[data-act="examples"]').addEventListener("click", () => { const x = el.querySelector(".mo-examples"); x.hidden = !x.hidden; });
     el.querySelectorAll("[data-example]").forEach((b) => b.addEventListener("click", () => { sentence = EXAMPLES[Number(b.dataset.example)]; spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear(); writeMessage(); draw(); }));
+    el.querySelectorAll("[data-group]").forEach((b) => b.addEventListener("click", () => { const g = GROUPS.find((x) => x.key === b.dataset.group); if (!g) return; sentence = g.sentence; spec = parseOutreach(sentence); channel = spec.channel; message = spec.message; skipped.clear(); writeMessage(); draw(); }));
     if (!spec) return;
     const defigure = el.querySelector('[data-act="defigure"]');
     if (defigure) defigure.addEventListener("click", async (e) => {

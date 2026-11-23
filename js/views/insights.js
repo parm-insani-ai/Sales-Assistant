@@ -8,6 +8,7 @@
 // manager can take into the morning meeting.
 
 import { icon } from "../icons.js";
+import { navigate } from "../router.js";
 import { esc, formatDateTime } from "../utils.js";
 import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, restoreBoard, storeTotals } from "../team.js";
 import { findings, DAYS, hourLabel } from "../insight.js";
@@ -34,7 +35,10 @@ export function renderInsights(view) {
 
   function draw() {
     if (!team || !isManager(team)) {
-      el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's numbers are the manager's. Your own are under Goals in the sales view." : "Set up the store under Team first."}</div>`;
+      // Not the store's manager: this is the store's page — a rep has their
+      // own (/coach), and lands there rather than on "No store yet".
+      if (!loading) { navigate("/coach"); return; }
+      el.innerHTML = `<div class="card muted small">One moment…</div>`;
       return;
     }
     const stats = board && board.storeId === team.id ? board.stats.filter((r) => !r.error && r.insight) : null;

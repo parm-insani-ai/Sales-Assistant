@@ -13,7 +13,7 @@ import { onPull } from "../pulltorefresh.js";
 
 const DAYS_KEY = "viniva:stats-days";
 
-export function renderStats(view) {
+export function renderStats(view, { embedded = false } = {}) {
   const el = document.createElement("div");
   view.appendChild(el);
   const manager = document.body.classList.contains("management");
@@ -52,7 +52,7 @@ export function renderStats(view) {
 
   function draw() {
     const chips = [7, 28, 90].map((d) => `<button class="btn btn-sm ${d === days ? "btn-primary" : "btn-ghost"}" data-days="${d}">${d} days</button>`).join("");
-    const head = `<div class="hero"><div class="hero-title">Advanced statistics</div></div><div class="row" style="margin:4px 2px 10px;align-items:center"><div class="lead-chips" style="margin:0">${chips}</div><span class="small muted st-count">${events ? `${events.length.toLocaleString()} events` : loading ? "reading…" : ""}</span></div>${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}`;
+    const head = `${embedded ? "" : `<div class="hero"><div class="hero-title">Advanced statistics</div></div>`}<div class="row" style="margin:4px 2px 10px;align-items:center"><div class="lead-chips" style="margin:0">${chips}</div><span class="small muted st-count">${events ? `${events.length.toLocaleString()} events` : loading ? "reading…" : ""}</span></div>${error ? `<div class="fab-note" style="text-align:left;color:var(--danger);margin:0 2px 12px">${esc(error)}</div>` : ""}`;
     if (!events) { el.innerHTML = head + `<div class="card muted small">Reading the log…</div>`; wire(); return; }
     const now = Date.now();
     const ev = inWindow(events, { now, days });

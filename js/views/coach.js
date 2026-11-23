@@ -4,6 +4,7 @@
 // and the numbers are always explainable. Weeks run Monday–Sunday.
 
 import * as store from "../store.js";
+import { fold, openFold } from "../fold.js";
 import { currency, esc } from "../utils.js";
 import { icon } from "../icons.js";
 import { emptyState } from "../components.js";
@@ -177,6 +178,22 @@ export function renderCoach(view) {
   `;
   view.appendChild(el);
 
+
+  // Advanced statistics — the event log read into the store's questions —
+  // behind a fold at the foot of either render: thin until there's enough on
+  // the log, so it doesn't lead; one tap when it's wanted (and /stats lands
+  // here with it open).
+  const statsFold = (body) => {
+    let statsEl = null;
+    const slot = document.createElement("div");
+    const section = fold({ key: "coach:stats", title: "Advanced statistics", sub: "what the log says", open: false, body: slot });
+    const mount = () => { if (statsEl) return; statsEl = document.createElement("div"); slot.appendChild(statsEl); import("./stats.js").then((m) => m.renderStats(statsEl, { embedded: true })).catch(() => { statsEl.innerHTML = `<div class="small muted">Couldn't load the statistics.</div>`; }); };
+    section.addEventListener("toggle", () => { if (section.open) mount(); });
+    body.appendChild(section);
+    let asked = false;
+    try { asked = sessionStorage.getItem("viniva:coach:stats") === "1"; if (asked) sessionStorage.removeItem("viniva:coach:stats"); } catch { /* fine */ }
+    if (asked || section.open) { mount(); if (asked) setTimeout(() => openFold(section), 50); }
+  };
   const draw = () => {
     const mon = addDays(weekStart(), offset * 7);
     const end = addDays(mon, 6);
@@ -281,6 +298,7 @@ export function renderCoach(view) {
 
     if (!store.all("sales").length && !store.all("appointments").length) {
       body.innerHTML = reach + board + worked + emptyState("sparkles", "The coach needs some game film", "Log sales and appointments and this becomes your week-by-week readout.");
+      statsFold(body);
       return;
     }
 
@@ -345,6 +363,7 @@ export function renderCoach(view) {
         <div class="small muted" style="text-align:center;margin-top:4px">bars = commission · numbers = units · right bar is this view</div>
       </div>
     `;
+    statsFold(body);
   };
 
   el.querySelectorAll("[data-nav]").forEach((b) =>

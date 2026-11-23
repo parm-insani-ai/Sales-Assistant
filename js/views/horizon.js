@@ -70,6 +70,7 @@ export function renderHorizon(view) {
         <div class="strong">${rows.filter((r) => r.hz.m === 0).length} ready now · ${within6} open up in the next six months.</div>
         <div class="small muted" style="margin-top:4px">Every owner on your book, in the month it starts to make sense: equity clears $${Number(s.horizonMinEquity || 3000).toLocaleString("en-CA")}, a like-for-like lands at their payment, the contract runs out, or a lease is six months from its end. Values drift down about 12% a year; payoffs come down at their rate.</div>
         ${needFu.length ? `<div class="btn-row" style="margin-top:8px"><button class="btn btn-primary btn-sm btn-block" data-act="fu-all">${icon("calendar")} Set follow-ups for the ${needFu.length} without one</button></div>` : ""}
+        <div class="small" style="margin-top:8px"><a href="#/deals" style="color:var(--brand);font-weight:600">Who matches a payment today — Deal Radar ›</a></div>
       </div>
       ${groups.map((g) => `<div class="section-title">${g.label} <span class="muted" style="font-weight:500;font-size:0.78rem">· ${g.rows.length}</span></div><div class="card" style="padding:0 16px">${g.rows.slice(0, 80).map(row).join("")}${g.rows.length > 80 ? `<div class="muted small" style="padding:10px 0">${g.rows.length - 80} more.</div>` : ""}</div>`).join("")}
       ${!rows.length ? `<div class="card muted small">No owners on the book yet — import your customers with their payment, payoff and trade value, or log a sale, and their month shows here.</div>` : ""}

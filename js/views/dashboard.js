@@ -356,7 +356,7 @@ function targetSection(mtd, s, redraw) {
   const perfBtn = body.querySelector('[data-act="performance"]');
   if (perfBtn) perfBtn.addEventListener("click", () => navigate("/performance"));
   const go = (sel, fn) => { const tileEl = body.querySelector(sel); if (!tileEl) return; tileEl.addEventListener("click", fn); tileEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } }); };
-  go('[data-act="sold"]', () => navigate("/sold"));
+  go('[data-act="sold"]', () => navigate("/soldlog"));
   go('[data-act="spoken"]', () => { try { sessionStorage.setItem("viniva:log:open", "logged"); } catch { /* the remembered chip, then */ } navigate("/log"); });
   return fold({ key: "home:target", title: "Sales target", open: true, body });
 }

@@ -1,4 +1,4 @@
-// Read the paperwork: from a sale on the Sold screen, a photo of the
+// Read the paperwork: from a deal's paperwork on the Sold Tracker, a photo of the
 // approval order goes to the function (the stub answers with a canned deal),
 // the rep sees the car, the money, every product and the prep list with
 // owners and lead times, and one tap writes it to the delivery, patches the
@@ -30,13 +30,13 @@ await p.addInitScript(([today]) => {
   }));
 }, [today]);
 
-await p.goto(APP + "/#/sold");
-await p.waitForSelector('.sd-sale[data-id="s1"] .sd-head', { timeout: 15000 });
-await p.click('.sd-sale[data-id="s1"] .sd-head');
-await p.waitForSelector('.sd-sale[data-id="s1"] [data-read]', { state: "attached", timeout: 5000 });
+await p.goto(APP + "/#/soldlog");
+await p.waitForSelector('#sl-list .card[data-id="s1"] [data-act="paperwork"]', { timeout: 15000 });
+await p.click('#sl-list .card[data-id="s1"] [data-act="paperwork"]');
+await p.waitForSelector('.pw-panel[data-sale="s1"] [data-read]', { state: "attached", timeout: 5000 });
 // A page: a small PNG stands in for the photo (the stub ignores its contents).
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAD0lEQVQIW2P8z8DwnwEIAAgIAgL8KxFvAAAAAElFTkSuQmCC", "base64");
-await p.setInputFiles('.sd-sale[data-id="s1"] [data-read]', { name: "approval.png", mimeType: "image/png", buffer: png });
+await p.setInputFiles('.pw-panel[data-sale="s1"] [data-read]', { name: "approval.png", mimeType: "image/png", buffer: png });
 await p.waitForSelector(".deal-read", { timeout: 20000 }).catch(() => fail("the read sheet didn't open"));
 const sheet = await p.evaluate(() => ({
   head: document.querySelector(".deal-read .card")?.textContent.replace(/\s+/g, " ").trim(),
@@ -82,8 +82,8 @@ if (after.docs !== 1) fail("the page wasn't saved with the sale: " + after.docs)
 const reads = await (await fetch(APP + "/__dealreads")).json();
 if (reads.length !== 1 || reads[0].pages !== 1 || reads[0].saleId !== "s1") fail("the function wasn't asked once with one page: " + JSON.stringify(reads));
 
-// The Sold screen now says it's been read, with a way to the prep list.
-const mark = await p.evaluate(() => document.querySelector('.sd-sale[data-id="s1"] .sd-read-done')?.textContent.replace(/\s+/g, " ").trim());
+// The paperwork now says it's been read, with a way to the prep list.
+const mark = await p.evaluate(() => document.querySelector('.pw-panel[data-sale="s1"] .sd-read-done')?.textContent.replace(/\s+/g, " ").trim());
 if (!/read · 3 products · prep list/.test(mark || "")) fail("the sale doesn't show it's been read: " + mark);
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }

@@ -19,7 +19,6 @@ export const TOOL_GROUPS = [
   { label: "Follow up", items: [
     { icon: "sliders", label: "Follow-up plans", fn: () => navigate("/plans") },
     { icon: "megaphone", label: "Mass outreach", fn: () => navigate("/outreach") },
-    { icon: "target", label: "Campaign", fn: () => navigate("/campaign") },
     { icon: "sparkles", label: "Sales Coach", fn: () => navigate("/coach") },
   ] },
   { label: "Deals", items: [
@@ -35,7 +34,6 @@ export const TOOL_GROUPS = [
     { icon: "target", label: "Performance", fn: () => navigate("/performance") },
     { icon: "checkline", label: "Paycheck", fn: () => navigate("/pay") },
     { icon: "award", label: "SPIFs", fn: () => navigate("/spiffs") },
-    { icon: "sparkles", label: "Advanced statistics", fn: () => navigate("/stats") },
   ] },
   { label: "Setup", items: [
     { icon: "file", label: "Import", fn: () => navigate("/import") },

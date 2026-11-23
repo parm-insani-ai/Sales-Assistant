@@ -132,7 +132,7 @@ export function renderDelivered(view) {
         </div>
         <div class="section-title dv-sub">Contract <span class="muted" style="font-weight:500;font-size:0.78rem">· ${docs.length}</span></div>
         <div class="sd-docs">${docs.map((d) => `<button type="button" class="sd-thumb" data-doc="${esc(d.id)}" aria-label="${esc(d.name || "file")}">${isImage(d) ? `<img alt="">` : `<span class="sd-thumb-file">${icon("file")}<span>${esc((d.name || "PDF").replace(/\.pdf$/i, ""))}</span></span>`}${d.uploaded ? "" : `<span class="sd-thumb-wait" title="Waiting to back up">${icon("upload")}</span>`}</button>`).join("")}</div>
-        ${docs.length ? "" : `<div class="small muted" style="margin:2px 0 10px">No pictures of ${esc(first)}'s contract yet. Snap each page — they stay with ${esc(first)}, here and on Sold.</div>`}
+        ${docs.length ? "" : `<div class="small muted" style="margin:2px 0 10px">No pictures of ${esc(first)}'s contract yet. Snap each page — they stay with ${esc(first)}, here and on the Sold Tracker.</div>`}
         <div class="sd-add">
           <label class="btn btn-primary btn-sm sd-addbtn">${icon("image")} Take a photo<input type="file" accept="image/*" capture="environment" multiple hidden data-add></label>
           <label class="btn btn-ghost btn-sm sd-addbtn">${icon("paperclip")} Add a file<input type="file" accept="image/*,application/pdf" multiple hidden data-add></label>

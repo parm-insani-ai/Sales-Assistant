@@ -8,6 +8,7 @@
 // book beyond that one task.
 
 import { icon } from "../icons.js";
+import { navigate } from "../router.js";
 import { toast, confirmDialog } from "../components.js";
 import { esc, formatDateTime, formatDate } from "../utils.js";
 import { cachedStore, myStore, isManager, memberName, cachedBook, loadBook, addRepTask, nudgeRep, cachedInventory, loadInventory, assignStoreCustomer, setStoreCustomerStatus, cachedPool } from "../team.js";
@@ -62,7 +63,10 @@ export function renderCustomers(view) {
 
   function draw() {
     if (!team || !isManager(team)) {
-      el.innerHTML = `<div class="hero"><div class="hero-title">${team ? "For managers" : "No store yet"}</div></div><div class="card muted small">${team ? "The store's book is the manager's. Your own customers are under Leads in the sales view." : "Set up the store under Team first."}</div>`;
+      // Not the store's manager: this is the store's page — a rep has their
+      // own (/leads), and lands there rather than on "No store yet".
+      if (!loading) { navigate("/leads"); return; }
+      el.innerHTML = `<div class="card muted small">One moment…</div>`;
       return;
     }
     const R = rankedRows();

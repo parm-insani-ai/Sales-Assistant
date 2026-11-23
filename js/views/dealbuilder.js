@@ -1508,7 +1508,7 @@ export function renderDeals(view, { embedded = false, only = null } = {}) {
 
   const el = document.createElement("div");
   el.innerHTML = `
-    <div class="fab-note" style="margin:${embedded ? "0" : "4px"} 2px 14px;text-align:left">Customers who can move into a new vehicle — financing or leasing — for close to what they pay now. Set your tolerance below.</div>
+    <div class="fab-note" style="margin:${embedded ? "0" : "4px"} 2px 14px;text-align:left">Customers who can move into a new vehicle — financing or leasing — for close to what they pay now. Set your tolerance below.${embedded ? "" : ` <a href="#/horizon" style="color:var(--brand);font-weight:600">By month and reason — Timing ›</a>`}</div>
     <div id="deals-controls"></div>
     <div class="deals-list"></div>
   `;
