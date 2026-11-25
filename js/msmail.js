@@ -15,6 +15,7 @@
 // (client) ID into Settings → Email.
 
 import * as store from "./store.js";
+import { mailRedirectUri } from "./gmail.js";
 
 const TOK_KEY = "viniva:msmail:tokens";
 const LAST_KEY = "viniva:msmail:last";
@@ -52,7 +53,7 @@ export async function connectOutlook() {
   const state = b64url(crypto.getRandomValues(new Uint8Array(12)));
   sessionStorage.setItem("msmail:pkce", verifier);
   sessionStorage.setItem("msmail:state", state);
-  const redirect = location.origin + location.pathname;
+  const redirect = mailRedirectUri();
   location.assign(
     `${AUTH_BASE}/${encodeURIComponent(tenant)}/oauth2/v2.0/authorize` +
     `?client_id=${encodeURIComponent(clientId)}&response_type=code&response_mode=query` +
@@ -88,7 +89,7 @@ export async function handleAuthRedirect() {
   const j = await tokenRequest({
     grant_type: "authorization_code",
     code,
-    redirect_uri: location.origin + location.pathname,
+    redirect_uri: mailRedirectUri(),
     code_verifier: verifier,
   });
   let account = null;

@@ -31,7 +31,7 @@ import { testAgent, findAgentFunction } from "../agent.js";
 import { TONES } from "../style.js";
 import { sendEmail, emailSendConfigured, emailSendVia } from "../email.js";
 import { connectOutlook, outlookConnected, outlookCanSend, outlookAccount, disconnectOutlook, pullOutlookMail, lastMailPull } from "../msmail.js";
-import { connectGmail, gmailConnected, gmailCanSend, gmailAccount, disconnectGmail, pullGmail, lastGmailPull } from "../gmail.js";
+import { connectGmail, gmailConnected, gmailCanSend, gmailAccount, disconnectGmail, pullGmail, lastGmailPull, mailRedirectUri } from "../gmail.js";
 import { shorten, shortUrl } from "../shortlink.js";
 import { enablePush, disablePush, pushEnabled, pushSupported, needsInstall, sendTestPush } from "../push.js";
 
@@ -950,7 +950,7 @@ function buildEmail(slot) {
       <summary class="strong small">${icon("help")} One-time setup (~15 min)</summary>
       <ol class="small muted" style="margin:8px 0 0;padding-left:18px;line-height:1.5">
         <li>At <span class="mono">console.cloud.google.com</span> make a project, enable the <b>Gmail API</b>, and set up the <b>OAuth consent screen</b> (External; add each Google account that will connect under <b>Test users</b>).</li>
-        <li><b>Credentials → Create credentials → OAuth client ID</b>, type <b>Web application</b>, authorised redirect URI <span class="mono">${esc(location.origin + location.pathname)}</span></li>
+        <li><b>Credentials → Create credentials → OAuth client ID</b>, type <b>Web application</b>, and under <b>Authorised redirect URIs</b> add exactly <span class="mono gm-redirect">${esc(mailRedirectUri())}</span> <button type="button" class="btn btn-ghost btn-sm" data-act="copy-redirect" style="padding:2px 8px">Copy</button> — a different address, even by a slash, is Google's "redirect_uri_mismatch".</li>
         <li>Paste the <b>Client ID</b> below. Put the <b>Client secret</b> in Supabase → Edge Functions → Secrets as <span class="mono">GOOGLE_CLIENT_SECRET</span>, and re-paste the function.</li>
         <li>Tap Connect Gmail and allow reading and sending. Google shows an "unverified app" warning for a test app — tap <b>Advanced → Go to viniva</b>.</li>
       </ol>
@@ -1278,6 +1278,7 @@ function buildEmail(slot) {
   const gmOut = slot.querySelector("#gm-out");
   const gmClient = slot.querySelector("#gm-client");
   if (gmClient) gmClient.addEventListener("change", (e) => store.updateSettings({ googleClientId: e.target.value.trim() }));
+  slot.querySelectorAll('[data-act="copy-redirect"]').forEach((b) => b.addEventListener("click", async () => { try { await navigator.clipboard.writeText(mailRedirectUri()); toast("Copied — paste it under Authorised redirect URIs", "success"); } catch { toast(mailRedirectUri(), ""); } }));
   const gmConnect = slot.querySelector("#gm-connect");
   if (gmConnect) gmConnect.addEventListener("click", async () => {
     if (gmClient) store.updateSettings({ googleClientId: gmClient.value.trim() });

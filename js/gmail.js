@@ -17,6 +17,11 @@
 
 import * as store from "./store.js";
 import * as backend from "./backend.js";
+// The address the sign-in comes back to — the app's root, the same whether
+// it was opened from the home screen (/index.html) or a browser (/): what's
+// registered with the provider has to match it exactly.
+export function mailRedirectUri() { return location.origin + location.pathname.replace(/index\.html$/i, ""); }
+
 
 const TOK_KEY = "viniva:gmail:tokens";
 const LAST_KEY = "viniva:gmail:last";
@@ -73,7 +78,7 @@ export async function connectGmail() {
   const state = "g." + b64url(crypto.getRandomValues(new Uint8Array(12)));
   sessionStorage.setItem("gmail:pkce", verifier);
   sessionStorage.setItem("gmail:state", state);
-  const redirect = location.origin + location.pathname;
+  const redirect = mailRedirectUri();
   location.assign(
     `${AUTH}?client_id=${encodeURIComponent(clientId)}&response_type=code` +
     `&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(SCOPE)}` +
@@ -112,7 +117,7 @@ export async function handleGmailRedirect() {
   history.replaceState(null, "", location.pathname + location.hash); // clean the URL
   const verifier = sessionStorage.getItem("gmail:pkce");
   sessionStorage.removeItem("gmail:state"); sessionStorage.removeItem("gmail:pkce");
-  const j = await gauth({ code, verifier, redirect: location.origin + location.pathname });
+  const j = await gauth({ code, verifier, redirect: mailRedirectUri() });
   if (!j.access_token) throw new Error("Google didn't return a sign-in");
   let account = null;
   try {

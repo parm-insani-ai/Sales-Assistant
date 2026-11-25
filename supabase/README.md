@@ -359,8 +359,11 @@ function, because Google requires the client secret for it.
    that will connect (Google allows up to 100 without a review; each user
    sees an "unverified app" warning and taps **Advanced → Go to viniva**).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
-   type **Web application**; under **Authorised redirect URIs** add your app's
-   URL exactly as the browser shows it (e.g. `https://entoa.ai/`).
+   type **Web application**; under **Authorised redirect URIs** add the app's
+   root address exactly — `https://entoa.ai/` (with the trailing slash). The
+   Gmail card in Settings shows the exact address and copies it; the app
+   sends that same address whether it was opened from the home screen or a
+   browser. Anything else, even by a slash, is Google's `redirect_uri_mismatch`.
 4. Copy the **Client ID** into viniva → **Settings → Email → Gmail**, and the
    **Client secret** into Supabase → Edge Functions → **Secrets** as
    `GOOGLE_CLIENT_SECRET`. Re-paste the function after this update.
