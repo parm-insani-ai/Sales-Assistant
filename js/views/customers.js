@@ -8,7 +8,7 @@
 // book beyond that one task.
 
 import { icon } from "../icons.js";
-import { navigate } from "../router.js";
+import { navigate, redirect } from "../router.js";
 import { toast, confirmDialog } from "../components.js";
 import { esc, formatDateTime, formatDate } from "../utils.js";
 import { cachedStore, myStore, isManager, memberName, cachedBook, loadBook, addRepTask, nudgeRep, cachedInventory, loadInventory, assignStoreCustomer, setStoreCustomerStatus, cachedPool } from "../team.js";
@@ -65,7 +65,7 @@ export function renderCustomers(view) {
     if (!team || !isManager(team)) {
       // Not the store's manager: this is the store's page — a rep has their
       // own (/leads), and lands there rather than on "No store yet".
-      if (!loading) { navigate("/leads"); return; }
+      if (!loading) { redirect("/leads"); return; }
       el.innerHTML = `<div class="card muted small">One moment…</div>`;
       return;
     }

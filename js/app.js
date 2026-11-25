@@ -1,6 +1,6 @@
 // App bootstrap: routing, page titles, quick-add menu, service worker.
 
-import { route, startRouter, currentBase, navigate, goBack } from "./router.js";
+import { route, startRouter, currentBase, navigate, goBack, canGoBack, redirect } from "./router.js";
 import * as store from "./store.js";
 import { interceptSmsLinks } from "./sms.js";
 import { armVerify } from "./verify.js";
@@ -154,30 +154,30 @@ const PAGES = {
   // queue, the month's log, reminders, to-dos. Home is the glance; this is
   // the doing. (It was "Today"; old links still land.)
   "/log": { title: "Log", render: lazyView("log", "renderLog") },
-  "/today": { title: "Log", render: () => navigate("/log") },
+  "/today": { title: "Log", render: () => redirect("/log") },
   // Log on a named chip — where a notification about a to-do or the day's
   // queue lands, rather than on whichever chip was open last.
-  "/todos": { title: "Log", render: () => { try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* the chip you were on */ } navigate("/log"); } },
-  "/queue": { title: "Log", render: () => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* the chip you were on */ } navigate("/log"); } },
+  "/todos": { title: "Log", render: () => { try { sessionStorage.setItem("viniva:log:open", "todos"); } catch { /* the chip you were on */ } redirect("/log"); } },
+  "/queue": { title: "Log", render: () => { try { sessionStorage.setItem("viniva:log:open", "queue"); } catch { /* the chip you were on */ } redirect("/log"); } },
   // The Goals page is folded into the Sales target on Home.
-  "/goals": { title: "Sales target", render: () => navigate("/", ".target-slot") },
+  "/goals": { title: "Sales target", render: () => redirect("/", ".target-slot") },
   // The Tools tab is gone: everything on it is under "+". An old link lands
   // on Home with the "+" sheet open.
-  "/tools": { title: "Tools", render: () => { navigate("/"); setTimeout(() => document.getElementById("quick-add").click(), 0); } },
-  "/campaign": { title: "Mass outreach", render: () => navigate("/outreach") }, // folded into Mass outreach (a group to start from)
+  "/tools": { title: "Tools", render: () => { redirect("/"); setTimeout(() => document.getElementById("quick-add").click(), 0); } },
+  "/campaign": { title: "Mass outreach", render: () => redirect("/outreach") }, // folded into Mass outreach (a group to start from)
   "/outreach": { title: "Mass outreach", render: lazyView("outreach", "renderOutreach") },
   "/todo": { title: "The assistant's work", render: lazyView("todo", "renderTodo") },
   "/session": { title: "Calling", render: lazyView("session", "renderSession") },
-  "/sold": { title: "Sold Tracker", render: () => navigate("/soldlog") }, // the Sold list folded into the Tracker (paperwork on each deal)
+  "/sold": { title: "Sold Tracker", render: () => redirect("/soldlog") }, // the Sold list folded into the Tracker (paperwork on each deal)
   // Everyone delivered: their contact details and the pictures of their
   // contract. From Delivered on the "+" sheet.
   "/delivered": { title: "Delivered", render: lazyView("delivered", "renderDelivered") },
   "/floor": { title: "The Floor", render: lazyView("manage", "renderFloor") },
   "/reps": { title: "Reps", render: lazyView("manage", "renderReps") },
   "/team": { title: "Admin", render: lazyView("team", "renderTeam") },
-  "/admin": { title: "Admin", render: () => navigate("/team") },
+  "/admin": { title: "Admin", render: () => redirect("/team") },
   "/insights": { title: "Insights", render: lazyView("insights", "renderInsights") }, // a rep is sent on to Coach by the page
-  "/stats": { title: "Advanced statistics", render: (view, ctx) => { if (inManagement()) return lazyView("stats", "renderStats")(view, ctx); try { sessionStorage.setItem("viniva:coach:stats", "1"); } catch { /* the fold, then */ } navigate("/coach"); } },
+  "/stats": { title: "Advanced statistics", render: (view, ctx) => { if (inManagement()) return lazyView("stats", "renderStats")(view, ctx); try { sessionStorage.setItem("viniva:coach:stats", "1"); } catch { /* the fold, then */ } redirect("/coach"); } },
   "/appointments": { title: "Appointments", render: lazyView("appointments", "renderAppointments") }, // a rep is sent on to Calendar by the page
   "/customers": { title: "Customers", render: lazyView("customers", "renderCustomers") }, // a rep is sent on to Outreach by the page
   "/horizon": { title: "Timing", render: lazyView("horizon", "renderHorizon") },
@@ -185,7 +185,7 @@ const PAGES = {
   // Retired surfaces. The daily call list is the Home queue now, and the Deal
   // Radar is the "By opportunity" view of Leads — redirect rather than 404 so
   // old notifications, voice commands and bookmarks still land somewhere sane.
-  "/prospecting": { title: "Prospecting", render: () => navigate("/") },
+  "/prospecting": { title: "Prospecting", render: () => redirect("/") },
   // The Deal Radar on its own screen: every owner who can move into a new
   // vehicle for close to what they pay now, with the payment sliders.
   // Reached from Outreach's Best now line and by the assistant.
@@ -239,8 +239,11 @@ function mount(base, ctx) {
     ? { "/": (cachedStore() || {}).name || "", "/floor": "The Floor", "/reps": "Reps", "/team": "Admin" }
     : { "/leads": "Outreach", "/log": "Log", "/comms": "Comms" };
   if (!ctx.param && TAB_NAMES[base]) { title.textContent = TAB_NAMES[base]; title.classList.add("greeting"); }
+  // Back on every page that has one behind it — to the page you were just
+  // on; a page opened cold (a notification, the first open) falls back to
+  // its parent.
   const back = document.getElementById("topbar-back");
-  back.hidden = !sub;
+  back.hidden = !sub && !canGoBack();
   back.onclick = () => goBack(parentOf(base, ctx.param, roots));
   page.render(view, ctx);
   updateTabs(base);

@@ -9,7 +9,7 @@
 // tactical list: tomorrow's appointments nobody has confirmed yet.
 
 import { icon } from "../icons.js";
-import { navigate } from "../router.js";
+import { navigate, redirect } from "../router.js";
 import { toast, openModal } from "../components.js";
 import { esc, formatDateTime } from "../utils.js";
 import { cachedStore, myStore, isManager, memberName, cachedBoard, loadBoard, restoreBoard, updateRepAppointment, nudgeRep } from "../team.js";
@@ -51,7 +51,7 @@ export function renderAppointments(view) {
     if (!team || !isManager(team)) {
       // Not the store's manager: this is the store's page — a rep has their
       // own (/calendar), and lands there rather than on "No store yet".
-      if (!loading) { navigate("/calendar"); return; }
+      if (!loading) { redirect("/calendar"); return; }
       el.innerHTML = `<div class="card muted small">One moment…</div>`;
       return;
     }

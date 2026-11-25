@@ -146,12 +146,24 @@ export function navigationHeld() { return holding; }
  * onto a customer has nowhere to go back to).
  */
 let returnNext = false;        // the next fresh step is a return (goBack with no history)
+/** Is there a page behind this one in this visit? (The arrow shows when there is.) */
+export function canGoBack() { return idx > 0 && trail[idx - 1] != null; }
+/** Back to the page you were just on; with nothing behind (opened from a notification), to its parent. */
 export function goBack(fallback = "/") {
-  const prev = trail[idx - 1];
-  const want = String(fallback || "/");
-  const sameScreen = (a, b) => (a || "").split("/").filter(Boolean)[0] === (b || "").split("/").filter(Boolean)[0];
-  if (idx > 0 && prev && sameScreen(prev, want)) history.back();
-  else { returnNext = true; navigate(want); }
+  if (canGoBack()) { history.back(); return; }
+  returnNext = true;
+  navigate(String(fallback || "/"));
+}
+// A route that only sends you on (an old address, a tool's shortcut, a
+// manager's page for a rep) replaces itself in the history, so stepping
+// back never lands on it and bounces forward again.
+let replacing = false;
+export function redirect(path, revealSelector = null) {
+  reveal = revealSelector;
+  const target = String(path || "/");
+  if (hashNow() === target) { render(); return; }
+  replacing = true;
+  try { location.replace(`${location.pathname}${location.search}#${target}`); } catch { replacing = false; location.hash = target; }
 }
 
 function render() {
@@ -170,7 +182,12 @@ function render() {
   if (st != null && st < idx) dir = "back";
   else if (st != null && st > idx) dir = "forward";
   else if (st != null && st === idx && hash === lastHash) dir = "same";
-  if (st == null) {
+  if (replacing) {
+    // The redirecting address is gone from the history; this page takes its place.
+    replacing = false;
+    trail[idx] = hash;
+    try { history.replaceState({ idx }, ""); } catch { /* fine */ }
+  } else if (st == null) {
     idx = lastHash == null ? 0 : idx + 1;
     trail.length = idx;
     trail[idx] = hash;
