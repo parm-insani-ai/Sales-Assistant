@@ -566,7 +566,17 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   // as it starts, ticked as it finishes — and what it said back, in writing.
   // The spoken reply is the same words; reading is faster than listening
   // and survives a noisy showroom.
-  const scrollThread = () => { threadEl.scrollTop = threadEl.scrollHeight; };
+  // To the newest message — now, and again once the sheet has laid out:
+  // a thread drawn while the sheet is still opening (or hidden in the
+  // docked strip, where display:none drops the scroll) has no height to
+  // scroll yet, so the one assignment lands on the top.
+  const scrollThread = () => {
+    const toEnd = () => { if (threadEl.isConnected) threadEl.scrollTop = threadEl.scrollHeight; };
+    toEnd();
+    requestAnimationFrame(toEnd);
+    setTimeout(toEnd, 120);
+    setTimeout(toEnd, 360);
+  };
   function showLive(text) {
     const t = String(text || "").trim();
     transcriptEl.hidden = !t;
@@ -705,6 +715,8 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
     sheetHome.insertBefore(sheet, sheetNext);
     clearStrip();
     wave.compact(false);
+    // Back from the strip: the conversation picks up at its newest message.
+    scrollThread();
   }
   sheet.addEventListener("click", () => { if (docked) undock(); });
 
