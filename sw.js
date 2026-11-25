@@ -1,5 +1,5 @@
 // Service worker: cache the app shell so it loads offline and installs as a PWA.
-const CACHE = "viniva-v512";
+const CACHE = "viniva-v513";
 const ASSETS = [
   "./",
   "./index.html",
@@ -225,10 +225,20 @@ self.addEventListener("message", (e) => {
 // deploy could pair a new leads.js with a ten-minute-old store.js — the app
 // then calls a function that isn't there and a tap does nothing. cache:
 // "reload" makes the set that goes into this version's cache one build.
+// The CDN in front of Pages keeps its own ten-minute copy too, which
+// cache: "reload" doesn't reach — so each file is fetched under this
+// version's name (?v=…), a URL the CDN has never seen, and stored under
+// its plain one. One build, every file, or the install fails and retries.
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: "reload" }))))
+      .then((c) => Promise.all(ASSETS.map((u) => {
+        const fresh = u + (u.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(CACHE);
+        return fetch(new Request(fresh, { cache: "reload" })).then((res) => {
+          if (!res.ok) throw new Error(`${u}: ${res.status}`);
+          return c.put(new Request(u), res);
+        });
+      })))
       .then(() => self.skipWaiting())
   );
 });
