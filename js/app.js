@@ -239,15 +239,25 @@ function mount(base, ctx) {
     ? { "/": (cachedStore() || {}).name || "", "/floor": "The Floor", "/reps": "Reps", "/team": "Admin" }
     : { "/leads": "Outreach", "/log": "Log", "/comms": "Comms" };
   if (!ctx.param && TAB_NAMES[base]) { title.textContent = TAB_NAMES[base]; title.classList.add("greeting"); }
-  // Back on every page that has one behind it — to the page you were just
-  // on; a page opened cold (a notification, the first open) falls back to
-  // its parent.
+  // Back on every page but the tabs' own — to the page you were just on;
+  // a page opened cold (a notification, the first open) falls back to its
+  // parent. A page reached from the "+" sheet goes back to that sheet,
+  // open again on the page it was opened from.
   const back = document.getElementById("topbar-back");
-  back.hidden = !sub && !canGoBack();
-  back.onclick = () => goBack(parentOf(base, ctx.param, roots));
+  back.hidden = !sub;
+  if (plus.pending && Date.now() - plus.at < 1500) { plus.pending = false; plus.page = location.hash; }
+  else if (plus.page && plus.page !== location.hash && !plus.reopen) plus.page = null;
+  back.onclick = () => {
+    if (plus.page && plus.page === location.hash) { plus.page = null; plus.reopen = true; }
+    goBack(parentOf(base, ctx.param, roots));
+  };
   page.render(view, ctx);
   updateTabs(base);
+  if (plus.reopen) { plus.reopen = false; setTimeout(() => { const qa = document.getElementById("quick-add"); if (qa && !qa.hidden && !document.querySelector(".modal-backdrop")) qa.click(); }, 60); }
 }
+// The "+" sheet's trail: a tile tapped (pending), the page it opened
+// (page), and the reopen owed when that page's back is tapped.
+const plus = { pending: false, at: 0, page: null, reopen: false };
 
 // Where "back" lands when there's no history to step through: a detail
 // page to its list, a tool to the tab it belongs to.
@@ -369,6 +379,8 @@ document.getElementById("quick-add").addEventListener("click", () => {
 
   LOADERS.tools().then((tools) => openModal("Quick add", (close) => {
     const wrap = document.createElement("div");
+    // A tile that opens a page: its back comes back to this sheet.
+    const pick = () => { close(); plus.pending = true; plus.at = Date.now(); };
     const section = (label, items) => {
       const title = document.createElement("div");
       title.className = "section-title";
@@ -376,7 +388,7 @@ document.getElementById("quick-add").addEventListener("click", () => {
       else title.style.marginTop = "0";
       title.textContent = label;
       wrap.appendChild(title);
-      wrap.appendChild(tools.toolGrid(items, close));
+      wrap.appendChild(tools.toolGrid(items, pick));
     };
     section("Add new", keys.map((k) => byKey[k]));
     tools.toolGroups().forEach((g) => section(g.label, g.items));

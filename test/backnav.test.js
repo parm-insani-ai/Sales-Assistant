@@ -24,12 +24,29 @@ let s = await state();
 if (s.back) fail("the first page of a visit has nothing behind it — no arrow: " + JSON.stringify(s));
 // Tab to tab: Outreach, then the customer, then the thread.
 await p.click('.tabbar .tab[data-route="/leads"]'); await p.waitForFunction(() => location.hash === "#/leads" && document.querySelector('[data-filter="all"]'), null, { timeout: 15000 }); await p.waitForTimeout(300);
-s = await state(); if (!s.back || s.hash !== "#/leads") fail("Outreach from Home has an arrow: " + JSON.stringify(s));
+s = await state(); if (s.back || s.hash !== "#/leads") fail("a tab's own page never has an arrow: " + JSON.stringify(s));
 await p.evaluate(() => { location.hash = "#/leads/a"; }); await p.waitForSelector(".lead-head", { timeout: 10000 }); await p.waitForTimeout(300);
 await p.evaluate(() => { location.hash = "#/inbox/a"; }); await p.waitForSelector("#ib-thread", { timeout: 10000 }); await p.waitForTimeout(300);
 s = await back(); if (s.hash !== "#/leads/a") fail("back from the thread is the customer, not Comms: " + JSON.stringify(s));
-s = await back(); if (s.hash !== "#/leads") fail("back from the customer is Outreach: " + JSON.stringify(s));
-s = await back(); if (s.hash !== "#/" || s.back) fail("back from Outreach is Home, with nothing behind it: " + JSON.stringify(s));
+s = await back(); if (s.hash !== "#/leads" || s.back) fail("back from the customer is Outreach, which has no arrow: " + JSON.stringify(s));
+await p.click('.tabbar .tab[data-route="/"]'); await p.waitForSelector("#view .card", { timeout: 10000 }); await p.waitForTimeout(300);
+s = await state(); if (s.back) fail("Home never has an arrow: " + JSON.stringify(s));
+// From the +: Timing, then back — to Home with the + sheet open again.
+await p.click("#quick-add"); await p.waitForSelector(".modal .qa-tile", { timeout: 8000 });
+await p.evaluate(() => { [...document.querySelectorAll(".modal .qa-tile")].find((t) => t.textContent.trim() === "Timing").click(); });
+await p.waitForFunction(() => location.hash === "#/horizon" && !document.querySelector(".modal-backdrop"), null, { timeout: 10000 }); await p.waitForTimeout(300);
+s = await state(); if (!s.back) fail("a tool page from the + has an arrow: " + JSON.stringify(s));
+await p.click("#topbar-back");
+await p.waitForFunction(() => location.hash === "#/" && document.querySelector(".modal .qa-tile"), null, { timeout: 10000 }).catch(() => fail("back from a page opened from the + should land on Home with the + sheet open"));
+await p.click(".modal .modal-close"); await p.waitForTimeout(200);
+// Opened from the + and then moved on from: the + doesn't come back.
+await p.click("#quick-add"); await p.waitForSelector(".modal .qa-tile", { timeout: 8000 });
+await p.evaluate(() => { [...document.querySelectorAll(".modal .qa-tile")].find((t) => t.textContent.trim() === "Timing").click(); });
+await p.waitForFunction(() => location.hash === "#/horizon" && !document.querySelector(".modal-backdrop"), null, { timeout: 10000 }); await p.waitForTimeout(300);
+await p.evaluate(() => { location.hash = "#/leads/a"; }); await p.waitForSelector(".lead-head", { timeout: 10000 }); await p.waitForTimeout(300);
+s = await back(); if (s.hash !== "#/horizon") fail("back from the customer is Timing: " + JSON.stringify(s));
+await p.click("#topbar-back"); await p.waitForFunction(() => location.hash === "#/", null, { timeout: 10000 }); await p.waitForTimeout(400);
+if (await p.evaluate(() => !!document.querySelector(".modal .qa-tile"))) fail("the + sheet only comes back on the first step back from the page it opened");
 // An old address sends you on and leaves no footprint.
 await p.evaluate(() => { location.hash = "#/sold"; }); await p.waitForFunction(() => location.hash === "#/soldlog" && document.querySelector("#sl-list"), null, { timeout: 10000 }); await p.waitForTimeout(300);
 s = await back(); if (s.hash !== "#/") fail("back from a redirected page skips the redirect: " + JSON.stringify(s));
