@@ -100,12 +100,42 @@ function isTextField(el) {
   return !["checkbox", "radio", "button", "submit", "reset", "file", "color", "range"].includes(el.type);
 }
 
+// A focused field that's still there to type into: connected, and shown.
+function typingNow() {
+  const el = document.activeElement;
+  if (!isTextField(el) || !el.isConnected) return false;
+  if (el.closest("[hidden]")) return false;
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return false;
+  const cs = getComputedStyle(el);
+  return cs.display !== "none" && cs.visibility !== "hidden";
+}
+/** Drop the typing state when no visible field has focus — the tab bar comes back. */
+export function reconcileTyping() {
+  if (document.body.classList.contains("typing") && !typingNow()) {
+    try { if (isTextField(document.activeElement)) document.activeElement.blur(); } catch { /* fine */ }
+    document.body.classList.remove("typing");
+    document.body.classList.remove("kb-open");
+    schedule();
+    setTimeout(schedule, 350);
+    return true;
+  }
+  return false;
+}
+let typingGuard = null;
 function watchFocus() {
   document.addEventListener("focusin", (e) => {
     if (!touchDevice() || !isTextField(e.target)) return;
     document.body.classList.add("typing");
     schedule();
+    // While typing, make sure the field is still on screen: hidden under
+    // you (a sheet docked, a modal gone) the keyboard is gone too, and
+    // focusout doesn't always say so.
+    if (!typingGuard) typingGuard = setInterval(() => { if (!document.body.classList.contains("typing")) { clearInterval(typingGuard); typingGuard = null; return; } reconcileTyping(); }, 700);
   });
+  // Anything that moves the app: whatever was focused is behind a new screen.
+  window.addEventListener("viniva-navigated", () => setTimeout(reconcileTyping, 50));
+  window.addEventListener("hashchange", () => setTimeout(reconcileTyping, 50));
   document.addEventListener("focusout", () => {
     // Tabbing between two fields fires focusout before the next focusin, so
     // check where focus actually landed rather than flickering the tab bar

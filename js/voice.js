@@ -701,6 +701,11 @@ export function startVoiceAssistant({ docked: startDocked = false, manager = fal
   function dock() {
     if (docked || closed) return;
     docked = true;
+    // The sheet is about to hide: the text field goes with it, and so must
+    // its focus — a hidden field that keeps focus keeps the keyboard's
+    // layout (no tab bar) with nothing on screen to type into.
+    try { if (document.activeElement === textInput) textInput.blur(); } catch { /* fine */ }
+    document.body.classList.remove("typing"); document.body.classList.remove("kb-open");
     overlay.classList.add("voice-docked");
     document.body.classList.add("voice-docked");
     const app = document.getElementById("app");
