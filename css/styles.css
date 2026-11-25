@@ -2671,5 +2671,9 @@ body.management .tabbar { grid-template-columns: repeat(5, 1fr); }
 
 /* The Log's logged list: the outcome is a badge you can tap. */
 .lg-outcome { border: 0; cursor: pointer; font: inherit; font-size: 0.72rem; }
-.lg-scope .btn { padding: 4px 9px; font-size: 0.74rem; }
-.log-panel-head { flex-wrap: wrap; gap: 6px; }
+.lg-scope { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.lg-scope::-webkit-scrollbar { display: none; }
+.lg-scope .btn { padding: 4px 9px; font-size: 0.74rem; white-space: nowrap; flex: 0 0 auto; }
+.lg-add { flex: 0 0 auto; padding: 4px 8px; margin-left: 6px; }
+.lg-add .ico { width: 16px; height: 16px; }
+.log-panel-head { flex-wrap: nowrap; gap: 6px; align-items: center; }

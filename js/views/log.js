@@ -75,7 +75,7 @@ export function renderLog(view) {
   // Who you logged — this month, or all time — each with what came of it.
   // The chip counts the month (the target sheet's number); the panel can
   // widen to everyone, and narrow to the ones with no outcome yet.
-  const logPanel = panel("logged", `<div class="lead-chips lg-scope" style="margin:0"><button type="button" class="btn btn-sm btn-primary" data-scope="month">This month</button><button type="button" class="btn btn-sm btn-ghost" data-scope="all">All time</button><button type="button" class="btn btn-sm btn-ghost lg-none" data-scope="none" title="The ones with no outcome yet">No outcome</button></div><button class="btn btn-sm btn-ghost" data-act="add-customer">+ Add customer</button>`);
+  const logPanel = panel("logged", `<div class="lead-chips lg-scope" style="margin:0"><button type="button" class="btn btn-sm btn-primary" data-scope="month">This month</button><button type="button" class="btn btn-sm btn-ghost" data-scope="all">All time</button><button type="button" class="btn btn-sm btn-ghost lg-none" data-scope="none" title="The ones with no outcome yet">No outcome</button></div><button class="btn btn-sm btn-ghost lg-add" data-act="add-customer" aria-label="Add customer" title="Add customer">${icon("plus")}</button>`);
   const logBody = document.createElement("div");
   logBody.className = "log-slot";
   logPanel.appendChild(logBody);
@@ -189,11 +189,6 @@ function outcomeSheet(l, after) {
 function paintLog(slot, rows, { scope = "month", none = 0, total = 0, onOutcome = null } = {}) {
   slot.innerHTML = "";
   const logged = rows.map((r) => (r && r.l ? r : { l: r, o: logOutcomeOf(r) }));
-  const line = document.createElement("div");
-  line.className = "small muted lg-logline";
-  line.style.margin = "0 2px 8px";
-  line.innerHTML = total ? `<b>${total}</b> logged ${scope === "all" ? "all time" : "this month"}${none ? ` · <b style="color:var(--danger)">${none}</b> with no outcome yet — each needs one` : " · every one has an outcome"}` : "";
-  if (total) slot.appendChild(line);
   if (!logged.length) {
     slot.insertAdjacentHTML("beforeend", `<div class="card"><div class="muted small" style="text-align:center">${total ? "Everyone here has an outcome." : scope === "all" ? "Nobody logged yet." : "Nobody logged yet this month."}</div></div>`);
     return;

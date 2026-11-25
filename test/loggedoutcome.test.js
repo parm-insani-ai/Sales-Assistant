@@ -38,7 +38,6 @@ await p.evaluate(() => { const t = document.querySelector('.log-tabs [data-tab="
 await p.waitForTimeout(300);
 const read = () => p.evaluate(() => ({
   chip: document.querySelector('.log-tabs [data-tab="logged"]')?.textContent.replace(/\s+/g, " ").trim(),
-  line: document.querySelector(".lg-logline")?.textContent.replace(/\s+/g, " ").trim(),
   rows: [...document.querySelectorAll('[data-panel="logged"] .log-row')].map((r) => [r.querySelector(".row-title").textContent.trim(), r.querySelector(".lg-outcome").dataset.outcome]),
   scope: [...document.querySelectorAll(".lg-scope [data-scope]")].filter((b) => b.classList.contains("btn-primary")).map((b) => b.dataset.scope),
   noneBtn: document.querySelector(".lg-none")?.textContent.trim(),
@@ -48,13 +47,13 @@ console.log("month:", JSON.stringify(c));
 if (!/^Logged\s?4$/.test(c.chip) || c.rows.length !== 4 || c.scope.join() !== "month") fail("this month: the four logged this month, the chip counting them: " + JSON.stringify(c));
 const o = Object.fromEntries(c.rows);
 if (o["Sold Sam"] !== "sold" || o["Booked Bea"] !== "booked" || o["Working Wes"] !== "working" || o["Quiet Quinn"] !== "none") fail("each has its outcome read from the file: " + JSON.stringify(o));
-if (!/4 logged this month · 1 with no outcome yet/.test(c.line) || c.noneBtn !== "No outcome · 1") fail("the line and the chip count the ones without: " + JSON.stringify([c.line, c.noneBtn]));
+if (c.noneBtn !== "No outcome · 1") fail("the chip counts the ones without: " + JSON.stringify(c.noneBtn));
 
 // All time: the two from last month join; the imported owner never logged doesn't.
 await p.click('.lg-scope [data-scope="all"]'); await p.waitForTimeout(300);
 c = await read();
 console.log("all:", JSON.stringify(c));
-if (c.rows.length !== 6 || c.rows.some(([n]) => /Import Ivy/.test(n)) || Object.fromEntries(c.rows)["Elsewhere Eli"] !== "bought_elsewhere" || Object.fromEntries(c.rows)["Old Olly"] !== "none" || !/^Logged\s?4$/.test(c.chip) || !/6 logged all time · 2 with no outcome yet/.test(c.line)) fail("all time: six, the imported owner out, the chip still the month: " + JSON.stringify(c));
+if (c.rows.length !== 6 || c.rows.some(([n]) => /Import Ivy/.test(n)) || Object.fromEntries(c.rows)["Elsewhere Eli"] !== "bought_elsewhere" || Object.fromEntries(c.rows)["Old Olly"] !== "none" || !/^Logged\s?4$/.test(c.chip) || c.noneBtn !== "No outcome · 2") fail("all time: six, the imported owner out, the chip still the month: " + JSON.stringify(c));
 // Just the ones without.
 await p.click('.lg-scope [data-scope="none"]'); await p.waitForTimeout(300);
 c = await read();
@@ -70,7 +69,7 @@ const quinn = await p.evaluate(async () => { const st = await import("/js/store.
 c = await read();
 console.log("quinn:", JSON.stringify(quinn), JSON.stringify(c.rows));
 if (quinn.logOutcome !== "not_now" || quinn.conv !== "not_now" || !quinn.parked || quinn.fu !== quinn.parked) fail("not now parks them with a check-back: " + JSON.stringify(quinn));
-if (c.rows.length !== 1 || !/Old Olly/.test(c.rows[0][0]) || !/6 logged all time · 1 with no outcome yet/.test(c.line)) fail("one left without: " + JSON.stringify(c));
+if (c.rows.length !== 1 || !/Old Olly/.test(c.rows[0][0]) || c.noneBtn !== "No outcome · 1") fail("one left without: " + JSON.stringify(c));
 // Olly bought: the Sold sheet opens the deal form with the customer in; logging it makes the sale on their lead.
 await p.evaluate(() => { document.querySelector('[data-panel="logged"] .log-row .lg-outcome').click(); });
 await p.waitForSelector('.modal .lo-sheet [data-key="sold"]', { timeout: 5000 });
@@ -82,7 +81,8 @@ await p.fill('.modal input[name="frontComm"]', "300").catch(() => {});
 await p.click(".modal button[type=submit]"); await p.waitForTimeout(500);
 const olly = await p.evaluate(async () => { const st = await import("/js/store.js"); return { sale: st.all("sales").find((s) => s.leadId === "e") ? 1 : 0, stage: st.get("leads", "e").stage, leads: st.all("leads").filter((l) => /Olly/.test(l.name)).length }; });
 c = await read();
-if (olly.sale !== 1 || olly.leads !== 1 || c.rows.length !== 0 || !/every one has an outcome/.test(c.line)) fail("the sale lands on Olly's lead, not a new one; nobody is left without: " + JSON.stringify({ olly, rows: c.rows, line: c.line }));
+const empty = await p.evaluate(() => document.querySelector('[data-panel="logged"] .log-slot .card')?.textContent.trim());
+if (olly.sale !== 1 || olly.leads !== 1 || c.rows.length !== 0 || c.noneBtn !== "No outcome" || !/Everyone here has an outcome/.test(empty || "")) fail("the sale lands on Olly's lead, not a new one; nobody is left without: " + JSON.stringify({ olly, rows: c.rows, noneBtn: c.noneBtn, empty }));
 
 if (errs.length) { console.error("PAGE ERRORS: " + errs.join(" | ")); process.exitCode = 1; }
 await b.close();
