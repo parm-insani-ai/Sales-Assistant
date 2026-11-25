@@ -103,7 +103,7 @@ export function renderLog(view) {
 
   // 3. To-dos — timed ones are reminders; the plan's own steps stay on the
   // queue. With the note on where a reminder lands when the app is closed.
-  const todoPanel = panel("todos", `<span class="small muted">Give one a time and it reminds you</span><button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>`);
+  const todoPanel = panel("todos", `<span class="small muted">Things to do — people to reach are on the Queue</span><button class="btn btn-sm btn-ghost" data-act="add-task">+ Add</button>`);
   const todoBody = document.createElement("div");
   todoBody.className = "tasks-slot";
   // The chip counts what the list draws: not the plan's steps, and not
@@ -127,7 +127,7 @@ export function renderLog(view) {
   const paintOnQueue = () => {
     const n = onQueueCount();
     onQueue.hidden = !n;
-    onQueue.innerHTML = n ? `${icon("target")} <b>${n}</b> about ${n === 1 ? "a customer is" : "customers are"} due today — on the <a href="#" data-act="to-queue">Queue</a>, with the call or text ready.` : "";
+    onQueue.innerHTML = n ? `${icon("target")} <b>${n}</b> ${n === 1 ? "is a call, text or email to a customer — it's" : "are calls, texts or emails to customers — they're"} on the <a href="#" data-act="to-queue">Queue</a>. To-dos is the rest: things to do, not people to reach.` : "";
   };
   paintOnQueue();
   onQueue.addEventListener("click", (ev) => { if (ev.target.closest('[data-act="to-queue"]')) { ev.preventDefault(); show("queue"); } });
@@ -268,7 +268,7 @@ export function mountQueue(playsSlot, { onCount = null, heading = true } = {}) {
     playsSlot.innerHTML = head(` <span class="muted">· ${plays.length}</span>`);
     // Three groups, in order: what's due this minute, the rest of today,
     // and the book's suggestions for when there's a gap.
-    const GROUPS = [["now", "Now"], ["today", "Later today"], ["later", "When you get a minute"]];
+    const GROUPS = [["now", "Now"], ["today", "Later today"], ["later", "When you get a minute"], ["coming", "Coming up"]];
     const left = () => playsSlot.querySelectorAll(".pl-card").length;
     GROUPS.forEach(([g, label]) => {
       const mine = plays.filter((p) => (p.group || "later") === g);

@@ -9,6 +9,7 @@ import { icon } from "../icons.js";
 import { navigate } from "../router.js";
 import { isReminder, reminderWhen, wallClock, askNotifyPermission, isLate, daysLate, taskDay } from "../reminders.js";
 import { queuesTask } from "../plays.js";
+import { leadByName } from "../connections.js";
 
 const pad = (n) => String(n).padStart(2, "0");
 // The to-dos the assistant is running right now (ids). Module-wide, so a
@@ -42,15 +43,26 @@ export function openTaskForm(existing, defaults = {}) {
         { name: "time", label: "Remind me at (optional)", value: m ? m[2] : wantsTime ? nextHour() : "", type: "time", half: true },
         { name: "priority", label: "Priority", value: t.priority || "normal", type: "select",
           options: [{ value: "high", label: "High" }, { value: "normal", label: "Normal" }, { value: "low", label: "Low" }] },
+        { name: "kind", label: "What it is", value: ["call", "text", "email"].includes(t.channel) ? t.channel : "todo", type: "select", half: true,
+          options: [{ value: "todo", label: "A to-do (To-dos)" }, { value: "call", label: "A call to a customer (Queue)" }, { value: "text", label: "A text to a customer (Queue)" }, { value: "email", label: "An email to a customer (Queue)" }] },
+        { name: "customer", label: "Customer (for a call, text or email)", value: t.leadId && store.get("leads", t.leadId) ? store.get("leads", t.leadId).name : "", half: true, placeholder: "Dana Muise" },
       ],
       {
         submitLabel: isEdit ? "Save" : "Add",
         onSubmit: (data) => {
           const timed = !!(data.time && data.due);
+          // A call, text or email to a customer is the Queue's: it needs the
+          // customer. Named here, they're matched on the book; none matched,
+          // it stays a to-do with the name in it.
+          const comm = ["call", "text", "email"].includes(data.kind) ? data.kind : null;
+          const named = String(data.customer || "").trim();
+          const match = named ? leadByName(named) : null;
+          const leadId = match ? match.id : t.leadId || null;
+          if (comm && !leadId) { toast(named ? `No customer on file called ${named} — add them first, or leave it a to-do` : "A call, text or email needs the customer", "warn"); return; }
           const rec = { title: data.title, due: data.due || "", priority: data.priority || "normal",
-            remindAt: timed ? `${data.due}T${data.time}` : null, channel: timed ? "reminder" : (existing && existing.channel !== "reminder" ? existing.channel : null), notifiedAt: null };
-          if (isEdit) { store.update("tasks", existing.id, rec); toast(timed ? "Reminder updated" : "To-do updated", "success"); }
-          else { store.create("tasks", { ...rec, done: false, leadId: t.leadId || null }); toast(timed ? `Reminder set for ${reminderWhen(rec)}` : "To-do added", "success"); }
+            remindAt: timed ? `${data.due}T${data.time}` : null, channel: comm || (timed ? "reminder" : null), notifiedAt: null, leadId };
+          if (isEdit) { store.update("tasks", existing.id, rec); toast(comm ? "On the Queue" : timed ? "Reminder updated" : "To-do updated", "success"); }
+          else { store.create("tasks", { ...rec, done: false }); toast(comm ? `On the Queue — ${comm} ${match ? match.name.split(" ")[0] : "them"}` : timed ? `Reminder set for ${reminderWhen(rec)}` : "To-do added", "success"); }
           close();
           if (timed) askNotifyPermission();
           window.dispatchEvent(new HashChangeEvent("hashchange"));

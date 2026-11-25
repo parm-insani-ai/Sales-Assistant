@@ -59,7 +59,7 @@ if (!/Dana Muise/.test(document_log(today))) fail("the month's log doesn't list 
 // today: a play on the Queue, not a to-do — and To-dos says so in a line.
 const split = await p.evaluate(() => ({ onQueue: [...document.querySelectorAll(".plays-slot .pl-card")].some((c) => /Call the bank about Dana/.test(c.textContent)), inTodos: [...document.querySelectorAll('[data-panel="todos"] .todo-card')].some((c) => /Call the bank about Dana/.test(c.textContent)), line: document.querySelector('[data-panel="todos"] .lg-onqueue')?.textContent.replace(/\s+/g, " ").trim() || "" }));
 console.log("split:", JSON.stringify(split));
-if (!split.onQueue || split.inTodos || !/\b1 about a customer is due today/.test(split.line)) fail("a customer's call due today is on the Queue only, and To-dos says so: " + JSON.stringify(split));
+if (!split.onQueue || split.inTodos || !/\b1 is a call, text or email to a customer/.test(split.line)) fail("a customer's call due today is on the Queue only, and To-dos says so: " + JSON.stringify(split));
 // One list, newest first — the one just added at the top — with the ones
 // added together in due order (the reminder due now, the one later today,
 // then the to-dos dated today), and the week-old one at the bottom.

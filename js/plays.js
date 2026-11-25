@@ -5,7 +5,7 @@
 // the morning push points at it, and voice reads it aloud.
 
 import * as store from "./store.js";
-import { smsHref, telHref, daysFromToday } from "./utils.js";
+import { smsHref, telHref, daysFromToday, relativeDay } from "./utils.js";
 import { getOccasions, markOccasion } from "./occasions.js";
 import { getProspects, snoozeProspect } from "./prospects.js";
 import { heldTouches } from "./cadence.js";
@@ -79,8 +79,18 @@ export function dismissPlay(p) {
 // Such a task is a play on today's Queue and is NOT drawn under To-dos, so
 // the two lists never count the same thing twice. Plan steps and the rep's
 // own "Call Dana" alike — what matters is that it's today's and a customer's.
+// The Queue is people to reach: a call, a text or an email to a customer,
+// whatever day it's for (a plan's own steps join on their day — the plan
+// is long, and the Queue is what to do, not the whole plan). Everything
+// else — a thing to do with your hands, a note to yourself, a reminder —
+// is a to-do.
+export const COMM_CHANNELS = new Set(["call", "text", "email"]);
+export const isComm = (t) => !!(t && t.leadId && COMM_CHANNELS.has(t.channel));
 export function queuesTask(t, todayK = dayKeyNow()) {
-  return !!(t && !t.done && t.leadId && t.channel && t.channel !== "reminder" && t.due && String(t.due).slice(0, 10) <= todayK);
+  if (!t || t.done || !isComm(t)) return false;
+  const due = String(t.due || "").slice(0, 10);
+  if (t.cadence) return !!due && due <= todayK;
+  return true;
 }
 function dayKeyNow() { const d = new Date(); const pad = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
@@ -201,12 +211,14 @@ export function getPlays(limit = 6) {
       // send. taskId is how the dashboard knows to do that.
       const drafted = t.cadence && t.channel === "text" && !!t.intent && !!phone;
       const lockedTill = held.has(t.id) ? new Date(t.readyAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+      // For a later day: under Coming up, with the day on it, after today's.
+      const ahead = !!t.due && String(t.due).slice(0, 10) > todayK;
       plays.push({
         key: `fu:${t.id}`, taskId: drafted ? t.id : null, playTaskId: t.id, leadId: t.leadId,
-        rank: 70, icon: t.channel === "call" ? "phone" : "message", kind: "followup",
-        locked: held.has(t.id), at: t.at || t.readyAt || null, group: held.has(t.id) ? "today" : "now",
+        rank: ahead ? 50 : 70, icon: t.channel === "call" ? "phone" : t.channel === "email" ? "mail" : "message", kind: "followup",
+        locked: held.has(t.id), at: t.at || t.readyAt || null, group: ahead ? "coming" : held.has(t.id) ? "today" : "now",
         title: t.title,
-        sub: lockedTill ? `Drafted — locked until ${lockedTill} so it doesn't land on their heels. Read it now, send it then.` : daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
+        sub: ahead ? `${relativeDay(String(t.due).slice(0, 10))}${t.at ? ` · ${new Date(t.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}${t.why && t.why[0] ? ` · ${String(t.why[0]).slice(0, 80)}` : ""}` : lockedTill ? `Drafted — locked until ${lockedTill} so it doesn't land on their heels. Read it now, send it then.` : daysFromToday(t.due) < 0 ? "Overdue — clear it today." : drafted ? "Drafted from their context — read it, then send." : "Due today.",
         href: !phone ? null : t.channel === "call" ? telHref(phone) : smsHref(phone, t.body || ""),
         route: phone ? null : `/leads/${t.leadId}`, open: phone ? "Open" : "Add number",
       });
